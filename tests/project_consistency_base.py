@@ -112,8 +112,13 @@ def test_security_policy_and_issue_forms_are_bilingual_and_version_neutral():
     assert "blank_issues_enabled: false" in issue_config
     # Free-form issues are disabled, so every form is a possible entry point and
     # each one has to route security reports away from the public tracker.
-    for form in (issue_en, issue_de, question_en, question_de, issue_config):
+    for form in (issue_en, issue_de, question_en, question_de):
         assert "security/policy" in form
+    # Deliberately no contact link of our own: private vulnerability reporting
+    # is enabled, so GitHub adds its own security entry to the chooser. A second
+    # one cannot be told apart from it and makes the page look like it offers
+    # two different routes for the same report.
+    assert "contact_links" not in issue_config
 
 
 def test_mount_documentation_uses_the_current_generic_name():
