@@ -16,6 +16,10 @@ This is an unofficial community project. It is not affiliated with, endorsed by,
 
 The editor is intended for local use and trusted home networks. Do not expose it directly to the public internet.
 
+[![World selection and safety status](docs/assets/editor-overview.png)](docs/assets/editor-overview.png)
+
+[![Example inventory](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
+
 ## Download → backup → start
 
 1. Open [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
@@ -29,21 +33,6 @@ The editor is intended for local use and trusted home networks. Do not expose it
 7. On first start, follow the setup dialog and load **Item DB** and **Vanilla icons**. You can postpone this and return through the setup notice or **Tools** later. The editor ships with a bundled item snapshot and no icons, so without this step items from newer Minecraft versions are missing and every slot shows a placeholder symbol.
 
 If no release is available yet, experienced users can use the source setup below.
-
-<table>
-  <tr>
-    <td width="50%">
-      <a href="docs/assets/editor-overview.png">
-        <img src="docs/assets/editor-overview.png" alt="World selection and safety status">
-      </a>
-    </td>
-    <td width="50%">
-      <a href="docs/assets/editor-inventory.png">
-        <img src="docs/assets/editor-inventory.png" alt="Example inventory">
-      </a>
-    </td>
-  </tr>
-</table>
 
 ## Why this exists
 

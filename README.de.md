@@ -16,6 +16,10 @@ Dies ist ein inoffizielles Community-Projekt. Es ist weder mit Mojang Studios od
 
 Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht. Stelle ihn nicht direkt ins öffentliche Internet.
 
+[![Weltauswahl und Sicherheitsstatus](docs/assets/editor-overview.png)](docs/assets/editor-overview.png)
+
+[![Beispielinventar](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
+
 ## Download → Backup → Start
 
 1. Öffne [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
@@ -29,21 +33,6 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
 7. Folge beim ersten Start dem Einrichtungsdialog und lade **Item-DB** und **Vanilla-Icons**. Du kannst den Schritt aufschieben und später über den Einrichtungshinweis oder unter **Werkzeuge** nachholen. Der Editor bringt nur einen mitgelieferten Item-Stand und keine Icons mit — ohne diesen Schritt fehlen Items neuerer Minecraft-Versionen und jeder Slot zeigt ein Ersatzsymbol.
 
 Falls noch kein Release vorhanden ist, können erfahrene Nutzer die Source-Einrichtung weiter unten verwenden.
-
-<table>
-  <tr>
-    <td width="50%">
-      <a href="docs/assets/editor-overview.png">
-        <img src="docs/assets/editor-overview.png" alt="Weltauswahl und Sicherheitsstatus">
-      </a>
-    </td>
-    <td width="50%">
-      <a href="docs/assets/editor-inventory.png">
-        <img src="docs/assets/editor-inventory.png" alt="Beispielinventar">
-      </a>
-    </td>
-  </tr>
-</table>
 
 ## Warum es dieses Projekt gibt
 
