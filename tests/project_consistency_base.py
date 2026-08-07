@@ -287,6 +287,16 @@ def test_ci_release_artifacts_are_revision_specific_and_tags_match_project_versi
     assert 'gh release create "$GITHUB_REF_NAME"' in workflow
     assert 'sha256sum "$release_name"' in workflow
     assert "release_flags+=(--prerelease)" in workflow
+    # The release body is a maintained file rather than a generated commit list.
+    # It only reaches the runner because the release job checks the repository
+    # out; without that step the publish step would fail on a missing path.
+    notes = ROOT / ".github" / "release_notes.md"
+    assert notes.is_file()
+    assert notes.stat().st_size > 0
+    assert '--notes-file "${GITHUB_WORKSPACE}/.github/release_notes.md"' in workflow
+    assert "--generate-notes" not in workflow
+    release_job = workflow.split("  release:", 1)[1]
+    assert "actions/checkout@" in release_job
 
 
 def test_ci_external_actions_are_immutably_pinned_with_version_comments():
