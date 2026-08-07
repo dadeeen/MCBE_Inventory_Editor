@@ -33,6 +33,14 @@ body:
       placeholder: e.g. vX.Y.Z or a commit hash
     validations:
       required: true
+  - type: input
+    id: bedrock_version
+    attributes:
+      label: Minecraft Bedrock version
+      description: The version that last wrote the world, shown on the Minecraft start screen. Bedrock updates can change data the editor has not seen yet.
+      placeholder: e.g. 1.26.33
+    validations:
+      required: true
   - type: textarea
     id: steps
     attributes:
@@ -56,3 +64,9 @@ body:
       description: Paste errors as text. Status & Diagnostics provides copyable, sanitized reports.
     validations:
       required: true
+  - type: checkboxes
+    id: backup
+    attributes:
+      label: Backup
+      options:
+        - label: An independent copy of the world existed before the edit.

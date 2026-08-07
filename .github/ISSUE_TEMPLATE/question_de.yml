@@ -1,0 +1,24 @@
+name: Frage oder Idee (Deutsch)
+description: Nach unterstütztem Verhalten fragen oder eine Verbesserung vorschlagen
+title: "[Frage/Idee]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Wenn am bestehenden Verhalten etwas kaputt ist, nutze bitte stattdessen das Fehlerformular.
+        Bitte **keine echten Welten, Spielernamen, Spielerexporte oder Backups anhängen**.
+        Vermutete Sicherheitslücken bitte wie in der [Sicherheitsrichtlinie](https://github.com/dadeeen/MCBE_Inventory_Editor/security/policy) beschrieben privat und nicht über dieses Formular melden.
+  - type: textarea
+    id: topic
+    attributes:
+      label: Frage oder Idee
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Kontext (optional)
+      description: Was möchtest du erreichen? Modus, Umgebung und Version helfen, wenn die Antwort davon abhängt.
+    validations:
+      required: false

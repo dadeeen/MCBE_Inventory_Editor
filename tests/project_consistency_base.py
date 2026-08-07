@@ -92,6 +92,8 @@ def test_security_policy_and_issue_forms_are_bilingual_and_version_neutral():
     security_de = _read("SECURITY.de.md")
     issue_en = _read(".github/ISSUE_TEMPLATE/bug_report_en.yml")
     issue_de = _read(".github/ISSUE_TEMPLATE/bug_report_de.yml")
+    question_en = _read(".github/ISSUE_TEMPLATE/question_en.yml")
+    question_de = _read(".github/ISSUE_TEMPLATE/question_de.yml")
     issue_config = _read(".github/ISSUE_TEMPLATE/config.yml")
 
     assert "github.com/dadeeen/MCBE_Inventory_Editor/releases" in security
@@ -105,8 +107,13 @@ def test_security_policy_and_issue_forms_are_bilingual_and_version_neutral():
     assert "vX.Y.Z or a commit hash" in issue_en
     assert "vX.Y.Z oder ein Commit-Hash" in issue_de
     assert "0.5.9" not in issue_en + issue_de
+    assert "name: Question or idea (English)" in question_en
+    assert "name: Frage oder Idee (Deutsch)" in question_de
     assert "blank_issues_enabled: false" in issue_config
-    assert "security/policy" in issue_config
+    # Free-form issues are disabled, so every form is a possible entry point and
+    # each one has to route security reports away from the public tracker.
+    for form in (issue_en, issue_de, question_en, question_de, issue_config):
+        assert "security/policy" in form
 
 
 def test_mount_documentation_uses_the_current_generic_name():

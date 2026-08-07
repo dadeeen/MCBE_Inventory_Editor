@@ -1,0 +1,24 @@
+name: Question or idea (English)
+description: Ask about supported behavior or suggest an improvement
+title: "[Question/Idea]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For something that is broken in existing behavior, please use the bug report form instead.
+        Please **do not attach real worlds, player names, player exports, or backups**.
+        Report suspected security vulnerabilities privately as described in the [Security Policy](https://github.com/dadeeen/MCBE_Inventory_Editor/security/policy), not through this form.
+  - type: textarea
+    id: topic
+    attributes:
+      label: Question or idea
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context (optional)
+      description: What are you trying to do? Mode, environment, and version help when the answer depends on them.
+    validations:
+      required: false

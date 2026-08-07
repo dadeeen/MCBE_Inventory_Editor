@@ -33,6 +33,14 @@ body:
       placeholder: z. B. vX.Y.Z oder ein Commit-Hash
     validations:
       required: true
+  - type: input
+    id: bedrock_version
+    attributes:
+      label: Minecraft-Bedrock-Version
+      description: Die Version, die zuletzt in die Welt geschrieben hat; sie steht im Minecraft-Startbildschirm. Bedrock-Updates können Daten verändern, die der Editor noch nicht kennt.
+      placeholder: z. B. 1.26.33
+    validations:
+      required: true
   - type: textarea
     id: steps
     attributes:
@@ -56,3 +64,9 @@ body:
       description: Fehlermeldungen bitte als Text einfügen. Status & Diagnose bietet kopierbare, bereinigte Berichte.
     validations:
       required: true
+  - type: checkboxes
+    id: backup
+    attributes:
+      label: Backup
+      options:
+        - label: Vor der Bearbeitung lag eine unabhängige Kopie der Welt vor.
