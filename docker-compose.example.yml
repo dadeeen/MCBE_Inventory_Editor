@@ -1,0 +1,72 @@
+services:
+  mcbe-editor:
+    build: .
+    container_name: mcbe-editor
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      # Default: map host port 8088 to container port 8080.
+      # Open in a browser: http://DOCKER-HOST-IP:8088
+      # Optional tighter bind: "192.168.1.100:8088:8080". Never expose it directly to the internet.
+      - "8088:8080"
+    environment:
+      # Typical setup: mount the real world directory of a Bedrock server.
+      # The editor does not stop that server. Stop it in your own environment
+      # before editing, for example through Compose, a service manager, or a hosting panel.
+      # Docker defaults to MCBE_REQUIRE_SERVER_OFFLINE=true. Without a server host,
+      # the editor treats the status as unknown and requires explicit confirmation before writes.
+      # Enter the Bedrock server's IP address or hostname here, not the editor URL.
+      MCBE_SERVER_HOST: "192.168.1.100"
+      # IPv6 is also supported. Enter the plain address without URL brackets.
+      # Example: MCBE_SERVER_HOST: "fd00:1234:5678::10"
+      # Do not use: "[fd00:1234:5678::10]"
+      MCBE_SERVER_PORT: "19132"
+
+      # Not needed for a normal setup:
+      # - MCBE_EDITOR_MODE=docker, MCBE_WORLDS_ROOT=/worlds, and MCBE_DATA_ROOT=/data
+      #   are already provided by the Dockerfile.
+      # - MCBE_AUTH_PASSWORD, MCBE_AUTH_PASSWORD_HASH, and MCBE_SECRET_KEY are normally
+      #   unnecessary; the first-open web setup configures authentication and stores
+      #   the decision in the /data volume.
+      # - MCBE_ALLOWED_ORIGINS is only needed for reverse proxies or different hostnames.
+      # - MCBE_STARTUP_NETWORK_CHECK stays off by default so offline startup works cleanly.
+      #
+      # If you only edit a stopped offline copy, you may deliberately set:
+      # MCBE_REQUIRE_SERVER_OFFLINE: "false"
+      #
+      # For a viewer-only instance, also set the following option and change the
+      # /worlds mount below to :ro. See docker-compose.viewer.example.yml.
+      # MCBE_READ_ONLY: "true"
+      # Optional backup retention overrides:
+      # Automatic/legacy backups per world (default 20):
+      # MCBE_MAX_BACKUPS_PER_WORLD: "20"
+      # Pre-restore backups per world (default 5):
+      # MCBE_MAX_PRE_RESTORE_BACKUPS_PER_WORLD: "5"
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # Host directory containing one or more Bedrock worlds.
+      # Inside the container, this directory is available as /worlds.
+      # Never mount broad host paths such as /, /home, or an entire NAS.
+      # The container runs as UID/GID 10001; the host path must be readable and writable by it.
+      # Prefer a targeted ACL for UID 10001. A dedicated shared group is the documented
+      # compatibility mode with reduced isolation. See "Write permissions for Docker worlds"
+      # in README.md. Do not use chmod 777, privileged mode, or bypass LevelDB locking.
+      # Use :ro instead of :rw for viewer instances.
+      - /PATH/TO/BEDROCK/WORLDS:/worlds:rw
+
+      # Persistent app data: setup decision, audit log, backups, and update cache.
+      - mcbe-editor-data:/data:rw
+
+volumes:
+  mcbe-editor-data:

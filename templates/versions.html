@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="{{ app_locale }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t("DB-Versionen – MCBE Inventory Editor") }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header versions-header">
+            <div class="logo">
+                <span class="mc-icon" aria-hidden="true">▣</span>
+                <div class="logo-copy">
+                    <h1>Minecraft Bedrock Inventory Editor</h1>
+                    <div class="app-subtitle">{{ t("DB-Versionen") }}</div>
+                </div>
+            </div>
+            <div class="header-links">
+                <a href="{{ url_for('index') }}" class="header-link" data-history-back>{{ t("Zurück zum Editor") }}</a>
+            </div>
+        </header>
+
+        <div class="glass-card versions-card">
+            <h2>{{ t("Datenbank-Versions-Historie") }}</h2>
+            <p class="versions-description">
+                {{ t("Diese Seite zeigt, aus welcher Version des offiziellen Mojang/bedrock-samples Resource Packs die Item-Datenbank erzeugt wurde. Ein neuer Eintrag entsteht nur bei Änderungen – nicht bei jedem Aufruf des DB-Updates. Zum Aktualisieren der Datenbank öffne im Editor „Werkzeuge“ und dort „Item-DB“.") }}
+            </p>
+
+            {# Materialize reversed entries so the empty-state check is reliable. #}
+            {% set rows = entries | list %}
+            {# Wiki comparison details are intentionally not shown to users. #}
+            {% if rows %}
+            <table class="version-table">
+                <thead>
+                    <tr>
+                        <th>{{ t("Datum") }}</th>
+                        <th>Resource Pack</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in rows %}
+                    <tr>
+                        <td>{{ entry.get("generated_at", "") }}</td>
+                        <td>{{ entry.get("resource_pack_release", "") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="no-backups">{{ t("Noch keine Versionseinträge vorhanden. Führe ein DB-Update aus.") }}</p>
+            {% endif %}
+        </div>
+    </div>
+    <script>
+        (() => {
+            const backLink = document.querySelector("[data-history-back]");
+            if (!backLink) return;
+
+            backLink.addEventListener("click", (event) => {
+                if (!document.referrer || window.history.length <= 1) return;
+
+                let referrer;
+                try {
+                    referrer = new URL(document.referrer);
+                } catch (_e) {
+                    return;
+                }
+
+                if (referrer.origin !== window.location.origin) return;
+                event.preventDefault();
+                window.history.back();
+            });
+        })();
+    </script>
+</body>
+</html>

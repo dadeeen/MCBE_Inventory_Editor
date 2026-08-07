@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="{{ app_locale }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Bedrock Inventory Editor</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f5132'/%3E%3Crect x='4' y='4' width='8' height='8' fill='%2319c986'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <script id="appConfigJson" type="application/json">{{ app_config | tojson }}</script>
+    <script id="i18nCatalog" type="application/json">{{ i18n_catalog | tojson }}</script>
+</head>
+<body>
+    <div class="app-container">
+        <nav class="app-section-nav app-workflow-nav" aria-label="{{ t('Arbeitsbereiche') }}">
+            <button type="button" data-workflow-view="world" class="active">{{ t("Welt") }}</button>
+            <button type="button" data-workflow-view="player" disabled>{{ t("Spieler") }}</button>
+            <button type="button" data-workflow-view="inventory" disabled>{{ t("Inventar") }}</button>
+            <button type="button" data-workflow-view="mounts" disabled>Mounts</button>
+            <button type="button" data-workflow-view="save" disabled>{{ t("Speichern") }}</button>
+            <span class="nav-separator" aria-hidden="true"></span>
+            <button type="button" data-workflow-view="tools">{{ t("Werkzeuge") }}</button>
+            <button id="btnHelp" type="button">{{ t("Hilfe") }}</button>
+        </nav>
+        <!-- Header -->
+        <header class="app-header app-header-v42">
+            <div class="logo">
+                <span class="mc-icon" aria-hidden="true">▣</span>
+                <div class="logo-copy">
+                    <h1>Minecraft Bedrock Inventory Editor</h1>
+                    <div class="app-subtitle">
+                        <span>{{ t("{mode}modus · v{version}", mode=app_config.mode | capitalize, version=app_config.distribution.project_version or 'dev') }}</span>
+                        <span class="release-inline {{ app_config.distribution.kind }}" title="{{ t('App-Ordner: {app_root} · Daten: {data_root}', app_root=app_config.distribution.app_root, data_root=app_config.data_root_status.path) }}">• {{ app_config.distribution.kind | upper }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-status-area">
+                <div class="server-status-badge unknown" id="serverStatusBadge">{{ t("Status wird geprüft") }}</div>
+                <div class="header-status-stack">
+                    <button type="button" class="status-stack-button info" id="statusStackButton" aria-expanded="false" aria-controls="statusStackPanel" aria-label="{{ t('Status anzeigen') }}">
+                        <span id="statusStackCount" aria-hidden="true">0</span>
+                        <strong id="statusStackHeadline">Status</strong>
+                        <small id="statusStackSummary">{{ t("Bereit · automatische Weltsuche läuft") }}</small>
+                    </button>
+                    <div class="status-stack-panel" id="statusStackPanel" role="log" aria-label="{{ t('Statusverlauf') }}" hidden>
+                        <div class="status-stack-entry save-status" id="statusMsg">{{ t("Bereit · automatische Weltsuche läuft") }}</div>
+                    </div>
+                    <span class="visually-hidden" id="statusStackLive" role="status" aria-live="polite" aria-atomic="true"></span>
+                </div>
+            </div>
+            <div class="header-actions">
+                {% if app_config.auth_enabled %}
+                <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}" />
+                    <button type="submit" class="header-link">Logout</button>
+                </form>
+                {% endif %}
+                <select id="themeSelect" class="theme-select" title="{{ t('Darstellung wählen') }}" aria-label="{{ t('Darstellung wählen') }}">
+                    <option value="system">System</option>
+                    <option value="dark">{{ t("Dunkel") }}</option>
+                    <option value="light">{{ t("Hell") }}</option>
+                    <option value="minecraft">Minecraft</option>
+                </select>
+                <select id="languageSelect" class="theme-select" title="{{ t('Sprache wählen') }}" aria-label="{{ t('Sprache wählen') }}">
+                    <option value="de">Deutsch</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+            <div class="undo-redo-btns">
+                <button id="btnUndo" class="btn btn-undo" title="{{ t('Rückgängig (Ctrl+Z)') }}" disabled>↩</button>
+                <button id="btnRedo" class="btn btn-undo" title="{{ t('Wiederholen (Ctrl+Y)') }}" disabled>↪</button>
+            </div>
+            <div class="panel-toggle" id="panelToggle">
+                <button class="btn-toggle active" data-panel="left">{{ t("Inventar") }}</button>
+                <button class="btn-toggle" data-panel="right">{{ t("Editor") }}</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="workspace">
+            
+            <!-- Left Side: Path Picker & World Info & Inventory View -->
+            <div class="left-panel">
+                <!-- First-run hint: shown on the landing screen because the welcome
+                     tips below live in the inventory workspace, which stays hidden
+                     until a world and player are loaded. -->
+                <div id="setupTodoBanner" class="setup-hint-banner" style="display:none;" role="status">
+                    <div class="setup-hint-banner-text">
+                        <strong>{{ t("Einrichtung noch nicht abgeschlossen") }}</strong>
+                        <span data-role="detail"></span>
+                    </div>
+                    <div class="inline-actions">
+                        <button id="btnSetupTodoBanner" class="btn btn-primary btn-sm" type="button">{{ t("Einrichtung öffnen") }}</button>
+                    </div>
+                </div>
+
+                <!-- World Selection Card -->
+                <div class="glass-card path-card world-select-card" id="worldSection">
+                    <div class="path-card-header">
+                        <div>
+                            <h2>{{ t("Welt auswählen") }}</h2>
+                            <p class="section-subtitle">{{ t("Automatische Suche zuerst. Eigene Orte kannst du bei Bedarf hinzufügen.") }}</p>
+                        </div>
+                        <div class="path-card-hint" id="autoPathHint">{{ t("Suche lokale Bedrock-Welten automatisch…") }}</div>
+                    </div>
+
+                    <div class="world-select-toolbar">
+                        <button id="btnRefreshWorlds" class="btn btn-secondary">{{ t("Neu suchen") }}</button>
+                        <button id="btnScanPaths" class="btn btn-secondary" type="button" aria-expanded="false" aria-controls="scanPathsPanel">{{ t("Eigenen Ort hinzufügen") }}</button>
+                        <button id="btnToggleManualWorld" class="btn btn-ghost" title="{{ t('Nur nötig, wenn du einen direkten Weltordner manuell laden möchtest') }}">{{ t("Erweitert: Pfad laden") }}</button>
+                    </div>
+
+                    <div id="worldPicker" class="world-picker" style="display: none;">
+                        <div class="world-picker-header">
+                            <div>
+                                <span>{{ t("Gefundene Welten") }}</span>
+                                <small id="worldCountHint">{{ t("Automatische Suche läuft…") }}</small>
+                            </div>
+                            <div class="world-picker-actions">
+                                <button id="btnToggleDiagnostics" class="btn-text" title="{{ t('Suchdetails ein-/ausblenden') }}">{{ t("Suchdetails") }}</button>
+                                <button id="btnCopyDiagnostics" class="btn-text" title="{{ t('Diagnosebericht kopieren') }}">{{ t("Diagnose kopieren") }}</button>
+                            </div>
+                        </div>
+                        <div class="world-filter-row" aria-label="{{ t('Welten filtern und sortieren') }}">
+                            <input type="search" id="worldSearchInput" placeholder="{{ t('Welt suchen…') }}" autocomplete="off" />
+                            <select id="worldSortSelect" class="select-field" title="{{ t('Sortierung der gefundenen Welten') }}">
+                                <option value="recent">{{ t("Zuletzt geändert zuerst") }}</option>
+                                <option value="name">{{ t("Name A-Z") }}</option>
+                                <option value="source">{{ t("Quelle gruppieren") }}</option>
+                            </select>
+                        </div>
+                        <div id="worldScanLoading" class="world-scan-loading" style="display:none;">
+                            <span class="loading-dots">{{ t("Suche nach Welten") }}</span>
+                        </div>
+                        <div id="worldScanWarning" class="scan-warning" style="display:none;"></div>
+                        <div id="worldList" class="world-list world-card-list"></div>
+                        <div id="worldScanEmpty" class="world-scan-empty" style="display:none;"></div>
+                        <div id="worldDiagnostics" class="world-diagnostics collapsed" style="display:none;"></div>
+                    </div>
+
+                    <div id="manualWorldPanel" class="manual-world-panel" style="display:none;">
+                        <div class="manual-world-header">
+                            <strong>{{ t("Direkten Weltordner manuell laden") }}</strong>
+                            <span>{{ t("Nur für Spezialfälle. Erwartet wird ein Ordner mit") }} <code>db/</code>.</span>
+                        </div>
+                        <div class="path-input-group">
+                            <input type="text" id="worldPath" placeholder="{{ t('C:\\...\\minecraftWorlds\\<Weltordner> oder /worlds/<Welt>') }}" aria-label="{{ t('Minecraft Bedrock Weltordner') }}" />
+                            <button id="btnBrowse" class="btn btn-secondary">{{ t("Ordner wählen") }}</button>
+                        </div>
+                    </div>
+
+                    <div id="loadErrorPanel" class="load-error-panel" style="display:none;" role="status" aria-live="polite"></div>
+
+                    <div class="selected-world-bar" id="selectedWorldBar" style="display:none;">
+                        <div>
+                            <span class="selected-world-kicker">{{ t("Ausgewählt") }}</span>
+                            <strong id="selectedWorldName">{{ t("Keine Welt ausgewählt") }}</strong>
+                            <span id="selectedWorldPath" class="selected-world-path"></span>
+                        </div>
+                        <span id="selectedWorldSafetyNote" class="selected-world-safety-note"></span>
+                        <div class="selected-world-actions">
+                            <button id="btnCopySelectedWorldPath" class="btn btn-secondary btn-sm" type="button">{{ t("Pfad kopieren") }}</button>
+                            <button id="btnOpenSelectedWorld" class="btn btn-secondary btn-sm" type="button">{{ t("Ordner öffnen") }}</button>
+                            <button id="btnLoad" class="btn btn-primary">{{ t("Ausgewählte Welt laden") }}</button>
+                        </div>
+                    </div>
+
+                    <div id="scanPathsPanel" class="glass-card scan-paths-panel" style="display:none;">
+                        <div class="scan-paths-header">
+                            <strong>{{ t("Eigene Suchorte") }}</strong>
+                            <button id="btnCloseScanPaths" class="btn-text">{{ t("Schließen") }}</button>
+                        </div>
+                        <div class="scan-paths-help">{{ t("Die App sucht automatisch in aktuellen Windows-Bedrock-Standardpfaden. Füge hier nur zusätzliche Orte hinzu, z. B. verschobene Welten, OneDrive/NAS-Kopien oder Serverkopien.") }}</div>
+                        <div id="scanPathsList" class="scan-paths-list"></div>
+                        <div class="scan-path-actions">
+                            <button id="btnAddScanPathBrowse" class="btn btn-secondary btn-sm">{{ t("Ordner wählen") }}</button>
+                            <button id="btnAddScanPathInput" class="btn btn-secondary btn-sm">{{ t("Pfad eingeben") }}</button>
+                        </div>
+                        <div id="scanPathManualInput" class="scan-path-manual" style="display:none;">
+                            <input type="text" id="scanPathText" placeholder="{{ t('C:\\Pfad\\zu\\Welten oder C:\\Pfad\\zu\\Welt') }}" />
+                            <button id="btnAddScanPathConfirm" class="btn btn-primary btn-sm">{{ t("Hinzufügen") }}</button>
+                        </div>
+                        <div id="scanPathStatus" class="scan-path-status"></div>
+                        <div class="scan-paths-meta">
+                            {{ t("App-Typ:") }} <strong>{{ app_config.distribution.kind }}</strong> {{ t("· Daten:") }} <code>{{ app_config.data_root_status.path }}</code>
+                        </div>
+                    </div>
+
+                    <div id="recentWorlds" class="recent-worlds" style="display: none;">
+                        <div class="recent-header">{{ t("Zuletzt verwendet") }}</div>
+                        <div id="recentWorldsList" class="world-list"></div>
+                    </div>
+
+                    <div class="world-banner" id="worldBanner" style="display: none;">
+                        <div class="world-info">
+                            <span class="lbl">{{ t("Geladene Welt:") }}</span>
+                            <span class="val" id="worldName">[Name]</span>
+                        </div>
+                    </div>
+                    <div class="presence-warning" id="worldPresenceBanner" style="display: none;"></div>
+                    <div id="dirtyBanner" class="dirty-banner" style="display:none;" role="status" aria-live="polite">
+                        <div class="dirty-banner-copy">
+                            <span class="dirty-banner-kicker">{{ t("Ungespeicherte Änderungen") }}</span>
+                            <strong>{{ t("Bereit zum Speichern") }}</strong>
+                            <span id="dirtyBannerText">{{ t("Vor dem Speichern wird automatisch ein Backup erstellt.") }}</span>
+                        </div>
+                        <div class="dirty-banner-actions">
+                            <button id="btnDirtyReview" class="btn btn-secondary btn-sm" type="button">{{ t("Prüfen") }}</button>
+                            <button id="btnDirtyDiscardChanges" class="btn btn-danger btn-sm" type="button" data-discard-changes="true">{{ t("Verwerfen") }}</button>
+                            <button id="btnDirtySave" class="btn btn-save btn-sm" type="button">{{ t("Speichern") }}</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Inventory Grid (Standard MC Layout) -->
+                <div class="glass-card inventory-card" id="inventoryContainer" style="display: none;">
+                    <div id="iconHintBanner" class="icon-hint-banner" style="display:none;" role="status"></div>
+                    <div id="playerInventorySummary" class="player-inventory-summary" style="display:none;" aria-live="polite">
+                        <div>
+                            <span class="summary-kicker">{{ t("Aktueller Spieler") }}</span>
+                            <strong id="playerSummaryName">{{ t("Kein Spieler geladen") }}</strong>
+                        </div>
+                        <div class="summary-badges">
+                            <span id="summaryBadgeInventory">{{ t("Inventar 0/36") }}</span>
+                            <span id="summaryBadgeEnder">Enderchest 0/27</span>
+                            <span id="summaryBadgeDamaged">{{ t("0 beschädigt") }}</span>
+                        </div>
+                    </div>
+                    <div id="safeEditBanner" class="safe-edit-banner" role="status" aria-live="polite">
+                        <div>
+                            <strong>{{ t("Bereit zum Bearbeiten") }}</strong>
+                            <span>{{ t("Keine ungespeicherten Änderungen.") }}</span>
+                        </div>
+                        <div class="safe-edit-actions">
+                            <button id="btnShowSavePreview" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Speichern prüfen") }}</button>
+                            <button id="btnSafeEditDiscardChanges" class="btn btn-danger-soft btn-sm" type="button" data-discard-changes="true" disabled>{{ t("Verwerfen") }}</button>
+                        </div>
+                    </div>
+                    <div class="inventory-section">
+                        <div class="inventory-toolbar" aria-label="{{ t('Inventaransicht steuern') }}">
+                            <div class="inventory-search">
+                                <input type="text" id="gridSearch" placeholder="{{ t('Item in allen Slots suchen...') }}" />
+                            </div>
+                            <div class="inventory-view-controls" role="group" aria-label="{{ t('Ansicht') }}">
+                                <label class="slot-number-toggle" title="{{ t('Zeigt technische Slotnummern klein im Slot an') }}">
+                                    <input type="checkbox" id="toggleSlotNumbers" />
+                                    {{ t("Slotnummern") }}
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Armor and Offhand -->
+                        <div class="grid-title grid-title-with-meta"><span>{{ t("Ausrüstung & Schildhand") }}</span><small>{{ t("4 Rüstungsslots + Offhand") }}</small></div>
+                        <div class="armor-offhand-layout">
+                            <div class="armor-slots">
+                                <div class="inventory-slot armor-slot" data-slot="103" title="{{ t('Kopf / Helm') }}">
+                                    <div class="slot-overlay">🪖</div>
+                                </div>
+                                <div class="inventory-slot armor-slot" data-slot="102" title="{{ t('Brust / Brustplatte') }}">
+                                    <div class="slot-overlay">👕</div>
+                                </div>
+                                <div class="inventory-slot armor-slot" data-slot="101" title="{{ t('Beine / Beinschienen') }}">
+                                    <div class="slot-overlay">👖</div>
+                                </div>
+                                <div class="inventory-slot armor-slot" data-slot="100" title="{{ t('Füße / Stiefel') }}">
+                                    <div class="slot-overlay">🥾</div>
+                                </div>
+                            </div>
+
+                            <div class="offhand-slot-container">
+                                <div class="inventory-slot offhand-slot" data-slot="-106" title="{{ t('Schild / Schildhand') }}">
+                                    <div class="slot-overlay">🛡️</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3x9 Main Inventory -->
+                        <div class="grid-title grid-title-with-meta"><span>{{ t("Inventar") }}</span><small>{{ t("Slots 9–35") }}</small></div>
+                        <div class="mc-grid main-inventory-grid">
+                            <!-- JS will populate slots 9 to 35 -->
+                        </div>
+
+                        <!-- 1x9 Hotbar -->
+                        <div class="grid-title grid-title-with-meta"><span>Hotbar</span><small>Slots 0–8</small></div>
+                        <div class="mc-grid hotbar-grid">
+                            <!-- JS will populate slots 0 to 8 -->
+                        </div>
+
+                        <!-- Ender Chest Grid (3x9) -->
+                        <div id="enderChestSection" class="ender-chest-section">
+                            <div class="grid-title grid-title-with-meta ender-title">
+                                <span>{{ t("Enderchest") }}</span>
+                                <small id="enderChestMeta">{{ t("0 / 27 belegt") }}</small>
+                                <button id="btnToggleEnderChest" class="btn-text" type="button">{{ t("Einklappen") }}</button>
+                            </div>
+                            <div class="mc-grid ender-chest-grid">
+                                <!-- JS will populate slots 0 to 26 -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="inv-actions">
+                        <button id="btnSave" class="btn btn-save" disabled>{{ t("Änderungen prüfen & speichern") }}</button>
+                    </div>
+                </div>
+
+                <!-- Save Workflow Panel -->
+                <div class="glass-card save-workflow-card" id="saveWorkflowPanel" style="display:none;">
+                    <div class="card-header save-workflow-header">
+                        <div>
+                            <h2>{{ t("Speichern prüfen") }}</h2>
+                            <p class="section-subtitle">{{ t("Nur geänderte Bereiche werden geschrieben. Andere Spielerdaten bleiben unverändert.") }}</p>
+                        </div>
+                        <button id="btnSaveWorkflowRefresh" class="btn-text" type="button">{{ t("Neu prüfen") }}</button>
+                    </div>
+                    <div id="saveWorkflowSummary" class="save-workflow-summary">
+                        <div class="no-backups">{{ t("Lade zuerst einen Spieler und bearbeite Slots, Effekte, Fähigkeiten oder Stats.") }}</div>
+                    </div>
+                    <details class="decision-log-panel" id="saveDecisionDetails">
+                        <summary>{{ t("Diagnose-Schreibplan") }} <span>{{ t("Warum wird etwas geschrieben, ausgelassen oder blockiert?") }}</span></summary>
+                        <div id="saveDecisionLog" class="decision-log-list">
+                            <div class="no-backups">{{ t("Noch keine Speicherprüfung verfügbar.") }}</div>
+                        </div>
+                    </details>
+                    <div class="save-workflow-actions">
+                        <button id="btnSaveWorkflowCopy" class="btn btn-secondary" type="button" disabled>{{ t("Änderungen kopieren") }}</button>
+                        <button id="btnSaveWorkflowRun" class="btn btn-save" type="button" disabled>{{ t("Backup erstellen & speichern") }}</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Side: Bulk Actions (Multi-Select), Detail Editor & Dashboard -->
+            <div class="right-panel">
+                <div class="glass-card player-card" id="playerManager" style="display: none;">
+                    <div class="card-header player-card-header">
+                        <div>
+                            <h2>{{ t("Spieler") }}</h2>
+                            <p class="section-subtitle">{{ t("Spieler auswählen, Werte und Effekte im Editor bearbeiten, danach gesammelt speichern.") }}</p>
+                        </div>
+                        <div class="player-header-actions">
+                            <button id="btnCopyPlayerDiagnostics" class="btn-text" type="button">{{ t("Spieler-Diagnose kopieren") }}</button>
+                            <button id="btnRefreshPlayers" class="btn-text" type="button">{{ t("Aktualisieren") }}</button>
+                        </div>
+                    </div>
+                    <div class="player-list" id="playersList">
+                        <div class="no-backups">{{ t("Noch keine Spieler geladen.") }}</div>
+                    </div>
+                    <details class="player-transfer-panel state-transfer-panel" aria-label="{{ t('Singleplayer ↔ Multiplayer') }}">
+                        <summary data-expand-label="{{ t('Aufklappen') }}" data-collapse-label="{{ t('Einklappen') }}">{{ t("Singleplayer ↔ Multiplayer") }} <span>{{ t("Spielerzustand sicher übertragen") }}</span></summary>
+                        <div class="transfer-heading">
+                            <p>{{ t("Überträgt den Spielstand zwischen einem vorhandenen lokalen Spieler und einem vorhandenen Multiplayer-Spieler. Der Multiplayer-Spieler muss die Welt vorher einmal betreten haben. Zielidentität und Quelldatensatz bleiben erhalten.") }}</p>
+                        </div>
+                        <div class="field-group">
+                            <label for="stateTransferSourcePlayerSelect">{{ t("Quelle") }}</label>
+                            <select id="stateTransferSourcePlayerSelect" class="select-field"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="stateTransferTargetPlayerSelect">{{ t("Ziel") }}</label>
+                            <select id="stateTransferTargetPlayerSelect" class="select-field"></select>
+                        </div>
+                        <p class="hint-text">{{ t("Fehlt der lokale Spieler, öffne ausschließlich eine Weltkopie einmal lokal in Minecraft und lade sie danach im Editor neu.") }}</p>
+                        <div class="inline-actions">
+                            <button id="btnSwapStateTransfer" class="btn btn-secondary btn-sm" type="button">{{ t("Richtung tauschen") }}</button>
+                            <button id="btnPreviewStateTransfer" class="btn btn-secondary btn-sm" type="button">{{ t("Migration prüfen") }}</button>
+                        </div>
+                        <div id="stateTransferPreview" class="state-transfer-preview" style="display:none;" aria-live="polite"></div>
+                        <button id="btnOpenStateTransferDetails"
+                                class="btn-text state-transfer-details-trigger"
+                                type="button"
+                                style="display:none;"
+                                aria-haspopup="dialog"
+                                aria-expanded="false"
+                                aria-controls="stateTransferDetailsOverlay">{{ t("Technische Details anzeigen") }}</button>
+                        <button id="btnApplyStateTransfer" class="btn btn-primary full-width" type="button" disabled>{{ t("Migration speichern") }}</button>
+                        <p class="hint-text">{{ t("Vor dem Schreiben wird ein geprüftes Backup erstellt. Bei fehlgeschlagener Nachvalidierung stellt der Editor den vorherigen Zielzustand wieder her.") }}</p>
+                    </details>
+                    <details class="player-transfer-panel export-panel" aria-label="{{ t('Spieler exportieren') }}">
+                        <summary data-expand-label="{{ t('Aufklappen') }}" data-collapse-label="{{ t('Einklappen') }}">{{ t("Export") }} <span>{{ t("kompletten Player als .mcbe-player.zip sichern") }}</span></summary>
+                        <div class="transfer-heading">
+                            <p>{{ t("Speichert den ausgewählten Player als") }} <code>.mcbe-player.zip</code>{{ t(". Der Export enthält den kompletten Player-NBT-Datensatz.") }}</p>
+                        </div>
+                        <div class="transfer-actions">
+                            <button id="btnExportPlayer" class="btn btn-secondary" disabled>{{ t("Ausgewählten Spieler exportieren") }}</button>
+                            <button id="btnOpenPlayerExportFolder" class="btn btn-secondary" disabled>{{ t("Exportordner öffnen") }}</button>
+                        </div>
+                    </details>
+                    <details class="player-transfer-panel import-panel" aria-label="{{ t('Spieler importieren') }}">
+                        <summary data-expand-label="{{ t('Aufklappen') }}" data-collapse-label="{{ t('Einklappen') }}">{{ t("Import") }} <span>{{ t("Vollständigen Player-Datensatz importieren") }}</span></summary>
+                        <div class="transfer-heading">
+                            <p>{{ t("Schreibt den vollständigen Player-Datensatz direkt in die gewählte Welt. Vorher wird ein geprüftes Backup erstellt; Schreibfehler werden auf Datensatzebene zurückgerollt.") }}</p>
+                        </div>
+                        <div class="field-group">
+                            <label for="playerImportPath">{{ t("Import-Datei (.mcbe-player.zip)") }}</label>
+                            <div class="path-input-group compact">
+                                <input type="text" id="playerImportPath" placeholder="{{ t('Pfad zur exportierten .mcbe-player.zip') }}" />
+                                <button id="btnBrowsePlayerExport" class="btn btn-secondary">{{ t("Datei auswählen") }}</button>
+                            </div>
+                        </div>
+                        <label class="check-row small">
+                            <input type="checkbox" id="playerImportAsExportedKey" />
+                            {{ t("Exportierten Spieler-Key als neuen Datensatz anlegen, falls er in der Zielwelt noch nicht existiert") }}
+                        </label>
+                        <p id="playerImportTargetHint" class="hint-text">{{ t("Wähle einen bearbeitbaren Zielspieler oder aktiviere den Import als exportierter Spieler.") }}</p>
+                        <div id="playerImportPreview" class="import-preview" style="display:none;"></div>
+                        <button id="btnImportPlayer" class="btn btn-primary full-width" disabled>{{ t("Player importieren") }}</button>
+                    </details>
+                </div>
+
+                <section id="mountsPanel" class="glass-card mounts-panel" style="display:none;">
+                    <div class="section-header">
+                        <div>
+                            <h2>{{ t("Mounts (experimentell)") }}</h2>
+                            <p class="section-subtitle">
+                                {{ t("Vorschau und Vormerken ändern die Welt noch nicht. Erst beim Speichern wird das Mount erzeugt.") }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="mountPreviewPanel"></div>
+                    <div id="mountOptionsPanel"></div>
+                    <div id="mountPendingPanel" aria-live="polite"></div>
+                    <div id="mountCreateStatus"></div>
+                </section>
+
+                <!-- Instruction state (when nothing loaded) -->
+                <div class="glass-card empty-state" id="emptyState">
+                    <h3>{{ t("Willkommen zum Minecraft Bedrock Inventory Editor") }}</h3>
+                    <p>{{ t("Wähle eine gefundene Welt aus. Danach lädt die App die Spieler und zeigt das Inventar zum Bearbeiten an.") }}</p>
+                    <div class="tips">
+                        <div class="tip-item"><strong>{{ t("Automatische Suche:") }}</strong> {{ t("Standardpfade werden zuerst geprüft; eigene Orte bleiben optional.") }}</div>
+                        <div class="tip-item"><strong>{{ t("Sicher speichern:") }}</strong> {{ t("Vor jedem Speichervorgang wird automatisch ein ZIP-Backup der Welt erstellt.") }}</div>
+                        <div class="tip-item"><strong>{{ t("WYSIWYG-Bedienung:") }}</strong> {{ t("Slots anklicken, per Drag & Drop verschieben oder mit") }} <code>Strg</code> {{ t("mehrfach auswählen.") }}</div>
+                        <div class="tip-item icon-hint-tip" id="emptyStateIconHint" style="display:none;">
+                            <strong>{{ t("Item-Icons (optional):") }}</strong> {{ t("Es sind noch keine Icons eingerichtet — die App zeigt Ersatzsymbole. Vanilla-Icons lassen sich jederzeit laden, auch ohne geladene Welt.") }}
+                            <div class="inline-actions">
+                                <button id="btnEmptyStateVanillaIcons" class="btn btn-secondary btn-sm" type="button">{{ t("Vanilla-Icons laden") }}</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Player editor and tools panel -->
+                <div class="glass-card tool-card" id="dashboardPanel" style="display: none;">
+                    
+                    <!-- Editor Konfiguration -->
+                    <div class="dashboard-section" id="sectionEditorConfig">
+                        <div class="card-header">
+                            <h2>{{ t("Spieler bearbeiten") }}</h2>
+                        </div>
+                        <div class="tab-headers dashboard-tab-headers">
+                            <button class="tab-btn-dash active" data-tab-dash="dashStats">{{ t("Spieler-Stats") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashAnalysis">{{ t("Analyse") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashPlayerTools">{{ t("Spieler-Tools") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashEffects">{{ t("Effekte") }}</button>
+                        </div>
+                    </div>
+
+                    <!-- Werkzeuge & Einstellungen -->
+                    <details class="dashboard-section tools-details" id="toolsSettingsDetails">
+                        <summary class="card-header tools-details-summary">
+                            <h2>{{ t("Werkzeuge & Einstellungen") }}</h2>
+                            <span class="tools-details-hint">{{ t("Backups, Icons, Diagnose, Verlauf …") }}</span>
+                        </summary>
+                        <div class="tab-headers dashboard-tab-headers">
+                            <button class="tab-btn-dash" data-tab-dash="dashDiagnostics">{{ t("Status & Diagnose") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashBackups">{{ t("Backup-Manager") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashUpdate">{{ t("Item-DB") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashIcons">{{ t("Icons") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashWorkspace">{{ t("Arbeitsbereich") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashSession">{{ t("Verlauf") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashAudit">{{ t("Audit-Verlauf") }}</button>
+                        </div>
+                    </details>
+
+                    <!-- Tab Dashboard Stats -->
+                    <div class="tab-content-dash active" id="dashStats">
+                        <h3>{{ t("Spieler-Eigenschaften") }}</h3>
+                        <div class="row player-location-row">
+                            <div class="field-group col">
+                                <label for="statDimensionId">{{ t("Dimension") }}</label>
+                                <select id="statDimensionId" class="select-field" title="{{ t('Aktuelle beziehungsweise gewählte Spielerdimension') }}">
+                                    <option value="" disabled selected>{{ t("Nicht sicher erkannt") }}</option>
+                                    <option value="0">{{ t("Oberwelt") }}</option>
+                                    <option value="1">{{ t("Nether") }}</option>
+                                    <option value="2">{{ t("Das Ende") }}</option>
+                                </select>
+                            </div>
+                            <div class="field-group col">
+                                <label for="statPosX">{{ t("X-Koordinate") }}</label>
+                                <input type="number" step="any" id="statPosX" value="0" title="{{ t('Position des Spielers auf der X-Achse (Ost/West)') }}" />
+                            </div>
+                            <div class="field-group col">
+                                <label for="statPosY">{{ t("Y-Koordinate") }}</label>
+                                <input type="number" step="any" id="statPosY" value="70" title="{{ t('Position des Spielers auf der Y-Achse (Höhe)') }}" />
+                            </div>
+                            <div class="field-group col">
+                                <label for="statPosZ">{{ t("Z-Koordinate") }}</label>
+                                <input type="number" step="any" id="statPosZ" value="0" title="{{ t('Position des Spielers auf der Z-Achse (Nord/Süd)') }}" />
+                            </div>
+                        </div>
+                        <div class="location-actions">
+                            <button id="btnConvertOverworldNether" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Oberwelt ↔ Nether umrechnen") }}</button>
+                            <small class="field-note">{{ t("Ein Dimensionswechsel verändert Koordinaten niemals automatisch. Die optionale Oberwelt-/Nether-Umrechnung ändert nur X und Z. Zielposition und sicherer Untergrund können offline nicht garantiert werden.") }}</small>
+                            <small id="locationConversionNote" class="field-note location-conversion-note" hidden></small>
+                        </div>
+                        <div class="row">
+                            <div class="field-group col">
+                                <label for="statHealth">{{ t("Lebenspunkte") }}</label>
+                                <input type="number" step="0.5" min="0" max="1000" id="statHealth" value="20.0" title="{{ t('Aktuelle Lebenspunkte (Standard 20, max 1000)') }}" />
+                            </div>
+                            <div class="field-group col">
+                                <label for="statGamemode">{{ t("Spielmodus") }}</label>
+                                <input type="text" id="statGamemode" value="{{ t('Unbekannt') }}" readonly title="{{ t('Read-only: Spieler-Gamemode wird angezeigt, aber vom Editor nicht geändert.') }}" />
+                                <small class="field-note">{{ t("Read-only. Welt-/Servermodus kann abweichen.") }}</small>
+                            </div>
+                            <div class="field-group col">
+                                <label for="statXpLevel">{{ t("XP-Level") }}</label>
+                                <input type="number" min="0" max="24791" id="statXpLevel" value="0" title="{{ t('Erfahrungsstufe (max 24791)') }}" />
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="field-group col">
+                                <label for="statXpProgress">{{ t("XP-Fortschritt (%)") }}</label>
+                                <input type="number" step="0.01" min="0" max="99.99" id="statXpProgress" value="0" title="{{ t('Fortschritt zur nächsten Erfahrungsstufe in Prozent') }}" aria-describedby="statXpProgressNote" />
+                                <small class="field-note" id="statXpProgressNote">{{ t("0–99,99 %. Bei 100 % beginnt das nächste Level mit 0 %.") }}</small>
+                            </div>
+                            <div class="field-group col">
+                                <label for="statFoodLevel">{{ t("Hungerleiste (0–20)") }}</label>
+                                <input type="number" min="0" max="20" id="statFoodLevel" value="20" title="{{ t('Hungerleiste (0–20)') }}" aria-describedby="statFoodLevelNote" />
+                                <small class="field-note" id="statFoodLevelNote">{{ t("20 = voll, 0 = leer.") }}</small>
+                            </div>
+                            <div class="field-group col">
+                                <label for="statFoodSaturation">{{ t("Sättigung (0–20)") }}</label>
+                                <input type="number" step="0.1" min="0" max="20" id="statFoodSaturation" value="20.0" title="{{ t('Sättigungswert – bestimmt, wie lange die Hungerleiste voll bleibt (0–20)') }}" aria-describedby="statFoodSaturationNote" />
+                                <small class="field-note" id="statFoodSaturationNote">{{ t("Versteckter Nahrungspuffer: Ein höherer Wert verzögert Hunger.") }}</small>
+                            </div>
+                        </div>
+                        <button id="btnApplyStats" class="btn btn-primary full-width">{{ t("Stats aktualisieren 🏃") }}</button>
+                    </div>
+
+
+                    <!-- Tab Dashboard Analysis -->
+                    <div class="tab-content-dash" id="dashAnalysis">
+                        <div class="backup-header-section">
+                            <div>
+                                <h3>{{ t("Weltanalyse") }}</h3>
+                                <p class="hint-text">{{ t("Kurzer Überblick über geladene Welt, Spieler und den aktuellen Inventarzustand.") }}</p>
+                            </div>
+                            <div class="inline-actions">
+                                <button id="btnCopyWorldAnalysis" class="btn btn-secondary btn-sm" type="button">{{ t("Analyse kopieren") }}</button>
+                            </div>
+                        </div>
+                        <div id="worldAnalysisPanel" class="world-analysis-panel">
+                            <div class="no-backups">{{ t("Analyse wird nach dem Laden einer Welt angezeigt.") }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Dashboard Player Tools -->
+                    <div class="tab-content-dash" id="dashPlayerTools">
+                        <div class="backup-header-section">
+                            <div>
+                                <h3>{{ t("Spieler-Tools") }}</h3>
+                                <p class="hint-text">{{ t("Vergleiche Spieler oder übernimm gezielt Inventarbereiche. Änderungen bleiben lokal, bis du bewusst speicherst.") }}</p>
+                            </div>
+                        </div>
+                        <div class="player-tools-grid">
+                            <section class="diagnostic-details-card">
+                                <h4>{{ t("Spieler vergleichen") }}</h4>
+                                <div class="field-group">
+                                    <label for="comparePlayerSelect">{{ t("Vergleichen mit") }}</label>
+                                    <select id="comparePlayerSelect" class="select-field"></select>
+                                </div>
+                                <button id="btnComparePlayer" class="btn btn-secondary full-width" type="button">{{ t("Vergleich anzeigen") }}</button>
+                            </section>
+                            <section class="diagnostic-details-card">
+                                <h4>{{ t("Inventar übernehmen") }}</h4>
+                                <div class="field-group">
+                                    <label for="copySourcePlayerSelect">{{ t("Quelle") }}</label>
+                                    <select id="copySourcePlayerSelect" class="select-field"></select>
+                                </div>
+                                <div class="copy-options">
+                                    <label><input type="checkbox" id="copyInventoryArea" checked> {{ t("Inventar + Ausrüstung") }}</label>
+                                    <label><input type="checkbox" id="copyEnderArea"> {{ t("Enderchest") }}</label>
+                                    <label><input type="checkbox" id="copyStatsArea"> Stats</label>
+                                </div>
+                                <button id="btnCopyFromPlayer" class="btn btn-primary full-width" type="button">{{ t("Aus Quelle übernehmen") }}</button>
+                                <p class="hint-text">{{ t("Vor dem Übernehmen wird ein Undo-Snapshot erstellt. Speichern schreibt erst nach deiner Save-Prüfung.") }}</p>
+                            </section>
+                        </div>
+                        <div id="playerToolsPanel" class="player-tools-panel">
+                            <div class="no-backups">{{ t("Wähle einen anderen Spieler, um Vergleich oder Übernahme vorzubereiten.") }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Dashboard Effects -->
+                    <div class="tab-content-dash" id="dashEffects">
+                        <div class="effect-abilities-layout">
+                            <!-- Abilities Section -->
+                            <div class="abilities-section">
+                                <h3>{{ t("Fähigkeiten 🦸") }}</h3>
+                                <div class="ability-scope-note" id="abilityScopeNote">
+                                    {{ t("Diese Werte gelten nur für den ausgewählten Spieler. Der Welt-Standardspielmodus und Achievement-Flags in level.dat werden hier nicht geändert.") }}
+                                </div>
+                                <div class="ability-risk-note" id="abilityRiskNote" hidden></div>
+                                <div class="abilities-grid">
+                                    <label class="ability-toggle">
+                                        <span>{{ t("Fliegen (mayfly)") }}</span>
+                                        <input type="checkbox" id="abMayfly" />
+                                    </label>
+                                    <label class="ability-toggle">
+                                        <span>{{ t("Schweben (flying)") }}</span>
+                                        <input type="checkbox" id="abFlying" />
+                                    </label>
+                                    <label class="ability-toggle">
+                                        <span>{{ t("Unverwundbar") }}</span>
+                                        <input type="checkbox" id="abInvulnerable" />
+                                    </label>
+                                    <label class="ability-toggle">
+                                        <span>{{ t("Blöcke setzen (mayBuild)") }}</span>
+                                        <input type="checkbox" id="abMaybuild" checked />
+                                    </label>
+                                    <label class="ability-toggle" title="{{ t('Blöcke werden ohne normale Abbauzeit sofort zerstört, ähnlich wie im Kreativmodus. Technischer NBT-Name: instabuild.') }}">
+                                        <span>{{ t("Blöcke sofort abbauen") }}</span>
+                                        <input type="checkbox" id="abInstabuild" aria-describedby="abilityRiskNote" />
+                                    </label>
+                                </div>
+                                <div class="row" style="margin-top: 8px;">
+                                    <div class="field-group col">
+                                        <label for="abFlySpeed">{{ t("Flug-Geschwindigkeit (0–1)") }}</label>
+                                        <input type="number" id="abFlySpeed" step="0.01" min="0" max="1" value="0.05" aria-describedby="abFlySpeedNote" />
+                                        <small class="field-note" id="abFlySpeedNote">{{ t("Vanilla-Standard: 0,05") }}</small>
+                                    </div>
+                                    <div class="field-group col">
+                                        <label for="abWalkSpeed">{{ t("Lauf-Geschwindigkeit (0–1)") }}</label>
+                                        <input type="number" id="abWalkSpeed" step="0.01" min="0" max="1" value="0.1" aria-describedby="abWalkSpeedNote" />
+                                        <small class="field-note" id="abWalkSpeedNote">{{ t("Vanilla-Standard: 0,1") }}</small>
+                                    </div>
+                                </div>
+                                <div class="ability-speed-actions">
+                                    <small class="field-note">{{ t("Abweichende Werte können die Bewegung stark verändern.") }}</small>
+                                    <button id="btnResetAbilitySpeeds" class="btn btn-secondary btn-sm" type="button">{{ t("Standardwerte") }}</button>
+                                </div>
+                            </div>
+
+                            <!-- Active Effects Section -->
+                            <div class="effects-section">
+                                <div class="effects-header">
+                                    <h3>{{ t("Aktive Effekte 🧪") }}</h3>
+                                    <div class="effect-add-controls">
+                                        <div class="effect-picker">
+                                            <details id="effectPickerDetails">
+                                                <summary id="effectPickerSummary">{{ t("Effekt auswählen …") }}</summary>
+                                                <div class="effect-picker-popover">
+                                                    <div id="effectPickerList" class="effect-picker-list" role="listbox" aria-label="{{ t('Effekt auswählen') }}"></div>
+                                                    <div id="effectPickerDescription" class="effect-picker-description" aria-live="polite">{{ t("Bewege den Mauszeiger auf einen Effekt oder fokussiere ihn, um die Beschreibung zu sehen.") }}</div>
+                                                </div>
+                                            </details>
+                                            <input id="effectToAdd" type="hidden" value="" />
+                                        </div>
+                                        <button id="btnAddEffect" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Hinzufügen") }}</button>
+                                    </div>
+                                </div>
+                                <p class="effect-help">{{ t("Neue Effekte starten mit Stufe 1 und 30 Sekunden. Üblich sind Stufen 1–5; höhere Werte sind für Sonderfälle. Die Dauer wird in Sekunden angegeben.") }}</p>
+                                <div class="effects-list" id="effectsContainer">
+                                    <div class="no-backups">{{ t("Keine aktiven Effekte.") }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <button id="btnApplyEffects" class="btn btn-primary full-width">{{ t("Effekte & Fähigkeiten übernehmen ✔️") }}</button>
+                    </div>
+
+                    <!-- Tab Dashboard Backups -->
+                    <div class="tab-content-dash" id="dashBackups">
+                        <div class="backup-header-section">
+                            <div>
+                                <h3>{{ t("Sicherheitskopien") }}</h3>
+                                <p class="hint-text">{{ t("Vor jedem Speichern und vor jeder Wiederherstellung wird automatisch eine Sicherung erstellt.") }}</p>
+                            </div>
+                            <div class="inline-actions">
+                                <button id="btnCreateBackup" class="btn btn-secondary btn-sm" type="button" title="{{ t('Sofort ein Backup der geladenen Welt erstellen') }}">{{ t("💾 Backup erstellen") }}</button>
+                                <button id="btnOpenBackupFolder" class="btn btn-secondary btn-sm" type="button">{{ t("Backupordner öffnen") }}</button>
+                                <button id="btnCopyBackupDir" class="btn btn-secondary btn-sm" type="button">{{ t("Pfad kopieren") }}</button>
+                                <button id="btnRefreshBackups" class="btn-text">{{ t("Aktualisieren") }}</button>
+                            </div>
+                        </div>
+                        <div class="backups-list-wrapper">
+                            <div class="backups-list" id="backupsContainer">
+                                <!-- JS will list backups -->
+                                <div class="no-backups">{{ t("Noch keine Backups vorhanden.") }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Dashboard Diagnostics -->
+                    <div class="tab-content-dash" id="dashDiagnostics">
+                        <div class="backup-header-section">
+                            <div>
+                                <h3>{{ t("Status & Diagnose") }}</h3>
+                                <p class="hint-text">{{ t("Zeigt auf einen Blick, ob Weltzugriff, Schreibschutz, Docker, Icons und Kompatibilität Aufmerksamkeit benötigen.") }}</p>
+                            </div>
+                            <div class="inline-actions">
+                                <button id="btnRefreshRuntimeDiagnostics" class="btn btn-secondary btn-sm" type="button">{{ t("Neu prüfen") }}</button>
+                                <button id="btnCopyRuntimeDiagnostics" class="btn btn-secondary btn-sm" type="button">{{ t("Status kopieren") }}</button>
+                            </div>
+                        </div>
+                        <div id="statusCenterPanel" class="status-center-panel">
+                            <div class="no-backups">{{ t("Status wird nach dem Laden einer Welt angezeigt.") }}</div>
+                        </div>
+                        <details class="diagnostic-details" id="diagnosticDetailsFoldout">
+                            <summary>{{ t("Technische Details anzeigen") }}</summary>
+                            <div id="runtimeDiagnostics" class="runtime-diagnostics">
+                                <div class="no-backups">{{ t("Noch keine Detaildiagnose geladen.") }}</div>
+                            </div>
+                        </details>
+                        <details class="diagnostic-details" id="recentLogsFoldout">
+                            <summary>{{ t("Letzte App-Logs anzeigen") }}</summary>
+                            <div class="inline-actions log-actions">
+                                <button id="btnRefreshRecentLogs" class="btn btn-secondary btn-sm" type="button">{{ t("Logs aktualisieren") }}</button>
+                                <button id="btnCopyRecentLogs" class="btn btn-secondary btn-sm" type="button">{{ t("Logs kopieren") }}</button>
+                            </div>
+                            <div id="recentLogsPanel" class="runtime-diagnostics">
+                                <div class="no-backups">{{ t("Noch keine Logs geladen.") }}</div>
+                            </div>
+                        </details>
+                    </div>
+
+
+                    <!-- Tab Dashboard Workspace -->
+                    <div class="tab-content-dash" id="dashWorkspace">
+                        <div class="backup-header-section">
+                            <div>
+                                <h3>{{ t("Arbeitsbereich") }}</h3>
+                                <p class="hint-text">{{ t("Lokale Merkdaten: letzte Welt, letzter Spieler, Favoriten und Darstellung. Es werden keine Weltdaten im Browser gespeichert.") }}</p>
+                            </div>
+                            <div class="inline-actions">
+                                <button id="btnFavoriteCurrentWorld" class="btn btn-secondary btn-sm" type="button">{{ t("Welt favorisieren") }}</button>
+                                <button id="btnCopyWorkspace" class="btn btn-secondary btn-sm" type="button">{{ t("Arbeitsbereich kopieren") }}</button>
+                                <button id="btnClearWorkspace" class="btn-text" type="button">{{ t("Zurücksetzen") }}</button>
+                            </div>
+                        </div>
+                        <div id="workspacePanel" class="workspace-panel">
+                            <div class="no-backups">{{ t("Noch kein Arbeitsbereich gespeichert.") }}</div>
+                        </div>
+                    </div>
+
+
+
+                    <!-- Tab Dashboard Icons -->
+                    <div class="tab-content-dash" id="dashIcons">
+                        <div class="backup-header-section">
+                            <div>
+                                <h3>{{ t("Darstellung & Icons") }}</h3>
+                                <p class="hint-text">{{ t("Optionale lokale Resource Packs oder Icon-Ordner. Die App versucht zusätzlich Resource-Packs aus der geladenen Welt abzuleiten. Ohne lokale Minecraft-Assets bleiben Emoji/Fallback-Symbole aktiv; es werden keine Wiki-/CDN-Bilder nachgeladen.") }}</p>
+                            </div>
+                            <div class="inline-actions">
+                                <button id="btnUpdateVanillaIcons" class="btn btn-primary btn-sm" type="button">{{ t("Vanilla-Icons laden") }}</button>
+                                <button id="btnPickIconPack" class="btn btn-secondary btn-sm" type="button">{{ t("Pack-Datei wählen") }}</button>
+                                <button id="btnPickIconFolder" class="btn btn-secondary btn-sm" type="button">{{ t("Ordner wählen") }}</button>
+                                <button id="btnRescanIcons" class="btn btn-secondary btn-sm" type="button">{{ t("Neu scannen") }}</button>
+                            </div>
+                        </div>
+                        <div class="release-cache-options">
+                            <label class="release-cache-checkbox">
+                                <input type="checkbox" id="updateIconsUseCache" checked />
+                                <span>{{ t("Zwischengespeichertes Release verwenden") }}</span>
+                            </label>
+                        </div>
+                        <div id="assetDataStatusPanel" class="data-source-panel">
+                            <div class="no-backups">{{ t("Datenquellen werden geladen...") }}</div>
+                        </div>
+                        <div class="icon-manager">
+                            <div class="icon-manager-add">
+                                <label for="iconSourcePath">{{ t("Resource-Pack-/Icon-Pfad") }}</label>
+                                <div class="path-inline">
+                                    <input type="text" id="iconSourcePath" placeholder="{{ t('z. B. D:\\Packs\\Faithful.mcpack oder /packs/icons') }}" autocomplete="off">
+                                    <button id="btnAddIconSource" class="btn btn-primary btn-sm" type="button">{{ t("Hinzufügen") }}</button>
+                                </div>
+                                <p class="hint-text">{{ t("Unterstützt Ordner, .mcpack und .zip. Gespeichert wird nur der Pfad, nicht die Texturen selbst.") }}</p>
+                            </div>
+                            <div id="iconManagerPanel" class="icon-manager-panel">
+                                <div class="no-backups">{{ t("Noch kein Icon-Scan geladen.") }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Dashboard Session Log -->
+                    <div class="tab-content-dash" id="dashSession">
+                        <div class="backup-header-section">
+                            <div>
+                                <h3>{{ t("Undo/Redo & Sitzungs-Verlauf") }}</h3>
+                                <p class="hint-text">{{ t("Lokale Bearbeitungsschritte und Rückgängig-Stapel dieser Browser-Sitzung. Änderungen werden erst nach der Save-Prüfung geschrieben.") }}</p>
+                            </div>
+                            <div class="inline-actions">
+                                <button id="btnCopySessionLog" class="btn btn-secondary btn-sm" type="button">{{ t("Verlauf kopieren") }}</button>
+                                <button id="btnClearSessionLog" class="btn-text" type="button">{{ t("Leeren") }}</button>
+                            </div>
+                        </div>
+                        <div id="undoRedoPanel" class="undo-redo-panel">
+                            <div class="no-backups">{{ t("Noch kein Undo/Redo-Stapel vorhanden.") }}</div>
+                        </div>
+                        <div id="sessionLogContainer" class="session-log-list">
+                            <div class="no-backups">{{ t("Noch keine lokalen Bearbeitungsschritte.") }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Dashboard Audit -->
+                    <div class="tab-content-dash" id="dashAudit">
+                        <div class="backup-header-section">
+                            <h3>{{ t("Audit-Trail") }}</h3>
+                            <div class="inline-actions">
+                                <button id="btnRefreshAudit" class="btn-text">{{ t("🔄 Aktualisieren") }}</button>
+                                <button id="btnExportAudit" class="btn btn-secondary btn-sm">{{ t("⬇️ JSON exportieren") }}</button>
+                            </div>
+                        </div>
+                        <p class="hint-text">{{ t("Zeigt die letzten sicherheitsrelevanten Admin-Aktionen: Login, Speichern, Import, Spielermigration, Restore und Item-DB-Updates. Pfade und Player-Keys werden nur gekürzt oder gehasht angezeigt.") }}</p>
+                        <div class="audit-list" id="auditEventsContainer">
+                            <div class="no-backups">{{ t("Noch keine Audit-Ereignisse geladen.") }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Item-DB -->
+                    <div class="tab-content-dash" id="dashUpdate">
+                        <div class="update-db-section">
+                            <div class="backup-header-section">
+                                <div>
+                                    <h3>{{ t("Item-Datenbank") }}</h3>
+                                    <p class="update-db-description">
+                                        {{ t("Zeigt, welche Item-Datenbank aktiv ist, ob ihre Herkunft bekannt ist und wie viele Items, Effekte und Verzauberungen geladen sind. Updates laden offizielle Identifier und Namen aus Mojang/bedrock-samples. Verzauberungs-Maximalstufen stammen aus einer mitgelieferten, geprüften Vanilla-Tabelle.") }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div id="itemDbStatusPanel" class="item-db-status-panel">
+                                <div class="no-backups">{{ t("Item-Datenbank-Status wird geladen...") }}</div>
+                            </div>
+
+                            <div class="update-db-controls">
+                                <div class="field-group">
+                                    <label for="updateOnlySelect">{{ t("Bereich") }}</label>
+                                    <select id="updateOnlySelect" class="select-field">
+                                        <option value="">{{ t("Alles (Items + Effekte + Verzauberungen)") }}</option>
+                                        <option value="items">{{ t("Nur Items") }}</option>
+                                        <option value="effects">{{ t("Nur Effekte") }}</option>
+                                        <option value="enchants">{{ t("Nur Verzauberungen") }}</option>
+                                    </select>
+                                </div>
+
+                                <div class="update-db-actions">
+                                    <button id="btnUpdateDbDryRun" class="btn btn-secondary">{{ t("Dry-Run ausführen") }}</button>
+                                    <button id="btnUpdateDbApply" class="btn btn-primary">{{ t("Update anwenden") }}</button>
+                                </div>
+                            </div>
+                            <p class="hint-text">{{ t("Der Dry-Run zeigt geplante Änderungen, ohne sie anzuwenden.") }}</p>
+
+                            <div class="release-cache-options">
+                                <label class="release-cache-checkbox">
+                                    <input type="checkbox" id="updateDbUseCache" checked />
+                                    <span>{{ t("Zwischengespeichertes Release verwenden") }}</span>
+                                </label>
+                            </div>
+
+                            <div class="update-db-output-wrapper">
+                                <div class="update-db-output-header">
+                                    <span>{{ t("Ausgabe") }}</span>
+                                    <button id="btnClearUpdateOutput" class="btn-text">{{ t("Leeren") }}</button>
+                                </div>
+                                <pre id="updateDbOutput" class="update-db-output">{{ t("Noch kein Update ausgeführt.") }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Multi-Select Tool Panel -->
+                <div class="glass-card tool-card" id="multiSelectPanel" style="display: none;">
+                    <div class="card-header">
+                        <h2>{{ t("Mehrfachauswahl (") }}<span id="selectedCount">0</span> {{ t("Slots)") }}</h2>
+                        <button id="btnClearSelection" class="btn-text">{{ t("Auswahl aufheben") }}</button>
+                    </div>
+                    <div class="field-group">
+                        <label for="bulkItemSelect">{{ t("Gegenstand auswählen") }}</label>
+                        <div class="autocomplete-wrapper">
+                            <input type="text" id="bulkItemSearch" placeholder="{{ t('Suche nach Item...') }}" title="{{ t('Gib einen Item-Namen ein, z.B. diamond_sword') }}" />
+                            <div class="autocomplete-list" id="bulkItemAutocomplete"></div>
+                        </div>
+                        <button id="btnBrowserBulk" class="btn btn-secondary btn-sm" style="margin-top: 4px;">{{ t("📖 Item-Browser") }}</button>
+                    </div>
+                    <div class="row">
+                        <div class="field-group col">
+                            <label for="bulkCount">{{ t("Menge") }}</label>
+                            <input type="number" id="bulkCount" min="1" max="64" value="64" title="{{ t('Anzahl der Items (maximaler Stack bestimmt Obergrenze)') }}" />
+                        </div>
+                        <div class="field-group col">
+                            <label for="bulkDamage">{{ t("Abnutzung / Datenwert") }}</label>
+                            <input type="number" id="bulkDamage" min="0" max="32767" value="0" title="{{ t('Bei haltbaren Items: 0 = neuwertig; höherer Wert = mehr Abnutzung. Sonst: Bedrock-Datenwert; maximal 32767.') }}" />
+                        </div>
+                    </div>
+                    <div class="bulk-buttons">
+                        <button id="btnBulkFill" class="btn btn-primary fill-btn">{{ t("Markierte Slots füllen ✏️") }}</button>
+                        <button id="btnBulkClear" class="btn btn-danger clear-btn">{{ t("Markierte Slots leeren") }}</button>
+                    </div>
+                    <div class="bulk-buttons secondary-bulk-actions">
+                        <button id="btnBulkSetCount" class="btn btn-secondary" type="button">{{ t("Menge für Markierte setzen") }}</button>
+                        <button id="btnBulkRepairSelected" class="btn btn-secondary" type="button">{{ t("Markierte reparieren") }}</button>
+                    </div>
+                    <div class="repair-section" style="margin-top: 8px;">
+                        <button id="btnRepairAll" class="btn btn-primary" title="{{ t('Setzt die Abnutzung aller haltbaren Items auf 0, inklusive Enderchest.') }}">{{ t("Alle haltbaren Items reparieren") }}</button>
+                    </div>
+                </div>
+
+                <!-- Single Slot Detail Editor -->
+                <div class="glass-card tool-card" id="detailEditorPanel" style="display: none;">
+                    <div class="card-header">
+                        <h2>{{ t("Slot-Editor (Slot") }} <span id="detailSlotNum">0</span>)</h2>
+                        <button id="btnCloseDetail" class="btn-text">{{ t("Schließen") }}</button>
+                    </div>
+
+                    <div class="slot-quick-actions" id="slotQuickActions" aria-label="{{ t('Schnellaktionen für den ausgewählten Slot') }}">
+                        <div class="slot-quick-copy">
+                            <strong id="slotQuickTitle">{{ t("Slot ausgewählt") }}</strong>
+                            <span id="slotQuickSubtitle">{{ t("Änderungen bleiben lokal, bis du speicherst.") }}</span>
+                        </div>
+                        <div class="slot-quick-buttons">
+                            <button id="btnQuickClearSlot" class="btn btn-secondary btn-danger-soft btn-sm" type="button">{{ t("Slot leeren") }}</button>
+                            <button id="btnInspectSlotNbt" class="btn btn-secondary btn-sm" type="button">{{ t("NBT-Details") }}</button>
+                            <button id="btnQuickMaxStack" class="btn btn-secondary btn-sm" type="button">{{ t("Max-Stack") }}</button>
+                            <button id="btnQuickRepairSlot" class="btn btn-secondary btn-sm" type="button" title="{{ t('Setzt die Abnutzung dieses haltbaren Items auf 0.') }}">{{ t("Reparieren") }}</button>
+                        </div>
+                    </div>
+
+                    <!-- Tab headers -->
+                    <div class="tab-headers">
+                        <button class="tab-btn active" data-tab="tabGeneral">{{ t("Allgemein") }}</button>
+                        <button class="tab-btn" data-tab="tabEnchants">{{ t("Verzauberungen (") }}<span id="enchCount">0</span>)</button>
+                    </div>
+
+                    <!-- Tab General -->
+                    <div class="tab-content active" id="tabGeneral">
+                        <div class="field-group">
+                            <label for="detailItemSearch">{{ t("Gegenstand") }}</label>
+                            <div class="autocomplete-wrapper">
+                                <input type="text" id="detailItemSearch" placeholder="minecraft:diamond_sword" />
+                                <div class="autocomplete-list" id="detailItemAutocomplete"></div>
+                            </div>
+                            <div class="detail-item-actions">
+                                <button id="btnBrowserDetail" class="btn btn-secondary btn-sm" type="button">{{ t("📖 Item-Browser") }}</button>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="field-group col">
+                                <label for="detailCount">{{ t("Menge") }}</label>
+                                <input type="number" id="detailCount" min="1" max="64" value="1" title="{{ t('Anzahl der Items (maximaler Stack bestimmt Obergrenze)') }}" />
+                            </div>
+                            <div class="field-group col" id="detailDamageGroup">
+                                <label for="detailDamage">{{ t("Abnutzung") }}</label>
+                                <input type="number" id="detailDamage" min="0" max="32767" value="0" title="{{ t('0 = neuwertig; höherer Wert = mehr Abnutzung. Verbleibende Haltbarkeit: Maximalwert minus Abnutzung.') }}" />
+                            </div>
+                            <div class="field-group col" id="detailDataVariantGroup" style="display:none;">
+                                <label for="detailDataVariant" id="detailDataVariantLabel">{{ t("Itemvariante") }}</label>
+                                <select id="detailDataVariant" class="select-field"></select>
+                                <small class="field-note" id="detailDataVariantNote">{{ t("Minecraft speichert diese Variante als Bedrock-Datenwert.") }}</small>
+                            </div>
+                        </div>
+                        <div class="entity-variant-editor" id="detailEntityVariantPanel" style="display:none;" aria-live="polite">
+                            <div class="entity-variant-editor-header">
+                                <div>
+                                    <strong id="detailEntityVariantTitle">{{ t("Gespeicherte Entityvariante") }}</strong>
+                                    <small id="detailEntityVariantNote">{{ t("Die vollständigen Entity-Daten bleiben erhalten; geändert werden nur die ausgewählten Variantenfelder.") }}</small>
+                                </div>
+                            </div>
+                            <div class="row" id="detailAxolotlVariantFields" style="display:none;">
+                                <div class="field-group col">
+                                    <label for="detailAxolotlColor">{{ t("Axolotl-Farbe") }}</label>
+                                    <select id="detailAxolotlColor" class="select-field"></select>
+                                </div>
+                                <div class="field-group col">
+                                    <label for="detailAxolotlAge">{{ t("Alter") }}</label>
+                                    <select id="detailAxolotlAge" class="select-field">
+                                        <option value="adult">{{ t("Erwachsen") }}</option>
+                                        <option value="baby">{{ t("Jungtier") }}</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="detailTropicalFishVariantFields" style="display:none;">
+                                <div class="field-group">
+                                    <label for="detailTropicalFishPattern">{{ t("Tropenfisch-Form und Muster") }}</label>
+                                    <select id="detailTropicalFishPattern" class="select-field"></select>
+                                </div>
+                                <div class="row">
+                                    <div class="field-group col">
+                                        <label for="detailTropicalFishColor">{{ t("Körperfarbe") }}</label>
+                                        <select id="detailTropicalFishColor" class="select-field"></select>
+                                    </div>
+                                    <div class="field-group col">
+                                        <label for="detailTropicalFishColor2">{{ t("Musterfarbe") }}</label>
+                                        <select id="detailTropicalFishColor2" class="select-field"></select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label for="detailCustomName">{{ t("Benutzerdefinierter Name") }}</label>
+                            <input type="text" id="detailCustomName" placeholder="{{ t('Z.B. Drachentöter') }}" />
+                        </div>
+                        <div class="field-group">
+                            <label for="detailLore">{{ t("Beschreibung (Lore - Eine Zeile pro Zeile)") }}</label>
+                            <textarea id="detailLore" rows="3" placeholder="{{ t('Z.B. Die legendäre Klinge...') }}"></textarea>
+                        </div>
+                        <div class="detail-preview-card" id="detailPreview" aria-live="polite">
+                            <div class="detail-preview-icon" id="detailPreviewIcon">▫️</div>
+                            <div class="detail-preview-body">
+                                <div class="detail-preview-kicker">{{ t("Live-Vorschau") }}</div>
+                                <div class="detail-preview-name" id="detailPreviewName">{{ t("Leerer Slot") }}</div>
+                                <span class="item-availability-badge" id="detailPreviewAvailability" hidden></span>
+                                <div class="detail-preview-meta" id="detailPreviewMeta">{{ t("Dieser Slot wird beim Anwenden geleert.") }}</div>
+                                <div class="detail-preview-lore" id="detailPreviewLore" style="display:none;"></div>
+                                <div class="detail-preview-enchants" id="detailPreviewEnchantments" style="display:none;"></div>
+                            </div>
+                        </div>
+                        <button id="btnApplySingle" class="btn btn-primary full-width">{{ t("Slot aktualisieren ✔️") }}</button>
+                    </div>
+
+                    <!-- Tab Enchantments -->
+                    <div class="tab-content" id="tabEnchants">
+                        <div class="ench-actions">
+                            <button id="btnMaxAllEnch" class="btn btn-secondary btn-sm">{{ t("Verzauberungen maxen 🛡️") }}</button>
+                            <button id="btnClearAllEnch" class="btn btn-danger btn-sm">{{ t("Alle entfernen 🗑️") }}</button>
+                        </div>
+                        <div class="ench-list-wrapper">
+                            <div class="ench-list" id="enchantsContainer">
+                                <!-- JS will build list of enchants with sliders -->
+                            </div>
+                        </div>
+                        <button id="btnApplySingleEnch" class="btn btn-primary full-width mt-10">{{ t("Slot aktualisieren ✔️") }}</button>
+                    </div>
+                </div>
+
+                <div class="glass-card tool-card slot-inspector-panel" id="slotInspectorPanel" style="display:none;">
+                    <div class="card-header">
+                        <div>
+                            <span class="panel-kicker">{{ t("Read-only Erklärung") }}</span>
+                            <h2 id="slotInspectorTitle">{{ t("Slot geschützt") }}</h2>
+                        </div>
+                        <button id="btnCloseSlotInspector" class="btn-text" type="button">{{ t("Schließen") }}</button>
+                    </div>
+                    <div id="slotInspectorBody" class="slot-inspector-body">
+                        <div class="no-backups">{{ t("Wähle einen geschützten Slot, um Details zu sehen.") }}</div>
+                    </div>
+                    <div class="slot-inspector-actions">
+                        <button id="btnCopySlotInspector" class="btn btn-secondary btn-sm" type="button">{{ t("Details kopieren") }}</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <div id="slotContextMenu" class="context-menu" style="display:none;">
+        <button class="context-item" data-action="copy">{{ t("📋 Kopieren") }}</button>
+        <button class="context-item" data-action="paste">{{ t("📄 Einfügen") }}</button>
+        <button class="context-item" data-action="cut">{{ t("✂️ Ausschneiden") }}</button>
+        <div class="context-separator"></div>
+        <button class="context-item" data-action="clear">{{ t("🗑️ Leeren") }}</button>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <div class="modal-icon">⚠️</div>
+            <div class="modal-message" id="confirmMessage"></div>
+            <div class="modal-actions">
+                <button id="confirmCancel" class="btn btn-secondary">{{ t("Abbrechen") }}</button>
+                <button id="confirmOk" class="btn btn-primary">{{ t("Fortfahren") }}</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Review Modal -->
+    <!-- First-run setup: item names and icons come from official Mojang data and
+         are fetched only after the user explicitly asks for it, so a fresh install
+         ships without them. This overlay makes that a guided, one-click step. -->
+    <div id="firstRunSetupOverlay" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="firstRunSetupTitle">
+        <div class="modal-box first-run-box">
+            <div class="first-run-header">
+                <h3 id="firstRunSetupTitle">{{ t("Einrichtung abschließen") }}</h3>
+                <p>{{ t("Item-Namen und Icons stammen aus offiziellen Mojang-Daten und werden erst auf deine Bestätigung geladen. Der Editor funktioniert auch ohne, zeigt dann aber weniger Items und nur Ersatzsymbole.") }}</p>
+            </div>
+            <ul class="first-run-todos">
+                <li class="first-run-todo" data-first-run-todo="item_db">
+                    <span class="first-run-todo-mark" data-role="mark" aria-hidden="true">○</span>
+                    <div class="first-run-todo-text">
+                        <strong>{{ t("Item-Datenbank laden") }}</strong>
+                        <span>{{ t("Lädt offizielle Item-Identifier und Namen aus dem Mojang/bedrock-samples Release und ersetzt den mitgelieferten Stand.") }}</span>
+                        <span class="first-run-todo-state" data-role="state" aria-live="polite"></span>
+                    </div>
+                    <button class="btn btn-primary btn-sm" data-role="run" type="button">{{ t("Jetzt laden") }}</button>
+                </li>
+                <li class="first-run-todo" data-first-run-todo="icons">
+                    <span class="first-run-todo-mark" data-role="mark" aria-hidden="true">○</span>
+                    <div class="first-run-todo-text">
+                        <strong>{{ t("Item-Icons laden") }}</strong>
+                        <span>{{ t("Extrahiert die Vanilla-Texturen aus demselben Release nach data/icons. Ohne sie zeigt jeder Slot ein Ersatzsymbol.") }}</span>
+                        <span class="first-run-todo-state" data-role="state" aria-live="polite"></span>
+                    </div>
+                    <button class="btn btn-primary btn-sm" data-role="run" type="button">{{ t("Jetzt laden") }}</button>
+                </li>
+            </ul>
+            <p class="first-run-footnote">{{ t("Beides lässt sich später jederzeit erneut ausführen: Werkzeuge → Item-DB bzw. Werkzeuge → Icons.") }}</p>
+            <div class="modal-actions">
+                <button id="btnFirstRunSetupClose" class="btn btn-secondary" type="button">{{ t("Später") }}</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="saveReviewOverlay" class="modal-overlay save-review-overlay" style="display:none;">
+        <div class="modal-box save-review-box">
+            <div class="save-review-header">
+                <div>
+                    <div class="eyebrow">{{ t("Speichern prüfen") }}</div>
+                    <h3>{{ t("Änderungsübersicht") }}</h3>
+                    <p>{{ t("Prüfe kurz, was in die Welt geschrieben wird. Vorher wird automatisch ein ZIP-Backup erstellt.") }}</p>
+                </div>
+                <button id="btnSaveReviewClose" class="btn-text" type="button">{{ t("Schließen") }}</button>
+            </div>
+            <div id="saveReviewSummary" class="save-review-summary"></div>
+            <details class="decision-log-panel save-review-decision-log" id="saveReviewDecisionDetails">
+                <summary>{{ t("Warum erlaubt/blockiert der Editor das?") }}</summary>
+                <div id="saveReviewDecisionLog" class="decision-log-list">
+                    <div class="no-backups">{{ t("Noch keine Detailprüfung verfügbar.") }}</div>
+                </div>
+            </details>
+            <div class="save-review-tools">
+                <button id="btnSaveReviewCopy" class="btn-text" type="button">{{ t("Änderungen kopieren") }}</button>
+                <button id="btnSaveReviewCopyDetails" class="btn-text" type="button">{{ t("Diagnose kopieren") }}</button>
+            </div>
+            <div class="save-review-assurance">
+                <span>{{ t("Backup wird automatisch erstellt") }}</span>
+                <span>{{ t("Parallele Änderungen werden erkannt") }}</span>
+                <span>{{ t("Schreibschutz wird vor dem Speichern geprüft") }}</span>
+            </div>
+            <div class="modal-actions">
+                <button id="btnSaveReviewCancel" class="btn btn-secondary" type="button">{{ t("Abbrechen") }}</button>
+                <button id="btnSaveReviewConfirm" class="btn btn-save" type="button">{{ t("Backup erstellen & speichern") }}</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restore Review Modal -->
+    <div id="restoreReviewOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box restore-review-box">
+            <div class="save-review-header">
+                <div>
+                    <div class="eyebrow">{{ t("Backup wiederherstellen") }}</div>
+                    <h3>{{ t("Restore sorgfältig prüfen") }}</h3>
+                    <p>{{ t("Die aktuelle Welt wird vor dem Restore automatisch gesichert. Ungespeicherte UI-Änderungen gehen dabei verloren.") }}</p>
+                </div>
+                <button id="btnRestoreReviewClose" class="btn-text" type="button">{{ t("Schließen") }}</button>
+            </div>
+            <div id="restoreReviewSummary" class="restore-review-summary"></div>
+            <div class="restore-confirm-box">
+                <label for="restoreConfirmInput">{{ t("Dieses Backup ersetzt die komplette Welt — auch Änderungen, die nach dem Backup gespeichert wurden, gehen verloren. Damit das nicht versehentlich passiert, tippe zur Bestätigung") }} <strong>{{ t("WIEDERHERSTELLEN") }}</strong>.</label>
+                <input id="restoreConfirmInput" type="text" autocomplete="off" spellcheck="false" placeholder="{{ t('WIEDERHERSTELLEN') }}" />
+            </div>
+            <div class="modal-actions">
+                <button id="btnRestoreReviewCancel" class="btn btn-secondary" type="button">{{ t("Abbrechen") }}</button>
+                <button id="btnRestoreReviewConfirm" class="btn btn-danger" type="button" disabled>{{ t("Backup wiederherstellen") }}</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Copy Fallback Modal -->
+    <div id="copyFallbackOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box copy-fallback-box">
+            <div class="save-review-header">
+                <div>
+                    <div class="eyebrow">{{ t("Kopieren") }}</div>
+                    <h3>{{ t("Manuell kopieren") }}</h3>
+                    <p>{{ t("Der Browser hat den automatischen Zwischenablagezugriff blockiert. Der Text ist markiert und kann mit Strg+C kopiert werden.") }}</p>
+                </div>
+                <button id="btnCopyFallbackClose" class="btn-text" type="button">{{ t("Schließen") }}</button>
+            </div>
+            <textarea id="copyFallbackText" class="copy-fallback-text" readonly spellcheck="false"></textarea>
+            <div class="modal-actions">
+                <button id="btnCopyFallbackSelect" class="btn btn-secondary" type="button">{{ t("Alles markieren") }}</button>
+                <button id="btnCopyFallbackDone" class="btn btn-primary" type="button">{{ t("Fertig") }}</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Player migration technical details -->
+    <div id="stateTransferDetailsOverlay"
+         class="modal-overlay state-transfer-details-overlay"
+         style="display:none;"
+         aria-hidden="true">
+        <div class="modal-box state-transfer-details-modal"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="stateTransferDetailsTitle"
+             aria-describedby="stateTransferDetailsIntro">
+            <div class="state-transfer-details-header">
+                <div>
+                    <div class="eyebrow">{{ t("Spielermigration") }}</div>
+                    <h3 id="stateTransferDetailsTitle">{{ t("Technische Migrationsdetails") }}</h3>
+                    <p id="stateTransferDetailsIntro">{{ t("Diese Felder werden gemäß der Vorschau übernommen, entfernt, erhalten oder übersprungen.") }}</p>
+                </div>
+                <button id="btnCloseStateTransferDetails" class="btn-text" type="button">{{ t("Schließen") }}</button>
+            </div>
+            <div id="stateTransferDetailsBody" class="state-transfer-details-body"></div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display:none;">
+        <div class="loading-box">
+            <div class="loading-spinner"></div>
+            <div class="loading-progress" aria-hidden="true"><span></span></div>
+            <div class="loading-text" id="loadingText">{{ t("Lade...") }}</div>
+        </div>
+    </div>
+
+    <!-- Item Browser Modal -->
+    <div id="itemBrowserOverlay" class="modal-overlay" style="display:none;" aria-hidden="true">
+        <div class="modal-box browser-box" role="dialog" aria-modal="true" aria-labelledby="itemBrowserTitle">
+            <div class="browser-header">
+                <h3 id="itemBrowserTitle">{{ t("📖 Item-Browser") }}</h3>
+                <button id="btnBrowserClose" class="btn-text" type="button">{{ t("✕ Schließen") }}</button>
+            </div>
+            <div class="browser-search browser-search-advanced">
+                <input type="text" id="browserSearchInput" placeholder="{{ t('Nach Item suchen, z. B. diamant, sword, apple…') }}" autofocus />
+                <select id="browserCategorySelect" class="select-field" title="{{ t('Item-Kategorie') }}">
+                    <option value="all">{{ t("Alle Kategorien") }}</option>
+                    <option value="common">{{ t("Häufig genutzt") }}</option>
+                    <option value="weapons">{{ t("Waffen & Werkzeuge") }}</option>
+                    <option value="armor">{{ t("Rüstung") }}</option>
+                    <option value="food">{{ t("Nahrung") }}</option>
+                    <option value="blocks">{{ t("Blöcke") }}</option>
+                    <option value="materials">{{ t("Materialien") }}</option>
+                    <option value="consumables">{{ t("Tränke & Verbrauchbares") }}</option>
+                    <option value="redstone">Redstone</option>
+                    <option value="transport">{{ t("Transport") }}</option>
+                    <option value="containers">{{ t("Behälter") }}</option>
+                    <option value="spawn_eggs">{{ t("Spawn-Eier") }}</option>
+                    <option value="other">{{ t("Sonstiges") }}</option>
+                </select>
+                <select id="browserSortSelect" class="select-field" title="{{ t('Sortierung') }}">
+                    <option value="type">{{ t("Nach Typ") }}</option>
+                    <option value="az">A-Z</option>
+                </select>
+            </div>
+            <div class="browser-grid" id="browserGrid">
+                <!-- JS will populate items -->
+            </div>
+            <div class="browser-footer">
+                <span id="browserCount">0 Items</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="helpOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box help-box">
+            <div class="help-header">
+                <h3>{{ t("⌨️ Tastenkürzel & Tipps") }}</h3>
+                <button id="btnHelpClose" class="btn-text">{{ t("✕ Schließen") }}</button>
+            </div>
+            <div class="help-content">
+                <table class="help-table">
+                    <tr><td><kbd>Strg+Z</kbd></td><td>{{ t("Rückgängig") }}</td></tr>
+                    <tr><td><kbd>Strg+Y</kbd></td><td>{{ t("Wiederholen") }}</td></tr>
+                    <tr><td><kbd>Strg+S</kbd></td><td>{{ t("Änderungen prüfen & speichern") }}</td></tr>
+                    <tr><td><kbd>Strg+F</kbd></td><td>{{ t("Inventar-Suche fokussieren") }}</td></tr>
+                    <tr><td><kbd>Esc</kbd></td><td>{{ t("Dialoge schließen oder Slot-Auswahl aufheben") }}</td></tr>
+                    <tr><td><kbd>Strg</kbd> {{ t("+ Klick") }}</td><td>{{ t("Mehrere Slots auswählen") }}</td></tr>
+                    <tr><td><kbd>Rechtsklick</kbd> {{ t("auf Slot") }}</td><td>{{ t("Kontextmenü (Kopieren / Ausschneiden / Einfügen / Leeren)") }}</td></tr>
+                    <tr><td>{{ t("Slot ziehen & ablegen") }}</td><td>{{ t("Item in anderen Slot verschieben") }}</td></tr>
+                    <tr><td>{{ t("Schnellaktionen") }}</td><td>{{ t("Slot leeren, Max-Stack setzen oder beschädigte Items reparieren") }}</td></tr>
+                    <tr><td>{{ t("Übersicht") }}</td><td>{{ t("Inventar-Zähler und Sitzungs-Verlauf helfen beim Nachvollziehen vor dem Speichern") }}</td></tr>
+                </table>
+                <hr>
+                <div class="help-principles">
+                    <strong>{{ t("Sicher arbeiten") }}</strong>
+                    <ul>
+                        <li>{{ t("Normale Editor-Änderungen bleiben lokal, bis du sie in der Speichern-Ansicht bestätigst. Import und Spielermigration besitzen eine eigene Bestätigung.") }}</li>
+                        <li>{{ t("Normale Saves und Spielermigrationen erhalten geschützte oder unbekannte NBT-Daten. Ein vollständiger Player-Import ersetzt dagegen den gesamten Ziel-Datensatz.") }}</li>
+                        <li>{{ t("Spielermigrationen findest du direkt unter Spieler → Singleplayer ↔ Multiplayer. Sie benötigen einen vorhandenen lokalen und Multiplayer-Spieler.") }}</li>
+                        <li>{{ t("Ist eine Aktion blockiert, findest du den Grund unter Werkzeuge → Status & Diagnose.") }}</li>
+                        <li>{{ t("Schließe Minecraft oder den Bedrock-Server vor jeder Schreib- oder Wiederherstellungsaktion.") }}</li>
+                    </ul>
+                </div>
+                <p class="help-hint">{{ t("💡 Vor jedem tatsächlichen Welt-Write wird automatisch ein ZIP-Backup erstellt. Backups findest du unter Werkzeuge → Backup-Manager.") }}</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='i18n.js') }}"></script>
+    <script src="{{ url_for('static', filename='api_client.js') }}"></script>
+    <script src="{{ url_for('static', filename='app_bootstrap.js') }}"></script>
+    <script src="{{ url_for('static', filename='html_utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='status_store.js') }}"></script>
+    <script src="{{ url_for('static', filename='status_stack_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='state_snapshot.js') }}"></script>
+    <script src="{{ url_for('static', filename='equipment_rules.js') }}"></script>
+    <script src="{{ url_for('static', filename='inventory_state.js') }}"></script>
+    <script src="{{ url_for('static', filename='selection_state.js') }}"></script>
+    <script src="{{ url_for('static', filename='inventory_clipboard_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='slot_interaction_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='bulk_edit_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='entity_variant_editor.js') }}"></script>
+    <script src="{{ url_for('static', filename='slot_detail_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='enchantment_editor_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='session_log.js') }}"></script>
+    <script src="{{ url_for('static', filename='item_catalog.js') }}"></script>
+    <script src="{{ url_for('static', filename='item_availability.js') }}"></script>
+    <script src="{{ url_for('static', filename='item_browser_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='item_browser_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='enchantments_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='slot_display.js') }}"></script>
+    <script src="{{ url_for('static', filename='inventory_rendering.js') }}"></script>
+    <script src="{{ url_for('static', filename='inventory_view_preferences.js') }}"></script>
+    <script src="{{ url_for('static', filename='world_cards_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='world_browser.js') }}"></script>
+    <script src="{{ url_for('static', filename='world_analysis_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='world_status_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='workflow_state.js') }}"></script>
+    <script src="{{ url_for('static', filename='workspace_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='theme_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='ui_feedback.js') }}"></script>
+    <script src="{{ url_for('static', filename='undo_redo_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='undo_redo_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='ability_state.js') }}"></script>
+    <script src="{{ url_for('static', filename='ability_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='analysis_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='backups_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='backup_restore_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='data_source_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='status_center_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='diagnostics_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='effects_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='effects_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='icon_manager_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='icon_sources_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='nbt_inspector.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_compare_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_diagnostics.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_import_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_transfer_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_inventory_summary_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_view_models.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_api.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_load_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_load_app.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_tools.js') }}"></script>
+    <script src="{{ url_for('static', filename='mount_api.js') }}"></script>
+    <script src="{{ url_for('static', filename='mount_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='mount_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='presence_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='restore_review.js') }}"></script>
+    <script src="{{ url_for('static', filename='scan_paths_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='scan_paths_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='save_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='save_payload_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='save_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='save_review_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='save_workflow_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='write_status_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='update_db_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='first_run_setup_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='app_state_bridge.js') }}"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

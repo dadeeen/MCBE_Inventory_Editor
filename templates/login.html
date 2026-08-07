@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="{{ app_locale }}">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ t("MCBE Inventory Editor - Login") }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body class="login-page">
+    <main class="login-shell">
+        <section class="glass-card login-card">
+            <header class="login-header">
+                <h1>MCBE Inventory Editor</h1>
+                <p>{{ t("Authentifizierung erforderlich.") }}</p>
+            </header>
+            {% if error %}
+            <div class="status error">{{ error }}</div>
+            {% endif %}
+            <form method="post" autocomplete="off" class="login-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}" />
+                <div class="field-group">
+                    <label for="username">{{ t("Benutzername") }}</label>
+                    <input id="username" name="username" type="text" value="{{ auth_username }}" autocomplete="username" required autofocus />
+                </div>
+                <div class="field-group">
+                    <label for="password">{{ t("Passwort") }}</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required />
+                </div>
+                <button class="btn btn-primary full-width" type="submit">{{ t("Anmelden") }}</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

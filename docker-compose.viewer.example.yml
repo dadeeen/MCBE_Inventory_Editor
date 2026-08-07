@@ -1,0 +1,46 @@
+services:
+  mcbe-editor-viewer:
+    build: .
+    container_name: mcbe-editor-viewer
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      # Only expose this port inside a trusted LAN, never directly to the internet.
+      - "8088:8080"
+    environment:
+      MCBE_READ_ONLY: "true"
+
+      # Viewer mode blocks writes while still allowing read-only world and player
+      # views when the Bedrock server is running or its status is unknown.
+      # Keeping this setting conservatively enabled is therefore safe for viewer deployments.
+      MCBE_REQUIRE_SERVER_OFFLINE: "true"
+
+      # Optional, only for status display and diagnostics with real server worlds:
+      # MCBE_SERVER_HOST: "192.168.1.10"
+      # IPv6 is also supported without URL brackets:
+      # MCBE_SERVER_HOST: "fd00:1234:5678::10"
+      # MCBE_SERVER_PORT: "19132"
+
+      # The first-open web setup configures authentication. For unattended deployments,
+      # prefer MCBE_AUTH_REQUIRED=true together with MCBE_AUTH_PASSWORD_HASH.
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # Second viewer protection layer: mount the host world directory read-only.
+      - /PATH/TO/BEDROCK/WORLDS:/worlds:ro
+
+      # Operational data remains writable: setup decision, audit log, and diagnostics.
+      - mcbe-editor-viewer-data:/data:rw
+
+volumes:
+  mcbe-editor-viewer-data:

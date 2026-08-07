@@ -1,0 +1,103 @@
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/.pytest-*/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.nox/
+.tox/
+.pyre/
+.pyright/
+.pytype/
+.pip-tools-cache/
+.lockcheck/
+.tmp/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Python packaging artifacts
+build/
+*.egg
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Local logs and OS/editor noise
+*.log
+*.log.*
+*.jsonl
+*.jsonl.*
+*.tmp
+*.bak
+*.orig
+*.swp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+/diagnostics
+
+# Local virtual environments
+.venv/
+venv/
+node_modules/
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+
+# Portable app/runtime data
+/data/
+/setup.json
+/settings.json
+/cache/item_update/
+/.cache_item_update/
+
+# Generated backups and player exports
+*_backups/
+*_restoring/
+*_restoring_*/
+*_rollback_/
+*_rollback_*/
+player_exports/
+*.mcbe-player.zip
+*.mcbe-player-bundle.zip
+player_raw_export_index.json
+
+# Build and release artifacts
+dist/
+RELEASE_MANIFEST.json
+*.zip
+!tests/fixtures/public_scanner_world.zip
+
+# Local Playwright CLI artifacts
+.playwright-cli/
+test-results/
+playwright-report/
+
+# Local development-tool and editor state
+/.agents/
+/.claude/
+/.codex/
+AGENTS.md
+
+# Local IDE state
+/.idea/
+/.vscode/
+
+# Private Bedrock worlds / fixture staging
+fixtures/private/
+*.mcworld
+*.mcpack
+*.mcaddon
+Sample-World.zip
+*.private.fixture.zip
+*.metadata-sanitized.zip
+
+# Vendored upstream assets when staged locally
+/vendor

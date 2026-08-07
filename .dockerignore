@@ -1,0 +1,100 @@
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-*/
+.ruff_cache/
+.mypy_cache/
+.pip-tools-cache/
+.lockcheck/
+.tmp/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+diagnostics/
+
+# Local logs and OS/editor noise
+*.log
+*.log.*
+*.jsonl
+*.jsonl.*
+*.tmp
+*.bak
+*.orig
+*.swp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local virtual environments
+.venv/
+venv/
+node_modules/
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+
+# Git metadata
+.git/
+
+# Local browser, editor and development-tool state
+.agents/
+.claude/
+.codex/
+.idea/
+.playwright-cli/
+.vscode/
+test-results/
+playwright-report/
+
+# CI, tests and development-only material are not runtime image inputs
+.github/
+docs/
+fixtures/
+tests/
+package.json
+package-lock.json
+playwright.config.mjs
+requirements/*.in
+requirements/README.md
+
+# Portable app/runtime data
+data/
+setup.json
+settings.json
+source_version.json
+source_version_history.json
+cache/item_update/
+.cache_item_update/
+
+# Generated backups and player exports
+*_backups/
+*_restoring/
+*_restoring_*/
+*_rollback_/
+*_rollback_*/
+player_exports/
+*.mcbe-player.zip
+*.mcbe-player-bundle.zip
+player_raw_export_index.json
+
+# Build and release artifacts
+dist/
+RELEASE_MANIFEST.json
+*.zip
+
+# Private Bedrock worlds / fixture staging
+fixtures/private/
+*.mcworld
+*.mcpack
+*.mcaddon
+Sample-World.zip
+*.private.fixture.zip
+*.metadata-sanitized.zip
+
+# Vendored upstream assets when staged locally
+/vendor

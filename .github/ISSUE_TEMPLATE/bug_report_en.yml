@@ -1,0 +1,58 @@
+name: Bug report (English)
+description: Report a problem with MCBE Inventory Editor
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please **do not attach real worlds, player names, player exports, or backups**.
+        Sanitized screenshots and diagnostic reports without personal data are welcome.
+        Report suspected security vulnerabilities privately as described in the [Security Policy](https://github.com/dadeeen/MCBE_Inventory_Editor/security/policy), not through this form.
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Local Mode (Windows, start.bat)
+        - Docker/LAN Mode
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system / environment
+      placeholder: e.g. Windows 11, Ubuntu 24.04 LXC, Docker Desktop
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Project version or commit
+      description: Copy the version from the app header or Status & Diagnostics. Source users may provide the commit hash.
+      placeholder: e.g. vX.Y.Z or a commit hash
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Select a world ...
+        2. Load a player ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / error message
+      description: Paste errors as text. Status & Diagnostics provides copyable, sanitized reports.
+    validations:
+      required: true

@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-06-26T15:38:59+00:00",
+  "microsoft_item_listing_content_hash": "132b45367b5b48ed19163ade18416396006e0125b0406bd49ac1848268eb408c",
+  "microsoft_item_listing_count": 1764,
+  "microsoft_item_listing_fetched_at": "2026-06-26T15:38:59+00:00",
+  "microsoft_item_listing_url": "https://learn.microsoft.com/en-us/minecraft/creator/reference/content/vanillalistingsreference/items?view=minecraft-bedrock-stable",
+  "resource_pack_asset": "bedrock-samples-v1.26.30.5-min.zip",
+  "resource_pack_asset_size": 14489889,
+  "resource_pack_fetched_at": "2026-06-26T15:12:10+00:00",
+  "resource_pack_release": "v1.26.30.5",
+  "resource_pack_url": "https://github.com/Mojang/bedrock-samples/releases/download/v1.26.30.5/bedrock-samples-v1.26.30.5-min.zip"
+}

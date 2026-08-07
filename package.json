@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "test:browser": "python scripts/browser_smoke.py"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.57.0"
+  }
+}

@@ -1,0 +1,58 @@
+name: Fehlerbericht (Deutsch)
+description: Ein Problem mit dem MCBE Inventory Editor melden
+title: "[Fehler]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für deinen Bericht. Bitte **keine echten Welten, Spielernamen, Spielerexporte oder Backups anhängen**.
+        Bereinigte Screenshots und Diagnoseberichte ohne persönliche Daten sind willkommen.
+        Vermutete Sicherheitslücken bitte wie in der [Sicherheitsrichtlinie](https://github.com/dadeeen/MCBE_Inventory_Editor/security/policy) beschrieben privat und nicht über dieses Formular melden.
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Modus
+      options:
+        - Local Mode (Windows, start.bat)
+        - Docker/LAN Mode
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Betriebssystem / Umgebung
+      placeholder: z. B. Windows 11, Ubuntu 24.04 LXC, Docker Desktop
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Projektversion oder Commit
+      description: Kopiere die Version aus dem App-Header oder aus Status & Diagnose. Bei Nutzung des Source-Codes ist auch der Commit-Hash hilfreich.
+      placeholder: z. B. vX.Y.Z oder ein Commit-Hash
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zur Reproduktion
+      placeholder: |
+        1. Welt auswählen ...
+        2. Spieler laden ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Tatsächliches Verhalten / Fehlermeldung
+      description: Fehlermeldungen bitte als Text einfügen. Status & Diagnose bietet kopierbare, bereinigte Berichte.
+    validations:
+      required: true

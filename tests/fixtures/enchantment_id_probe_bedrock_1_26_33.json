@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "source": "Vanilla Minecraft Bedrock world probe",
+  "procedure": "Each identifier was applied by Minecraft to a separate compatible item. After Minecraft was closed, the raw local-player inventory NBT was read in readonly mode.",
+  "last_opened_with_version": [1, 26, 33, 1, 0],
+  "inventory_version": "1.26.33",
+  "network_version": 1001,
+  "observations": [
+    {
+      "identifier": "wind_burst",
+      "item": "minecraft:mace",
+      "inventory_slot": 28,
+      "list_tag": "ench",
+      "id_tag_type": "ShortTag",
+      "id": 38,
+      "level_tag_type": "ShortTag",
+      "level": 1
+    },
+    {
+      "identifier": "density",
+      "item": "minecraft:mace",
+      "inventory_slot": 29,
+      "list_tag": "ench",
+      "id_tag_type": "ShortTag",
+      "id": 39,
+      "level_tag_type": "ShortTag",
+      "level": 1
+    },
+    {
+      "identifier": "breach",
+      "item": "minecraft:mace",
+      "inventory_slot": 30,
+      "list_tag": "ench",
+      "id_tag_type": "ShortTag",
+      "id": 40,
+      "level_tag_type": "ShortTag",
+      "level": 1
+    },
+    {
+      "identifier": "lunge",
+      "item": "minecraft:copper_spear",
+      "inventory_slot": 31,
+      "list_tag": "ench",
+      "id_tag_type": "ShortTag",
+      "id": 41,
+      "level_tag_type": "ShortTag",
+      "level": 1
+    }
+  ]
+}

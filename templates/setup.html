@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="{{ app_locale }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t("MCBE Editor einrichten") }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="setup-body">
+    <main class="setup-shell">
+        <section class="setup-card glass-card">
+            <div class="setup-icon">🛡️</div>
+            <h1>{{ t("Ersteinrichtung") }}</h1>
+            <p class="setup-lead">
+                {{ t("Der Editor ist in") }} <strong>{{ mode }}</strong> {{ t("auf") }} <strong>{{ bind_host }}:{{ bind_port }}</strong> {{ t("erreichbar.") }}
+                {% if docker_mode %}
+                {{ t("Im Docker-/LAN-Modus können andere Geräte im Netzwerk diese Seite erreichen. Bitte wähle einmal bewusst, ob dieser Zugriff mit Passwort geschützt werden soll.") }}
+                {% else %}
+                {{ t("Diese Seite erscheint nur, weil Authentifizierung explizit angefordert wurde. Lokaler Standardbetrieb auf 127.0.0.1 braucht kein Passwort.") }}
+                {% endif %}
+            </p>
+            {% if docker_mode %}
+            <p class="setup-lead setup-secondary">
+                {{ t("Welten werden im Container unter") }} <code>{{ worlds_root }}</code> {{ t("gesucht. Dein echter Host-Weltenordner muss per Docker-Volume dorthin gemountet sein.") }}
+            </p>
+            {% endif %}
+
+            {% if errors %}
+            <div class="setup-errors">
+                {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="setup-choice-grid">
+                <form method="post" class="setup-choice recommended">
+                    <input type="hidden" name="_setup_token" value="{{ setup_token }}">
+                    <input type="hidden" name="action" value="password">
+                    <div class="choice-badge">{{ t("Empfohlen") }}</div>
+                    <h2>{{ t("Passwort aktivieren") }}</h2>
+                    <p>{{ t("Gut für Docker, LAN und mehrere Browser. Die Entscheidung wird in") }} <code>/data/setup.json</code> {{ t("gespeichert.") }}</p>
+                    <label>{{ t("Benutzername") }}
+                        <input type="text" name="username" value="{{ default_username }}" autocomplete="username" required>
+                    </label>
+                    <label>{{ t("Passwort") }}
+                        <input type="password" name="password" minlength="8" autocomplete="new-password" required>
+                    </label>
+                    <label>{{ t("Passwort wiederholen") }}
+                        <input type="password" name="password_confirm" minlength="8" autocomplete="new-password" required>
+                    </label>
+                    <button type="submit" class="btn btn-primary full-width">{{ t("Passwort speichern") }}</button>
+                </form>
+
+                <form method="post" class="setup-choice">
+                    <input type="hidden" name="_setup_token" value="{{ setup_token }}">
+                    <input type="hidden" name="action" value="open">
+                    <h2>{{ t("Offen weiter nutzen") }}</h2>
+                    {% if can_choose_open %}
+                    <p>{{ t("Nur sinnvoll, wenn der Zugriff bereits anderweitig begrenzt ist, z. B. per VPN, Firewall oder sehr kleinem vertrauenswürdigem LAN.") }}</p>
+                    <label class="setup-risk-check">
+                        <input type="checkbox" name="risk_ack" value="yes" required>
+                        {{ t("Ich verstehe: Wer diese Seite erreicht, kann Spielerdaten bearbeiten.") }}
+                    </label>
+                    <button type="submit" class="btn btn-secondary full-width">{{ t("Bewusst offen fortfahren") }}</button>
+                    {% else %}
+                    <p class="setup-disabled-note">{{ t("Diese Option ist deaktiviert, weil Authentifizierung explizit angefordert wurde.") }}</p>
+                    <button type="button" class="btn btn-secondary full-width" disabled>{{ t("Offener Betrieb deaktiviert") }}</button>
+                    {% endif %}
+                </form>
+            </div>
+
+            <p class="setup-footer-note">
+                {{ t("Später kannst du die Entscheidung über Umgebungsvariablen oder durch Entfernen der Setup-Datei ändern. Normale Offline-Nutzung bleibt unabhängig davon möglich.") }}
+            </p>
+        </section>
+    </main>
+</body>
+</html>

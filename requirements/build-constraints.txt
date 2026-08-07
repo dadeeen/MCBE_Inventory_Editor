@@ -1,0 +1,2 @@
+# Build-isolation constraint for the native Amulet packages.
+Cython<3.1
