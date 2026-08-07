@@ -82,13 +82,15 @@ Private Fixture-Welten gehören ausschließlich unter `fixtures/private/`; diese
 
 Lokale und Release-Umgebungen verwenden hashgebundene Abhängigkeiten für Python 3.12. Maßgeblich sind `pyproject.toml` und die Lockfiles; Versionen werden in dieser Richtlinie nicht dupliziert.
 
-Vollständige lokale Sicherheitsprüfung:
+Vollständige lokale Sicherheitsprüfung. Führe zuerst einmal `setup.bat` aus, falls `.venv` noch nicht existiert; das erstellt die Umgebung mit Python 3.12. Die Befehle rufen diesen Interpreter direkt auf, da ein globaler die Entwicklungsabhängigkeiten systemweit installieren würde:
 
 ```bash
-python -m pip install --require-hashes -r requirements/bootstrap.lock
-python -m pip install --require-hashes -r requirements/dev.lock
-python scripts/security_check.py --require-pip-audit
+.venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
+.venv/Scripts/python -m pip install --require-hashes -r requirements/dev.lock
+.venv/Scripts/python scripts/security_check.py --require-pip-audit
 ```
+
+Unter Linux und macOS lautet der Interpreter `.venv/bin/python`.
 
 Abhängigkeitsfunde sind Release-Signale, kein Laufzeitschutz. Aktualisiere betroffene Pakete gezielt und wiederhole die vollständigen Test- und Release-Prüfungen; führe keine breiten automatischen Upgrades aus.
 

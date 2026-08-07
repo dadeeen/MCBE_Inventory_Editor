@@ -82,13 +82,15 @@ Private fixture worlds belong only under `fixtures/private/`, which is ignored a
 
 Local and release environments use hash-pinned dependencies for Python 3.12. The authoritative versions are in `pyproject.toml` and the lockfiles rather than duplicated in this policy.
 
-For a full local security check:
+For a full local security check. Run `setup.bat` once first if `.venv` does not exist yet; it creates the environment on Python 3.12. The commands call that interpreter directly, because a global one would install the development dependencies system-wide:
 
 ```bash
-python -m pip install --require-hashes -r requirements/bootstrap.lock
-python -m pip install --require-hashes -r requirements/dev.lock
-python scripts/security_check.py --require-pip-audit
+.venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
+.venv/Scripts/python -m pip install --require-hashes -r requirements/dev.lock
+.venv/Scripts/python scripts/security_check.py --require-pip-audit
 ```
+
+On Linux and macOS the interpreter is `.venv/bin/python`.
 
 Dependency findings are release signals, not runtime protection. Update affected packages deliberately and rerun the complete test and release checks; do not apply broad automatic upgrades.
 

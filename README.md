@@ -156,14 +156,20 @@ sudo find "$WORLDS_ROOT" -type d -exec setfacl -m d:u:10001:rwX {} +
 
 The default ACL on each directory lets newly created files and subdirectories inherit editor access. Continue to mount the common worlds directory rather than one individual world so restore and rollback can create their safe temporary sibling paths.
 
-Verify the actual world directory afterwards:
+Verify the actual world directory afterwards. `ls /worlds` prints the real folder names, so set `WORLD` to one of them rather than leaving the placeholder in place:
 
 ```bash
 docker exec mcbe-editor sh -lc '
 id
-test -w /worlds/MyWorld/db &&
-  echo "World database is writable" ||
+ls /worlds
+WORLD=/worlds/MyWorld/db
+if [ ! -d "$WORLD" ]; then
+  echo "Path not found: $WORLD"
+elif [ -w "$WORLD" ]; then
+  echo "World database is writable"
+else
   echo "World database is NOT writable"
+fi
 '
 ```
 
@@ -235,12 +241,14 @@ A complete `.mcbe-player.zip` import is different: it writes the exported player
 
 Player exports contain raw, non-anonymized NBT data. Treat them as private and do not attach them to public issues or commit them to a repository.
 
-For private CLI diagnostics:
+For private CLI diagnostics. The commands call the interpreter from `.venv`, because the Amulet dependencies are not installed globally:
 
 ```bash
-python scripts/export_player_raws.py list --world "/PATH/TO/WORLD"
-python scripts/export_player_raws.py export --world "/PATH/TO/WORLD" --all --bundle-zip
+.venv/Scripts/python scripts/export_player_raws.py list --world "/PATH/TO/WORLD"
+.venv/Scripts/python scripts/export_player_raws.py export --world "/PATH/TO/WORLD" --all --bundle-zip
 ```
+
+On Linux and macOS the interpreter is `.venv/bin/python`.
 
 ## Experimental mounts
 
