@@ -15,9 +15,34 @@
         return escapeHtml(value);
     }
 
+    // Backend-Zeitstempel kommen als ISO-UTC-Wert. Formatiert wird erst an der
+    // Anzeigegrenze, in der aktiven Seitensprache und der Zeitzone des Browsers
+    // -- so wie die Oberfläche Serverzeitstempel auch sonst schon darstellt.
+    // Ein Monatsname statt reiner Ziffern ist hier Absicht: "03.08." liest sich
+    // je nach Locale als 3. August oder 8. März, und bei Backups entscheidet
+    // dieses Datum, welches Archiv jemand wiederherstellt.
+    // fallback trägt die fertige Server-Anzeige für Altbestände ohne ISO-Wert.
+    function formatTimestamp(isoValue, fallback = "") {
+        const raw = String(isoValue ?? "").trim();
+        if (!raw) return String(fallback ?? "");
+        const date = new Date(raw);
+        if (Number.isNaN(date.getTime())) return String(fallback ?? "") || raw;
+        try {
+            const formatted = window.MCBEI18n?.formatDate?.(date, { dateStyle: "medium", timeStyle: "medium" });
+            if (formatted) return formatted;
+        } catch (_e) {
+            // Intl-Implementierungen ohne dateStyle/timeStyle werfen hier. Ein
+            // Formatierungsproblem darf die aufrufende Ansicht nicht mitreißen:
+            // in der Backupliste käme sonst eine vollständig geladene Liste als
+            // "Fehler beim Laden der Backups" beim Benutzer an.
+        }
+        return date.toLocaleString();
+    }
+
     window.MCBEHtmlUtils = {
         escapeAttr,
         escapeHtml,
+        formatTimestamp,
     };
 }());
 

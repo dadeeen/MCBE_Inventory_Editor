@@ -53,6 +53,18 @@
         return backup.kind_label || t("Legacy");
     }
 
+    function backupTimestamp(isoValue, fallback) {
+        if (window.MCBEHtmlUtils?.formatTimestamp) return window.MCBEHtmlUtils.formatTimestamp(isoValue, fallback);
+        return String(fallback ?? "");
+    }
+
+    function backupTimestampTitle(backup = {}) {
+        // Der Dateiname trägt den UTC-Zeitpunkt, die Anzeige die Browserzeit.
+        // Der Tooltip macht den Unterschied nachprüfbar statt verwirrend.
+        if (!backup.created_at) return "";
+        return ` title="${escapeHtml(t("UTC-Zeitstempel: {value}", { value: backup.created_at }))}"`;
+    }
+
     function backupRowHtml(backup = {}, { readOnly = false } = {}) {
         const kindLabel = backupKindLabel(backup);
         const deleteTitle = readOnly ? t("Read-Only-Modus: Backups können nicht gelöscht werden.") : t("Backup löschen");
@@ -62,7 +74,7 @@
                     <span class="backup-kind backup-kind-${escapeHtml(backup.kind || "legacy")}">${escapeHtml(kindLabel)}</span>
                     <span class="backup-filename" title="${escapeHtml(backup.filename)}">${escapeHtml(backup.filename)}</span>
                 </div>
-                <span class="backup-meta">${escapeHtml(backup.date)} &nbsp;•&nbsp; ${escapeHtml(backup.size_mb)} MB</span>
+                <span class="backup-meta"><span${backupTimestampTitle(backup)}>${escapeHtml(backupTimestamp(backup.created_at, backup.date))}</span> &nbsp;•&nbsp; ${escapeHtml(backup.size_mb)} MB</span>
             </div>
             <div class="backup-actions">
                 <button class="btn btn-secondary btn-sm restore-btn" type="button" data-backup-filename="${escapeHtml(backup.filename)}">🔄 ${t("Wiederherstellen")}</button>

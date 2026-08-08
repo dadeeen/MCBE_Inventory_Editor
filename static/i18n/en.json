@@ -882,6 +882,7 @@
   "Vor Wiederherstellung: max. {count}": "Pre-restore: max. {count}",
   "Vor Wiederherstellung: unbegrenzt": "Pre-restore: unlimited",
   "Vor Wiederherstellung": "Pre-restore",
+  "UTC-Zeitstempel: {value}": "UTC timestamp: {value}",
   "Ort: {dir}": "Location: {dir}",
   "Aufbewahrung: {automatic} · {recovery} · Manuell: bis zur Löschung geschützt": "Retention: {automatic} · {recovery} · manual: protected until deleted",
   "Read-Only-Modus: Backups können nicht gelöscht werden.": "Read-only mode: backups cannot be deleted.",

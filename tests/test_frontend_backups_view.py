@@ -418,6 +418,59 @@ def test_frontend_backups_view_localizes_kind_badges_from_the_stable_kind() -> N
     )
 
 
+def test_frontend_backups_view_renders_localized_timestamps_with_utc_tooltip() -> None:
+    """The list date follows the page language; legacy archives keep theirs.
+
+    ``created_at`` is null for archives without metadata, and only then does the
+    server fall back to an mtime-derived string -- so dropping that fallback
+    would blank the date on exactly the oldest backups.
+    """
+
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
+            const code = fs.readFileSync("static/backups_view.js", "utf8");
+            const translations = { "UTC-Zeitstempel: {value}": "UTC timestamp: {value}" };
+            const context = { window: {} };
+            vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
+            context.window.MCBEI18n = {
+                formatDate: (date, options) =>
+                    new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" }).format(date),
+            };
+            context.window.t = (text, params) =>
+                String(translations[text] || text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m));
+            vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+
+            const html = context.window.MCBEBackupsView.backupsListHtml({
+                success: true,
+                backup_dir: "C:/Backups",
+                backups: [
+                    {
+                        filename: "300125__automatic__20260803T165629Z.zip",
+                        kind: "automatic",
+                        created_at: "2026-08-03T16:56:29Z",
+                        date: "03.08.2026 18:56:29",
+                        size_mb: 236.59,
+                    },
+                    { filename: "300125__legacy.zip", kind: "legacy", date: "12.07.2026 12:00:00", size_mb: 1.25 },
+                ],
+            });
+
+            assert.ok(html.includes("Aug 3, 2026"), html);
+            assert.ok(!html.includes("03.08.2026 18:56:29"), html);
+            assert.ok(html.includes('title="UTC timestamp: 2026-08-03T16:56:29Z"'), html);
+            assert.ok(html.includes("12.07.2026 12:00:00"), html);
+            // The archive without an ISO value gets no tooltip it cannot fill.
+            assert.strictEqual((html.match(/UTC timestamp/g) || []).length, 1);
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_deletes_backup_after_confirmation_and_refreshes() -> None:
     _run_node(
         textwrap.dedent(

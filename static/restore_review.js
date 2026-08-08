@@ -36,6 +36,11 @@
             .replaceAll("'", "&#039;");
     }
 
+    function backupTimestamp(isoValue, fallback) {
+        if (window.MCBEHtmlUtils?.formatTimestamp) return window.MCBEHtmlUtils.formatTimestamp(isoValue, fallback);
+        return String(fallback ?? "");
+    }
+
     function restoreReviewHtml(model = {}) {
         const backup = model.backup || {};
         const filename = model.filename || "";
@@ -47,7 +52,7 @@
         </div>
         <div class="restore-meta-grid">
             <div><span>Backup</span><strong>${escapeHtml(backup.filename || filename)}</strong></div>
-            <div><span>${t("Geändert")}</span><strong>${escapeHtml(backup.modified || t("unbekannt"))}</strong></div>
+            <div><span>${t("Geändert")}</span><strong${backup.created_at ? ` title="${escapeHtml(t("UTC-Zeitstempel: {value}", { value: backup.created_at }))}"` : ""}>${escapeHtml(backupTimestamp(backup.created_at, backup.modified) || t("unbekannt"))}</strong></div>
             <div><span>ZIP</span><strong>${escapeHtml(String(backup.size_mb ?? "?"))} MB</strong></div>
             <div><span>${t("Entpackt")}</span><strong>${escapeHtml(String(backup.uncompressed_mb ?? "?"))} MB</strong></div>
         </div>
