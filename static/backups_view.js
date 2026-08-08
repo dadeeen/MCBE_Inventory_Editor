@@ -14,18 +14,33 @@
             .replaceAll("'", "&#039;");
     }
 
-    function backupFolderControls({ backupDir = "", dockerMode = false } = {}) {
-        const disabled = !backupDir || dockerMode;
+    function backupFolderUnavailableTitle(folderState) {
+        if (folderState === "loading") return t("Backupordner wird geladen...");
+        if (folderState === "unavailable") return t("Backupordner ist derzeit nicht verfügbar.");
+        return t("Bitte zuerst eine Welt laden.");
+    }
+
+    function backupFolderControls({ backupDir = "", dockerMode = false, folderState = "no-world" } = {}) {
+        const hasBackupDir = Boolean(String(backupDir ?? "").trim());
+        const unavailableTitle = backupFolderUnavailableTitle(folderState);
         return {
-            copyDisabled: !backupDir,
-            openDisabled: disabled,
-            openTitle: disabled ? t("Im Docker-/LAN-Modus nur Pfad kopieren.") : t("Backupordner im Dateimanager öffnen"),
+            copyDisabled: !hasBackupDir,
+            copyTitle: hasBackupDir ? t("Backupordner-Pfad kopieren") : unavailableTitle,
+            openDisabled: !hasBackupDir || dockerMode,
+            openTitle: !hasBackupDir
+                ? unavailableTitle
+                : dockerMode
+                    ? t("Im Docker-/LAN-Modus nur Pfad kopieren.")
+                    : t("Backupordner im Dateimanager öffnen"),
         };
     }
 
     function applyBackupFolderControls(elements = {}, model = {}) {
         const { copyButton = null, openButton = null } = elements;
-        if (copyButton) copyButton.disabled = Boolean(model.copyDisabled);
+        if (copyButton) {
+            copyButton.disabled = Boolean(model.copyDisabled);
+            copyButton.title = model.copyTitle || "";
+        }
         if (openButton) {
             openButton.disabled = Boolean(model.openDisabled);
             openButton.title = model.openTitle || "";
@@ -53,7 +68,7 @@
         return backup.kind_label || t("Legacy");
     }
 
-    function backupKindTitle(backup = {}) {
+    function backupKindExplanation(backup = {}) {
         // Das Label sagt, wann ein Archiv entstand -- die Aufbewahrungsregel
         // dahinter ist aber das, was bei der Auswahl zählt: nur manuelle
         // Backups überleben jede Rotation, und Pre-Restore-Archive haben ein
@@ -65,7 +80,7 @@
         if (backup.kind === "pre_restore") return t("Zustand der Welt unmittelbar vor einer Wiederherstellung. Eigenes Kontingent, unabhängig von den Speicher-Backups.");
         // Ein fehlendes kind wird oben wie legacy eingestuft -- Klasse und Label
         // sagen dann "Legacy", also muss die Erklärung mitkommen. Eine bekannte
-        // Kennung, die dieses Frontend nicht kennt, bleibt dagegen ohne Tooltip:
+        // Kennung, die dieses Frontend nicht kennt, bleibt dagegen ohne Erklärung:
         // über deren Rotation lässt sich hier nichts versprechen.
         if (!backup.kind || backup.kind === "legacy") return t("Älteres Archiv ohne Metadaten. Wird wie ein automatisches Backup rotiert.");
         return "";
@@ -76,30 +91,68 @@
         return String(fallback ?? "");
     }
 
+    function backupIsoTimestamp(backup = {}) {
+        return backup.created_at || backup.modified_at || "";
+    }
+
     function backupTimestampTitle(backup = {}) {
-        // Der Dateiname trägt den UTC-Zeitpunkt, die Anzeige die Browserzeit.
-        // Der Tooltip macht den Unterschied nachprüfbar statt verwirrend.
-        if (!backup.created_at) return "";
-        return ` title="${escapeHtml(t("UTC-Zeitstempel: {value}", { value: backup.created_at }))}"`;
+        // Die Anzeige folgt Browserzeitzone und Seitensprache; der Tooltip hält
+        // den zugrunde liegenden UTC-Wert überprüfbar.
+        if (backup.created_at) {
+            return ` title="${escapeHtml(t("UTC-Zeitstempel: {value}", { value: backup.created_at }))}"`;
+        }
+        if (backup.modified_at) {
+            return ` title="${escapeHtml(t("UTC-Änderungszeit: {value}", { value: backup.modified_at }))}"`;
+        }
+        return "";
     }
 
     function backupRowHtml(backup = {}, { readOnly = false } = {}) {
         const kindLabel = backupKindLabel(backup);
-        const kindTitle = backupKindTitle(backup);
+        const kindExplanation = backupKindExplanation(backup);
         const deleteTitle = readOnly ? t("Read-Only-Modus: Backups können nicht gelöscht werden.") : t("Backup löschen");
+        const kindClass = `backup-kind backup-kind-${escapeHtml(backup.kind || "legacy")}`;
+        const titleLineContents = `<span class="${kindClass}">${escapeHtml(kindLabel)}</span>
+                    <span class="backup-filename" title="${escapeHtml(backup.filename)}">${escapeHtml(backup.filename)}</span>`;
+        const titleBlock = kindExplanation
+            ? `<details class="backup-kind-details">
+                <summary class="backup-title-line" role="button" aria-expanded="false">${titleLineContents}</summary>
+                <div class="backup-kind-explanation">${escapeHtml(kindExplanation)}</div>
+            </details>`
+            : `<div class="backup-title-line">${titleLineContents}</div>`;
         return `<div class="backup-row">
             <div class="backup-info">
-                <div class="backup-title-line">
-                    <span class="backup-kind backup-kind-${escapeHtml(backup.kind || "legacy")}"${kindTitle ? ` title="${escapeHtml(kindTitle)}"` : ""}>${escapeHtml(kindLabel)}</span>
-                    <span class="backup-filename" title="${escapeHtml(backup.filename)}">${escapeHtml(backup.filename)}</span>
-                </div>
-                <span class="backup-meta"><span${backupTimestampTitle(backup)}>${escapeHtml(backupTimestamp(backup.created_at, backup.date))}</span> &nbsp;•&nbsp; ${escapeHtml(backup.size_mb)} MB</span>
+                ${titleBlock}
+                <span class="backup-meta"><span${backupTimestampTitle(backup)}>${escapeHtml(backupTimestamp(backupIsoTimestamp(backup), backup.date))}</span> &nbsp;•&nbsp; ${escapeHtml(backup.size_mb)} MB</span>
             </div>
             <div class="backup-actions">
                 <button class="btn btn-secondary btn-sm restore-btn" type="button" data-backup-filename="${escapeHtml(backup.filename)}">🔄 ${t("Wiederherstellen")}</button>
                 <button class="btn btn-secondary btn-sm delete-backup-btn" type="button" data-delete-backup-filename="${escapeHtml(backup.filename)}" title="${escapeHtml(deleteTitle)}"${readOnly ? " disabled" : ""}>🗑 ${t("Löschen")}</button>
             </div>
         </div>`;
+    }
+
+    function wireBackupKindDisclosures(root) {
+        root?.querySelectorAll?.("details.backup-kind-details").forEach(details => {
+            const summary = details.querySelector?.("summary.backup-title-line");
+            if (!summary || summary.dataset.backupKindDisclosureWired === "true") return;
+
+            const syncExpandedState = () => {
+                summary.setAttribute("aria-expanded", details.open ? "true" : "false");
+            };
+            summary.dataset.backupKindDisclosureWired = "true";
+            summary.addEventListener("keydown", event => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                // Nicht auf die browserabhängige Tastatur-Aktivierung von
+                // <summary> verlassen. preventDefault verhindert dabei ein
+                // zweites, natives Umschalten nach dem expliziten Toggle.
+                event.preventDefault();
+                details.open = !details.open;
+                syncExpandedState();
+            });
+            details.addEventListener("toggle", syncExpandedState);
+            syncExpandedState();
+        });
     }
 
     function backupsStatusHtml(status = "loading", message = "") {
@@ -161,11 +214,11 @@
             return appConfig.is_docker === true || appConfig.mode === "docker";
         }
 
-        function applyFolderControlsFor(backupDir) {
+        function applyFolderControlsFor(backupDir, folderState = "ready") {
             applyBackupFolderControls({
                 copyButton: copyFolderButton,
                 openButton: openFolderButton,
-            }, backupFolderControls({ backupDir, dockerMode: isDockerMode() }));
+            }, backupFolderControls({ backupDir, dockerMode: isDockerMode(), folderState }));
         }
 
         function createButtonWriteGateBlocked() {
@@ -177,8 +230,7 @@
         }
 
         function applyInitialState() {
-            if (copyFolderButton) copyFolderButton.disabled = true;
-            if (openFolderButton) openFolderButton.disabled = true;
+            applyFolderControlsFor("", getWorldPath() ? "loading" : "no-world");
             if (createButton && appConfig.read_only === true) {
                 createButton.disabled = true;
                 createButton.title = t("Read-Only-Modus: Backups können nicht erstellt werden.");
@@ -299,17 +351,21 @@
             if (!container) return;
             const requestId = ++backupsLoadRequestId;
             const requestedWorldPath = getWorldPath();
+            // Der Pfad gehört immer exakt zur zuletzt erfolgreich geladenen
+            // Liste. Schon während des Weltwechsels darf keine Aktion mehr auf
+            // den Ordner der vorherigen Welt zeigen.
+            lastBackupDir = "";
             if (!requestedWorldPath) {
                 // Ohne Welt kann die Anfrage nur scheitern -- der Server weist
                 // den leeren Pfad zurück, und die Ansicht meldete bisher einen
                 // Fehler, wo schlicht noch nichts ausgewählt war. Der Ordner
                 // der zuvor geladenen Welt darf dabei nicht offen bleiben.
-                lastBackupDir = "";
                 container.innerHTML = backupsStatusHtml("no-world");
-                applyFolderControlsFor("");
+                applyFolderControlsFor("", "no-world");
                 return false;
             }
             container.innerHTML = backupsStatusHtml("loading");
+            applyFolderControlsFor("", "loading");
             try {
                 const res = await fetch("/api/backups", {
                     method: "POST",
@@ -319,9 +375,10 @@
                 const data = await parseJsonResponse(res);
                 if (requestId !== backupsLoadRequestId || requestedWorldPath !== getWorldPath()) return false;
                 if (data.success) {
-                    lastBackupDir = data.backup_dir || "";
+                    lastBackupDir = String(data.backup_dir ?? "").trim();
                     container.innerHTML = backupsListHtml({ ...data, read_only: appConfig.read_only === true });
-                    applyFolderControlsFor(lastBackupDir);
+                    applyFolderControlsFor(lastBackupDir, lastBackupDir ? "ready" : "unavailable");
+                    wireBackupKindDisclosures(container);
                     container.querySelectorAll(".restore-btn[data-backup-filename]").forEach(button => {
                         button.addEventListener("click", () => {
                             // A world can change after this list was rendered but
@@ -347,12 +404,14 @@
                     container.innerHTML = backupsListHtml(data, {
                         errorMessage: buildErrorMessage(data, t("Fehler beim Laden der Backups.")),
                     });
+                    applyFolderControlsFor("", "unavailable");
                 }
                 return true;
             } catch (e) {
                 if (requestId !== backupsLoadRequestId || requestedWorldPath !== getWorldPath()) return false;
                 console.error("loadBackupsList:", e);
                 container.innerHTML = backupsStatusHtml("error");
+                applyFolderControlsFor("", "unavailable");
                 return false;
             }
         }
@@ -361,7 +420,10 @@
             applyInitialState();
             refreshButton?.addEventListener("click", loadBackupsList);
             openFolderButton?.addEventListener("click", openBackupFolder);
-            copyFolderButton?.addEventListener("click", () => copyTextToClipboard(lastBackupDir, t("Backupordner-Pfad kopiert.")));
+            copyFolderButton?.addEventListener("click", () => {
+                if (!lastBackupDir) return;
+                copyTextToClipboard(lastBackupDir, t("Backupordner-Pfad kopiert."));
+            });
             createButton?.addEventListener("click", createBackup);
         }
 
@@ -421,5 +483,6 @@
         backupFolderControls,
         backupsStatusHtml,
         backupsListHtml,
+        wireBackupKindDisclosures,
     };
 }());

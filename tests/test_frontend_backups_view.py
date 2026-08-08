@@ -57,15 +57,17 @@ def test_frontend_backups_view_folder_controls_and_applier() -> None:
             const view = context.window.MCBEBackupsView;
             const controls = view.backupFolderControls({ backupDir: "C:/Backups", dockerMode: false });
             assert.strictEqual(controls.copyDisabled, false);
+            assert.strictEqual(controls.copyTitle, "Backupordner-Pfad kopieren");
             assert.strictEqual(controls.openDisabled, false);
             assert.strictEqual(controls.openTitle, "Backupordner im Dateimanager öffnen");
 
             const buttons = {
-                copyButton: { disabled: true },
+                copyButton: { disabled: true, title: "" },
                 openButton: { disabled: true, title: "" },
             };
             view.applyBackupFolderControls(buttons, controls);
             assert.strictEqual(buttons.copyButton.disabled, false);
+            assert.strictEqual(buttons.copyButton.title, "Backupordner-Pfad kopieren");
             assert.strictEqual(buttons.openButton.disabled, false);
             assert.strictEqual(buttons.openButton.title, "Backupordner im Dateimanager öffnen");
 
@@ -74,6 +76,23 @@ def test_frontend_backups_view_folder_controls_and_applier() -> None:
             assert.strictEqual(buttons.copyButton.disabled, false);
             assert.strictEqual(buttons.openButton.disabled, true);
             assert.strictEqual(buttons.openButton.title, "Im Docker-/LAN-Modus nur Pfad kopieren.");
+
+            const noWorld = view.backupFolderControls({ dockerMode: true, folderState: "no-world" });
+            view.applyBackupFolderControls(buttons, noWorld);
+            assert.strictEqual(buttons.copyButton.disabled, true);
+            assert.strictEqual(buttons.openButton.disabled, true);
+            assert.strictEqual(buttons.copyButton.title, "Bitte zuerst eine Welt laden.");
+            assert.strictEqual(buttons.openButton.title, "Bitte zuerst eine Welt laden.");
+
+            const loading = view.backupFolderControls({ folderState: "loading" });
+            view.applyBackupFolderControls(buttons, loading);
+            assert.strictEqual(buttons.copyButton.title, "Backupordner wird geladen...");
+            assert.strictEqual(buttons.openButton.title, "Backupordner wird geladen...");
+
+            const unavailable = view.backupFolderControls({ folderState: "unavailable" });
+            view.applyBackupFolderControls(buttons, unavailable);
+            assert.strictEqual(buttons.copyButton.title, "Backupordner ist derzeit nicht verfügbar.");
+            assert.strictEqual(buttons.openButton.title, "Backupordner ist derzeit nicht verfügbar.");
             """
         )
     )
@@ -418,6 +437,110 @@ def test_frontend_backups_view_ignores_out_of_order_world_response() -> None:
     )
 
 
+def test_frontend_backups_view_invalidates_stale_folder_during_load_and_after_failures() -> None:
+    """Folder actions must always belong to the currently rendered world.
+
+    A successful response for world A used to leave its directory enabled while
+    world B was loading and even after B failed. Copying then silently copied
+    A's path although the list showed B's error.
+    """
+
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/backups_view.js", "utf8");
+
+            function deferred() {
+                let resolve;
+                const promise = new Promise(done => { resolve = done; });
+                return { promise, resolve };
+            }
+
+            const responseB = deferred();
+            let worldPath = "A";
+            const context = {
+                window: {},
+                console,
+                fetch: async (_url, init) => {
+                    const requestedWorld = JSON.parse(init.body).world_path;
+                    if (requestedWorld === "A") {
+                        return { json: async () => ({ success: true, backup_dir: "A:/Backups", backups: [] }) };
+                    }
+                    if (requestedWorld === "B") return responseB.promise;
+                    throw new Error("network unavailable");
+                },
+            };
+            vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+
+            (async () => {
+                const copied = [];
+                const container = { innerHTML: "", querySelectorAll: () => [] };
+                const copyButton = {
+                    disabled: false,
+                    title: "",
+                    listeners: {},
+                    addEventListener(type, fn) { this.listeners[type] = fn; },
+                };
+                const openButton = {
+                    disabled: false,
+                    title: "",
+                    listeners: {},
+                    addEventListener(type, fn) { this.listeners[type] = fn; },
+                };
+                const controller = context.window.MCBEBackupsView.createBackupsController({
+                    elements: { container, copyFolderButton: copyButton, openFolderButton: openButton },
+                    getWorldPath: () => worldPath,
+                    parseJsonResponse: response => response.json(),
+                    copyTextToClipboard: value => copied.push(value),
+                });
+                controller.wire();
+
+                await controller.loadBackupsList();
+                assert.strictEqual(copyButton.disabled, false);
+                assert.strictEqual(openButton.disabled, false);
+                copyButton.listeners.click();
+                assert.deepStrictEqual(copied, ["A:/Backups"]);
+
+                worldPath = "B";
+                const loadingB = controller.loadBackupsList();
+                assert.strictEqual(copyButton.disabled, true);
+                assert.strictEqual(openButton.disabled, true);
+                assert.strictEqual(copyButton.title, "Backupordner wird geladen...");
+                assert.strictEqual(openButton.title, "Backupordner wird geladen...");
+                // Even direct/programmatic dispatch cannot reuse A's path.
+                copyButton.listeners.click();
+                assert.deepStrictEqual(copied, ["A:/Backups"]);
+
+                responseB.resolve({ json: async () => ({ success: false, error: "B fehlt" }) });
+                await loadingB;
+                assert.ok(container.innerHTML.includes("B fehlt"), container.innerHTML);
+                assert.strictEqual(copyButton.disabled, true);
+                assert.strictEqual(openButton.disabled, true);
+                assert.strictEqual(copyButton.title, "Backupordner ist derzeit nicht verfügbar.");
+                assert.strictEqual(openButton.title, "Backupordner ist derzeit nicht verfügbar.");
+                copyButton.listeners.click();
+                assert.deepStrictEqual(copied, ["A:/Backups"]);
+
+                worldPath = "C";
+                const loadedC = await controller.loadBackupsList();
+                assert.strictEqual(loadedC, false);
+                assert.ok(container.innerHTML.includes("Fehler beim Laden der Backups."), container.innerHTML);
+                assert.strictEqual(copyButton.disabled, true);
+                assert.strictEqual(openButton.disabled, true);
+                assert.strictEqual(copyButton.title, "Backupordner ist derzeit nicht verfügbar.");
+                assert.strictEqual(openButton.title, "Backupordner ist derzeit nicht verfügbar.");
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_manual_backup_warns_after_successful_create_cleanup_failure() -> None:
     _run_node(
         textwrap.dedent(
@@ -556,13 +679,14 @@ def test_frontend_backups_view_localizes_kind_badges_from_the_stable_kind() -> N
     )
 
 
-def test_frontend_backups_view_explains_each_kind_with_a_retention_tooltip() -> None:
-    """The badge names the kind, the tooltip says what it means for retention.
+def test_frontend_backups_view_explains_each_kind_with_an_accessible_disclosure() -> None:
+    """The badge names the kind and a native disclosure explains retention.
 
     Only manual backups survive every rotation, and pre-restore archives hold
     their own quota so a run of ordinary saves cannot push them out. That
-    difference decides which archive is still there later, so it belongs on the
-    badge rather than in the documentation alone.
+    difference decides which archive is still there later. A ``details`` /
+    ``summary`` control keeps it available to keyboard and touch users instead
+    of hiding it in a pointer-only title attribute.
     """
 
     _run_node(
@@ -595,18 +719,22 @@ def test_frontend_backups_view_explains_each_kind_with_a_retention_tooltip() -> 
                 ],
             });
 
-            const chips = [...html.matchAll(/<span class="backup-kind backup-kind-([a-z_]+)"(?: title="([^"]*)")?>/g)]
-                .map(match => ({ kind: match[1], title: match[2] }));
+            const chips = [...html.matchAll(/<span class="backup-kind backup-kind-([a-z_]+)">/g)]
+                .map(match => match[1]);
             assert.deepStrictEqual(
-                chips.map(chip => chip.kind),
+                chips,
                 ["automatic", "manual", "pre_restore", "legacy", "future_kind"],
             );
-            assert.strictEqual(chips[0].title, "Created automatically before every save.");
-            assert.strictEqual(chips[1].title, "Created by hand. Kept until you delete it.");
-            assert.strictEqual(chips[2].title, "Own quota, separate from the save backups.");
-            assert.strictEqual(chips[3].title, "Older archive without metadata.");
-            // An unknown future kind gets no invented retention promise.
-            assert.strictEqual(chips[4].title, undefined);
+            assert.strictEqual((html.match(/<details class="backup-kind-details">/g) || []).length, 4);
+            assert.strictEqual((html.match(/<summary class="backup-title-line" role="button" aria-expanded="false">/g) || []).length, 4);
+            assert.ok(html.includes('<div class="backup-kind-explanation">Created automatically before every save.</div>'));
+            assert.ok(html.includes('<div class="backup-kind-explanation">Created by hand. Kept until you delete it.</div>'));
+            assert.ok(html.includes('<div class="backup-kind-explanation">Own quota, separate from the save backups.</div>'));
+            assert.ok(html.includes('<div class="backup-kind-explanation">Older archive without metadata.</div>'));
+            assert.ok(!html.includes('title="Created automatically before every save."'));
+            // An unknown future kind gets no invented retention promise and is
+            // therefore the only row without a disclosure.
+            assert.strictEqual((html.match(/backup-kind-explanation/g) || []).length, 4);
 
             // A missing kind is styled and labelled as legacy everywhere else,
             // so it must carry the legacy explanation rather than none at all.
@@ -614,21 +742,49 @@ def test_frontend_backups_view_explains_each_kind_with_a_retention_tooltip() -> 
                 success: true,
                 backups: [{ filename: "n.zip", date: "", size_mb: 1 }, { filename: "e.zip", kind: "", date: "", size_mb: 1 }],
             });
-            const untyped = [...withoutKind.matchAll(/<span class="backup-kind backup-kind-([a-z_]+)"(?: title="([^"]*)")?>/g)]
-                .map(match => ({ kind: match[1], title: match[2] }));
-            assert.deepStrictEqual(untyped.map(chip => chip.kind), ["legacy", "legacy"]);
-            assert.ok(untyped.every(chip => chip.title === "Older archive without metadata."), withoutKind);
+            const untyped = [...withoutKind.matchAll(/<span class="backup-kind backup-kind-([a-z_]+)">/g)]
+                .map(match => match[1]);
+            assert.deepStrictEqual(untyped, ["legacy", "legacy"]);
+            assert.strictEqual((withoutKind.match(/<details class="backup-kind-details">/g) || []).length, 2);
+            assert.strictEqual((withoutKind.match(/Older archive without metadata\./g) || []).length, 2);
+
+            const listeners = {};
+            const attributes = {};
+            const summary = {
+                dataset: {},
+                addEventListener(type, listener) { listeners[type] = listener; },
+                setAttribute(name, value) { attributes[name] = value; },
+            };
+            const detailsListeners = {};
+            const details = {
+                open: false,
+                querySelector: () => summary,
+                addEventListener(type, listener) { detailsListeners[type] = listener; },
+            };
+            context.window.MCBEBackupsView.wireBackupKindDisclosures({ querySelectorAll: () => [details] });
+            assert.strictEqual(attributes["aria-expanded"], "false");
+            let prevented = false;
+            listeners.keydown({ key: "Enter", preventDefault() { prevented = true; } });
+            assert.strictEqual(prevented, true);
+            assert.strictEqual(details.open, true);
+            assert.strictEqual(attributes["aria-expanded"], "true");
+            listeners.keydown({ key: " ", preventDefault() {} });
+            assert.strictEqual(details.open, false);
+            assert.strictEqual(attributes["aria-expanded"], "false");
+            details.open = true;
+            detailsListeners.toggle();
+            assert.strictEqual(attributes["aria-expanded"], "true");
             """
         )
     )
 
 
 def test_frontend_backups_view_renders_localized_timestamps_with_utc_tooltip() -> None:
-    """The list date follows the page language; legacy archives keep theirs.
+    """The list date follows the page language for modern and legacy archives.
 
-    ``created_at`` is null for archives without metadata, and only then does the
-    server fall back to an mtime-derived string -- so dropping that fallback
-    would blank the date on exactly the oldest backups.
+    ``created_at`` is null for archives without metadata, but ``modified_at`` is
+    an ISO-UTC filesystem timestamp. The German server string remains only as a
+    compatibility fallback for older API responses.
     """
 
     _run_node(
@@ -639,7 +795,10 @@ def test_frontend_backups_view_renders_localized_timestamps_with_utc_tooltip() -
             const vm = require("vm");
             const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
             const code = fs.readFileSync("static/backups_view.js", "utf8");
-            const translations = { "UTC-Zeitstempel: {value}": "UTC timestamp: {value}" };
+            const translations = {
+                "UTC-Zeitstempel: {value}": "UTC timestamp: {value}",
+                "UTC-Änderungszeit: {value}": "UTC modification time: {value}",
+            };
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
             context.window.MCBEI18n = {
@@ -661,16 +820,24 @@ def test_frontend_backups_view_renders_localized_timestamps_with_utc_tooltip() -
                         date: "03.08.2026 18:56:29",
                         size_mb: 236.59,
                     },
-                    { filename: "300125__legacy.zip", kind: "legacy", date: "12.07.2026 12:00:00", size_mb: 1.25 },
+                    {
+                        filename: "300125__legacy.zip",
+                        kind: "legacy",
+                        modified_at: "2026-07-12T10:00:00Z",
+                        date: "12.07.2026 12:00:00",
+                        size_mb: 1.25,
+                    },
                 ],
             });
 
             assert.ok(html.includes("Aug 3, 2026"), html);
             assert.ok(!html.includes("03.08.2026 18:56:29"), html);
             assert.ok(html.includes('title="UTC timestamp: 2026-08-03T16:56:29Z"'), html);
-            assert.ok(html.includes("12.07.2026 12:00:00"), html);
-            // The archive without an ISO value gets no tooltip it cannot fill.
+            assert.ok(html.includes("Jul 12, 2026"), html);
+            assert.ok(!html.includes("12.07.2026 12:00:00"), html);
+            assert.ok(html.includes('title="UTC modification time: 2026-07-12T10:00:00Z"'), html);
             assert.strictEqual((html.match(/UTC timestamp/g) || []).length, 1);
+            assert.strictEqual((html.match(/UTC modification time/g) || []).length, 1);
             """
         )
     )

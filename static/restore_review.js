@@ -41,10 +41,21 @@
         return String(fallback ?? "");
     }
 
+    function backupIsoTimestamp(backup = {}) {
+        return backup.created_at || backup.modified_at || "";
+    }
+
+    function backupTimestampTitle(backup = {}) {
+        if (backup.created_at) return t("UTC-Zeitstempel: {value}", { value: backup.created_at });
+        if (backup.modified_at) return t("UTC-Änderungszeit: {value}", { value: backup.modified_at });
+        return "";
+    }
+
     function restoreReviewHtml(model = {}) {
         const backup = model.backup || {};
         const filename = model.filename || "";
         const checks = Array.isArray(model.checks) ? model.checks : [];
+        const timestampTitle = backupTimestampTitle(backup);
         return `
         <div class="restore-target-card">
             <strong>${escapeHtml(model.targetName)}</strong>
@@ -52,7 +63,7 @@
         </div>
         <div class="restore-meta-grid">
             <div><span>Backup</span><strong>${escapeHtml(backup.filename || filename)}</strong></div>
-            <div><span>${t("Geändert")}</span><strong${backup.created_at ? ` title="${escapeHtml(t("UTC-Zeitstempel: {value}", { value: backup.created_at }))}"` : ""}>${escapeHtml(backupTimestamp(backup.created_at, backup.modified) || t("unbekannt"))}</strong></div>
+            <div><span>${t("Geändert")}</span><strong${timestampTitle ? ` title="${escapeHtml(timestampTitle)}"` : ""}>${escapeHtml(backupTimestamp(backupIsoTimestamp(backup), backup.modified) || t("unbekannt"))}</strong></div>
             <div><span>ZIP</span><strong>${escapeHtml(String(backup.size_mb ?? "?"))} MB</strong></div>
             <div><span>${t("Entpackt")}</span><strong>${escapeHtml(String(backup.uncompressed_mb ?? "?"))} MB</strong></div>
         </div>

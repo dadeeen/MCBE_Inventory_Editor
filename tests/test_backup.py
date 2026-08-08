@@ -1255,14 +1255,13 @@ def test_backup_kinds_are_persisted_in_name_comment_and_listing(tmp_path):
             assert metadata["retention_class"] == "rolling"
 
 
-def test_listing_and_preview_expose_created_at_as_iso_utc_for_the_ui(tmp_path):
-    """Name and shape of this field are a contract with the frontend.
+def test_listing_and_preview_expose_iso_utc_timestamps_for_the_ui(tmp_path):
+    """Names and shapes of these fields are a contract with the frontend.
 
-    ``static/html_utils.js`` parses ``created_at`` to render the timestamp in
-    the page language and only falls back to the pre-rendered German ``date``
-    when the value is missing. Nothing pinned that down, so a rename or a switch
-    to epoch seconds would push every displayed date back to a fixed German
-    format while the whole suite stayed green.
+    ``created_at`` carries metadata time for modern archives; ``modified_at``
+    gives legacy archives a language-neutral filesystem time. Both are ISO UTC
+    strings so the browser can render them in the active page language instead
+    of falling back to the pre-rendered German display value.
     """
 
     from datetime import UTC, datetime
@@ -1283,14 +1282,21 @@ def test_listing_and_preview_expose_created_at_as_iso_utc_for_the_ui(tmp_path):
         legacy = Path(get_backups_dir(str(world))) / "world_backup_old.zip"
         with zipfile.ZipFile(legacy, "w", compression=zipfile.ZIP_STORED) as archive:
             archive.writestr("db/CURRENT", b"manifest")
+        legacy_modified = datetime(2025, 11, 9, 8, 7, 6, tzinfo=UTC)
+        os.utime(legacy, (legacy_modified.timestamp(), legacy_modified.timestamp()))
 
         listed = {entry["filename"]: entry for entry in list_backups(str(world))}
         preview = preview_backup(str(world), path.name)
+        legacy_preview = preview_backup(str(world), legacy.name)
 
     assert listed[path.name]["created_at"] == "2026-07-12T10:00:00Z"
     assert preview["backup"]["created_at"] == "2026-07-12T10:00:00Z"
+    assert listed[path.name]["modified_at"] == preview["backup"]["modified_at"]
 
     assert listed[legacy.name]["created_at"] is None
+    assert legacy_preview["backup"]["created_at"] is None
+    assert listed[legacy.name]["modified_at"] == "2025-11-09T08:07:06Z"
+    assert legacy_preview["backup"]["modified_at"] == "2025-11-09T08:07:06Z"
     assert listed[legacy.name]["date"]
 
 

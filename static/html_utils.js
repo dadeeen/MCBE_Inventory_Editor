@@ -21,7 +21,8 @@
     // Ein Monatsname statt reiner Ziffern ist hier Absicht: "03.08." liest sich
     // je nach Locale als 3. August oder 8. März, und bei Backups entscheidet
     // dieses Datum, welches Archiv jemand wiederherstellt.
-    // fallback trägt die fertige Server-Anzeige für Altbestände ohne ISO-Wert.
+    // fallback bleibt als Kompatibilitätspfad für ältere Serverantworten oder
+    // ungültige ISO-Werte erhalten.
     function formatTimestamp(isoValue, fallback = "") {
         const raw = String(isoValue ?? "").trim();
         if (!raw) return String(fallback ?? "");

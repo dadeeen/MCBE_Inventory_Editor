@@ -80,7 +80,11 @@ def test_frontend_restore_review_localizes_the_backup_timestamp() -> None:
             const vm = require("vm");
             const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
             const restoreCode = fs.readFileSync("static/restore_review.js", "utf8");
-            const translations = { "UTC-Zeitstempel: {value}": "UTC timestamp: {value}", "Geändert": "Modified" };
+            const translations = {
+                "UTC-Zeitstempel: {value}": "UTC timestamp: {value}",
+                "UTC-Änderungszeit: {value}": "UTC modification time: {value}",
+                "Geändert": "Modified",
+            };
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
             context.window.MCBEI18n = {
@@ -112,10 +116,16 @@ def test_frontend_restore_review_localizes_the_backup_timestamp() -> None:
             assert.ok(!html.includes("03.08.2026 18:56:29"), html);
             assert.ok(html.includes('title="UTC timestamp: 2026-08-03T16:56:29Z"'), html);
 
-            // Legacy archives keep the server string and get no tooltip.
-            const legacy = render({ filename: "old.zip", modified: "12.07.2026 12:00:00", has_db: true });
-            assert.ok(legacy.includes("12.07.2026 12:00:00"), legacy);
-            assert.ok(!legacy.includes("UTC timestamp"), legacy);
+            // Legacy archives use their neutral filesystem timestamp too.
+            const legacy = render({
+                filename: "old.zip",
+                modified: "12.07.2026 12:00:00",
+                modified_at: "2026-07-12T10:00:00Z",
+                has_db: true,
+            });
+            assert.ok(legacy.includes("Jul 12, 2026"), legacy);
+            assert.ok(!legacy.includes("12.07.2026 12:00:00"), legacy);
+            assert.ok(legacy.includes('title="UTC modification time: 2026-07-12T10:00:00Z"'), legacy);
 
             // A preview without any timestamp must not render an empty cell.
             const unknown = render({ filename: "old.zip", has_db: true });

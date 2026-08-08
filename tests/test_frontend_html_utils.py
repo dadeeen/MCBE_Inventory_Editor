@@ -43,8 +43,8 @@ def test_frontend_html_utils_format_timestamp_localizes_and_falls_back() -> None
 
     A purely numeric ``03.08.2026`` is the 3rd of August to a German reader and
     the 8th of March to an American one, and this date decides which archive
-    somebody restores -- hence the month name. Archives without an ISO value
-    keep the server-rendered string instead of showing nothing at all.
+    somebody restores -- hence the month name. Older API responses without an
+    ISO value keep the server-rendered string instead of showing nothing at all.
     """
 
     _run_node(
@@ -80,7 +80,7 @@ def test_frontend_html_utils_format_timestamp_localizes_and_falls_back() -> None
             assert.strictEqual(seenOptions.length, 2);
             assert.ok(seenOptions.every(o => o.dateStyle === "medium" && o.timeStyle === "medium"));
 
-            // Legacy archives carry no ISO value; the server string stands in.
+            // Older API responses may carry no ISO value; the server string stands in.
             assert.strictEqual(formatTimestamp(null, "12.07.2026 12:00:00"), "12.07.2026 12:00:00");
             assert.strictEqual(formatTimestamp("", "12.07.2026 12:00:00"), "12.07.2026 12:00:00");
             assert.strictEqual(formatTimestamp(null, ""), "");

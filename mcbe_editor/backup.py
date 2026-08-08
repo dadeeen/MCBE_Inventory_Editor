@@ -1147,6 +1147,7 @@ def list_backups(world_path):
             if descriptor is None:
                 continue
             created_at = descriptor["created_at"]
+            modified_at = datetime.fromtimestamp(descriptor["mtime"], tz=UTC)
             display_datetime = (
                 created_at.astimezone().strftime("%d.%m.%Y %H:%M:%S")
                 if created_at is not None
@@ -1158,6 +1159,7 @@ def list_backups(world_path):
                     "size_mb": round(descriptor["size_bytes"] / (1024 * 1024), 2),
                     "date": display_datetime,
                     "created_at": _metadata_created_at(created_at) if created_at is not None else None,
+                    "modified_at": _metadata_created_at(modified_at),
                     "kind": descriptor["kind"],
                     "kind_label": descriptor["kind_label"],
                     "retention_class": descriptor["retention_class"],
@@ -1223,6 +1225,7 @@ def preview_backup(world_path, backup_file):
         raise ValueError("Backup-Datei ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
 
     created_at = _parse_created_at(metadata.get("created_at"))
+    modified_at = datetime.fromtimestamp(stat_info.st_mtime, tz=UTC)
     displayed_timestamp = (
         created_at.astimezone().strftime("%d.%m.%Y %H:%M:%S")
         if created_at is not None
@@ -1242,6 +1245,7 @@ def preview_backup(world_path, backup_file):
             "size_mb": round(stat_info.st_size / (1024 * 1024), 2),
             "modified": displayed_timestamp,
             "created_at": _metadata_created_at(created_at) if created_at is not None else None,
+            "modified_at": _metadata_created_at(modified_at),
             "kind": metadata["kind"],
             "kind_label": BACKUP_KIND_LABELS[metadata["kind"]],
             "retention_class": metadata["retention_class"],
