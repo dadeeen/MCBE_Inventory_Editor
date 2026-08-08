@@ -42,8 +42,19 @@
         return `<div class="backup-summary">${t("Ort: {dir}", { dir: escapeHtml(data.backup_dir || t("unbekannt")) })}<br>${t("Aufbewahrung: {automatic} · {recovery} · Manuell: bis zur Löschung geschützt", { automatic: escapeHtml(automaticText), recovery: escapeHtml(recoveryText) })}</div>`;
     }
 
+    function backupKindLabel(backup = {}) {
+        // Der Server liefert kind_label bewusst in der Quellsprache. Übersetzt
+        // wird an der Anzeigegrenze über die stabile kind-Kennung, damit die
+        // API-Sprache nie die aktive Seitensprache überschreibt.
+        if (backup.kind === "automatic") return t("Automatisch");
+        if (backup.kind === "manual") return t("Manuell");
+        if (backup.kind === "pre_restore") return t("Vor Wiederherstellung");
+        if (backup.kind === "legacy") return t("Legacy");
+        return backup.kind_label || t("Legacy");
+    }
+
     function backupRowHtml(backup = {}, { readOnly = false } = {}) {
-        const kindLabel = backup.kind_label || "Legacy";
+        const kindLabel = backupKindLabel(backup);
         const deleteTitle = readOnly ? t("Read-Only-Modus: Backups können nicht gelöscht werden.") : t("Backup löschen");
         return `<div class="backup-row">
             <div class="backup-info">

@@ -369,6 +369,55 @@ def test_frontend_backups_view_renders_retention_classes_and_kind_badges() -> No
     )
 
 
+def test_frontend_backups_view_localizes_kind_badges_from_the_stable_kind() -> None:
+    """The badge text must follow the page language, not the server's source string.
+
+    ``kind_label`` arrives in German because the API can be negotiated
+    separately from the active page, so the badge is translated at the display
+    boundary via the stable ``kind`` key.
+    """
+
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/backups_view.js", "utf8");
+            const translations = {
+                "Automatisch": "Automatic",
+                "Manuell": "Manual",
+                "Vor Wiederherstellung": "Pre-restore",
+                "Legacy": "Legacy",
+            };
+            const context = { window: { t: text => translations[text] || text } };
+            vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+
+            const html = context.window.MCBEBackupsView.backupsListHtml({
+                success: true,
+                backup_dir: "C:/Backups",
+                backups: [
+                    { filename: "a.zip", kind: "automatic", kind_label: "Automatisch", date: "", size_mb: 1 },
+                    { filename: "m.zip", kind: "manual", kind_label: "Manuell", date: "", size_mb: 1 },
+                    { filename: "p.zip", kind: "pre_restore", kind_label: "Vor Wiederherstellung", date: "", size_mb: 1 },
+                    { filename: "l.zip", kind: "legacy", kind_label: "Legacy", date: "", size_mb: 1 },
+                    { filename: "f.zip", kind: "future_kind", kind_label: "Neue Art", date: "", size_mb: 1 },
+                ],
+            });
+            assert.ok(html.includes(">Automatic<"));
+            assert.ok(html.includes(">Manual<"));
+            assert.ok(html.includes(">Pre-restore<"));
+            assert.ok(html.includes(">Legacy<"));
+            assert.ok(!html.includes(">Automatisch<"));
+            assert.ok(!html.includes(">Vor Wiederherstellung<"));
+            // An unknown future kind keeps the server label instead of being
+            // mislabelled as a legacy backup.
+            assert.ok(html.includes(">Neue Art<"));
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_deletes_backup_after_confirmation_and_refreshes() -> None:
     _run_node(
         textwrap.dedent(
