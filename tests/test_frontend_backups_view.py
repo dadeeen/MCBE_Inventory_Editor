@@ -217,6 +217,82 @@ def test_frontend_backups_view_manual_backup_disabled_in_read_only_mode() -> Non
     )
 
 
+def test_frontend_backups_view_shows_what_actually_failed() -> None:
+    """A concrete server message tells the user what to do; the blanket one does not.
+
+    The payload is localized from ``message_key`` at the display boundary rather
+    than taken from the server's already-rendered ``message``, so an API locale
+    negotiated separately cannot leak into the active page language.
+    """
+
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/backups_view.js", "utf8");
+            const view = (() => {
+                const context = { window: {} };
+                vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+                return context.window.MCBEBackupsView;
+            })();
+
+            // The rendered message wins over the blanket text ...
+            assert.ok(
+                view.backupsListHtml({ success: false }, { errorMessage: "Welt-Ordner existiert nicht." })
+                    .includes("Welt-Ordner existiert nicht."),
+            );
+            // ... and is escaped, because it crosses the server boundary.
+            assert.ok(
+                view.backupsListHtml({ success: false }, { errorMessage: "<img src=x onerror=alert(1)>" })
+                    .includes("&lt;img"),
+            );
+            // Without a message the blanket text stays as the last resort.
+            assert.strictEqual(view.backupsListHtml({ success: false }), view.backupsStatusHtml("error"));
+            assert.strictEqual(view.backupsListHtml({ success: false }, { errorMessage: "   " }), view.backupsStatusHtml("error"));
+
+            // The controller must localize message_key rather than reuse message.
+            const translations = { "Welt-Ordner {path} existiert nicht.": "World folder {path} does not exist." };
+            const translate = (text, params) =>
+                String(translations[text] || text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m));
+            const context = {
+                window: { t: translate },
+                console,
+                fetch: async () => ({
+                    json: async () => ({
+                        success: false,
+                        code: "invalid_request",
+                        message_key: "Welt-Ordner {path} existiert nicht.",
+                        params: { path: "C:/Gone" },
+                        message: "Welt-Ordner C:/Gone existiert nicht.",
+                    }),
+                }),
+            };
+            vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+
+            (async () => {
+                const container = { innerHTML: "", querySelectorAll: () => [] };
+                const controller = context.window.MCBEBackupsView.createBackupsController({
+                    elements: { container },
+                    getWorldPath: () => "C:/Gone",
+                    parseJsonResponse: response => response.json(),
+                    buildErrorMessage: (data, fallback) =>
+                        (data?.message_key ? context.window.t(data.message_key, data.params) : data?.error) || fallback,
+                });
+
+                await controller.loadBackupsList();
+                assert.ok(container.innerHTML.includes("World folder C:/Gone does not exist."), container.innerHTML);
+                assert.ok(!container.innerHTML.includes("Fehler beim Laden"), container.innerHTML);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_asks_for_a_world_instead_of_reporting_an_error() -> None:
     """Without a world there is nothing to load, and that is not a failure.
 

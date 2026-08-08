@@ -102,7 +102,7 @@
         </div>`;
     }
 
-    function backupsStatusHtml(status = "loading") {
+    function backupsStatusHtml(status = "loading", message = "") {
         if (status === "loading") {
             return `<div class="no-backups">${t("Lade Sicherheitskopien...")}</div>`;
         }
@@ -111,12 +111,15 @@
             // würde hier suggerieren, vorhandene Backups seien unlesbar.
             return `<div class="no-backups">${t("Bitte zuerst eine Welt laden.")}</div>`;
         }
-        return `<div class="no-backups error">${t("Fehler beim Laden der Backups.")}</div>`;
+        // Die konkrete Servermeldung sagt, was zu tun ist -- "Welt-Ordner
+        // existiert nicht" ist eine Handlungsanweisung, der Sammelsatz nicht.
+        const errorText = String(message ?? "").trim() || t("Fehler beim Laden der Backups.");
+        return `<div class="no-backups error">${escapeHtml(errorText)}</div>`;
     }
 
-    function backupsListHtml(data = {}) {
+    function backupsListHtml(data = {}, { errorMessage = "" } = {}) {
         if (!data.success) {
-            return backupsStatusHtml("error");
+            return backupsStatusHtml("error", errorMessage);
         }
         const backups = Array.isArray(data.backups) ? data.backups : [];
         const rows = backups.length
@@ -132,6 +135,7 @@
         appConfig = {},
         withCsrf = () => ({}),
         parseJsonResponse = response => response.json(),
+        buildErrorMessage = (data, fallback) => data?.error || fallback,
         getWorldPath = () => "",
         copyTextToClipboard = () => {},
         logStatus = () => {},
@@ -340,7 +344,9 @@
                         });
                     });
                 } else {
-                    container.innerHTML = backupsListHtml(data);
+                    container.innerHTML = backupsListHtml(data, {
+                        errorMessage: buildErrorMessage(data, t("Fehler beim Laden der Backups.")),
+                    });
                 }
                 return true;
             } catch (e) {
@@ -395,6 +401,7 @@
             appConfig,
             withCsrf: api.withCsrf,
             parseJsonResponse: api.parseJsonResponse,
+            buildErrorMessage: api.buildErrorMessage,
             getWorldPath,
             copyTextToClipboard,
             logStatus,
