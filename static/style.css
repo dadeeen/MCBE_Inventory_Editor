@@ -1564,6 +1564,7 @@ body {
 
 .backup-kind {
     flex: 0 0 auto;
+    cursor: help;
     padding: 2px 7px;
     border: 1px solid var(--border-color);
     border-radius: 999px;

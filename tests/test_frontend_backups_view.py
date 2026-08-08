@@ -418,6 +418,73 @@ def test_frontend_backups_view_localizes_kind_badges_from_the_stable_kind() -> N
     )
 
 
+def test_frontend_backups_view_explains_each_kind_with_a_retention_tooltip() -> None:
+    """The badge names the kind, the tooltip says what it means for retention.
+
+    Only manual backups survive every rotation, and pre-restore archives hold
+    their own quota so a run of ordinary saves cannot push them out. That
+    difference decides which archive is still there later, so it belongs on the
+    badge rather than in the documentation alone.
+    """
+
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/backups_view.js", "utf8");
+            const translations = {
+                "Automatisch vor jedem Speichervorgang erstellt. Der älteste Eintrag entfällt, sobald das Limit erreicht ist.":
+                    "Created automatically before every save.",
+                "Von Hand erstellt. Bleibt erhalten, bis du es löschst.": "Created by hand. Kept until you delete it.",
+                "Zustand der Welt unmittelbar vor einer Wiederherstellung. Eigenes Kontingent, unabhängig von den Speicher-Backups.":
+                    "Own quota, separate from the save backups.",
+                "Älteres Archiv ohne Metadaten. Wird wie ein automatisches Backup rotiert.": "Older archive without metadata.",
+            };
+            const context = { window: { t: text => translations[text] || text } };
+            vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+
+            const html = context.window.MCBEBackupsView.backupsListHtml({
+                success: true,
+                backup_dir: "C:/Backups",
+                backups: [
+                    { filename: "a.zip", kind: "automatic", date: "", size_mb: 1 },
+                    { filename: "m.zip", kind: "manual", date: "", size_mb: 1 },
+                    { filename: "p.zip", kind: "pre_restore", date: "", size_mb: 1 },
+                    { filename: "l.zip", kind: "legacy", date: "", size_mb: 1 },
+                    { filename: "f.zip", kind: "future_kind", kind_label: "Neue Art", date: "", size_mb: 1 },
+                ],
+            });
+
+            const chips = [...html.matchAll(/<span class="backup-kind backup-kind-([a-z_]+)"(?: title="([^"]*)")?>/g)]
+                .map(match => ({ kind: match[1], title: match[2] }));
+            assert.deepStrictEqual(
+                chips.map(chip => chip.kind),
+                ["automatic", "manual", "pre_restore", "legacy", "future_kind"],
+            );
+            assert.strictEqual(chips[0].title, "Created automatically before every save.");
+            assert.strictEqual(chips[1].title, "Created by hand. Kept until you delete it.");
+            assert.strictEqual(chips[2].title, "Own quota, separate from the save backups.");
+            assert.strictEqual(chips[3].title, "Older archive without metadata.");
+            // An unknown future kind gets no invented retention promise.
+            assert.strictEqual(chips[4].title, undefined);
+
+            // A missing kind is styled and labelled as legacy everywhere else,
+            // so it must carry the legacy explanation rather than none at all.
+            const withoutKind = context.window.MCBEBackupsView.backupsListHtml({
+                success: true,
+                backups: [{ filename: "n.zip", date: "", size_mb: 1 }, { filename: "e.zip", kind: "", date: "", size_mb: 1 }],
+            });
+            const untyped = [...withoutKind.matchAll(/<span class="backup-kind backup-kind-([a-z_]+)"(?: title="([^"]*)")?>/g)]
+                .map(match => ({ kind: match[1], title: match[2] }));
+            assert.deepStrictEqual(untyped.map(chip => chip.kind), ["legacy", "legacy"]);
+            assert.ok(untyped.every(chip => chip.title === "Older archive without metadata."), withoutKind);
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_renders_localized_timestamps_with_utc_tooltip() -> None:
     """The list date follows the page language; legacy archives keep theirs.
 

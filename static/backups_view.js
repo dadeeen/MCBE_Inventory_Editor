@@ -53,6 +53,24 @@
         return backup.kind_label || t("Legacy");
     }
 
+    function backupKindTitle(backup = {}) {
+        // Das Label sagt, wann ein Archiv entstand -- die Aufbewahrungsregel
+        // dahinter ist aber das, was bei der Auswahl zählt: nur manuelle
+        // Backups überleben jede Rotation, und Pre-Restore-Archive haben ein
+        // eigenes Kontingent, damit eine Serie von Speicherungen sie nicht
+        // verdrängt. Die konkreten Limits stehen in der Zusammenfassung
+        // darüber und werden hier bewusst nicht wiederholt.
+        if (backup.kind === "automatic") return t("Automatisch vor jedem Speichervorgang erstellt. Der älteste Eintrag entfällt, sobald das Limit erreicht ist.");
+        if (backup.kind === "manual") return t("Von Hand erstellt. Bleibt erhalten, bis du es löschst.");
+        if (backup.kind === "pre_restore") return t("Zustand der Welt unmittelbar vor einer Wiederherstellung. Eigenes Kontingent, unabhängig von den Speicher-Backups.");
+        // Ein fehlendes kind wird oben wie legacy eingestuft -- Klasse und Label
+        // sagen dann "Legacy", also muss die Erklärung mitkommen. Eine bekannte
+        // Kennung, die dieses Frontend nicht kennt, bleibt dagegen ohne Tooltip:
+        // über deren Rotation lässt sich hier nichts versprechen.
+        if (!backup.kind || backup.kind === "legacy") return t("Älteres Archiv ohne Metadaten. Wird wie ein automatisches Backup rotiert.");
+        return "";
+    }
+
     function backupTimestamp(isoValue, fallback) {
         if (window.MCBEHtmlUtils?.formatTimestamp) return window.MCBEHtmlUtils.formatTimestamp(isoValue, fallback);
         return String(fallback ?? "");
@@ -67,11 +85,12 @@
 
     function backupRowHtml(backup = {}, { readOnly = false } = {}) {
         const kindLabel = backupKindLabel(backup);
+        const kindTitle = backupKindTitle(backup);
         const deleteTitle = readOnly ? t("Read-Only-Modus: Backups können nicht gelöscht werden.") : t("Backup löschen");
         return `<div class="backup-row">
             <div class="backup-info">
                 <div class="backup-title-line">
-                    <span class="backup-kind backup-kind-${escapeHtml(backup.kind || "legacy")}">${escapeHtml(kindLabel)}</span>
+                    <span class="backup-kind backup-kind-${escapeHtml(backup.kind || "legacy")}"${kindTitle ? ` title="${escapeHtml(kindTitle)}"` : ""}>${escapeHtml(kindLabel)}</span>
                     <span class="backup-filename" title="${escapeHtml(backup.filename)}">${escapeHtml(backup.filename)}</span>
                 </div>
                 <span class="backup-meta"><span${backupTimestampTitle(backup)}>${escapeHtml(backupTimestamp(backup.created_at, backup.date))}</span> &nbsp;•&nbsp; ${escapeHtml(backup.size_mb)} MB</span>
