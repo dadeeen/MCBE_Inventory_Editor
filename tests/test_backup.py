@@ -1255,6 +1255,45 @@ def test_backup_kinds_are_persisted_in_name_comment_and_listing(tmp_path):
             assert metadata["retention_class"] == "rolling"
 
 
+def test_listing_and_preview_expose_created_at_as_iso_utc_for_the_ui(tmp_path):
+    """Name and shape of this field are a contract with the frontend.
+
+    ``static/html_utils.js`` parses ``created_at`` to render the timestamp in
+    the page language and only falls back to the pre-rendered German ``date``
+    when the value is missing. Nothing pinned that down, so a rename or a switch
+    to epoch seconds would push every displayed date back to a fixed German
+    format while the whole suite stayed green.
+    """
+
+    from datetime import UTC, datetime
+
+    from mcbe_editor.backup import BACKUP_KIND_MANUAL, create_backup, preview_backup
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    (world / "db" / "CURRENT").write_text("manifest", encoding="utf-8")
+    created = datetime(2026, 7, 12, 10, 0, tzinfo=UTC)
+
+    with patch.dict(os.environ, {"MCBE_BACKUP_ROOT": str(tmp_path / "backups")}, clear=False):
+        with patch("mcbe_editor.backup._utc_now", side_effect=[created]):
+            path = Path(create_backup(str(world), prune_after=False, backup_kind=BACKUP_KIND_MANUAL))
+
+        # An archive that predates the metadata format: it carries no ISO value,
+        # so the listing has to keep offering the server-rendered string.
+        legacy = Path(get_backups_dir(str(world))) / "world_backup_old.zip"
+        with zipfile.ZipFile(legacy, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("db/CURRENT", b"manifest")
+
+        listed = {entry["filename"]: entry for entry in list_backups(str(world))}
+        preview = preview_backup(str(world), path.name)
+
+    assert listed[path.name]["created_at"] == "2026-07-12T10:00:00Z"
+    assert preview["backup"]["created_at"] == "2026-07-12T10:00:00Z"
+
+    assert listed[legacy.name]["created_at"] is None
+    assert listed[legacy.name]["date"]
+
+
 def test_retention_separates_automatic_manual_and_pre_restore_backups(tmp_path):
     from datetime import UTC, datetime
 
