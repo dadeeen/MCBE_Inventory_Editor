@@ -217,6 +217,68 @@ def test_frontend_backups_view_manual_backup_disabled_in_read_only_mode() -> Non
     )
 
 
+def test_frontend_backups_view_asks_for_a_world_instead_of_reporting_an_error() -> None:
+    """Without a world there is nothing to load, and that is not a failure.
+
+    The endpoint rejects an empty world path, so the view used to render the red
+    "Error loading the backups" box before the user had picked anything -- which
+    reads as if existing archives had become unreadable. The folder buttons must
+    not keep pointing at the previously loaded world either.
+    """
+
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/backups_view.js", "utf8");
+
+            let worldPath = "C:/World";
+            const fetchCalls = [];
+            const context = {
+                window: {},
+                console,
+                fetch: async (url, init) => {
+                    fetchCalls.push(JSON.parse(init.body).world_path);
+                    return { json: async () => ({ success: true, backup_dir: "C:/Backups", backups: [] }) };
+                },
+            };
+            vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+
+            (async () => {
+                const container = { innerHTML: "", querySelectorAll: () => [] };
+                const copyButton = { disabled: false };
+                const openButton = { disabled: false, title: "" };
+                const controller = context.window.MCBEBackupsView.createBackupsController({
+                    elements: { container, copyFolderButton: copyButton, openFolderButton: openButton },
+                    getWorldPath: () => worldPath,
+                    parseJsonResponse: response => response.json(),
+                });
+
+                await controller.loadBackupsList();
+                assert.deepStrictEqual(fetchCalls, ["C:/World"]);
+                assert.strictEqual(copyButton.disabled, false);
+
+                // The world is released again: no request, no error box.
+                worldPath = "";
+                const loaded = await controller.loadBackupsList();
+                assert.strictEqual(loaded, false);
+                assert.deepStrictEqual(fetchCalls, ["C:/World"]);
+                assert.ok(container.innerHTML.includes("Bitte zuerst eine Welt laden."), container.innerHTML);
+                assert.ok(!container.innerHTML.includes("Fehler beim Laden"), container.innerHTML);
+                assert.ok(!container.innerHTML.includes("no-backups error"), container.innerHTML);
+                assert.strictEqual(copyButton.disabled, true);
+                assert.strictEqual(openButton.disabled, true);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_ignores_out_of_order_world_response() -> None:
     _run_node(
         textwrap.dedent(

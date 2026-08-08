@@ -106,6 +106,11 @@
         if (status === "loading") {
             return `<div class="no-backups">${t("Lade Sicherheitskopien...")}</div>`;
         }
+        if (status === "no-world") {
+            // Kein Fehler, sondern eine offene Auswahl. Die rote Fehlerbox
+            // würde hier suggerieren, vorhandene Backups seien unlesbar.
+            return `<div class="no-backups">${t("Bitte zuerst eine Welt laden.")}</div>`;
+        }
         return `<div class="no-backups error">${t("Fehler beim Laden der Backups.")}</div>`;
     }
 
@@ -147,6 +152,17 @@
         let backupsLoadRequestId = 0;
         const backupDeletesInFlight = new Set();
         const logBackupStatus = (key, message, type = "") => logStatus(message, type, { key });
+
+        function isDockerMode() {
+            return appConfig.is_docker === true || appConfig.mode === "docker";
+        }
+
+        function applyFolderControlsFor(backupDir) {
+            applyBackupFolderControls({
+                copyButton: copyFolderButton,
+                openButton: openFolderButton,
+            }, backupFolderControls({ backupDir, dockerMode: isDockerMode() }));
+        }
 
         function createButtonWriteGateBlocked() {
             return createButton?.dataset?.writeGateBlocked === "true";
@@ -279,6 +295,16 @@
             if (!container) return;
             const requestId = ++backupsLoadRequestId;
             const requestedWorldPath = getWorldPath();
+            if (!requestedWorldPath) {
+                // Ohne Welt kann die Anfrage nur scheitern -- der Server weist
+                // den leeren Pfad zurück, und die Ansicht meldete bisher einen
+                // Fehler, wo schlicht noch nichts ausgewählt war. Der Ordner
+                // der zuvor geladenen Welt darf dabei nicht offen bleiben.
+                lastBackupDir = "";
+                container.innerHTML = backupsStatusHtml("no-world");
+                applyFolderControlsFor("");
+                return false;
+            }
             container.innerHTML = backupsStatusHtml("loading");
             try {
                 const res = await fetch("/api/backups", {
@@ -291,13 +317,7 @@
                 if (data.success) {
                     lastBackupDir = data.backup_dir || "";
                     container.innerHTML = backupsListHtml({ ...data, read_only: appConfig.read_only === true });
-                    applyBackupFolderControls({
-                        copyButton: copyFolderButton,
-                        openButton: openFolderButton,
-                    }, backupFolderControls({
-                        backupDir: lastBackupDir,
-                        dockerMode: appConfig.is_docker === true || appConfig.mode === "docker",
-                    }));
+                    applyFolderControlsFor(lastBackupDir);
                     container.querySelectorAll(".restore-btn[data-backup-filename]").forEach(button => {
                         button.addEventListener("click", () => {
                             // A world can change after this list was rendered but
