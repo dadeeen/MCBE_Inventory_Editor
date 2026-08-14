@@ -1316,7 +1316,7 @@ def json_int(data: dict, key: str, default: int | None = None) -> int | None:
     return value
 
 
-def run_update_db(dry_run=False, force=False, only=None, use_cache=True):
+def run_update_db(dry_run=False, force=False, only=None, use_cache=False, expected_review_token=None):
     return update_script_runner.run_update_db(
         APP_ROOT,
         APP_CONFIG,
@@ -1324,10 +1324,11 @@ def run_update_db(dry_run=False, force=False, only=None, use_cache=True):
         force=force,
         only=only,
         use_cache=use_cache,
+        expected_review_token=expected_review_token,
     )
 
 
-def run_update_icons(force=False, use_cache=True):
+def run_update_icons(force=False, use_cache=False):
     return update_script_runner.run_update_icons(
         APP_ROOT,
         APP_CONFIG,
@@ -1379,7 +1380,10 @@ def reload_item_db_after_external_worker_update():
 
 def item_db_route_deps() -> item_db_api_routes.ItemDbRouteDeps:
     return item_db_api_routes.ItemDbRouteDeps(
+        item_db_path=APP_CONFIG.item_db_path,
+        source_version_path=APP_CONFIG.source_version_path,
         source_version_history_path=APP_CONFIG.source_version_history_path,
+        update_cache_dir=APP_CONFIG.update_cache_dir,
         jsonify=jsonify,
         api_error=api_error,
         log_api_exception=log_api_exception,

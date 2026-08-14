@@ -1,7 +1,9 @@
+import hashlib
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from mcbe_editor import item_db_api_routes
+from mcbe_editor import item_db_api_routes, item_db_verification
 
 
 def _jsonify(payload):
@@ -25,7 +27,10 @@ def _json_bool(data, key, default=False):
 
 def _deps(**overrides):
     deps = item_db_api_routes.ItemDbRouteDeps(
+        item_db_path=overrides.pop("item_db_path", None),
+        source_version_path=overrides.pop("source_version_path", None),
         source_version_history_path=overrides.pop("source_version_history_path", "history.json"),
+        update_cache_dir=overrides.pop("update_cache_dir", None),
         jsonify=_jsonify,
         api_error=_api_error,
         log_api_exception=overrides.pop("log_api_exception", Mock()),
@@ -79,7 +84,13 @@ def test_update_db_successful_non_dry_run_merges_reload_payload():
             "item_db": {"status": "ok"},
         },
     )
-    deps.run_update_db.assert_called_once_with(dry_run=False, force=True, only="items", use_cache=True)
+    deps.run_update_db.assert_called_once_with(
+        dry_run=False,
+        force=True,
+        only="items",
+        use_cache=False,
+        expected_review_token=None,
+    )
     reload_item_db.assert_called_once()
     deps.audit_event.assert_called_once()
 
@@ -213,14 +224,12 @@ def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
                 const dryRunButton = { disabled: false, addEventListener() {} };
                 const applyButton = { disabled: false, addEventListener() {} };
                 const onlySelect = { disabled: false, value: "items", options: [{ text: "Items" }], selectedIndex: 0 };
-                const useCacheCheckbox = { disabled: false, checked: true };
                 const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
                 const controller = view.createUpdateDbController({
                     outputEl,
                     dryRunButton,
                     applyButton,
                     onlySelect,
-                    useCacheCheckbox,
                     fetchImpl: async () => { fetchCount += 1; return fetchPromise; },
                     parseJsonResponse: response => response.json(),
                     withCsrf: () => ({}),
@@ -234,7 +243,6 @@ def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
                     assert.strictEqual(dryRunButton.disabled, true);
                     assert.strictEqual(applyButton.disabled, true);
                     assert.strictEqual(onlySelect.disabled, true);
-                    assert.strictEqual(useCacheCheckbox.disabled, true);
                     resolveFetch({ json: async () => ({ success: true, output: "ok" }) });
                     const [firstResult, secondResult] = await Promise.all([first, second]);
                     assert.strictEqual(firstResult.success, true);
@@ -244,7 +252,6 @@ def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
                     assert.strictEqual(dryRunButton.disabled, false);
                     assert.strictEqual(applyButton.disabled, false);
                     assert.strictEqual(onlySelect.disabled, false);
-                    assert.strictEqual(useCacheCheckbox.disabled, false);
                 })().catch(error => { console.error(error); process.exit(1); });
                 """
             ),
@@ -255,6 +262,202 @@ def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
         check=False,
     )
     assert result.returncode == 0, result.stderr + result.stdout
+
+
+def _write_release_cache(tmp_path, release="v1.26.40.5"):
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    archive = cache_dir / "bedrock_resource_pack.zip"
+    archive.write_bytes(b"reviewed-release")
+    (cache_dir / "release_metadata.json").write_text(
+        json.dumps(
+            {
+                "resource_pack_release": release,
+                "resource_pack_asset": f"bedrock-samples-{release}-min.zip",
+                "resource_pack_asset_size": archive.stat().st_size,
+                "resource_pack_url": f"https://github.com/Mojang/bedrock-samples/releases/download/{release}/pack.zip",
+            }
+        ),
+        encoding="utf-8",
+    )
+    listing_items = {f"test_item_{index}": f"Test Item {index}" for index in range(1_000)}
+    listing_metadata = {
+        "microsoft_item_listing_url": (
+            "https://learn.microsoft.com/en-us/minecraft/creator/reference/content/"
+            "vanillalistingsreference/items?view=minecraft-bedrock-stable"
+        ),
+        "microsoft_item_listing_fetched_at": "2026-08-14T12:00:00+00:00",
+        "microsoft_item_listing_content_hash": hashlib.sha256(b"learn-listing").hexdigest(),
+        "microsoft_item_listing_count": len(listing_items),
+    }
+    listing_payload = item_db_verification.build_item_listing_cache_payload(listing_items, listing_metadata)
+    (cache_dir / item_db_verification.ITEM_LISTING_CACHE_FILENAME).write_text(
+        json.dumps(listing_payload),
+        encoding="utf-8",
+    )
+    item_db_path = tmp_path / "item_db.json"
+    item_db_path.write_text('{"ITEMS": {}}\n', encoding="utf-8")
+    source_version_path = tmp_path / "source_version.json"
+    source_version_path.write_text("{}\n", encoding="utf-8")
+    history_path = tmp_path / "source_version_history.json"
+    history_path.write_text("[]\n", encoding="utf-8")
+    return SimpleNamespace(
+        cache_dir=cache_dir,
+        item_db_path=item_db_path,
+        source_version_path=source_version_path,
+        history_path=history_path,
+    )
+
+
+def _review_deps(review_cache, **overrides):
+    return _deps(
+        update_cache_dir=str(review_cache.cache_dir),
+        item_db_path=str(review_cache.item_db_path),
+        source_version_path=str(review_cache.source_version_path),
+        source_version_history_path=str(review_cache.history_path),
+        **overrides,
+    )
+
+
+def test_successful_dry_run_returns_source_review_receipt(tmp_path):
+    review_cache = _write_release_cache(tmp_path)
+    runner = Mock(return_value=(0, "dry-run"))
+    deps = _review_deps(review_cache, run_update_db=runner)
+
+    result = item_db_api_routes.update_db({"dry_run": True}, deps)
+
+    payload = result[1]
+    assert payload["success"] is True
+    assert payload["resource_pack_release"] == "v1.26.40.5"
+    assert len(payload["update_review_token"]) == 64
+    assert payload["release_cache_token"] == payload["update_review_token"]
+    runner.assert_called_once_with(
+        dry_run=True,
+        force=False,
+        only=None,
+        use_cache=False,
+        expected_review_token=None,
+    )
+
+
+def test_apply_reuses_exact_sources_reviewed_by_dry_run(tmp_path):
+    review_cache = _write_release_cache(tmp_path)
+    runner = Mock(return_value=(0, "apply"))
+    deps = _review_deps(review_cache, run_update_db=runner)
+    snapshot = item_db_api_routes.update_review_snapshot(deps, None)
+
+    result = item_db_api_routes.update_db(
+        {
+            "dry_run": False,
+            "force": True,
+            "expected_update_review_token": snapshot["token"],
+        },
+        deps,
+    )
+
+    assert result[1]["success"] is True
+    runner.assert_called_once_with(
+        dry_run=False,
+        force=True,
+        only=None,
+        use_cache=True,
+        expected_review_token=snapshot["token"],
+    )
+
+
+def test_apply_rejects_changed_release_cache_before_running(tmp_path):
+    review_cache = _write_release_cache(tmp_path)
+    runner = Mock()
+    deps = _review_deps(review_cache, run_update_db=runner)
+
+    result = item_db_api_routes.update_db(
+        {
+            "dry_run": False,
+            "force": True,
+            "expected_update_review_token": "0" * 64,
+        },
+        deps,
+    )
+
+    assert result[0] == "error"
+    assert "Dry-Run erneut" in result[1]
+    runner.assert_not_called()
+
+
+def test_apply_rejects_changed_microsoft_listing_snapshot(tmp_path):
+    review_cache = _write_release_cache(tmp_path)
+    deps = _review_deps(review_cache, run_update_db=Mock())
+    snapshot = item_db_api_routes.update_review_snapshot(deps, None)
+    listing_path = review_cache.cache_dir / item_db_verification.ITEM_LISTING_CACHE_FILENAME
+    listing_path.write_text(listing_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    result = item_db_api_routes.update_db(
+        {
+            "dry_run": False,
+            "force": True,
+            "expected_update_review_token": snapshot["token"],
+        },
+        deps,
+    )
+
+    assert result[0] == "error"
+    assert "Dry-Run erneut" in result[1]
+    deps.run_update_db.assert_not_called()
+
+
+def test_apply_rejects_changed_item_db_base_state(tmp_path):
+    review_cache = _write_release_cache(tmp_path)
+    deps = _review_deps(review_cache, run_update_db=Mock())
+    snapshot = item_db_api_routes.update_review_snapshot(deps, None)
+    review_cache.item_db_path.write_text('{"ITEMS": {"new": []}}\n', encoding="utf-8")
+
+    result = item_db_api_routes.update_db(
+        {
+            "dry_run": False,
+            "force": True,
+            "expected_update_review_token": snapshot["token"],
+        },
+        deps,
+    )
+
+    assert result[0] == "error"
+    assert "Ausgangsdaten" in result[1]
+    deps.run_update_db.assert_not_called()
+
+
+def test_apply_rejects_review_token_for_different_scope(tmp_path):
+    review_cache = _write_release_cache(tmp_path)
+    deps = _review_deps(review_cache, run_update_db=Mock())
+    snapshot = item_db_api_routes.update_review_snapshot(deps, "items")
+
+    result = item_db_api_routes.update_db(
+        {
+            "dry_run": False,
+            "force": True,
+            "only": "effects",
+            "expected_update_review_token": snapshot["token"],
+        },
+        deps,
+    )
+
+    assert result[0] == "error"
+    assert "Dry-Run erneut" in result[1]
+    deps.run_update_db.assert_not_called()
+
+
+def test_legacy_use_cache_request_cannot_skip_latest_release_check():
+    runner = Mock(return_value=(0, "dry-run"))
+    deps = _deps(run_update_db=runner)
+
+    item_db_api_routes.update_db({"dry_run": True, "use_cache": True}, deps)
+
+    runner.assert_called_once_with(
+        dry_run=True,
+        force=False,
+        only=None,
+        use_cache=False,
+        expected_review_token=None,
+    )
 
 
 def test_update_db_reports_reload_failure_after_successful_commit():

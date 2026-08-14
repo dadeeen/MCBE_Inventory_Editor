@@ -39,7 +39,6 @@
             pickFolderButton,
             rescanButton,
             updateVanillaButton,
-            useCacheCheckbox,
             hintBanner,
             emptyStateHint,
             emptyStateVanillaButton,
@@ -100,7 +99,7 @@
 
         function applyAppStateControlLocks() {
             const locked = !canWriteAppState();
-            const controls = [addButton, pickPackButton, pickFolderButton, updateVanillaButton, emptyStateVanillaButton, useCacheCheckbox, sourcePathInput];
+            const controls = [addButton, pickPackButton, pickFolderButton, updateVanillaButton, emptyStateVanillaButton, sourcePathInput];
             for (const control of controls) {
                 if (!control) continue;
                 control.disabled = locked;
@@ -306,7 +305,7 @@
                 showToast(READ_ONLY_SOURCES_MESSAGE, "warning");
                 return { success: false, error: READ_ONLY_SOURCES_MESSAGE };
             }
-            for (const control of [updateVanillaButton, emptyStateVanillaButton, useCacheCheckbox]) {
+            for (const control of [updateVanillaButton, emptyStateVanillaButton]) {
                 if (control) control.disabled = true;
             }
             showLoading(t("Vanilla-Icons werden geladen..."));
@@ -316,9 +315,7 @@
             });
             updateStatus(t("Vanilla-Icons werden aus Mojang/bedrock-samples geladen..."), "running", true);
             try {
-                const data = await postJson("/api/icons/vanilla/update", {
-                    use_cache: useCacheCheckbox?.checked !== false,
-                });
+                const data = await postJson("/api/icons/vanilla/update", {});
                 if (data.output) appendUpdateOutput(`\n=== Vanilla-Icons ===\n${data.output}`);
                 if (!data.success) {
                     const message = data.error || t("Vanilla-Icons konnten nicht geladen werden.");
@@ -418,7 +415,6 @@
             pickFolderButton: doc.getElementById("btnPickIconFolder"),
             rescanButton: doc.getElementById("btnRescanIcons"),
             updateVanillaButton: doc.getElementById("btnUpdateVanillaIcons"),
-            useCacheCheckbox: doc.getElementById("updateIconsUseCache"),
             hintBanner: doc.getElementById("iconHintBanner"),
             emptyStateHint: doc.getElementById("emptyStateIconHint"),
             emptyStateVanillaButton: doc.getElementById("btnEmptyStateVanillaIcons"),

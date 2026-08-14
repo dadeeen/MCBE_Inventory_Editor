@@ -1812,8 +1812,10 @@ def test_icon_main_commits_source_metadata_before_cache_publication(monkeypatch,
         "resource_pack_url": "https://release-assets.githubusercontent.com/example.zip",
     }
     order = []
+    monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: {})
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
-    monkeypatch.setattr(update_icons_module, "download_release_zip", lambda *_args, **_kwargs: tmp_path / "download.zip")
+    download = mock.Mock(return_value=tmp_path / "download.zip")
+    monkeypatch.setattr(update_icons_module, "download_release_zip", download)
     monkeypatch.setattr(update_icons_module, "load_item_icon_targets", lambda: ([], [], 0))
     monkeypatch.setattr(
         update_icons_module,
@@ -1831,6 +1833,77 @@ def test_icon_main_commits_source_metadata_before_cache_publication(monkeypatch,
 
     assert update_icons_module.main([]) == 0
     assert order == ["metadata", "build", "prune"]
+    download.assert_called_once_with(info, use_cache=False)
+
+
+def test_icon_normal_mode_checks_latest_even_with_cached_metadata(monkeypatch):
+    import scripts.update_icons as update_icons_module
+
+    cached = {
+        "resource_pack_release": "old",
+        "resource_pack_asset": "bedrock-samples-old.zip",
+        "resource_pack_asset_size": 100,
+        "resource_pack_url": "https://release-assets.githubusercontent.com/old.zip",
+    }
+    latest = {**cached, "resource_pack_release": "new", "resource_pack_asset": "bedrock-samples-new.zip"}
+    latest_lookup = mock.Mock(return_value=latest)
+    monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: cached)
+    monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", latest_lookup)
+
+    assert update_icons_module.main(["--dry-run"]) == 0
+    latest_lookup.assert_called_once_with()
+
+
+def test_icon_normal_mode_reuses_download_only_for_matching_release(monkeypatch, tmp_path):
+    import scripts.update_icons as update_icons_module
+
+    info = {
+        "resource_pack_release": "current",
+        "resource_pack_asset": "bedrock-samples-current.zip",
+        "resource_pack_asset_size": 100,
+        "resource_pack_url": "https://release-assets.githubusercontent.com/current.zip",
+    }
+    download = mock.Mock(return_value=tmp_path / "download.zip")
+    monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: info)
+    monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
+    monkeypatch.setattr(update_icons_module, "download_release_zip", download)
+    monkeypatch.setattr(update_icons_module, "load_item_icon_targets", lambda: ([], [], 0))
+    monkeypatch.setattr(update_icons_module, "load_block_item_targets", lambda: set())
+    monkeypatch.setattr(
+        update_icons_module,
+        "build_icon_cache",
+        lambda *_args, **_kwargs: {
+            "mapped_items": 0,
+            "inventory_item_targets": 0,
+            "excluded_non_addable_items": 0,
+            "missing_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        update_icons_module,
+        "prune_cached_icon_release_zips",
+        lambda _path: {"removed_count": 0, "removed_bytes": 0, "warnings": []},
+    )
+
+    assert update_icons_module.main([]) == 0
+    download.assert_called_once_with(info, use_cache=True)
+
+
+def test_icon_internal_cache_mode_skips_online_release_lookup(monkeypatch):
+    import scripts.update_icons as update_icons_module
+
+    cached = {
+        "resource_pack_release": "cached",
+        "resource_pack_asset": "bedrock-samples-cached.zip",
+        "resource_pack_asset_size": 100,
+        "resource_pack_url": "https://release-assets.githubusercontent.com/cached.zip",
+    }
+    latest_lookup = mock.Mock()
+    monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: cached)
+    monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", latest_lookup)
+
+    assert update_icons_module.main(["--cache", "--dry-run"]) == 0
+    latest_lookup.assert_not_called()
 
 
 def test_icon_metadata_failure_does_not_publish_new_cache(monkeypatch, tmp_path):

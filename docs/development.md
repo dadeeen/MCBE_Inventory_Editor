@@ -56,14 +56,14 @@ Documentation languages: `README.md` and `SECURITY.md` are English with maintain
 
 ## Bundled item database and enchantment max levels
 
-`python -m scripts.update_db` regenerates `mcbe_editor/resources/item_db.json` from the `Mojang/bedrock-samples` release and the Microsoft Learn item listing. Identifiers, effects, and display names update from those sources. Enchantment **maximum levels** come from the reviewed table in `mcbe_editor/resources/enchantment_max_levels.json`.
+`python -m scripts.update_db` regenerates `mcbe_editor/resources/item_db.json` from the `Mojang/bedrock-samples` release and the Microsoft Learn item listing. Identifiers, effects, and display names update from those sources. Normal runs always query the current release metadata first and reuse the cached ZIP only when release identity, size, and ZIP validation match. Enchantment **maximum levels** come from the reviewed table in `mcbe_editor/resources/enchantment_max_levels.json`.
 
 That table is maintained by hand, so two situations need a maintainer:
 
 - **Mojang adds an enchantment.** The update stops without writing and reports the missing identifiers. Add the reviewed levels to `enchantment_max_levels.json`, then run the update again.
 - **Mojang changes the max level of an existing enchantment.** Mojang's metadata is used only for identifiers, so this is not detected automatically. `python -m scripts.update_db --check-wiki` compares the local table against the currently fetched Minecraft Wiki page and reports differences without changing a value. When the stable check reference changes, it records the wiki URL, revision id, content hash, fetch timestamp, and generation timestamp in `source_version.json` and the version history; the page content itself is never stored.
 
-`--check-wiki` is a maintainer-only flag. The in-app update never passes it — `mcbe_editor/update_script_runner.py` builds only `--dry-run`, `--force`, `--cache`, and `--only` — so the running application never contacts `minecraft.wiki`.
+`--check-wiki` is a maintainer-only flag and the in-app update never passes it, so the running application never contacts `minecraft.wiki`. The web UI does not expose a cache switch. `--cache` / `--reuse-cached-release` is an internal replay mode that deliberately skips the online source lookups. After a successful dry run, the API may use it only after validating a scope-bound receipt covering the exact Mojang archive, the normalized Microsoft Learn item-list snapshot when items are in scope, and the starting item database and source-version files. The updater subprocess validates the same receipt again before processing. The icon updater follows the same automatic latest-release lookup and matching-cache reuse policy, but does not use the Item DB dry-run receipt.
 
 A `wiki_*` stamp in `source_version.json` records a comparison made by that update. A later update without `--check-wiki` removes the stamp. The initial table values came from wiki revision 3648146; this is recorded in the table's `seeded_from` block.
 

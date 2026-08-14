@@ -36,7 +36,8 @@ def run_update_db(
     dry_run: bool = False,
     force: bool = False,
     only: str | None = None,
-    use_cache: bool = True,
+    use_cache: bool = False,
+    expected_review_token: str | None = None,
 ) -> tuple[int, str]:
     """Run the item_db update script and return its output."""
     cmd = [sys.executable, "-m", "scripts.update_db"]
@@ -46,6 +47,10 @@ def run_update_db(
         cmd.append("--force")
     if use_cache:
         cmd.append("--cache")
+    if expected_review_token:
+        if not use_cache:
+            raise ValueError("Ein Dry-Run-Prüfbeleg erfordert das interne Cache-Replay.")
+        cmd.extend(["--expected-review-token", expected_review_token])
     if only:
         cmd.extend(["--only", only])
 
@@ -88,7 +93,7 @@ def run_update_icons(
     app_config: Any,
     *,
     force: bool = False,
-    use_cache: bool = True,
+    use_cache: bool = False,
 ) -> tuple[int, str]:
     """Run the vanilla icon update script and return its output."""
     cmd = [sys.executable, "-m", "scripts.update_icons"]

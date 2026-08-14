@@ -144,9 +144,11 @@ def icons_scan(data: dict, deps: IconRouteDeps):
 def icons_vanilla_update(data: dict, deps: IconRouteDeps):
     try:
         with _icon_operation(deps):
-            use_cache = deps.json_bool(data, "use_cache", True)
             force = deps.json_bool(data, "force", False)
-            returncode, output = deps.run_update_icons(force=force, use_cache=use_cache)
+            # Normal updates always resolve the latest release.  The updater
+            # itself reuses a validated ZIP automatically when it already
+            # matches that release.
+            returncode, output = deps.run_update_icons(force=force, use_cache=False)
             manifest_path = Path(deps.data_root or "data").expanduser() / "icons" / "vanilla" / "manifest.json"
             manifest = {}
             if manifest_path.exists():
@@ -178,7 +180,7 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
                 "icons.vanilla_update",
                 "partial" if returncode == 0 and "scan_warning" in result else ("success" if returncode == 0 else "failure"),
                 details={
-                    "use_cache": use_cache,
+                    "release_mode": "latest",
                     "force": force,
                     "returncode": returncode,
                     "index_refreshed": returncode == 0 and "scan_warning" not in result,

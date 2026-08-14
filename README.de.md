@@ -267,7 +267,7 @@ Der Editor lässt nicht unterstützte Bedrock- und Add-on-Daten unangetastet, st
 Wesentliche Schutzmaßnahmen:
 
 - Der lokale Modus bindet standardmäßig nur an `127.0.0.1`.
-- Das Bearbeiten von Welten funktioniert vollständig offline. Ausgehendes HTTPS wird nur für die von dir ausgelösten Updates von **Item-DB** und **Vanilla-Icons** genutzt; dafür gilt eine feste Host-Liste für GitHub und `learn.microsoft.com`. Optional prüft `MCBE_STARTUP_NETWORK_CHECK=true` beim Start, ob diese Hosts erreichbar sind. Die Anwendung kontaktiert `minecraft.wiki` zur Laufzeit nicht.
+- Das Bearbeiten von Welten funktioniert vollständig offline. Ausgehendes HTTPS wird nur für die von dir ausgelösten Updates von **Item-DB** und **Vanilla-Icons** genutzt; dafür gilt eine feste Host-Liste für GitHub und `learn.microsoft.com`. Diese Updates prüfen automatisch das neueste Mojang-Release und verwenden einen Download nur dann erneut, wenn er dazu passt. Nach einem Item-DB-Dry-Run ist das Anwenden an den geprüften Bereich, die Quell-Snapshots und den Ausgangsstand der Datenbank gebunden. Optional prüft `MCBE_STARTUP_NETWORK_CHECK=true` beim Start, ob diese Hosts erreichbar sind. Die Anwendung kontaktiert `minecraft.wiki` zur Laufzeit nicht.
 - Docker/LAN verlangt bei der Ersteinrichtung eine bewusste Passwortentscheidung.
 - Ändernde Requests verwenden CSRF-/Origin-Prüfungen und geladene Spielerrevisionen.
 - Weltzugriffe werden serialisiert und prüfen den Serverstatus unmittelbar vor dem Schreiben erneut.

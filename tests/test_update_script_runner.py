@@ -35,6 +35,7 @@ def test_run_update_db_builds_command_env_and_directories(tmp_path, monkeypatch)
         force=True,
         only="items",
         use_cache=True,
+        expected_review_token="a" * 64,
     )
 
     assert result == (7, "script output")
@@ -47,6 +48,8 @@ def test_run_update_db_builds_command_env_and_directories(tmp_path, monkeypatch)
         "--dry-run",
         "--force",
         "--cache",
+        "--expected-review-token",
+        "a" * 64,
         "--only",
         "items",
     ]

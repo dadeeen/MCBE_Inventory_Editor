@@ -64,7 +64,12 @@ def test_non_json_payload_is_rejected_before_mutating_handler_runs():
 
 
 def test_empty_body_remains_valid_for_defaulted_update_options():
-    with patch.object(main, "CSRF_TOKEN", "json-token"), patch.object(main, "run_update_db", return_value=(0, "dry-run")) as runner:
+    review = {"token": "a" * 64, "resource_pack_release": "v1.26.40.5"}
+    with (
+        patch.object(main, "CSRF_TOKEN", "json-token"),
+        patch.object(main, "run_update_db", return_value=(0, "dry-run")) as runner,
+        patch.object(main.item_db_api_routes, "update_review_snapshot", return_value=review),
+    ):
         response = _client().post(
             "/api/update_db",
             data=b"",
@@ -75,7 +80,13 @@ def test_empty_body_remains_valid_for_defaulted_update_options():
     payload = response.get_json()
     assert payload["success"] is True
     assert payload["output"] == "dry-run"
-    runner.assert_called_once_with(dry_run=True, force=False, only=None, use_cache=True)
+    runner.assert_called_once_with(
+        dry_run=True,
+        force=False,
+        only=None,
+        use_cache=False,
+        expected_review_token=None,
+    )
 
 
 def test_invalid_vanilla_icon_update_boolean_is_a_client_error():

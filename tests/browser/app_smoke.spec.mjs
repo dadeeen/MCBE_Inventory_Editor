@@ -1382,7 +1382,7 @@ test("fresh browser storage does not turn unavailable data statuses into setup w
   expect(await page.evaluate(() => window.localStorage.getItem("mcbe-inventory-editor:workspace"))).toBeNull();
 });
 
-test("regular tools update refreshes the dismissed setup banner and keeps cache choices local", async ({ page }) => {
+test("regular tools update refreshes the dismissed setup banner and resolves releases automatically", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   await dismissFirstRunSetup(page);
   let updateRequest = null;
@@ -1448,9 +1448,8 @@ test("regular tools update refreshes the dismissed setup banner and keeps cache 
 
   await page.locator('.app-section-nav button[data-workflow-view="tools"]').click();
   await page.locator('.tab-btn-dash[data-tab-dash="dashUpdate"]').click();
-  await expect(page.locator("#updateDbUseCache")).toBeVisible();
-  await page.locator("#updateDbUseCache").uncheck();
-  await expect(page.locator("#updateIconsUseCache")).toBeChecked();
+  await expect(page.locator("#updateDbUseCache")).toHaveCount(0);
+  await expect(page.locator("#dashUpdate")).toContainText(/automatisch geprüft|checked automatically/);
 
   await page.locator("#btnUpdateDbApply").click();
   await expect(page.locator("#confirmOverlay")).toBeVisible();
@@ -1458,21 +1457,15 @@ test("regular tools update refreshes the dismissed setup banner and keeps cache 
   await page.locator("#confirmOk").click();
   await updateResponse;
   await expect(page.locator("#itemDbStatusPanel")).toContainText(/geprüft|verified/);
-  expect(updateRequest?.use_cache).toBe(false);
+  expect(Object.hasOwn(updateRequest || {}, "use_cache")).toBe(false);
 
   await page.locator('.tab-btn-dash[data-tab-dash="dashIcons"]').click();
-  await expect(page.locator("#updateIconsUseCache")).toBeVisible();
-  await expect(page.locator("#updateIconsUseCache")).toBeChecked();
-  await expect(page.locator("#updateDbUseCache")).toBeHidden();
+  await expect(page.locator("#updateIconsUseCache")).toHaveCount(0);
+  await expect(page.locator("#dashIcons")).toContainText(/automatisch geprüft|checked automatically/);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.app-section-nav button[data-workflow-view="tools"]').click();
   await page.locator('.tab-btn-dash[data-tab-dash="dashIcons"]').click();
-  await expect(page.locator("#updateIconsUseCache")).toBeVisible();
-  const cacheOptionFitsViewport = await page.locator("#updateIconsUseCache").evaluate(input => {
-    const bounds = input.closest("label").getBoundingClientRect();
-    return bounds.left >= 0 && bounds.right <= window.innerWidth;
-  });
-  expect(cacheOptionFitsViewport).toBe(true);
+  await expect(page.locator("#dashIcons")).toContainText(/automatisch geprüft|checked automatically/);
 
   await page.locator('.app-section-nav button[data-workflow-view="world"]').click();
   await expect(banner).toBeHidden();

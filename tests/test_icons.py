@@ -600,6 +600,28 @@ def test_parallel_vanilla_icon_updates_are_serialized(monkeypatch, tmp_path):
     assert all(result["success"] is False for result in results)
 
 
+def test_vanilla_icon_update_ignores_legacy_manual_cache_choice(tmp_path):
+    from types import SimpleNamespace
+
+    from mcbe_editor import icon_api_routes
+
+    calls = []
+    deps = SimpleNamespace(
+        data_root=str(tmp_path),
+        json_bool=lambda data, key, default: data.get(key, default),
+        run_update_icons=lambda **kwargs: calls.append(kwargs) or (1, "expected test failure"),
+        looks_like_network_failure=lambda _output: False,
+        audit_event=lambda *_args, **_kwargs: None,
+        jsonify=lambda value: value,
+        api_error=lambda message, status=400: ({"error": message}, status),
+        log_api_exception=lambda *_args: None,
+    )
+
+    icon_api_routes.icons_vanilla_update({"use_cache": True}, deps)
+
+    assert calls == [{"force": False, "use_cache": False}]
+
+
 def test_icon_sources_tolerate_invalid_priority_in_settings(tmp_path):
     settings = tmp_path / "icon_sources.json"
     settings.write_text(
@@ -680,7 +702,7 @@ def test_vanilla_icon_update_reports_rescan_failure_after_successful_publish(mon
     assert audit_events == [
         (
             ("icons.vanilla_update", "partial"),
-            {"details": {"use_cache": True, "force": False, "returncode": 0, "index_refreshed": False}},
+            {"details": {"release_mode": "latest", "force": False, "returncode": 0, "index_refreshed": False}},
         )
     ]
 

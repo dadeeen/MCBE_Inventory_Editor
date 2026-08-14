@@ -758,12 +758,7 @@
                                 <button id="btnRescanIcons" class="btn btn-secondary btn-sm" type="button">{{ t("Neu scannen") }}</button>
                             </div>
                         </div>
-                        <div class="release-cache-options">
-                            <label class="release-cache-checkbox">
-                                <input type="checkbox" id="updateIconsUseCache" checked />
-                                <span>{{ t("Zwischengespeichertes Release verwenden") }}</span>
-                            </label>
-                        </div>
+                        <p class="hint-text">{{ t("Die aktuelle Mojang-Version wird automatisch geprüft; ein bereits passender Download wird sicher wiederverwendet.") }}</p>
                         <div id="assetDataStatusPanel" class="data-source-panel">
                             <div class="no-backups">{{ t("Datenquellen werden geladen...") }}</div>
                         </div>
@@ -849,14 +844,7 @@
                                     <button id="btnUpdateDbApply" class="btn btn-primary">{{ t("Update anwenden") }}</button>
                                 </div>
                             </div>
-                            <p class="hint-text">{{ t("Der Dry-Run zeigt geplante Änderungen, ohne sie anzuwenden.") }}</p>
-
-                            <div class="release-cache-options">
-                                <label class="release-cache-checkbox">
-                                    <input type="checkbox" id="updateDbUseCache" checked />
-                                    <span>{{ t("Zwischengespeichertes Release verwenden") }}</span>
-                                </label>
-                            </div>
+                            <p class="hint-text">{{ t("Der Dry-Run zeigt geplante Änderungen, ohne sie anzuwenden.") }} {{ t("Die aktuelle Mojang-Version wird automatisch geprüft; ein bereits passender Download wird sicher wiederverwendet.") }}</p>
 
                             <div class="update-db-output-wrapper">
                                 <div class="update-db-output-header">

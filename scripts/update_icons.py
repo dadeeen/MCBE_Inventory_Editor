@@ -796,6 +796,16 @@ def read_release_metadata() -> dict[str, Any]:
     return data if _valid_release_metadata(data) else {}
 
 
+def _same_resource_pack_release(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    fields = (
+        "resource_pack_release",
+        "resource_pack_asset",
+        "resource_pack_asset_size",
+        "resource_pack_url",
+    )
+    return bool(first) and bool(second) and all(first.get(field) == second.get(field) for field in fields)
+
+
 def write_release_metadata(info: dict[str, Any]) -> None:
     atomic_write_text(RELEASE_METADATA_PATH, json.dumps(info, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
@@ -1776,18 +1786,33 @@ def build_icon_cache(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Lädt Vanilla-Item-Icons aus dem offiziellen Mojang/bedrock-samples Full-Release.")
     parser.add_argument("--force", action="store_true", help="Release neu abfragen und Cache neu bauen.")
-    parser.add_argument("--cache", action="store_true", help="Vorhandenen ZIP-Download wiederverwenden.")
+    parser.add_argument(
+        "--cache",
+        "--reuse-cached-release",
+        dest="cache",
+        action="store_true",
+        help="Vorhandene Release-Metadaten ohne Online-Versionsprüfung erneut verarbeiten.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Nur Quelle prüfen, nichts extrahieren.")
     args = parser.parse_args(argv)
 
-    info = read_release_metadata() if args.cache and not args.force else {}
-    metadata_needs_write = not info
-    if not info:
+    if args.cache and not args.force:
+        info = read_release_metadata()
+        if not info:
+            raise RuntimeError("Die Metadaten des gecachten Icon-Releases fehlen oder sind ungültig.")
+        log(f"Release ohne Online-Versionsprüfung wiederverwenden: {info['resource_pack_release']}")
+    else:
         info = get_latest_full_release_info()
+    cached_metadata = read_release_metadata()
+    metadata_needs_write = info != cached_metadata
     log(f"Release: {info['resource_pack_release']} · {info['resource_pack_asset']}")
     if args.dry_run:
         return 0
-    zip_path = download_release_zip(info, use_cache=args.cache)
+    # The latest release metadata is always queried in normal mode.  Reusing a
+    # validated ZIP with the exact current asset name and size is then safe and
+    # avoids a redundant large download.
+    reuse_matching_download = not args.force and _same_resource_pack_release(cached_metadata, info)
+    zip_path = download_release_zip(info, use_cache=reuse_matching_download)
     known_items, excluded_non_addable, catalog_item_count = load_item_icon_targets()
     block_item_ids = load_block_item_targets()
     if metadata_needs_write:

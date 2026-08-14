@@ -54,13 +54,16 @@
         return matchingOption?.text || String(selectedValue);
     }
 
-    function updateDbPayload({ dryRun, force, onlySelect, useCacheCheckbox, only = undefined }) {
-        return {
+    function updateDbPayload({ dryRun, force, onlySelect, only = undefined, expectedUpdateReviewToken = null }) {
+        const payload = {
             dry_run: dryRun,
             force,
             only: only === undefined ? (onlySelect?.value || null) : only,
-            use_cache: Boolean(useCacheCheckbox?.checked),
         };
+        if (!dryRun && expectedUpdateReviewToken) {
+            payload.expected_update_review_token = expectedUpdateReviewToken;
+        }
+        return payload;
     }
 
     async function refreshLoadedPlayerAfterDbUpdate({
@@ -88,7 +91,6 @@
         applyButton,
         clearButton,
         onlySelect,
-        useCacheCheckbox,
         fetchImpl = window.fetch.bind(window),
         parseJsonResponse,
         withCsrf,
@@ -101,12 +103,12 @@
     } = {}) {
         const append = (text) => appendOutput(outputEl, text);
         let updateRunning = false;
+        let reviewedSources = null;
 
         function setUpdateControlsDisabled(disabled) {
             if (dryRunButton) dryRunButton.disabled = disabled;
             if (applyButton) applyButton.disabled = disabled;
             if (onlySelect) onlySelect.disabled = disabled;
-            if (useCacheCheckbox) useCacheCheckbox.disabled = disabled;
         }
 
         async function run(dryRun, force = false, options = {}) {
@@ -125,13 +127,17 @@
             const only = Object.prototype.hasOwnProperty.call(options, "only")
                 ? (options.only || null)
                 : (onlySelect?.value || null);
+            const matchingReview = !dryRun && reviewedSources?.only === only ? reviewedSources : null;
+            if (dryRun) reviewedSources = null;
             const updateStatus = (message, type, active = undefined) => logStatus(message, type, {
                 key: statusKey,
                 active,
             });
             append(`\n${t("=== {mode} gestartet ===", { mode })}`);
             append(t("Bereich: {scope}", { scope: selectedScopeText(onlySelect, only) }));
-            append(`Cache: ${useCacheCheckbox?.checked ? t("verwenden") : t("nicht verwenden")}`);
+            append(matchingReview
+                ? t("Quelle: im Dry-Run geprüfte Quellen (Mojang {release})", { release: matchingReview.release })
+                : t("Quelle: neuestes Mojang-Release automatisch prüfen"));
             append("");
 
             showLoading(t("{mode} wird ausgeführt...", { mode }));
@@ -141,13 +147,29 @@
                 const res = await fetchImpl("/api/update_db", {
                     method: "POST",
                     headers: withCsrf(),
-                    body: JSON.stringify(updateDbPayload({ dryRun, force, onlySelect, useCacheCheckbox, only })),
+                    body: JSON.stringify(updateDbPayload({
+                        dryRun,
+                        force,
+                        onlySelect,
+                        only,
+                        expectedUpdateReviewToken: matchingReview?.token || null,
+                    })),
                 });
                 const data = await parseJsonResponse(res);
 
                 if (data.output) append(data.output);
 
                 if (data.success) {
+                    const reviewToken = data.update_review_token || data.release_cache_token;
+                    if (dryRun && reviewToken && data.resource_pack_release) {
+                        reviewedSources = {
+                            only,
+                            token: reviewToken,
+                            release: data.resource_pack_release,
+                        };
+                    } else if (!dryRun) {
+                        reviewedSources = null;
+                    }
                     if (data.reloaded) {
                         let clientWarning = "";
                         try {
@@ -185,10 +207,11 @@
                 return data;
             } catch (e) {
                 console.error("runUpdateDb:", e);
-                append(`\n${t("Verbindungsfehler: {error}", { error: e.message })}`);
-                updateStatus(t("Verbindungsfehler beim Datenbank-Update."), "error", true);
-                showToast(t("Verbindungsfehler beim Datenbank-Update."), "error", 5000);
-                return { success: false, error: e?.message || String(e) };
+                const message = e?.message || t("Verbindungsfehler beim Datenbank-Update.");
+                append(`\n${t("{mode} fehlgeschlagen: {error}", { mode, error: message })}`);
+                updateStatus(t("{mode} fehlgeschlagen: {error}", { mode, error: message }), "error", true);
+                showToast(message, "error", 5000);
+                return { success: false, error: message };
             } finally {
                 hideLoading();
                 updateRunning = false;
@@ -197,11 +220,18 @@
         }
 
         dryRunButton?.addEventListener("click", () => run(true, false));
+        onlySelect?.addEventListener?.("change", () => {
+            reviewedSources = null;
+        });
         applyButton?.addEventListener("click", async () => {
+            const only = onlySelect?.value || null;
+            const matchingReview = reviewedSources?.only === only ? reviewedSources : null;
             const ok = await showConfirmDialog(
                 t("Möchtest du die offizielle Datenbank wirklich aktualisieren?") + "\n\n" +
                 t("Dies aktualisiert item_db.json mit den neuesten Daten aus dem Mojang/bedrock-samples Release.") + "\n\n" +
-                t("Empfohlen: Erst 'Dry-Run ausführen' und die Änderungen prüfen.")
+                (matchingReview
+                    ? t("Angewendet werden die im Dry-Run geprüften Quellen (Mojang {release}).", { release: matchingReview.release })
+                    : t("Empfohlen: Erst 'Dry-Run ausführen' und die Änderungen prüfen."))
             );
             if (!ok) return;
             run(false, true);
@@ -227,7 +257,6 @@
             applyButton: doc.getElementById("btnUpdateDbApply"),
             clearButton: doc.getElementById("btnClearUpdateOutput"),
             onlySelect: doc.getElementById("updateOnlySelect"),
-            useCacheCheckbox: doc.getElementById("updateDbUseCache"),
         };
     }
 

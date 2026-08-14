@@ -2559,21 +2559,6 @@ body.item-browser-open {
     flex-wrap: wrap;
 }
 
-.release-cache-options {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.release-cache-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-    cursor: pointer;
-}
-
 .update-db-output-wrapper {
     background: rgba(0,0,0,0.25);
     border: 1px solid var(--slot-border);
@@ -6736,7 +6721,7 @@ body.app-player-loaded .safe-edit-banner span {
     }
 }
 
-/* v0.5.13 workflow pass: focused single-page steps, no endless stacked console */
+/* Focused single-page workflow steps without an endlessly stacked console. */
 .app-workflow-nav {
     align-items: center;
     gap: 6px;

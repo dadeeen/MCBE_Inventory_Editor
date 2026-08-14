@@ -220,17 +220,14 @@ def test_app_wires_current_player_state_into_database_refresh_policy() -> None:
     assert "loadPlayer," in callback
 
 
-def test_update_controllers_use_separate_cache_controls() -> None:
+def test_update_controllers_do_not_expose_manual_release_cache_controls() -> None:
     _run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const elements = {
-                updateDbUseCache: { id: "db-cache" },
-                updateIconsUseCache: { id: "icons-cache" },
-            };
+            const elements = {};
             const document = { getElementById: id => elements[id] || null };
             const context = { window: {}, document, console, fetch: async () => ({}) };
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
@@ -238,9 +235,60 @@ def test_update_controllers_use_separate_cache_controls() -> None:
 
             const dbElements = context.window.MCBEUpdateDbView.collectUpdateDbElements(document);
             const iconElements = context.window.MCBEIconSourcesController.collectInventoryIconSourceElements(document);
-            assert.strictEqual(dbElements.useCacheCheckbox, elements.updateDbUseCache);
-            assert.strictEqual(iconElements.useCacheCheckbox, elements.updateIconsUseCache);
-            assert.notStrictEqual(dbElements.useCacheCheckbox, iconElements.useCacheCheckbox);
+            assert.strictEqual(Object.hasOwn(dbElements, "useCacheCheckbox"), false);
+            assert.strictEqual(Object.hasOwn(iconElements, "useCacheCheckbox"), false);
+
+            const payload = context.window.MCBEUpdateDbView.updateDbPayload({
+                dryRun: true,
+                force: false,
+                onlySelect: { value: "items" },
+            });
+            assert.strictEqual(Object.hasOwn(payload, "use_cache"), false);
+            """
+        )
+    )
+
+
+def test_apply_uses_source_receipt_from_matching_successful_dry_run() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
+
+            const requests = [];
+            const responses = [
+                { success: true, output: "preview", update_review_token: "a".repeat(64), resource_pack_release: "v1.26.40.5" },
+                { success: true, output: "apply", reloaded: true },
+            ];
+            const onlySelect = {
+                value: "items",
+                options: [{ value: "items", text: "Nur Items" }],
+                addEventListener() {},
+            };
+            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                outputEl,
+                onlySelect,
+                fetchImpl: async (_url, options) => {
+                    requests.push(JSON.parse(options.body));
+                    return { payload: responses.shift() };
+                },
+                parseJsonResponse: async response => response.payload,
+                withCsrf: () => ({}),
+            });
+
+            (async () => {
+                await controller.run(true, false);
+                await controller.run(false, true);
+                assert.strictEqual(requests.length, 2);
+                assert.strictEqual(Object.hasOwn(requests[0], "expected_update_review_token"), false);
+                assert.strictEqual(requests[1].expected_update_review_token, "a".repeat(64));
+                assert.match(outputEl.textContent, /im Dry-Run geprüfte Quellen \(Mojang v1\.26\.40\.5\)/);
+            })().catch(error => { console.error(error); process.exit(1); });
             """
         )
     )

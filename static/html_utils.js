@@ -244,8 +244,6 @@
         ["btnClearUpdateOutput", "btnClearUpdateOutput"],
         ["updateDbOutput", "updateDbOutput"],
         ["updateOnlySelect", "updateOnlySelect"],
-        ["updateDbUseCache", "updateDbUseCache"],
-        ["updateIconsUseCache", "updateIconsUseCache"],
         ["btnUndo", "btnUndo"],
         ["btnRedo", "btnRedo"],
         ["gridSearch", "gridSearch"],

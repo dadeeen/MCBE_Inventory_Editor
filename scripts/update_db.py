@@ -3,6 +3,7 @@
 
 import contextlib
 import hashlib
+import hmac
 import html
 import json
 import os
@@ -46,6 +47,7 @@ if ITEM_DB_PATH.suffix.lower() == ".py":
 DATA_ROOT = _env_path("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)
 CACHE_DIR = _env_path("MCBE_UPDATE_CACHE_DIR", DATA_ROOT / "cache" / "item_update")
 RELEASE_METADATA_PATH = CACHE_DIR / "release_metadata.json"
+ITEM_LISTING_CACHE_PATH = CACHE_DIR / item_db_verification.ITEM_LISTING_CACHE_FILENAME
 SOURCE_VERSION_JSON = _env_path("MCBE_SOURCE_VERSION_PATH", DATA_ROOT / "source_version.json")
 SOURCE_VERSION_HISTORY = _env_path("MCBE_SOURCE_VERSION_HISTORY_PATH", DATA_ROOT / "source_version_history.json")
 
@@ -416,6 +418,30 @@ def read_release_metadata() -> dict:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return {}
     return data if _valid_release_metadata(data) else {}
+
+
+def _same_resource_pack_release(first: dict, second: dict) -> bool:
+    fields = (
+        "resource_pack_release",
+        "resource_pack_asset",
+        "resource_pack_asset_size",
+        "resource_pack_url",
+    )
+    return bool(first) and bool(second) and all(first.get(field) == second.get(field) for field in fields)
+
+
+def _matching_cached_release(dest: Path, latest_info: dict) -> dict:
+    cached_info = read_release_metadata()
+    if not _same_resource_pack_release(cached_info, latest_info) or not dest.is_file():
+        return {}
+    expected_size = _safe_int(cached_info.get("resource_pack_asset_size"), 0)
+    try:
+        if dest.stat().st_size != expected_size:
+            return {}
+        _validate_downloaded_zip(dest)
+    except (OSError, RuntimeError):
+        return {}
+    return cached_info
 
 
 def ensure_data_paths() -> None:
@@ -805,8 +831,8 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
         raise RuntimeError(f"Download failed: {exc}") from exc
 
 
-def download_latest_rp(dest: Path) -> dict:
-    info = get_latest_release_info()
+def download_latest_rp(dest: Path, *, release_info: dict | None = None) -> dict:
+    info = release_info or get_latest_release_info()
     dest.parent.mkdir(parents=True, exist_ok=True)
     nonce = os.urandom(8).hex()
     candidate = dest.with_name(f".{dest.name}.{nonce}.candidate")
@@ -851,6 +877,22 @@ def download_latest_rp(dest: Path) -> dict:
     finally:
         with contextlib.suppress(OSError):
             candidate.unlink()
+
+
+def resolve_latest_rp(dest: Path) -> dict:
+    """Resolve the latest release and reuse only a matching validated cache."""
+
+    latest_info = get_latest_release_info()
+    cached_info = _matching_cached_release(dest, latest_info)
+    if cached_info:
+        log(
+            f"  {Colors.GREEN}Cache ist aktuell: {cached_info['resource_pack_release']} "
+            f"({cached_info['resource_pack_asset']}){Colors.END}"
+        )
+        return cached_info
+    if dest.exists():
+        log(f"  {Colors.YELLOW}Cache ist veraltet oder ungültig; aktuelles Release wird geladen{Colors.END}")
+    return download_latest_rp(dest, release_info=latest_info)
 
 
 def open_zip(zip_path: Path) -> zipfile.ZipFile:
@@ -1160,6 +1202,41 @@ def fetch_microsoft_item_listing_snapshot(url: str = MICROSOFT_ITEM_LISTINGS_URL
             return items, snapshot
     except (OSError, TimeoutError) as exc:
         raise RuntimeError(f"Fehler beim Laden der Microsoft-Learn-Itemliste: {exc}") from exc
+
+
+def write_microsoft_item_listing_cache(items: dict[str, str], snapshot: dict) -> None:
+    try:
+        payload = item_db_verification.build_item_listing_cache_payload(items, snapshot)
+    except item_db_verification.UpdateReviewError as exc:
+        raise RuntimeError(f"Microsoft-Itemlisten-Snapshot ist ungültig: {exc}") from exc
+    atomic_write_text(ITEM_LISTING_CACHE_PATH, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+
+def read_microsoft_item_listing_cache() -> tuple[dict[str, str], dict]:
+    try:
+        items, snapshot = item_db_verification.read_item_listing_cache(ITEM_LISTING_CACHE_PATH)
+    except item_db_verification.UpdateReviewError as exc:
+        raise RuntimeError(f"Kein gültiger Microsoft-Itemlisten-Snapshot aus dem Dry-Run vorhanden: {exc}") from exc
+    source_url = str(snapshot["microsoft_item_listing_url"])
+    _validate_https_url(source_url, ALLOWED_MICROSOFT_LEARN_HOSTS, label="Microsoft-Learn-Itemliste")
+    if source_url != MICROSOFT_ITEM_LISTINGS_URL:
+        raise RuntimeError("Der Microsoft-Itemlisten-Snapshot gehört nicht zur aktuellen offiziellen Quelle.")
+    return items, snapshot
+
+
+def resolve_microsoft_item_listing_snapshot(*, reuse_cached: bool) -> tuple[dict[str, str], dict]:
+    """Fetch the current listing or replay the exact normalized dry-run input."""
+
+    if reuse_cached:
+        items, snapshot = read_microsoft_item_listing_cache()
+        log(
+            f"  {Colors.YELLOW}Verwende im Dry-Run geprüfte Microsoft-Learn-Itemliste "
+            f"({len(items)} Einträge){Colors.END}"
+        )
+        return items, snapshot
+    items, snapshot = fetch_microsoft_item_listing_snapshot()
+    write_microsoft_item_listing_cache(items, snapshot)
+    return items, snapshot
 
 
 def _normalize_item_key(value: object) -> str:
@@ -2251,7 +2328,17 @@ def main() -> int:
     )
     parser.add_argument("--dry-run", action="store_true", help="Nur anzeigen, nicht schreiben")
     parser.add_argument("--force", action="store_true", help="Ohne Nachfrage schreiben")
-    parser.add_argument("--cache", action="store_true", help="Gecachte Datei nutzen")
+    parser.add_argument(
+        "--cache",
+        "--reuse-cached-release",
+        dest="cache",
+        action="store_true",
+        help="Im Dry-Run geprüfte Quellen ohne erneuten Online-Abruf verarbeiten",
+    )
+    parser.add_argument(
+        "--expected-review-token",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--only", choices=["items", "effects", "enchants"], help="Nur bestimmte Daten aktualisieren")
     parser.add_argument(
         "--check-wiki",
@@ -2259,6 +2346,11 @@ def main() -> int:
         help="Maximalstufen optional mit der Minecraft Wiki vergleichen; Abweichungen werden nicht übernommen",
     )
     args = parser.parse_args()
+    if args.expected_review_token:
+        if not args.cache:
+            raise RuntimeError("Ein Dry-Run-Prüfbeleg kann nur mit dem internen Cache-Replay verwendet werden.")
+        if not re.fullmatch(r"[0-9a-f]{64}", args.expected_review_token):
+            raise RuntimeError("Der Dry-Run-Prüfbeleg ist ungültig.")
 
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
     log(f"{Colors.BOLD}  Minecraft Bedrock Item-DB Updater (Items + Effects + Enchantments){Colors.END}")
@@ -2268,18 +2360,37 @@ def main() -> int:
     log(f"  Item-DB: {ITEM_DB_PATH}", Colors.DIM)
     log(f"  Cache:   {CACHE_DIR}", Colors.DIM)
 
+    if args.expected_review_token:
+        try:
+            current_review = item_db_verification.update_review_snapshot(
+                update_cache_dir=CACHE_DIR,
+                item_db_path=ITEM_DB_PATH,
+                source_version_path=SOURCE_VERSION_JSON,
+                source_version_history_path=SOURCE_VERSION_HISTORY,
+                scope=args.only,
+            )
+        except item_db_verification.UpdateReviewError as exc:
+            raise RuntimeError(f"Der Dry-Run-Prüfbeleg kann nicht validiert werden: {exc}") from exc
+        if not hmac.compare_digest(args.expected_review_token, current_review["token"]):
+            raise RuntimeError("Die geprüften Dry-Run-Eingaben haben sich geändert. Bitte den Dry-Run erneut ausführen.")
+        log(f"  {Colors.GREEN}Dry-Run-Prüfbeleg validiert ({current_review['scope']}){Colors.END}")
+
     step("1/4  Resource Pack herunterladen")
     rp_zip = CACHE_DIR / "bedrock_resource_pack.zip"
     release_info: dict = {}
-    if args.cache and rp_zip.exists():
+    if args.cache:
+        if not rp_zip.exists():
+            raise RuntimeError("Kein gecachtes Resource-Pack für die erneute Verarbeitung vorhanden.")
         _validate_downloaded_zip(rp_zip)
         release_info = read_release_metadata()
-        if release_info:
-            log(f"  {Colors.GREEN}Verwende gecachte Datei und Release-Metadata{Colors.END}")
-        else:
-            log(f"  {Colors.YELLOW}Verwende gecachte Datei; Release-Metadata unbekannt{Colors.END}")
+        if not release_info:
+            raise RuntimeError("Die Metadaten des gecachten Resource-Packs fehlen oder sind ungültig.")
+        log(
+            f"  {Colors.YELLOW}Verwende gecachtes Release ohne Online-Versionsprüfung: "
+            f"{release_info['resource_pack_release']}{Colors.END}"
+        )
     else:
-        release_info = download_latest_rp(rp_zip)
+        release_info = resolve_latest_rp(rp_zip)
 
     step("2/4  Daten extrahieren und parsen")
     old_items, old_effects, old_enchants = read_all_dicts()
@@ -2331,7 +2442,7 @@ def main() -> int:
                 en_item_names, de_item_names = parse_lang_items(en_lang, de_lang) if en_lang else ({}, {})
                 item_localizations = parse_lang_item_localizations(en_lang, de_lang) if en_lang else {}
                 item_serialization_aliases = parse_json_item_serialization_aliases(zf)
-                microsoft_items, item_listing_snapshot = fetch_microsoft_item_listing_snapshot()
+                microsoft_items, item_listing_snapshot = resolve_microsoft_item_listing_snapshot(reuse_cached=args.cache)
                 log(f"  {Colors.GREEN}Microsoft-Learn-Item-IDs: {len(microsoft_items)}{Colors.END}")
                 log(f"  {Colors.GREEN}Vollständige Item-Lokalisierungen: {len(item_localizations)}{Colors.END}")
                 if item_serialization_aliases:

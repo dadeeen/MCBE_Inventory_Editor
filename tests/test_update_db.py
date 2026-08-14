@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import sys
@@ -151,6 +152,41 @@ class TestMicrosoftItemListings(unittest.TestCase):
 
         self.assertEqual(merged["minecraft:dandelion"], ("Alter Löwenzahn", "Old Dandelion"))
         self.assertEqual(merged["minecraft:white_wool"], ("White Wool", "White Wool"))
+
+    def test_normalized_microsoft_listing_cache_roundtrip(self):
+        items = {f"test_item_{index}": f"Test Item {index}" for index in range(1_000)}
+        snapshot = {
+            "microsoft_item_listing_url": update_db.MICROSOFT_ITEM_LISTINGS_URL,
+            "microsoft_item_listing_fetched_at": "2026-08-14T12:00:00+00:00",
+            "microsoft_item_listing_content_hash": hashlib.sha256(b"listing").hexdigest(),
+            "microsoft_item_listing_count": len(items),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = Path(tmp) / "microsoft-items.json"
+            with mock.patch.object(update_db, "ITEM_LISTING_CACHE_PATH", cache_path):
+                update_db.write_microsoft_item_listing_cache(items, snapshot)
+                cached_items, cached_snapshot = update_db.read_microsoft_item_listing_cache()
+
+        self.assertEqual(cached_items, items)
+        self.assertEqual(cached_snapshot, snapshot)
+
+    def test_cached_listing_replay_does_not_contact_microsoft(self):
+        items = {f"test_item_{index}": f"Test Item {index}" for index in range(1_000)}
+        snapshot = {
+            "microsoft_item_listing_url": update_db.MICROSOFT_ITEM_LISTINGS_URL,
+            "microsoft_item_listing_fetched_at": "2026-08-14T12:00:00+00:00",
+            "microsoft_item_listing_content_hash": hashlib.sha256(b"listing").hexdigest(),
+            "microsoft_item_listing_count": len(items),
+        }
+        with (
+            mock.patch.object(update_db, "read_microsoft_item_listing_cache", return_value=(items, snapshot)),
+            mock.patch.object(update_db, "fetch_microsoft_item_listing_snapshot") as fetch,
+            mock.patch.object(update_db, "log"),
+        ):
+            resolved = update_db.resolve_microsoft_item_listing_snapshot(reuse_cached=True)
+
+        self.assertEqual(resolved, (items, snapshot))
+        fetch.assert_not_called()
 
     def test_lang_item_parser_skips_axolotl_color_variant_labels(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1210,6 +1246,24 @@ def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, 
     assert kwargs["source_metadata"]["microsoft_item_listing_content_hash"] == "items"
 
 
+def test_main_rejects_changed_review_token_before_processing_sources(monkeypatch):
+    monkeypatch.setattr(update_db, "ensure_data_paths", lambda: None)
+    monkeypatch.setattr(update_db, "log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        update_db.item_db_verification,
+        "update_review_snapshot",
+        lambda **_kwargs: {"token": "b" * 64, "scope": "all"},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["update_db.py", "--cache", "--expected-review-token", "a" * 64, "--force"],
+    )
+
+    with pytest.raises(RuntimeError, match="Dry-Run erneut"):
+        update_db.main()
+
+
 def test_full_no_op_update_commits_server_side_verification(monkeypatch, tmp_path):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
@@ -1243,7 +1297,11 @@ def test_full_no_op_update_commits_server_side_verification(monkeypatch, tmp_pat
     monkeypatch.setattr(update_db, "read_item_components", lambda: item_components)
     monkeypatch.setattr(update_db, "read_behavior_item_source", lambda: behavior_source)
     monkeypatch.setattr(update_db, "parse_json_item_serialization_aliases", lambda _zf: {})
-    monkeypatch.setattr(update_db, "fetch_microsoft_item_listing_snapshot", lambda: ({}, item_listing))
+    monkeypatch.setattr(
+        update_db,
+        "resolve_microsoft_item_listing_snapshot",
+        lambda *, reuse_cached: ({}, item_listing),
+    )
     monkeypatch.setattr(update_db, "merge_items", lambda *_args: {})
     monkeypatch.setattr(update_db, "compute_block_only_item_ids", lambda *_args: [])
     monkeypatch.setattr(update_db, "read_block_only_item_ids", lambda: [])
@@ -1307,6 +1365,58 @@ class _DownloadOpener:
 
     def open(self, _url, timeout=None):
         return _DownloadResponse(self.payload)
+
+
+def test_latest_release_resolution_reuses_only_matching_valid_cache(monkeypatch, tmp_path):
+    archive = tmp_path / "bedrock_resource_pack.zip"
+    archive.write_bytes(_zip_bytes())
+    metadata_path = tmp_path / "release_metadata.json"
+    cached = {
+        "resource_pack_release": "v1.26.40.5",
+        "resource_pack_asset": "bedrock-samples-v1.26.40.5-min.zip",
+        "resource_pack_asset_size": archive.stat().st_size,
+        "resource_pack_url": "https://release-assets.githubusercontent.com/current.zip",
+        "resource_pack_fetched_at": "cached-at",
+    }
+    metadata_path.write_text(json.dumps(cached), encoding="utf-8")
+    latest = {**cached, "resource_pack_fetched_at": "checked-now"}
+    download = mock.Mock()
+    monkeypatch.setattr(update_db, "RELEASE_METADATA_PATH", metadata_path)
+    monkeypatch.setattr(update_db, "get_latest_release_info", lambda: latest)
+    monkeypatch.setattr(update_db, "download_latest_rp", download)
+    monkeypatch.setattr(update_db, "log", lambda *_args, **_kwargs: None)
+
+    resolved = update_db.resolve_latest_rp(archive)
+
+    assert resolved == cached
+    download.assert_not_called()
+
+
+def test_latest_release_resolution_replaces_stale_cache(monkeypatch, tmp_path):
+    archive = tmp_path / "bedrock_resource_pack.zip"
+    archive.write_bytes(_zip_bytes())
+    metadata_path = tmp_path / "release_metadata.json"
+    old = {
+        "resource_pack_release": "v1.26.30.5",
+        "resource_pack_asset": "bedrock-samples-v1.26.30.5-min.zip",
+        "resource_pack_asset_size": archive.stat().st_size,
+        "resource_pack_url": "https://release-assets.githubusercontent.com/old.zip",
+    }
+    latest = {
+        "resource_pack_release": "v1.26.40.5",
+        "resource_pack_asset": "bedrock-samples-v1.26.40.5-min.zip",
+        "resource_pack_asset_size": archive.stat().st_size + 1,
+        "resource_pack_url": "https://release-assets.githubusercontent.com/new.zip",
+    }
+    metadata_path.write_text(json.dumps(old), encoding="utf-8")
+    download = mock.Mock(return_value=latest)
+    monkeypatch.setattr(update_db, "RELEASE_METADATA_PATH", metadata_path)
+    monkeypatch.setattr(update_db, "get_latest_release_info", lambda: latest)
+    monkeypatch.setattr(update_db, "download_latest_rp", download)
+    monkeypatch.setattr(update_db, "log", lambda *_args, **_kwargs: None)
+
+    assert update_db.resolve_latest_rp(archive) == latest
+    download.assert_called_once_with(archive, release_info=latest)
 
 
 def test_read_release_metadata_rejects_non_object_json(monkeypatch, tmp_path):

@@ -267,7 +267,7 @@ The editor deliberately leaves unsupported Bedrock and add-on data untouched ins
 Security essentials:
 
 - Local Mode binds only to `127.0.0.1` by default.
-- Editing worlds works fully offline. Outbound HTTPS is used only for **Item DB** and **Vanilla icons** updates you trigger yourself, using a fixed host allowlist for GitHub and `learn.microsoft.com`. Optionally, `MCBE_STARTUP_NETWORK_CHECK=true` checks whether those hosts are reachable at startup. The application does not contact `minecraft.wiki` at runtime.
+- Editing worlds works fully offline. Outbound HTTPS is used only for **Item DB** and **Vanilla icons** updates you trigger yourself, using a fixed host allowlist for GitHub and `learn.microsoft.com`. These updates automatically check the latest Mojang release and reuse a cached download only when it matches. After an Item DB dry run, apply is bound to the reviewed scope, source snapshots, and starting database state. Optionally, `MCBE_STARTUP_NETWORK_CHECK=true` checks whether those hosts are reachable at startup. The application does not contact `minecraft.wiki` at runtime.
 - Docker/LAN setup requires a password decision on first use.
 - Mutating requests use CSRF/Origin checks and loaded-player revisions.
 - World writes are serialized and re-check the server status immediately before writing.
