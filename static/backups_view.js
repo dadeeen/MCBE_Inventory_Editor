@@ -287,20 +287,28 @@
         }
 
         async function openBackupFolder() {
-            const worldPath = getWorldPath();
-            if (!worldPath) return;
+            const requestedWorldPath = getWorldPath();
+            if (!requestedWorldPath) return false;
             try {
                 const res = await fetch("/api/open_backup_folder", {
                     method: "POST",
                     headers: withCsrf(),
-                    body: JSON.stringify({ world_path: worldPath }),
+                    body: JSON.stringify({ world_path: requestedWorldPath }),
                 });
                 const data = await parseJsonResponse(res);
+                // Opening the native file manager can take long enough for the
+                // user to load another world. A late response must neither
+                // replace that world's copy path nor show a toast for the old
+                // selection.
+                if (requestedWorldPath !== getWorldPath()) return false;
                 const outcome = window.MCBEBackupRestoreLogic.openBackupFolderOutcome(data);
                 showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
                 if (outcome.ok && outcome.nextBackupDir) lastBackupDir = outcome.nextBackupDir;
+                return outcome.ok;
             } catch (_e) {
+                if (requestedWorldPath !== getWorldPath()) return false;
                 showToast(t("Fehler beim Öffnen des Backupordners."), "error", 5000);
+                return false;
             }
         }
 

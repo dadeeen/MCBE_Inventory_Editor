@@ -1300,6 +1300,47 @@ def test_listing_and_preview_expose_iso_utc_timestamps_for_the_ui(tmp_path):
     assert listed[legacy.name]["date"]
 
 
+def test_listing_and_preview_support_pre_epoch_filesystem_timestamps(tmp_path):
+    """Valid NTFS mtimes must not depend on Windows C-runtime date limits."""
+
+    from datetime import UTC, datetime
+
+    from mcbe_editor.backup import BACKUP_KIND_MANUAL, create_backup, preview_backup
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    (world / "db" / "CURRENT").write_text("manifest", encoding="utf-8")
+    created = datetime(2026, 7, 12, 10, 0, tzinfo=UTC)
+
+    with patch.dict(os.environ, {"MCBE_BACKUP_ROOT": str(tmp_path / "backups")}, clear=False):
+        with patch("mcbe_editor.backup._utc_now", side_effect=[created]):
+            modern = Path(create_backup(str(world), prune_after=False, backup_kind=BACKUP_KIND_MANUAL))
+        legacy = Path(get_backups_dir(str(world))) / "world_backup_old.zip"
+        with zipfile.ZipFile(legacy, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("db/CURRENT", b"manifest")
+
+        filesystem_modified = datetime(1900, 1, 2, 3, 4, 5, tzinfo=UTC)
+        timestamp = filesystem_modified.timestamp()
+        try:
+            for archive_path in (modern, legacy):
+                os.utime(archive_path, (timestamp, timestamp))
+        except (OSError, OverflowError) as exc:
+            pytest.skip(f"Dateisystem unterstützt keinen mtime vor 1970: {exc}")
+        if any(int(archive_path.stat().st_mtime) != int(timestamp) for archive_path in (modern, legacy)):
+            pytest.skip("Dateisystem bewahrt keinen mtime vor 1970")
+
+        listed = {entry["filename"]: entry for entry in list_backups(str(world))}
+        modern_preview = preview_backup(str(world), modern.name)
+        legacy_preview = preview_backup(str(world), legacy.name)
+
+    assert listed[modern.name]["created_at"] == "2026-07-12T10:00:00Z"
+    assert modern_preview["backup"]["created_at"] == "2026-07-12T10:00:00Z"
+    for payload in (listed[modern.name], modern_preview["backup"], listed[legacy.name], legacy_preview["backup"]):
+        assert payload["modified_at"] == "1900-01-02T03:04:05Z"
+    assert listed[legacy.name]["date"]
+    assert legacy_preview["backup"]["modified"]
+
+
 def test_retention_separates_automatic_manual_and_pre_restore_backups(tmp_path):
     from datetime import UTC, datetime
 

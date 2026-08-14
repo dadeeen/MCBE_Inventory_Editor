@@ -541,6 +541,108 @@ def test_frontend_backups_view_invalidates_stale_folder_during_load_and_after_fa
     )
 
 
+def test_frontend_backups_view_ignores_stale_open_folder_response_after_world_switch() -> None:
+    """A native folder-open response must remain bound to its requested world."""
+
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/backups_view.js", "utf8");
+
+            function deferred() {
+                let resolve;
+                const promise = new Promise(done => { resolve = done; });
+                return { promise, resolve };
+            }
+
+            const openResponseA = deferred();
+            let worldPath = "A";
+            const context = {
+                window: {
+                    MCBEBackupRestoreLogic: {
+                        openBackupFolderOutcome(data) {
+                            return data.success
+                                ? {
+                                    ok: true,
+                                    nextBackupDir: data.path || "",
+                                    toast: { message: "Backupordner geöffnet.", type: "success", ms: 2500 },
+                                }
+                                : {
+                                    ok: false,
+                                    toast: { message: "Fehler", type: "error", ms: 5000 },
+                                };
+                        },
+                    },
+                },
+                console,
+                fetch: async (url, init) => {
+                    const requestedWorld = JSON.parse(init.body).world_path;
+                    if (url === "/api/open_backup_folder") {
+                        assert.strictEqual(requestedWorld, "A");
+                        return openResponseA.promise;
+                    }
+                    return {
+                        json: async () => ({
+                            success: true,
+                            backup_dir: `${requestedWorld}:/Backups`,
+                            backups: [],
+                        }),
+                    };
+                },
+            };
+            vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
+
+            (async () => {
+                const copied = [];
+                const toasts = [];
+                const container = { innerHTML: "", querySelectorAll: () => [] };
+                const copyButton = {
+                    disabled: false,
+                    title: "",
+                    listeners: {},
+                    addEventListener(type, fn) { this.listeners[type] = fn; },
+                };
+                const openButton = {
+                    disabled: false,
+                    title: "",
+                    addEventListener() {},
+                };
+                const controller = context.window.MCBEBackupsView.createBackupsController({
+                    elements: { container, copyFolderButton: copyButton, openFolderButton: openButton },
+                    getWorldPath: () => worldPath,
+                    parseJsonResponse: response => response.json(),
+                    copyTextToClipboard: value => copied.push(value),
+                    showToast: (...args) => toasts.push(args),
+                });
+                controller.wire();
+
+                await controller.loadBackupsList();
+                const openingA = controller.openBackupFolder();
+
+                worldPath = "B";
+                await controller.loadBackupsList();
+                copyButton.listeners.click();
+                assert.deepStrictEqual(copied, ["B:/Backups"]);
+
+                openResponseA.resolve({ json: async () => ({ success: true, path: "A:/Backups" }) });
+                assert.strictEqual(await openingA, false);
+                copyButton.listeners.click();
+
+                assert.deepStrictEqual(copied, ["B:/Backups", "B:/Backups"]);
+                assert.deepStrictEqual(toasts, []);
+                assert.strictEqual(copyButton.disabled, false);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_manual_backup_warns_after_successful_create_cleanup_failure() -> None:
     _run_node(
         textwrap.dedent(

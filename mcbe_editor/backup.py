@@ -10,7 +10,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from pathlib import Path, PurePosixPath
 
@@ -375,6 +375,36 @@ def _utc_now() -> datetime:
 
 def _metadata_created_at(dt: datetime) -> str:
     return dt.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _utc_datetime_from_timestamp(timestamp) -> datetime | None:
+    """Convert a POSIX timestamp without relying on the platform C runtime.
+
+    Windows can store NTFS mtimes before 1970 even though
+    ``datetime.fromtimestamp`` rejects them. POSIX arithmetic keeps those valid
+    filesystem values available to the language-neutral API fields.
+    """
+
+    try:
+        return datetime(1970, 1, 1, tzinfo=UTC) + timedelta(seconds=float(timestamp))
+    except (OverflowError, TypeError, ValueError):
+        return None
+
+
+def _backup_display_datetime(dt: datetime | None) -> str:
+    if dt is None:
+        return t("unbekannt")
+    try:
+        displayed = dt.astimezone()
+    except (OSError, OverflowError, ValueError):
+        # Windows local-time conversion has a narrower range than NTFS. The
+        # ISO field remains UTC and authoritative; keep the legacy display
+        # fallback usable instead of failing the complete backup response.
+        displayed = dt
+    try:
+        return displayed.strftime("%d.%m.%Y %H:%M:%S")
+    except (OSError, OverflowError, ValueError):
+        return t("unbekannt")
 
 
 def _parse_created_at(value) -> datetime | None:
@@ -1147,19 +1177,15 @@ def list_backups(world_path):
             if descriptor is None:
                 continue
             created_at = descriptor["created_at"]
-            modified_at = datetime.fromtimestamp(descriptor["mtime"], tz=UTC)
-            display_datetime = (
-                created_at.astimezone().strftime("%d.%m.%Y %H:%M:%S")
-                if created_at is not None
-                else datetime.fromtimestamp(descriptor["mtime"]).strftime("%d.%m.%Y %H:%M:%S")
-            )
+            modified_at = _utc_datetime_from_timestamp(descriptor["mtime"])
+            display_datetime = _backup_display_datetime(created_at or modified_at)
             backups_list.append(
                 {
                     "filename": file,
                     "size_mb": round(descriptor["size_bytes"] / (1024 * 1024), 2),
                     "date": display_datetime,
                     "created_at": _metadata_created_at(created_at) if created_at is not None else None,
-                    "modified_at": _metadata_created_at(modified_at),
+                    "modified_at": _metadata_created_at(modified_at) if modified_at is not None else None,
                     "kind": descriptor["kind"],
                     "kind_label": descriptor["kind_label"],
                     "retention_class": descriptor["retention_class"],
@@ -1225,12 +1251,8 @@ def preview_backup(world_path, backup_file):
         raise ValueError("Backup-Datei ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
 
     created_at = _parse_created_at(metadata.get("created_at"))
-    modified_at = datetime.fromtimestamp(stat_info.st_mtime, tz=UTC)
-    displayed_timestamp = (
-        created_at.astimezone().strftime("%d.%m.%Y %H:%M:%S")
-        if created_at is not None
-        else datetime.fromtimestamp(stat_info.st_mtime).strftime("%d.%m.%Y %H:%M:%S")
-    )
+    modified_at = _utc_datetime_from_timestamp(stat_info.st_mtime)
+    displayed_timestamp = _backup_display_datetime(created_at or modified_at)
 
     return {
         "success": True,
@@ -1245,7 +1267,7 @@ def preview_backup(world_path, backup_file):
             "size_mb": round(stat_info.st_size / (1024 * 1024), 2),
             "modified": displayed_timestamp,
             "created_at": _metadata_created_at(created_at) if created_at is not None else None,
-            "modified_at": _metadata_created_at(modified_at),
+            "modified_at": _metadata_created_at(modified_at) if modified_at is not None else None,
             "kind": metadata["kind"],
             "kind_label": BACKUP_KIND_LABELS[metadata["kind"]],
             "retention_class": metadata["retention_class"],
