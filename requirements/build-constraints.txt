@@ -1,2 +1,3 @@
-# Build-isolation constraint for the native Amulet packages.
-Cython<3.1
+# Exact fallback constraint for isolated native Amulet builds.
+# Supported CI and Docker builds use the hash-locked build.lock instead.
+Cython==3.0.12

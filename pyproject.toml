@@ -1,6 +1,6 @@
 [project]
 name = "mcbe-inventory-editor"
-version = "0.5.12"
+version = "0.5.13"
 description = "Local Minecraft Bedrock inventory editor with isolated DB, NBT, backup, and UI layers."
 requires-python = ">=3.12,<3.13"
 dependencies = [

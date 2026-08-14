@@ -86,11 +86,14 @@ For a full local security check. Run `setup.bat` once first if `.venv` does not 
 
 ```bash
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --require-hashes -r requirements/dev.lock
+.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
+.venv/Scripts/python -m pip install --no-build-isolation --require-hashes -r requirements/dev.lock
 .venv/Scripts/python scripts/security_check.py --require-pip-audit
 ```
 
 On Linux and macOS the interpreter is `.venv/bin/python`.
+
+Native Amulet source distributions are built only with the hash-locked toolchain from `build.lock`; disabling build isolation prevents pip from downloading unchecked build-time dependencies. Windows runtime setup instead fails closed unless compatible prebuilt wheels are available.
 
 Dependency findings are release signals, not runtime protection. Update affected packages deliberately and rerun the complete test and release checks; do not apply broad automatic upgrades.
 

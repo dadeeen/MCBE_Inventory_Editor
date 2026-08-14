@@ -6,9 +6,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS_DIR = ROOT / "requirements"
-LOCKFILES = ["bootstrap.txt", "runtime.txt", "docker.txt", "dev.txt"]
+LOCKFILES = ["bootstrap.txt", "build.txt", "runtime.txt", "docker.txt", "dev.txt"]
 COMPATIBILITY_LOCKFILES = {
     "bootstrap.lock": "bootstrap.txt",
+    "build.lock": "build.txt",
     "runtime.lock": "runtime.txt",
     "docker.lock": "docker.txt",
     "dev.lock": "dev.txt",

@@ -1,9 +1,13 @@
-FROM python:3.12-slim AS builder
+# Multi-architecture digest for python:3.12-slim, verified 2026-08-14.
+# Refresh deliberately with: docker buildx imagetools inspect python:3.12-slim
+ARG PYTHON_BASE_IMAGE=python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65
+
+FROM ${PYTHON_BASE_IMAGE} AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    VIRTUAL_ENV=/opt/venv \
-    PATH=/opt/venv/bin:$PATH
+    VIRTUAL_ENV=/opt/build-venv \
+    PATH=/opt/build-venv/bin:$PATH
 
 WORKDIR /app
 
@@ -13,20 +17,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
-RUN python -m venv /opt/venv
-COPY requirements/bootstrap.lock requirements/bootstrap.txt requirements/runtime.lock requirements/runtime.txt requirements/docker.lock requirements/docker.txt requirements/build-constraints.txt ./requirements/
-ENV PIP_BUILD_CONSTRAINT=/app/requirements/build-constraints.txt
-RUN python -m pip install --no-cache-dir --require-hashes -r requirements/bootstrap.lock \
- && python -m pip install --no-cache-dir --require-hashes -r requirements/docker.lock \
- && python -m pip check
+RUN python -m venv /opt/build-venv
+COPY requirements/bootstrap.lock requirements/bootstrap.txt requirements/build.lock requirements/build.txt requirements/runtime.lock requirements/runtime.txt requirements/docker.lock requirements/docker.txt ./requirements/
+RUN mkdir -p /wheelhouse/bootstrap /wheelhouse/runtime \
+ && python -m pip download --no-cache-dir --only-binary=:all: --require-hashes --dest /wheelhouse/bootstrap -r requirements/bootstrap.lock \
+ && python -m pip install --no-cache-dir --no-index --only-binary=:all: --find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock \
+ && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements/build.lock \
+ && python -c "import Cython; version = Cython.__version__; print(f'Locked native build toolchain: Cython {version}'); assert version == '3.0.12', version" \
+ && python -m pip wheel --no-cache-dir --no-build-isolation --require-hashes --wheel-dir /wheelhouse/runtime -r requirements/docker.lock
 
 FROM builder AS dependency-audit
 COPY requirements/dev.lock requirements/dev.txt ./requirements/
 COPY scripts/security_check.py scripts/security_check.py
-RUN python -m pip install --no-cache-dir --require-hashes -r requirements/dev.lock \
+RUN python -m pip install --no-cache-dir --no-index --only-binary=:all: --no-deps /wheelhouse/runtime/*.whl \
+ && python -m pip install --no-cache-dir --no-build-isolation --require-hashes -r requirements/dev.lock \
  && python scripts/security_check.py --require-pip-audit
 
-FROM python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -64,7 +71,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app
 
-COPY --from=builder /opt/venv /opt/venv
+RUN python -m venv /opt/venv
+COPY requirements/bootstrap.lock requirements/bootstrap.txt ./requirements/
+COPY --from=builder /wheelhouse /wheelhouse
+RUN python -m pip install --no-cache-dir --no-index --only-binary=:all: --find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock \
+ && python -m pip install --no-cache-dir --no-index --only-binary=:all: --no-deps /wheelhouse/runtime/*.whl \
+ && python -m pip check \
+ && rm -rf /wheelhouse
 COPY main.py pyproject.toml ./
 COPY mcbe_editor/ ./mcbe_editor/
 COPY static/ ./static/

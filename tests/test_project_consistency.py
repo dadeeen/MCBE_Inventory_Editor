@@ -17,7 +17,11 @@ def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
     assert "pip install --upgrade pip" not in workflow
     assert "pip install --upgrade pip" not in dockerfile
     assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 7
-    assert "pip install --no-cache-dir --require-hashes -r requirements/bootstrap.lock" in dockerfile
+    docker_bootstrap = (
+        "pip install --no-cache-dir --no-index --only-binary=:all: "
+        "--find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
+    )
+    assert docker_bootstrap in dockerfile
     assert "pip==26.1.2" in bootstrap_source
     assert bootstrap_source.count("--hash=sha256:") == 2
     assert bootstrap_wrapper == "-r bootstrap.txt\n"
@@ -32,6 +36,9 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "bootstrap.in",
         "bootstrap.lock",
         "bootstrap.txt",
+        "build.in",
+        "build.lock",
+        "build.txt",
         "build-constraints.txt",
         "dev.in",
         "dev.lock",
@@ -58,7 +65,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
     ]
     assert runtime_dependencies == project_dependencies
 
-    for name in ("bootstrap", "runtime", "docker", "dev"):
+    for name in ("bootstrap", "build", "runtime", "docker", "dev"):
         assert _base._read(f"requirements/{name}.lock") == f"-r {name}.txt\n"
 
     # Dependabot cannot run pip-compile, so it can only widen version ceilings

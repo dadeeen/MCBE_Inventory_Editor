@@ -1,0 +1,8 @@
+# Hash-locked tools required to build the native Amulet source distributions.
+# Keep Cython consistent with build-constraints.txt.
+Cython==3.0.12
+numpy==1.26.4
+packaging==26.2
+setuptools==83.0.0
+versioneer==0.29
+wheel==0.47.0

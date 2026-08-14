@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(
-            "Use Python 3.12 and install requirements/dev.lock before running release/CI checks.",
+            "Use Python 3.12 and install the locked build and dev requirements before running release/CI checks.",
             file=sys.stderr,
         )
         return 2

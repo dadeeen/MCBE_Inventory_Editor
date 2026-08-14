@@ -16,10 +16,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENT_FILES = [
-    ROOT / "requirements" / "bootstrap.lock",
-    ROOT / "requirements" / "runtime.lock",
-    ROOT / "requirements" / "docker.lock",
-    ROOT / "requirements" / "dev.lock",
+    ROOT / "requirements" / "bootstrap.txt",
+    ROOT / "requirements" / "build.txt",
+    ROOT / "requirements" / "runtime.txt",
+    ROOT / "requirements" / "docker.txt",
+    ROOT / "requirements" / "dev.txt",
 ]
 
 
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         "--requirements",
         action="append",
         default=[],
-        help="Requirement file to audit. Can be passed multiple times. Defaults to project requirements files.",
+        help="Compiled, hash-pinned requirement file to audit. Can be passed multiple times.",
     )
     args = parser.parse_args(argv)
 
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if importlib.util.find_spec("pip_audit") is None:
         print(
-            "pip-audit is not installed. Install requirements/dev.lock or run inside the dependency-audit Docker target.",
+            "pip-audit is not installed. Install the locked build and dev requirements or run inside the dependency-audit Docker target.",
             file=sys.stderr,
         )
         return 2 if args.require_pip_audit else (1 if failures else 0)
@@ -63,7 +64,20 @@ def main(argv: list[str] | None = None) -> int:
         req_path = req_file if req_file.is_absolute() else ROOT / req_file
         if req_path.exists():
             audited += 1
-            failures += run([sys.executable, "-m", "pip_audit", "-r", str(req_path)]) != 0
+            failures += (
+                run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "pip_audit",
+                        "--disable-pip",
+                        "--require-hashes",
+                        "-r",
+                        str(req_path),
+                    ]
+                )
+                != 0
+            )
         else:
             print(f"Requirement file not found: {req_path}", file=sys.stderr)
             failures += 1

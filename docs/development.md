@@ -9,7 +9,8 @@ Recommended local check round on Windows:
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --require-hashes -r requirements/dev.lock
+.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
+.venv/Scripts/python -m pip install --no-build-isolation --require-hashes -r requirements/dev.lock
 .venv/Scripts/python scripts/smoke_check.py
 .venv/Scripts/python -m pytest tests -q
 .venv/Scripts/python -m ruff check
@@ -24,6 +25,10 @@ python scripts/test_full.py -v
 ```
 
 The GitHub Actions workflow runs on pull requests, pushes to `main`, version tags, a weekly schedule, and manually via **Actions → CI → Run workflow**. Pull requests, `main`, scheduled runs, and manual runs execute the full validation including a Docker build, but never publish. Only a version-tag push may publish the Docker image and create a GitHub Release; a separate publish workflow without tests does not exist. External actions are immutably pinned to full commit SHAs, with the corresponding release tag documented as a comment.
+
+Native Amulet packages have no Linux wheels for the supported versions. Their source archives remain covered by the normal requirement hashes; CI and Docker additionally install the complete build toolchain from `requirements/build.lock` using wheels and hashes, then disable pip build isolation. This prevents an isolated build subprocess from resolving untracked build dependencies. `requirements/build-constraints.txt` is an exact fallback constraint, not the primary security boundary.
+
+Both Docker stages use the same multi-architecture digest for `python:3.12-slim`. During a deliberate dependency or release refresh, inspect the current official digest with `docker buildx imagetools inspect python:3.12-slim`, review the reported Python/Debian version, update the single `PYTHON_BASE_IMAGE` argument in `Dockerfile`, and run the complete Docker and release checks. A digest update is a reviewed dependency change, not an automatic side effect of an ordinary build.
 
 ## Frontend tests and Node.js
 

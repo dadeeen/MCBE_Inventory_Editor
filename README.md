@@ -68,7 +68,7 @@ setup.bat
 start.bat
 ```
 
-`setup.bat` creates `.venv` inside the project folder and installs no global Python packages. The editor listens on `127.0.0.1:5000`; app data is stored under `data/`.
+`setup.bat` creates `.venv` inside the project folder, installs no global Python packages, verifies the dependency hashes, and accepts only prebuilt wheels. The editor listens on `127.0.0.1:5000`; app data is stored under `data/`.
 
 Administrator rights should not normally be needed. If a safely stopped world cannot be saved because of Windows permissions, running `start.bat` as administrator can be used as a diagnostic test. It does not make editing a running world safe.
 

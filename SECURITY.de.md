@@ -86,11 +86,14 @@ Vollständige lokale Sicherheitsprüfung. Führe zuerst einmal `setup.bat` aus, 
 
 ```bash
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --require-hashes -r requirements/dev.lock
+.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
+.venv/Scripts/python -m pip install --no-build-isolation --require-hashes -r requirements/dev.lock
 .venv/Scripts/python scripts/security_check.py --require-pip-audit
 ```
 
 Unter Linux und macOS lautet der Interpreter `.venv/bin/python`.
+
+Native Amulet-Source-Distributionen werden ausschließlich mit der hashgebundenen Werkzeugkette aus `build.lock` gebaut; die deaktivierte Build-Isolation verhindert, dass pip ungeprüfte Build-Abhängigkeiten nachlädt. Das Windows-Runtime-Setup bricht stattdessen sicher ab, wenn keine kompatiblen vorgefertigten Wheels verfügbar sind.
 
 Abhängigkeitsfunde sind Release-Signale, kein Laufzeitschutz. Aktualisiere betroffene Pakete gezielt und wiederhole die vollständigen Test- und Release-Prüfungen; führe keine breiten automatischen Upgrades aus.
 

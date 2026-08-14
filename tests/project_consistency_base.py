@@ -321,14 +321,20 @@ def test_ci_external_actions_are_immutably_pinned_with_version_comments():
 def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
     workflow = _read(".github/workflows/ci.yml")
     dockerfile = _read("Dockerfile")
-    bootstrap_lock = _read("requirements/bootstrap.lock")
+    bootstrap_source = _read("requirements/bootstrap.txt")
+    bootstrap_wrapper = _read("requirements/bootstrap.lock")
 
     assert "pip install --upgrade pip" not in workflow
     assert "pip install --upgrade pip" not in dockerfile
     assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 7
-    assert "pip install --no-cache-dir --require-hashes -r requirements/bootstrap.lock" in dockerfile
-    assert "pip==26.1.2" in bootstrap_lock
-    assert bootstrap_lock.count("--hash=sha256:") == 2
+    docker_bootstrap = (
+        "pip install --no-cache-dir --no-index --only-binary=:all: "
+        "--find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
+    )
+    assert docker_bootstrap in dockerfile
+    assert "pip==26.1.2" in bootstrap_source
+    assert bootstrap_source.count("--hash=sha256:") == 2
+    assert bootstrap_wrapper == "-r bootstrap.txt\n"
     assert '"bootstrap.lock"' in _read("scripts/check_lockfiles.py")
 
 
@@ -337,13 +343,20 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "README.md",
         "bootstrap.in",
         "bootstrap.lock",
+        "bootstrap.txt",
+        "build.in",
+        "build.lock",
+        "build.txt",
         "build-constraints.txt",
         "dev.in",
         "dev.lock",
+        "dev.txt",
         "docker.in",
         "docker.lock",
+        "docker.txt",
         "runtime.in",
         "runtime.lock",
+        "runtime.txt",
     }
     actual = {path.name for path in (ROOT / "requirements").iterdir() if path.is_file()}
 
@@ -464,7 +477,8 @@ def test_windows_entrypoints_are_portable_and_use_reproducible_setup():
 
     setup = sources["setup.bat"]
     assert "pip install --upgrade pip" not in setup
-    assert "pip install --require-hashes -r requirements\\runtime.lock" in setup
+    assert "pip install --only-binary=:all: --require-hashes -r requirements\\bootstrap.lock" in setup
+    assert "pip install --only-binary=:all: --require-hashes -r requirements\\runtime.lock" in setup
     assert "pip install -r requirements.txt" not in setup
 
     release = sources["scripts/release_windows.bat"]
@@ -518,8 +532,46 @@ def test_lockfile_compiler_uses_project_build_constraints(monkeypatch):
 
     assert compile_lockfiles.BUILD_CONSTRAINTS == ROOT / "requirements" / "build-constraints.txt"
     assert compile_lockfiles._piptools_env()["PIP_BUILD_CONSTRAINT"] == str(ROOT / "requirements" / "build-constraints.txt")
-    assert "PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/requirements/build-constraints.txt" in _read(".github/workflows/ci.yml")
-    assert "PIP_BUILD_CONSTRAINT=/app/requirements/build-constraints.txt" in _read("Dockerfile")
+    assert "Cython==3.0.12" in _read("requirements/build-constraints.txt")
+
+
+def test_native_dependency_builds_are_hash_locked_and_offline_at_runtime():
+    workflow = _read(".github/workflows/ci.yml")
+    dockerfile = _read("Dockerfile")
+    build_source = _read("requirements/build.txt")
+
+    for package in (
+        "cython==3.0.12",
+        "numpy==1.26.4",
+        "packaging==26.2",
+        "setuptools==83.0.0",
+        "versioneer==0.29",
+        "wheel==0.47.0",
+    ):
+        assert package in build_source
+    assert build_source.count("--hash=sha256:") >= 10
+    assert workflow.count("pip install --only-binary=:all: --require-hashes -r requirements/build.lock") == 7
+    assert workflow.count("pip install --no-build-isolation --require-hashes -r requirements/dev.lock") == 7
+    assert "PIP_BUILD_CONSTRAINT" not in workflow
+    assert "PIP_BUILD_CONSTRAINT" not in dockerfile
+    assert "pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements/build.lock" in dockerfile
+    assert "pip wheel --no-cache-dir --no-build-isolation --require-hashes --wheel-dir /wheelhouse/runtime" in dockerfile
+    assert "pip install --no-cache-dir --no-index --only-binary=:all: --no-deps /wheelhouse/runtime/*.whl" in dockerfile
+    assert "Locked native build toolchain: Cython" in dockerfile
+    security_check = _read("scripts/security_check.py")
+    assert '"pip_audit",' in security_check
+    assert '"--disable-pip",' in security_check
+    assert '"--require-hashes",' in security_check
+    assert 'ROOT / "requirements" / "runtime.txt"' in security_check
+
+
+def test_docker_base_image_is_pinned_once_by_multiarch_digest():
+    dockerfile = _read("Dockerfile")
+    match = re.search(r"^ARG PYTHON_BASE_IMAGE=python:3\.12-slim@sha256:([0-9a-f]{64})$", dockerfile, re.MULTILINE)
+
+    assert match is not None
+    assert dockerfile.count("FROM ${PYTHON_BASE_IMAGE}") == 2
+    assert "FROM python:3.12-slim" not in dockerfile
 
 
 def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path, monkeypatch):

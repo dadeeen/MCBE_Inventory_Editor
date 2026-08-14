@@ -14,6 +14,7 @@ REQUIREMENTS_DIR = ROOT / "requirements"
 BUILD_CONSTRAINTS = REQUIREMENTS_DIR / "build-constraints.txt"
 LOCK_TARGETS = [
     (REQUIREMENTS_DIR / "bootstrap.in", REQUIREMENTS_DIR / "bootstrap.txt"),
+    (REQUIREMENTS_DIR / "build.in", REQUIREMENTS_DIR / "build.txt"),
     (REQUIREMENTS_DIR / "runtime.in", REQUIREMENTS_DIR / "runtime.txt"),
     (REQUIREMENTS_DIR / "docker.in", REQUIREMENTS_DIR / "docker.txt"),
     (REQUIREMENTS_DIR / "dev.in", REQUIREMENTS_DIR / "dev.txt"),

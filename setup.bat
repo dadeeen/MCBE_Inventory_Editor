@@ -11,6 +11,7 @@ echo Transparency notes:
 echo - The installation happens exclusively in the project folder .\.venv.
 echo - No global Python packages are installed or updated.
 echo - Dependencies are installed from the hash-checked lockfile.
+echo - Only prebuilt wheels are accepted; source builds fail closed.
 echo - Pip may store downloads in the user cache under AppData.
 echo   That is only a download cache, not a global package installation.
 echo.
@@ -70,6 +71,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if not exist "requirements\bootstrap.lock" (
+    echo The hash-checked lockfile requirements\bootstrap.lock is missing.
+    echo The installation is aborted because pip cannot be bootstrapped reproducibly.
+    pause
+    exit /b 1
+)
+
 if not exist "requirements\runtime.lock" (
     echo The hash-checked lockfile requirements\runtime.lock is missing.
     echo The installation is aborted because an unlocked fallback would not be reproducible.
@@ -85,10 +93,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Installing hash-checked dependencies from requirements\runtime.lock into .\.venv only ...
-".venv\Scripts\python.exe" -m pip install --require-hashes -r requirements\runtime.lock
+echo Installing the hash-checked pip bootstrap from requirements\bootstrap.lock ...
+".venv\Scripts\python.exe" -m pip install --only-binary=:all: --require-hashes -r requirements\bootstrap.lock
+if errorlevel 1 (
+    echo Failed to install the locked pip version.
+    pause
+    exit /b 1
+)
+
+echo Installing hash-checked prebuilt dependencies from requirements\runtime.lock into .\.venv only ...
+".venv\Scripts\python.exe" -m pip install --only-binary=:all: --require-hashes -r requirements\runtime.lock
 if errorlevel 1 (
     echo Failed to install the dependencies.
+    echo No compatible prebuilt wheel was available; source builds are intentionally disabled.
     echo Note: Python 3.11, 3.13, and 3.14 are currently not approved for these dependencies; please use Python 3.12.
     pause
     exit /b 1

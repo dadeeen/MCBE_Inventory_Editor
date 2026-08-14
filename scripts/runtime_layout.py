@@ -36,6 +36,8 @@ RUNTIME_REQUIREMENT_PATHS = frozenset(
     {
         "requirements/bootstrap.lock",
         "requirements/bootstrap.txt",
+        "requirements/build.lock",
+        "requirements/build.txt",
         "requirements/build-constraints.txt",
         "requirements/dev.lock",
         "requirements/dev.txt",

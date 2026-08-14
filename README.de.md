@@ -68,7 +68,7 @@ setup.bat
 start.bat
 ```
 
-`setup.bat` erstellt `.venv` im Projektordner und installiert keine globalen Python-Pakete. Der Editor läuft auf `127.0.0.1:5000`; App-Daten liegen unter `data/`.
+`setup.bat` erstellt `.venv` im Projektordner, installiert keine globalen Python-Pakete, prüft die Abhängigkeitshashes und akzeptiert ausschließlich vorgefertigte Wheels. Der Editor läuft auf `127.0.0.1:5000`; App-Daten liegen unter `data/`.
 
 Administratorrechte sollten normalerweise nicht erforderlich sein. Falls eine sicher beendete Welt wegen Windows-Dateirechten nicht gespeichert werden kann, kann der Start als Administrator als Diagnosetest dienen. Eine laufende Welt wird dadurch nicht sicher bearbeitbar.
 
