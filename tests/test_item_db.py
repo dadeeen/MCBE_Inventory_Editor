@@ -622,6 +622,76 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
             {"slot": "melee_spear", "value": 14},
         )
 
+    def test_bundle_catch_up_keeps_new_registry_items_and_clears_the_unreviewed_flag(self):
+        """Der dokumentierte Übergang: erst ungeprüft, nach dem Review regulär.
+
+        Solange nur der Nutzer aktualisiert hat, sind neue Registry-IDs
+        erzeugbar und ausdrücklich als ungeprüft markiert. Liefert der
+        Maintainer dieselbe Mojang-Version kuratiert nach, müssen die IDs
+        erhalten bleiben und nur die Markierung verschwinden. Ohne diesen Test
+        wäre nur die Entstehung der Markierung abgesichert, nicht die Zusage,
+        dass ein Review keine bereits sichtbaren Items wieder entfernt.
+        """
+
+        release = "v9.0.0.0"
+        behavior_source = {
+            "resource_pack_release": release,
+            "stack_limit_items": [],
+            "durability_items": [],
+        }
+        items = {
+            "minecraft:aether_lantern": ["Ätherlaterne", "Aether Lantern"],
+            "minecraft:aether_cushion": ["Ätherkissen", "Aether Cushion"],
+        }
+        persistent_db = {
+            "schema_version": 3,
+            "items": items,
+            "addable_items": [
+                "minecraft:aether_lantern",
+                "minecraft:aether_cushion",
+                "minecraft:aether_double_slab",
+            ],
+            "behavior_item_source": behavior_source,
+        }
+        # Das Review bestätigt die Laterne und stuft das Kissen als reinen
+        # Blockzustand ein; beide waren zuvor gleichermaßen ungeprüft sichtbar.
+        reviewed_bundle = {
+            "schema_version": 3,
+            "items": items,
+            "addable_items": ["minecraft:aether_lantern"],
+            "block_only_items": ["minecraft:aether_cushion", "minecraft:aether_double_slab"],
+            "behavior_item_source": behavior_source,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "item_db.json"
+            db_path.write_text(json.dumps(persistent_db), encoding="utf-8")
+            before = load_item_database(db_path)
+
+            bundle_path = Path(tmp) / "reviewed_item_db.json"
+            bundle_path.write_text(json.dumps(reviewed_bundle), encoding="utf-8")
+            with patch.object(item_data_module, "BUNDLED_ITEM_DB_JSON", bundle_path):
+                after = load_item_database(db_path)
+
+        # Vor dem Review: beide neuen IDs erzeugbar und als ungeprüft markiert.
+        self.assertEqual(
+            before["UNREVIEWED_ITEM_IDS"],
+            frozenset({"minecraft:aether_lantern", "minecraft:aether_cushion"}),
+        )
+        self.assertLessEqual(before["UNREVIEWED_ITEM_IDS"], before["ADDABLE_ITEM_IDS"])
+
+        # Nach dem Review: die bestätigte ID bleibt, die Markierung fällt weg.
+        self.assertIn("minecraft:aether_lantern", after["ADDABLE_ITEM_IDS"])
+        self.assertEqual(after["UNREVIEWED_ITEM_IDS"], frozenset())
+        # Die abgelehnte ID verschwindet aus der Positivliste statt still zu bleiben.
+        self.assertNotIn("minecraft:aether_cushion", after["ADDABLE_ITEM_IDS"])
+        self.assertIn("minecraft:aether_cushion", after["BLOCK_ONLY_ITEM_IDS"])
+
+        # Der technische Blockzustand bleibt vor und nach dem Review ausgeschlossen.
+        for db in (before, after):
+            self.assertNotIn("minecraft:aether_double_slab", db["ADDABLE_ITEM_IDS"])
+            self.assertIn("minecraft:aether_double_slab", db["BLOCK_ONLY_ITEM_IDS"])
+
     def test_newer_persistent_behavior_without_explicit_registry_uses_bundled_addables(self):
         future_db = {
             "schema_version": 3,
