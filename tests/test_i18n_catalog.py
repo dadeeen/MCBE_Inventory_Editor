@@ -13,6 +13,11 @@ CATALOG_PATH = ROOT / "static" / "i18n" / "en.json"
 PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 JS_LITERAL_T_RE = re.compile(r'\bt\(\s*("(?:[^"\\]|\\.)*")', re.DOTALL)
 TEMPLATE_LITERAL_T_RE = re.compile(r"\bt\(\s*(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')", re.DOTALL)
+JS_PRESENTATION_LITERAL_RE = re.compile(r'\b(?:label|description):\s*("(?:[^"\\]|\\.)*")')
+# Bare presentation literals that read identically in both languages.  Values
+# wrapped in t(...) are not matched by the pattern above, so this list stays
+# limited to product and protocol names that must not be translated.
+LANGUAGE_NEUTRAL_UI_LITERALS = frozenset({"App", "Audit", "HTTP", "HTTP API"})
 GERMAN_TEXT_RE = re.compile(
     r"[ÄÖÜäöüß]|\b(?:alle|als|auf|aus|bei|bitte|der|die|das|eine|einen|für|kein|keine|mit|nach|nicht|"
     r"oder|prüfen|schließen|speichern|spieler|über|und|welt|werkzeuge|wird|werden|zurück)\b",
@@ -140,6 +145,38 @@ def test_all_direct_translation_literals_exist_in_english_catalog() -> None:
 
     missing = [f"{path.relative_to(ROOT)}:{line}: {key}" for path, line, key in referenced if key not in catalog]
     assert not missing, "Missing English catalog entries:\n" + "\n".join(missing)
+
+
+def test_indirect_presentation_literals_exist_in_english_catalog() -> None:
+    """Presentation maps are translated at render time, not at the literal.
+
+    ``CATEGORY_PRESENTATION`` in item_availability.js hands its label and
+    description to ``translate()`` much later, so ``JS_LITERAL_T_RE`` never sees
+    those strings.  Without this check a new availability category could ship a
+    German label that the English interface renders untranslated, and nothing
+    would turn red.
+    """
+
+    catalog = _load_catalog_with_unique_keys()
+    missing: list[str] = []
+    seen: set[str] = set()
+
+    for path in _source_files(ROOT / "static", "*.js"):
+        source = path.read_text(encoding="utf-8")
+        for match in JS_PRESENTATION_LITERAL_RE.finditer(source):
+            literal = json.loads(match.group(1))
+            seen.add(literal)
+            if literal in catalog or literal in LANGUAGE_NEUTRAL_UI_LITERALS:
+                continue
+            line = source.count("\n", 0, match.start()) + 1
+            missing.append(f"{path.relative_to(ROOT)}:{line}: {literal}")
+
+    assert not missing, "Presentation strings without an English catalog entry:\n" + "\n".join(missing)
+
+    # A stale exception is as misleading as a missing entry: it suggests a
+    # reviewed decision for a string that no longer exists.
+    stale = sorted(LANGUAGE_NEUTRAL_UI_LITERALS - seen)
+    assert not stale, f"LANGUAGE_NEUTRAL_UI_LITERALS lists strings that no longer occur: {stale}"
 
 
 def test_templates_have_no_raw_translatable_visible_text() -> None:
