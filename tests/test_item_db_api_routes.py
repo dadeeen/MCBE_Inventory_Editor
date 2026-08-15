@@ -340,6 +340,37 @@ def test_successful_dry_run_returns_source_review_receipt(tmp_path):
     )
 
 
+def test_update_review_token_changes_with_updater_contract(tmp_path, monkeypatch):
+    review_cache = _write_release_cache(tmp_path)
+    deps = _review_deps(review_cache)
+    current_snapshot = item_db_api_routes.update_review_snapshot(deps, None)
+
+    monkeypatch.setattr(
+        item_db_verification,
+        "UPDATER_CONTRACT_VERSION",
+        item_db_verification.UPDATER_CONTRACT_VERSION - 1,
+    )
+    previous_contract_snapshot = item_db_api_routes.update_review_snapshot(deps, None)
+
+    assert previous_contract_snapshot["token"] != current_snapshot["token"]
+
+
+def test_persisted_verification_rejects_previous_updater_contract(tmp_path):
+    item_db_path = tmp_path / "item_db.json"
+    item_db_path.write_text('{"schema_version": 3}\n', encoding="utf-8")
+    metadata = item_db_verification.attach_item_db_verification(
+        {"resource_pack_release": "v1.26.40.05"},
+        item_db_path,
+        verified_at="2026-08-15T12:00:00+00:00",
+    )
+    metadata["verification"]["updater_contract_version"] -= 1
+
+    snapshot = item_db_verification.item_db_verification_snapshot(metadata, item_db_path)
+
+    assert snapshot["verified"] is False
+    assert snapshot["reason"] == "updater-contract-mismatch"
+
+
 def test_apply_reuses_exact_sources_reviewed_by_dry_run(tmp_path):
     review_cache = _write_release_cache(tmp_path)
     runner = Mock(return_value=(0, "apply"))

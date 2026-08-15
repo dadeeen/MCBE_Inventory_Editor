@@ -18,6 +18,7 @@ from mcbe_editor.item_data import (
     ITEM_COMPONENTS,
     MAX_DATA_VALUE,
     STACK_LIMITS,
+    selectable_item_catalog,
 )
 
 from .backup import (
@@ -393,11 +394,12 @@ class BedrockEditorService:
                     count_hidden_unknown_slots(player_tag),
                     root_equipment_slots,
                 )
-                selectable_items_db = dict(self.items_db)
-                for item_id in ADDABLE_ITEM_IDS:
-                    alias_target = COMPAT_ITEM_ALIASES.get(item_id)
-                    if item_id not in selectable_items_db and alias_target in self.items_db:
-                        selectable_items_db[item_id] = self.items_db[alias_target]
+                selectable_items_db = selectable_item_catalog(
+                    self.items_db,
+                    addable_item_ids=ADDABLE_ITEM_IDS,
+                    block_only_item_ids=BLOCK_ONLY_ITEM_IDS,
+                    compat_item_aliases=COMPAT_ITEM_ALIASES,
+                )
 
                 return {
                     "success": True,

@@ -31,14 +31,33 @@ def _load_runtime_dependencies():
         sys.path.insert(0, str(REPO_ROOT))
     from mcbe_editor.block_icon_renderer import composite_png_overlay, crop_png, render_bedrock_model_icon, render_block_icon, tint_png
     from mcbe_editor.icon_cache import publish_icon_cache, recover_icon_cache
+    from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
 
-    return publish_icon_cache, recover_icon_cache, render_block_icon, render_bedrock_model_icon, tint_png, composite_png_overlay, crop_png, BUNDLED_ITEM_DB_JSON
+    return (
+        publish_icon_cache,
+        recover_icon_cache,
+        render_block_icon,
+        render_bedrock_model_icon,
+        tint_png,
+        composite_png_overlay,
+        crop_png,
+        BUNDLED_ITEM_DB_JSON,
+        is_technical_block_only_item_id,
+    )
 
 
-publish_icon_cache, recover_icon_cache, render_block_icon, render_bedrock_model_icon, tint_png, composite_png_overlay, crop_png, BUNDLED_ITEM_DB_JSON = (
-    _load_runtime_dependencies()
-)
+(
+    publish_icon_cache,
+    recover_icon_cache,
+    render_block_icon,
+    render_bedrock_model_icon,
+    tint_png,
+    composite_png_overlay,
+    crop_png,
+    BUNDLED_ITEM_DB_JSON,
+    is_technical_block_only_item_id,
+) = _load_runtime_dependencies()
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DATA_ROOT = Path(os.environ.get("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser()
 ICON_ROOT = Path(os.environ.get("MCBE_ICON_CACHE_ROOT", DATA_ROOT / "icons" / "vanilla")).expanduser()
@@ -1099,10 +1118,19 @@ def load_item_icon_targets(path: Path = ITEM_DB_PATH) -> tuple[list[str], list[s
     block_only = {normalized for key in (block_only_raw if isinstance(block_only_raw, list) else []) if (normalized := normalize_identifier(str(key)))}
     catalog_items = {normalized for key in items if (normalized := normalize_identifier(str(key)))}
     if isinstance(addable_raw, list):
-        targets = {normalized for key in addable_raw if (normalized := normalize_identifier(str(key)))}
+        targets = {
+            normalized
+            for key in addable_raw
+            if (normalized := normalize_identifier(str(key)))
+            and not is_technical_block_only_item_id(f"minecraft:{normalized}")
+        }
     else:
         # Rückwärtskompatibilität für ältere externe Item-Datenbanken.
-        targets = catalog_items - block_only
+        targets = {
+            item_id
+            for item_id in catalog_items - block_only
+            if not is_technical_block_only_item_id(f"minecraft:{item_id}")
+        }
     excluded = sorted(catalog_items - targets)
     return sorted(targets), excluded, len(catalog_items)
 

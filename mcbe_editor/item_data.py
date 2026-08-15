@@ -5,10 +5,12 @@ import logging
 import os
 import re
 import secrets
+from collections.abc import Collection
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
 from mcbe_editor.world_locks import locked_operation
 
@@ -161,6 +163,7 @@ COMPAT_ITEM_ALIASES: dict[str, str] = {}
 BLOCK_ONLY_ITEM_IDS: frozenset[str] = frozenset()
 BLOCK_ITEM_IDS: frozenset[str] = frozenset()
 ADDABLE_ITEM_IDS: frozenset[str] = frozenset()
+UNREVIEWED_ITEM_IDS: frozenset[str] = frozenset()
 ITEM_DB_SOURCE_PATH = str(BUNDLED_ITEM_DB_JSON)
 ITEM_DB_SCHEMA_VERSION = 3
 
@@ -336,7 +339,11 @@ def _looks_like_fallback_pair(pair: tuple[str, str]) -> bool:
     return not de or de == en
 
 
-def _apply_bundled_curation(db: dict[str, Any]) -> None:
+def _apply_bundled_curation(
+    db: dict[str, Any],
+    *,
+    has_explicit_addable_items: bool,
+) -> None:
     """Übernimmt kuratierte Korrekturen der gebündelten Item-DB in eine geladene Kopie.
 
     Der Updater ergänzt persistente Kopien nur (merge), entfernt aber nie Einträge
@@ -367,6 +374,11 @@ def _apply_bundled_curation(db: dict[str, Any]) -> None:
         bundled_block_only = _item_id_set(bundled_raw.get("block_only_items"))
         bundled_block_items = _item_id_set(bundled_raw.get("block_items"))
         bundled_addable_items = _item_id_set(bundled_raw.get("addable_items"))
+        bundled_technical_ids = frozenset(
+            item_id for item_id in bundled_addable_items if is_technical_block_only_item_id(item_id)
+        )
+        bundled_block_only = frozenset(bundled_block_only | bundled_technical_ids)
+        bundled_addable_items = frozenset(bundled_addable_items - bundled_technical_ids)
     except (OSError, ValueError):
         return
 
@@ -441,10 +453,16 @@ def _apply_bundled_curation(db: dict[str, Any]) -> None:
     db["BLOCK_ONLY_ITEM_IDS"] = frozenset(db["BLOCK_ONLY_ITEM_IDS"] | bundled_block_only)
     db["BLOCK_ITEM_IDS"] = frozenset(db["BLOCK_ITEM_IDS"] | bundled_block_items)
     if bundled_addable_items:
-        # Die positive Mojang-Registry ist kuratierte Laufzeitwahrheit. Neue,
-        # nur in einer persistenten Altdatei vorkommende IDs dürfen dadurch
-        # nicht versehentlich als neu erzeugbare Vanilla-Items gelten.
-        db["ADDABLE_ITEM_IDS"] = bundled_addable_items
+        if use_persistent_source and has_explicit_addable_items:
+            # Eine neuere offizielle Registry gewinnt vollständig. Eine Union
+            # wäre falsch, weil Mojang IDs auch wieder entfernen kann.
+            db["UNREVIEWED_ITEM_IDS"] = frozenset(db["ADDABLE_ITEM_IDS"] - bundled_addable_items)
+        else:
+            # Gleiche, ältere, unversionierte oder nur heuristisch abgeleitete
+            # externe Daten bleiben auf dem geprüften Registry-Stand. Eine
+            # Versionsangabe allein macht den Legacy-Fallback nicht autoritativ.
+            db["ADDABLE_ITEM_IDS"] = bundled_addable_items
+            db["UNREVIEWED_ITEM_IDS"] = frozenset()
     db["SCHEMA_VERSION"] = max(int(db["SCHEMA_VERSION"]), int(bundled_raw.get("schema_version", 1)))
 
 
@@ -461,12 +479,19 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
 
         items = {str(key): _as_text_pair(value, key=str(key)) for key, value in items_raw.items()}
         block_only_item_ids = _item_id_set(raw.get("block_only_items"))
-        addable_item_ids = _item_id_set(raw.get("addable_items"))
-        if "addable_items" not in raw:
+        addable_items_raw = raw.get("addable_items")
+        has_explicit_addable_items = isinstance(addable_items_raw, list)
+        addable_item_ids = _item_id_set(addable_items_raw)
+        if not has_explicit_addable_items:
             # Kompatibilitätsfallback für ältere externe Datenbanken. Die
             # gebündelte Kuration ersetzt ihn anschließend durch die offizielle
             # positive Registry, sofern eine persistente Kopie geladen wird.
             addable_item_ids = frozenset(set(items) - set(block_only_item_ids))
+        technical_item_ids = frozenset(
+            item_id for item_id in addable_item_ids if is_technical_block_only_item_id(item_id)
+        )
+        block_only_item_ids = frozenset(block_only_item_ids | technical_item_ids)
+        addable_item_ids = frozenset(addable_item_ids - technical_item_ids)
 
         db = {
             "DEFAULT_MAX_STACK": int(defaults.get("max_stack", DEFAULT_MAX_STACK)),
@@ -481,6 +506,7 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
             "BLOCK_ONLY_ITEM_IDS": block_only_item_ids,
             "BLOCK_ITEM_IDS": _item_id_set(raw.get("block_items")),
             "ADDABLE_ITEM_IDS": addable_item_ids,
+            "UNREVIEWED_ITEM_IDS": frozenset(),
             "EFFECTS": _int_keyed_dict(raw.get("effects", {}), _as_effect),
             "ENCHANTMENTS": _int_keyed_dict(raw.get("enchantments", {}), _as_enchantment),
             "SOURCE_PATH": str(item_db_path),
@@ -492,7 +518,10 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
         raise InvalidItemDatabaseError(f"Item-DB JSON ist ungültig: {item_db_path}") from exc
 
     if item_db_path.resolve() != BUNDLED_ITEM_DB_JSON.resolve():
-        _apply_bundled_curation(db)
+        _apply_bundled_curation(
+            db,
+            has_explicit_addable_items=has_explicit_addable_items,
+        )
     return db
 
 
@@ -564,6 +593,7 @@ def database_as_module_globals(path: str | os.PathLike | None = None) -> dict[st
         "BLOCK_ONLY_ITEM_IDS": db["BLOCK_ONLY_ITEM_IDS"],
         "BLOCK_ITEM_IDS": db["BLOCK_ITEM_IDS"],
         "ADDABLE_ITEM_IDS": db["ADDABLE_ITEM_IDS"],
+        "UNREVIEWED_ITEM_IDS": db["UNREVIEWED_ITEM_IDS"],
         "ITEM_DB_SOURCE_PATH": db["SOURCE_PATH"],
         "ITEM_DB_SCHEMA_VERSION": db["SCHEMA_VERSION"],
     }
@@ -587,13 +617,66 @@ def canonical_item_id(item_name: str) -> str:
     return COMPAT_ITEM_ALIASES.get(normalized, normalized)
 
 
+def fallback_item_display_names(item_name: str) -> tuple[str, str]:
+    """Return a readable locale-neutral label for an official registry ID.
+
+    Experimental registry additions can precede Mojang's public ``.lang`` and
+    Microsoft Learn name catalogs.  The identifier is still authoritative for
+    creating the item; a missing translation must not make it disappear from
+    the browser.  Matching German and English fallback labels are intentional:
+    a later official localization is allowed to replace such pairs.
+    """
+
+    normalized = str(item_name or "").strip().lower()
+    short_name = normalized.partition(":")[2] or normalized
+    label = re.sub(r"[_./-]+", " ", short_name).strip().title()
+    label = label or normalized
+    return (label, label)
+
+
+def selectable_item_catalog(
+    items: dict[str, tuple[str, str]] | None = None,
+    *,
+    addable_item_ids: Collection[str] | None = None,
+    block_only_item_ids: Collection[str] | None = None,
+    compat_item_aliases: dict[str, str] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Return readable entries for all recognized runtime item identifiers.
+
+    ``ITEMS`` is the display-name catalog, while ``ADDABLE_ITEM_IDS`` is
+    Mojang's positive item registry.  A newer registry may contain IDs whose
+    translations have not reached the public language catalogs yet.  Runtime
+    consumers need one complete view without changing item_db v3 or persisting
+    guessed translations. Technical ``BLOCK_ONLY_ITEM_IDS`` are included so an
+    existing item remains recognizable, but selection and new-item creation
+    continue to be governed exclusively by ``ADDABLE_ITEM_IDS``.
+    """
+
+    source_items = ITEMS if items is None else items
+    source_addable = ADDABLE_ITEM_IDS if addable_item_ids is None else addable_item_ids
+    source_block_only = BLOCK_ONLY_ITEM_IDS if block_only_item_ids is None else block_only_item_ids
+    source_aliases = COMPAT_ITEM_ALIASES if compat_item_aliases is None else compat_item_aliases
+    result = dict(source_items)
+    recognized_runtime_ids = {
+        str(value or "").strip().lower()
+        for collection in (source_addable, source_block_only)
+        for value in collection
+    }
+    for item_id in sorted(recognized_runtime_ids):
+        if not item_id or item_id in result:
+            continue
+        alias_target = source_aliases.get(item_id)
+        result[item_id] = result.get(alias_target) or fallback_item_display_names(item_id)
+    return result
+
+
 def is_known_item_id(item_name: str) -> bool:
     normalized = str(item_name or "").strip().lower()
-    return normalized in ITEMS or normalized in COMPAT_ITEM_ALIASES
+    return normalized in ITEMS or normalized in COMPAT_ITEM_ALIASES or normalized in ADDABLE_ITEM_IDS or normalized in BLOCK_ONLY_ITEM_IDS
 
 
 def is_block_only_item_id(item_name: str) -> bool:
-    """True für Katalog-IDs, die Mojang nur als Block, nicht als Item registriert."""
+    """True für Katalog-IDs, die nur als technische Blockzustände nutzbar sind."""
     return str(item_name or "").strip().lower() in BLOCK_ONLY_ITEM_IDS
 
 
@@ -603,7 +686,7 @@ def is_block_item_id(item_name: str) -> bool:
 
 
 def is_addable_item_id(item_name: str) -> bool:
-    """True nur für IDs aus Mojangs positiver Item-Registry.
+    """True nur für nichttechnische IDs aus Mojangs positiver Item-Registry.
 
     Das ist absichtlich enger als ``is_known_item_id``: bekannte Legacy-,
     Block- und Add-on-IDs werden weiterhin gelesen und erhalten, aber nicht als

@@ -2069,11 +2069,22 @@ def test_icon_targets_follow_positive_addable_registry(tmp_path):
             {
                 "items": {
                     "minecraft:apple": ["Apfel", "Apple"],
+                    "minecraft:white_cushion": ["Weißes Kissen", "White Cushion"],
                     "minecraft:element_32": ["Element 32", "Element 32"],
                     "minecraft:oak_double_slab": ["Eichen-Doppelstufe", "Oak Double Slab"],
+                    "minecraft:black_wool_double_slab": ["Schwarze Woll-Doppelstufe", "Black Wool Double Slab"],
                 },
-                "block_only_items": ["minecraft:element_32", "minecraft:oak_double_slab"],
-                "addable_items": ["minecraft:apple", "minecraft:allow"],
+                "block_only_items": [
+                    "minecraft:element_32",
+                    "minecraft:oak_double_slab",
+                    "minecraft:black_wool_double_slab",
+                ],
+                "addable_items": [
+                    "minecraft:apple",
+                    "minecraft:allow",
+                    "minecraft:white_cushion",
+                    "minecraft:black_wool_double_slab",
+                ],
             }
         ),
         encoding="utf-8",
@@ -2081,9 +2092,9 @@ def test_icon_targets_follow_positive_addable_registry(tmp_path):
 
     targets, excluded, catalog_count = update_icons_module.load_item_icon_targets(item_db)
 
-    assert targets == ["allow", "apple"]
-    assert excluded == ["element_32", "oak_double_slab"]
-    assert catalog_count == 3
+    assert targets == ["allow", "apple", "white_cushion"]
+    assert excluded == ["black_wool_double_slab", "element_32", "oak_double_slab"]
+    assert catalog_count == 5
 
 
 def test_block_icon_targets_follow_positive_block_registry(tmp_path):

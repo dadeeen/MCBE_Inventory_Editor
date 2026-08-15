@@ -5,11 +5,13 @@ import json
 
 import pytest
 
+from mcbe_editor import item_data
 from mcbe_editor.item_availability import (
     BUNDLED_ITEM_DB_SOURCE_RELEASE,
     ITEM_AVAILABILITY,
     ITEM_AVAILABILITY_CATEGORIES,
     InvalidItemAvailabilityError,
+    item_availability_client_payload,
     load_item_availability,
 )
 from mcbe_editor.item_data import ADDABLE_ITEM_IDS
@@ -61,6 +63,20 @@ def test_bundled_item_availability_covers_every_category_with_a_reference() -> N
 
     assert referenced == set(ITEM_AVAILABILITY_CATEGORIES)
     assert all(reference["url"].startswith("https://") for reference in ITEM_AVAILABILITY["references"])
+
+
+def test_client_payload_adds_unreviewed_items_without_overriding_curated_classifications(monkeypatch) -> None:
+    monkeypatch.setattr(
+        item_data,
+        "UNREVIEWED_ITEM_IDS",
+        frozenset({"minecraft:future_widget", "minecraft:barrier"}),
+    )
+
+    payload = item_availability_client_payload()
+
+    assert payload["classifications"]["unreviewed"] == ["minecraft:future_widget"]
+    assert "minecraft:barrier" in payload["classifications"]["technical"]
+    assert "unreviewed" not in ITEM_AVAILABILITY["classifications"]
 
 
 def test_item_availability_rejects_duplicate_primary_classification(tmp_path) -> None:

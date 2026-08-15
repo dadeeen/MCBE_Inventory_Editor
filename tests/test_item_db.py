@@ -4,6 +4,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from mcbe_editor.item_data import (
     ADDABLE_ITEM_IDS,
@@ -21,6 +22,7 @@ from mcbe_editor.item_data import (
     InvalidItemDatabaseError,
     canonical_item_id,
     enchantment_slots_for_item,
+    fallback_item_display_names,
     get_max_damage,
     get_max_stack,
     is_addable_item_id,
@@ -31,7 +33,10 @@ from mcbe_editor.item_data import (
     is_known_item_id,
     item_component,
     load_item_database,
+    selectable_item_catalog,
 )
+from mcbe_editor import item_data as item_data_module
+from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
 
 
@@ -332,9 +337,9 @@ class TestBlockOnlyItemIds(unittest.TestCase):
             self.assertNotIn(item_id, BLOCK_ONLY_ITEM_IDS, item_id)
             self.assertFalse(is_block_only_item_id(item_id), item_id)
 
-    def test_block_only_ids_reference_catalog_entries(self):
+    def test_block_only_ids_without_catalog_entries_are_technical_registry_states(self):
         missing = sorted(item_id for item_id in BLOCK_ONLY_ITEM_IDS if item_id not in ITEMS)
-        self.assertEqual(missing, [])
+        self.assertTrue(all(is_technical_block_only_item_id(item_id) for item_id in missing), missing)
 
 
 class TestAddableItemIds(unittest.TestCase):
@@ -356,6 +361,31 @@ class TestAddableItemIds(unittest.TestCase):
         # behalten (z. B. Andesit statt Stein).
         missing = sorted(item_id for item_id in ADDABLE_ITEM_IDS if item_id not in ITEMS)
         self.assertEqual(missing, [])
+
+    def test_newer_registry_ids_without_public_names_get_runtime_fallbacks(self):
+        catalog = selectable_item_catalog(
+            {"minecraft:stone": ("Stein", "Stone")},
+            addable_item_ids={"minecraft:stone", "minecraft:white_cushion"},
+            block_only_item_ids={"minecraft:black_wool_double_slab"},
+            compat_item_aliases={},
+        )
+
+        self.assertEqual(catalog["minecraft:stone"], ("Stein", "Stone"))
+        self.assertEqual(catalog["minecraft:white_cushion"], ("White Cushion", "White Cushion"))
+        self.assertEqual(
+            catalog["minecraft:black_wool_double_slab"],
+            ("Black Wool Double Slab", "Black Wool Double Slab"),
+        )
+        self.assertEqual(fallback_item_display_names("minecraft:light_blue_wool_stairs"), ("Light Blue Wool Stairs",) * 2)
+
+    def test_effective_runtime_ids_are_known_without_display_names(self):
+        with (
+            patch.object(item_data_module, "ADDABLE_ITEM_IDS", frozenset({"minecraft:white_cushion"})),
+            patch.object(item_data_module, "BLOCK_ONLY_ITEM_IDS", frozenset({"minecraft:black_wool_double_slab"})),
+        ):
+            self.assertTrue(item_data_module.is_known_item_id("minecraft:white_cushion"))
+            self.assertTrue(item_data_module.is_known_item_id("minecraft:black_wool_double_slab"))
+            self.assertFalse(item_data_module.is_known_item_id("minecraft:not_registered"))
 
     def test_modern_serialization_aliases_keep_distinct_display_names(self):
         expected = {
@@ -549,6 +579,8 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
         self.assertNotIn("minecraft:removed_behavior_item", db["DURABILITY"])
         self.assertEqual(db["STACK_LIMITS"]["minecraft:copper_spear"], 1)
         self.assertEqual(db["DURABILITY"]["minecraft:copper_spear"], 190)
+        self.assertEqual(db["ADDABLE_ITEM_IDS"], ADDABLE_ITEM_IDS)
+        self.assertEqual(db["UNREVIEWED_ITEM_IDS"], frozenset())
         self.assertEqual(
             db["ITEM_COMPONENTS"]["enchantable"]["minecraft:copper_spear"],
             {"slot": "melee_spear", "value": 13},
@@ -557,7 +589,11 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
     def test_newer_persistent_behavior_data_is_not_masked_by_older_bundle(self):
         future_db = {
             "schema_version": 3,
-            "items": {},
+            "items": {
+                "minecraft:future_widget": ["Zukunftsobjekt", "Future Widget"],
+                "minecraft:black_wool_double_slab": ["Schwarze Woll-Doppelstufe", "Black Wool Double Slab"],
+            },
+            "addable_items": ["minecraft:future_widget", "minecraft:black_wool_double_slab"],
             "stack_limits": {"minecraft:copper_spear": 2},
             "durability": {"minecraft:copper_spear": 191},
             "item_components": {
@@ -578,10 +614,40 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
 
         self.assertEqual(db["STACK_LIMITS"]["minecraft:copper_spear"], 2)
         self.assertEqual(db["DURABILITY"]["minecraft:copper_spear"], 191)
+        self.assertEqual(db["ADDABLE_ITEM_IDS"], frozenset({"minecraft:future_widget"}))
+        self.assertEqual(db["UNREVIEWED_ITEM_IDS"], frozenset({"minecraft:future_widget"}))
+        self.assertIn("minecraft:black_wool_double_slab", db["BLOCK_ONLY_ITEM_IDS"])
         self.assertEqual(
             db["ITEM_COMPONENTS"]["enchantable"]["minecraft:copper_spear"],
             {"slot": "melee_spear", "value": 14},
         )
+
+    def test_newer_persistent_behavior_without_explicit_registry_uses_bundled_addables(self):
+        future_db = {
+            "schema_version": 3,
+            "items": {
+                "minecraft:bucketlava": ["Lavaeimer (Legacy)", "Lava Bucket (Legacy)"],
+            },
+            "stack_limits": {"minecraft:copper_spear": 2},
+            "durability": {"minecraft:copper_spear": 191},
+            "behavior_item_source": {
+                "resource_pack_release": "v9.0.0.0",
+                "stack_limit_items": ["minecraft:copper_spear"],
+                "durability_items": ["minecraft:copper_spear"],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "item_db.json"
+            db_path.write_text(json.dumps(future_db), encoding="utf-8")
+            db = load_item_database(db_path)
+
+        # Die neueren Behavior-Daten bleiben verwendbar, aber eine nur aus dem
+        # Anzeigekatalog abgeleitete Legacy-Heuristik wird nicht zur Registry.
+        self.assertEqual(db["STACK_LIMITS"]["minecraft:copper_spear"], 2)
+        self.assertEqual(db["DURABILITY"]["minecraft:copper_spear"], 191)
+        self.assertEqual(db["ADDABLE_ITEM_IDS"], ADDABLE_ITEM_IDS)
+        self.assertEqual(db["UNREVIEWED_ITEM_IDS"], frozenset())
+        self.assertNotIn("minecraft:bucketlava", db["ADDABLE_ITEM_IDS"])
 
     def test_bundle_wins_for_same_release_so_packaged_corrections_are_not_masked(self):
         bundled_source = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))["behavior_item_source"]
@@ -608,6 +674,8 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
 
         self.assertEqual(db["STACK_LIMITS"]["minecraft:copper_spear"], 1)
         self.assertEqual(db["DURABILITY"]["minecraft:copper_spear"], 190)
+        self.assertEqual(db["ADDABLE_ITEM_IDS"], ADDABLE_ITEM_IDS)
+        self.assertEqual(db["UNREVIEWED_ITEM_IDS"], frozenset())
         self.assertEqual(
             db["ITEM_COMPONENTS"]["enchantable"]["minecraft:copper_spear"],
             {"slot": "melee_spear", "value": 13},

@@ -26,6 +26,10 @@
             label: "Kreativ",
             description: "Im Kreativinventar verfügbar, im normalen Überlebensmodus nicht als Gegenstand erhältlich.",
         }),
+        unreviewed: Object.freeze({
+            label: "Neu · noch nicht geprüft",
+            description: "Von Mojang registriert. Kann Welt-Experimente oder eine neuere Minecraft-Version benötigen. Der Editor aktiviert Experimente nicht. Verfügbarkeit und Spielverhalten wurden noch nicht geprüft.",
+        }),
     });
 
     function normalizedItemId(value) {
@@ -54,7 +58,9 @@
                 if (!CATEGORY_PRESENTATION[category] || !Array.isArray(itemIds)) return;
                 itemIds.forEach(rawItemId => {
                     const itemId = normalizedItemId(rawItemId);
-                    if (itemId) nextItems.set(itemId, category);
+                    if (itemId && (category !== "unreviewed" || !nextItems.has(itemId))) {
+                        nextItems.set(itemId, category);
+                    }
                 });
             });
 

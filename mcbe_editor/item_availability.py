@@ -10,7 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from mcbe_editor.item_data import ADDABLE_ITEM_IDS, MAX_DATA_VALUE
+from mcbe_editor.item_data import MAX_DATA_VALUE
+from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
 
 BUNDLED_ITEM_AVAILABILITY_JSON = Path(__file__).resolve().parent / "resources" / "item_availability.json"
@@ -30,7 +31,7 @@ class InvalidItemAvailabilityError(ValueError):
     """Raised when the curated availability resource violates its schema."""
 
 
-def _bundled_item_db_source_release() -> str:
+def _bundled_item_db_metadata() -> tuple[str, frozenset[str]]:
     try:
         raw = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))
         source = raw.get("behavior_item_source", {})
@@ -39,10 +40,15 @@ def _bundled_item_db_source_release() -> str:
         raise InvalidItemAvailabilityError(f"Gebündelte Item-Datenbank ist nicht lesbar: {BUNDLED_ITEM_DB_JSON}") from exc
     if not isinstance(release, str) or not release.strip():
         raise InvalidItemAvailabilityError("Gebündelte Item-Datenbank enthält keine resource_pack_release.")
-    return release.strip()
+    addable_items = raw.get("addable_items")
+    if not isinstance(addable_items, list) or not all(isinstance(item_id, str) for item_id in addable_items):
+        raise InvalidItemAvailabilityError("Gebündelte Item-Datenbank enthält keine gültige addable_items-Liste.")
+    return release.strip(), frozenset(
+        item_id for item_id in addable_items if not is_technical_block_only_item_id(item_id)
+    )
 
 
-BUNDLED_ITEM_DB_SOURCE_RELEASE = _bundled_item_db_source_release()
+BUNDLED_ITEM_DB_SOURCE_RELEASE, BUNDLED_ADDABLE_ITEM_IDS = _bundled_item_db_metadata()
 
 
 def _require_object(value: Any, *, label: str) -> dict[str, Any]:
@@ -103,7 +109,7 @@ def _references(value: Any) -> list[dict[str, Any]]:
 def load_item_availability(
     path: str | Path = BUNDLED_ITEM_AVAILABILITY_JSON,
     *,
-    known_item_ids: Collection[str] = ADDABLE_ITEM_IDS,
+    known_item_ids: Collection[str] = BUNDLED_ADDABLE_ITEM_IDS,
     expected_source_release: str = BUNDLED_ITEM_DB_SOURCE_RELEASE,
     max_data_value: int = MAX_DATA_VALUE,
 ) -> dict[str, Any]:
@@ -210,6 +216,18 @@ ITEM_AVAILABILITY = load_item_availability()
 
 
 def item_availability_client_payload() -> dict[str, Any]:
-    """Return a defensive copy suitable for JSON serialization."""
+    """Return curated classifications plus current, unreviewed registry additions."""
 
-    return copy.deepcopy(ITEM_AVAILABILITY)
+    from mcbe_editor import item_data
+
+    payload = copy.deepcopy(ITEM_AVAILABILITY)
+    classifications = payload["classifications"]
+    curated_item_ids = {
+        item_id
+        for item_ids in classifications.values()
+        for item_id in item_ids
+    } | set(payload["variants"])
+    classifications["unreviewed"] = sorted(
+        item_data.UNREVIEWED_ITEM_IDS - curated_item_ids
+    )
+    return payload

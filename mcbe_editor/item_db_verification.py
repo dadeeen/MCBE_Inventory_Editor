@@ -49,7 +49,7 @@ VERIFICATION_FIELD = "verification"
 VERIFICATION_SCHEMA_VERSION = 1
 # Bump deliberately when updater semantics change enough that existing receipts
 # must no longer count as a successful verification under the new code.
-UPDATER_CONTRACT_VERSION = 1
+UPDATER_CONTRACT_VERSION = 2
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 UPDATE_REVIEW_SCHEMA_VERSION = 1

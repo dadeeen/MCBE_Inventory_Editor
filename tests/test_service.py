@@ -80,10 +80,10 @@ def player_import_token(export_path, world_path):
     return token
 
 
-def make_player_bytes(item_tag):
+def make_player_bytes(item_tag, *additional_item_tags):
     player = nbt.CompoundTag(
         {
-            "Inventory": nbt.ListTag([item_tag]),
+            "Inventory": nbt.ListTag([item_tag, *additional_item_tags]),
             "Pos": nbt.ListTag([nbt.DoubleTag(1.0), nbt.DoubleTag(2.0), nbt.DoubleTag(3.0)]),
             "Health": nbt.FloatTag(20.0),
             "PlayerGameType": nbt.IntTag(0),
@@ -122,6 +122,62 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(result["world_name"], "Test World")
             self.assertTrue(result["capabilities"]["supports_local_player"])
             self.assertIn(0, result["inventory"])
+
+    def test_load_world_exposes_runtime_registry_ids_without_public_display_names(self):
+        import tempfile
+        from pathlib import Path
+
+        from mcbe_editor import item_data as item_data_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            world = Path(tmp) / "world"
+            (world / "db").mkdir(parents=True)
+            (world / "levelname.txt").write_text("Future Items", encoding="utf-8")
+            item = nbt.CompoundTag(
+                {
+                    "Slot": nbt.ByteTag(0),
+                    "Name": nbt.StringTag("minecraft:white_cushion"),
+                    "Count": nbt.ByteTag(1),
+                    "Damage": nbt.ShortTag(0),
+                }
+            )
+            technical_item = nbt.CompoundTag(
+                {
+                    "Slot": nbt.ByteTag(1),
+                    "Name": nbt.StringTag("minecraft:black_wool_double_slab"),
+                    "Count": nbt.ByteTag(1),
+                    "Damage": nbt.ShortTag(0),
+                }
+            )
+            FakeDb._shared_store[LOCAL_PLAYER_KEY] = make_player_bytes(item, technical_item)
+            service = BedrockEditorService(
+                {"minecraft:stone": ("Stein", "Stone")},
+                ENCHANTMENTS,
+                db_factory=FakeDb,
+                readonly_db_factory=FakeDb,
+            )
+
+            effective_addable = frozenset({"minecraft:stone", "minecraft:white_cushion"})
+            effective_block_only = frozenset({"minecraft:black_wool_double_slab"})
+            with (
+                patch("mcbe_editor.services.ADDABLE_ITEM_IDS", effective_addable),
+                patch("mcbe_editor.services.BLOCK_ONLY_ITEM_IDS", effective_block_only),
+                patch.object(item_data_module, "ADDABLE_ITEM_IDS", effective_addable),
+                patch.object(item_data_module, "BLOCK_ONLY_ITEM_IDS", effective_block_only),
+            ):
+                result = service.load_world(str(world))
+
+            self.assertEqual(
+                result["items_db"]["minecraft:white_cushion"],
+                ("White Cushion", "White Cushion"),
+            )
+            self.assertEqual(
+                result["items_db"]["minecraft:black_wool_double_slab"],
+                ("Black Wool Double Slab", "Black Wool Double Slab"),
+            )
+            self.assertNotIn("minecraft:black_wool_double_slab", result["addable_items"])
+            self.assertIn("minecraft:black_wool_double_slab", result["block_only_items"])
+            self.assertEqual(result["compatibility"]["player"]["unknown_item_ids"]["inventory"], 0)
 
     def test_list_players_finds_local_remote_empty_and_read_only_records(self):
         item = nbt.CompoundTag(

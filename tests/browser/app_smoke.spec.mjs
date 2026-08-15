@@ -1140,16 +1140,26 @@ test("item browser shows restrained availability labels including potion variant
     exportable: true,
     has_inventory_tag: true,
   };
+  const technicalDoubleSlab = "minecraft:black_wool_double_slab";
   const itemsDb = {
     "minecraft:allow": ["Erlauben", "Allow"],
     "minecraft:apple": ["Apfel", "Apple"],
     "minecraft:barrier": ["Barriere", "Barrier"],
     "minecraft:bedrock": ["Grundgestein", "Bedrock"],
+    [technicalDoubleSlab]: ["Black Wool Double Slab", "Black Wool Double Slab"],
     "minecraft:ender_dragon_spawn_egg": ["Enderdrachen-Spawn-Ei", "Ender Dragon Spawn Egg"],
     "minecraft:frosted_ice": ["Brüchiges Eis", "Frosted Ice"],
     "minecraft:petrified_oak_slab": ["Versteinerte Eichenholzstufe", "Petrified Oak Slab"],
     "minecraft:potion": ["Trank", "Potion"],
+    "minecraft:white_cushion": ["White Cushion", "White Cushion"],
   };
+  const itemAvailability = JSON.parse(JSON.stringify(ITEM_AVAILABILITY));
+  itemAvailability.classifications.unreviewed = ["minecraft:white_cushion"];
+  const unreviewedDescription = [
+    "Von Mojang registriert. Kann Welt-Experimente oder eine neuere Minecraft-Version benötigen.",
+    "Der Editor aktiviert Experimente nicht.",
+    "Verfügbarkeit und Spielverhalten wurden noch nicht geprüft.",
+  ].join(" ");
   await page.route("**/api/players", route => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -1184,8 +1194,8 @@ test("item browser shows restrained availability labels including potion variant
       hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
       items_db: itemsDb,
       compat_item_aliases: {},
-      addable_items: Object.keys(itemsDb),
-      block_only_items: [],
+      addable_items: Object.keys(itemsDb).filter(itemId => itemId !== technicalDoubleSlab),
+      block_only_items: [technicalDoubleSlab],
       block_items: [
         "minecraft:allow",
         "minecraft:barrier",
@@ -1193,7 +1203,7 @@ test("item browser shows restrained availability labels including potion variant
         "minecraft:frosted_ice",
         "minecraft:petrified_oak_slab",
       ],
-      item_availability: ITEM_AVAILABILITY,
+      item_availability: itemAvailability,
       ench_db: {},
       enchantment_compatibility: {},
       item_components: {},
@@ -1222,6 +1232,7 @@ test("item browser shows restrained availability labels including potion variant
     [/^minecraft:allow$/, "Education"],
     [/^minecraft:frosted_ice$/, "Zustandsblock"],
     [/^minecraft:petrified_oak_slab$/, "Legacy"],
+    [/^minecraft:white_cushion$/, "Neu · noch nicht geprüft"],
   ];
   for (const [itemLabel, badgeLabel] of expectedBadges) {
     const card = cardFor(itemLabel);
@@ -1230,9 +1241,14 @@ test("item browser shows restrained availability labels including potion variant
   }
   await expect(cardFor(/^minecraft:apple$/).locator(".item-availability-badge")).toHaveCount(0);
   await expect(cardFor(/^minecraft:potion$/).locator(".item-availability-badge")).toHaveCount(0);
+  await expect(cardFor(/^minecraft:black_wool_double_slab$/)).toHaveCount(0);
   await expect(cardFor(/^minecraft:bedrock$/).locator(".item-availability-badge")).toHaveAttribute(
     "title",
     "Im Kreativinventar verfügbar, im normalen Überlebensmodus nicht als Gegenstand erhältlich.",
+  );
+  await expect(cardFor(/^minecraft:white_cushion$/).locator(".item-availability-badge")).toHaveAttribute(
+    "title",
+    unreviewedDescription,
   );
 
   await cardFor(/^minecraft:potion$/).click();

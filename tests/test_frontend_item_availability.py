@@ -58,9 +58,16 @@ def test_frontend_item_availability_replaces_state_and_translates_at_render_time
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
+            const unreviewedDescription = [
+                "Von Mojang registriert. Kann Welt-Experimente oder eine neuere Minecraft-Version benötigen.",
+                "Der Editor aktiviert Experimente nicht.",
+                "Verfügbarkeit und Spielverhalten wurden noch nicht geprüft.",
+            ].join(" ");
             const translations = {
                 "Kreativ": "Creative",
                 "Im Kreativinventar verfügbar, im normalen Überlebensmodus nicht als Gegenstand erhältlich.": "Creative description",
+                "Neu · noch nicht geprüft": "New · not yet reviewed",
+                [unreviewedDescription]: "Unreviewed description",
                 "Klassifikation: {label}. {description}": "Classification: {label}. {description}",
             };
             const context = {
@@ -79,11 +86,17 @@ def test_frontend_item_availability_replaces_state_and_translates_at_render_time
                 source_release: "v1",
                 reviewed_at: "2026-08-03",
                 references: [{ title: "source" }],
-                classifications: { creative: ["minecraft:bedrock"] },
+                classifications: {
+                    creative: ["minecraft:bedrock"],
+                    unreviewed: ["minecraft:bedrock", "minecraft:future_widget"],
+                },
                 variants: {},
             });
 
             assert.strictEqual(catalog.badgeFor("minecraft:bedrock").label, "Creative");
+            assert.strictEqual(catalog.categoryFor("minecraft:bedrock"), "creative");
+            assert.strictEqual(catalog.badgeFor("minecraft:future_widget").label, "New · not yet reviewed");
+            assert.strictEqual(catalog.badgeFor("minecraft:future_widget").description, "Unreviewed description");
             assert.strictEqual(
                 catalog.badgeFor("minecraft:bedrock").ariaLabel,
                 "Classification: Creative. Creative description",
@@ -94,6 +107,7 @@ def test_frontend_item_availability_replaces_state_and_translates_at_render_time
 
             catalog.replace({ classifications: {}, variants: {} });
             assert.strictEqual(catalog.categoryFor("minecraft:bedrock"), null);
+            assert.strictEqual(catalog.categoryFor("minecraft:future_widget"), null);
             """
         )
     )

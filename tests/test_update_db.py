@@ -256,7 +256,17 @@ class TestMicrosoftItemListings(unittest.TestCase):
         with zipfile.ZipFile(buffer, "w") as zf:
             zf.writestr(
                 "metadata/vanilladata_modules/mojang-items.json",
-                json.dumps({"data_items": [{"command_name": "minecraft:oak_slab"}, {"command_name": "minecraft:cake"}]}),
+                json.dumps(
+                    {
+                        "data_items": [
+                            {"command_name": "minecraft:oak_slab"},
+                            {"command_name": "minecraft:black_wool_slab"},
+                            {"command_name": "minecraft:black_wool_stairs"},
+                            {"command_name": "minecraft:black_wool_double_slab"},
+                            {"command_name": "minecraft:cake"},
+                        ]
+                    }
+                ),
             )
             zf.writestr(
                 "metadata/vanilladata_modules/mojang-blocks.json",
@@ -264,6 +274,9 @@ class TestMicrosoftItemListings(unittest.TestCase):
                     {
                         "data_items": [
                             {"command_name": "minecraft:oak_slab"},
+                            {"command_name": "minecraft:black_wool_slab"},
+                            {"command_name": "minecraft:black_wool_stairs"},
+                            {"command_name": "minecraft:black_wool_double_slab"},
                             {"command_name": "minecraft:oak_double_slab"},
                             {"command_name": "minecraft:candle_cake"},
                         ]
@@ -272,6 +285,8 @@ class TestMicrosoftItemListings(unittest.TestCase):
             )
         items = {
             "minecraft:oak_slab": ("Eichenholzstufe", "Oak Slab"),
+            "minecraft:black_wool_slab": ("Schwarze Wollstufe", "Black Wool Slab"),
+            "minecraft:black_wool_stairs": ("Schwarze Wolltreppe", "Black Wool Stairs"),
             "minecraft:oak_double_slab": ("Oak Double Slab", "Oak Double Slab"),
             "minecraft:candle_cake": ("Kuchen mit Kerze", "Cake with Candle"),
             "minecraft:cake": ("Kuchen", "Cake"),
@@ -285,10 +300,12 @@ class TestMicrosoftItemListings(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(buffer.getvalue())) as zf:
             block_only = update_db.compute_block_only_item_ids(zf, items)
 
-        # Legacy-Item-Aliasse (bucketlava) und echte Items bleiben unmarkiert.
+        # Registry-exponierte technische IDs benötigen keinen erfundenen
+        # Anzeigenamen im Katalog; Legacy-Aliasse und echte Items bleiben unmarkiert.
         self.assertEqual(
             block_only,
             [
+                "minecraft:black_wool_double_slab",
                 "minecraft:candle_cake",
                 "minecraft:double_wooden_slab",
                 "minecraft:oak_double_slab",
@@ -316,6 +333,12 @@ class TestMicrosoftItemListings(unittest.TestCase):
                         "data_items": [
                             {"command_name": "minecraft:apple"},
                             {"name": "minecraft:allow"},
+                            {"command_name": "minecraft:black_wool_slab"},
+                            {"command_name": "minecraft:black_wool_stairs"},
+                            {"command_name": "minecraft:black_wool_double_slab"},
+                            {"command_name": "minecraft:white_cushion"},
+                            {"command_name": "minecraft:poplar_log"},
+                            {"command_name": "minecraft:straw_bed"},
                         ]
                     }
                 ),
@@ -326,12 +349,29 @@ class TestMicrosoftItemListings(unittest.TestCase):
                 {
                     "minecraft:apple": ("Apfel", "Apple"),
                     "minecraft:allow": ("Erlauben", "Allow"),
+                    "minecraft:black_wool_slab": ("Schwarze Wollstufe", "Black Wool Slab"),
+                    "minecraft:black_wool_stairs": ("Schwarze Wolltreppe", "Black Wool Stairs"),
+                    "minecraft:black_wool_double_slab": ("Schwarze Woll-Doppelstufe", "Black Wool Double Slab"),
+                    "minecraft:white_cushion": ("Weißes Kissen", "White Cushion"),
+                    "minecraft:poplar_log": ("Pappelstamm", "Poplar Log"),
+                    "minecraft:straw_bed": ("Strohbett", "Straw Bed"),
                     "minecraft:element_32": ("Element 32", "Element 32"),
                     "minecraft:written_book": ("Beschriebenes Buch", "Written Book"),
                 },
             )
 
-        self.assertEqual(addable, ["minecraft:allow", "minecraft:apple"])
+        self.assertEqual(
+            addable,
+            [
+                "minecraft:allow",
+                "minecraft:apple",
+                "minecraft:black_wool_slab",
+                "minecraft:black_wool_stairs",
+                "minecraft:poplar_log",
+                "minecraft:straw_bed",
+                "minecraft:white_cushion",
+            ],
+        )
 
     def test_parse_json_item_component_limits_reads_jsonc_vanilla_values(self):
         buffer = io.BytesIO()

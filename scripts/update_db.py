@@ -25,12 +25,13 @@ def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from mcbe_editor import item_db_verification
+    from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
 
-    return BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification
+    return BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id
 
 
-BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification = _load_runtime_dependencies()
+BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 ENCHANTMENT_MAX_LEVELS_PATH = REPO_ROOT / "mcbe_editor" / "resources" / "enchantment_max_levels.json"
@@ -1281,24 +1282,12 @@ def _vanilla_registry_ids(zf: zipfile.ZipFile, module: str) -> set[str]:
     return result
 
 
-# Technische Blockformen, die in den Mojang-Registries ausnahmslos block-only sind
-# (0 Gegenbeispiele in 1.26.30.5). Das Muster greift zusätzlich für Familien, die
-# (noch) in keiner Registry stehen: Legacy-IDs aus der Vor-Flattening-Ära
+# Technische Blockformen, die unabhängig von ihrer vorübergehenden Präsenz in
+# Mojangs Item-Registry nicht als neue Inventaritems angeboten werden dürfen.
+# Dazu gehören auch Legacy-IDs aus der Vor-Flattening-Ära
 # (double_stone_slab*, double_wooden_slab) und experimentelle Holzarten.
-TECHNICAL_BLOCK_ONLY_ID_PATTERNS = (
-    re.compile(r"_double_slab$"),
-    re.compile(r"^minecraft:double_(?:stone|wooden)_(?:block_)?slab\d?$"),
-    re.compile(r"_standing_sign$"),
-    re.compile(r"_wall_sign$"),
-)
-
-
-def _matches_technical_block_only_pattern(item_id: str) -> bool:
-    return any(pattern.search(item_id) for pattern in TECHNICAL_BLOCK_ONLY_ID_PATTERNS)
-
-
 def compute_block_only_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]]) -> list[str]:
-    """Katalog-IDs, die Mojang nur als Block, nicht als Item registriert.
+    """Katalog-IDs, die nur als technische Blockzustände nutzbar sind.
 
     Solche IDs (z. B. *_double_slab, *_standing_sign, candle_cake) ergeben im
     Inventar keine brauchbaren Items; die UI blendet sie aus den Vorschlägen aus.
@@ -1307,11 +1296,21 @@ def compute_block_only_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str,
     block_ids = _vanilla_registry_ids(zf, "mojang-blocks.json")
     if not item_ids or not block_ids:
         return []
-    return sorted(key for key in items if key not in item_ids and (key in block_ids or _matches_technical_block_only_pattern(key)))
+    technical_registry_ids = {
+        item_id for item_id in item_ids if is_technical_block_only_item_id(item_id)
+    }
+    return sorted(
+        technical_registry_ids
+        | {
+            key
+            for key in items
+            if is_technical_block_only_item_id(key) or (key not in item_ids and key in block_ids)
+        }
+    )
 
 
 def compute_addable_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]]) -> list[str]:
-    """IDs, die Mojang tatsächlich als neue Inventaritems registriert.
+    """Nichttechnische IDs aus Mojangs positiver Item-Registry.
 
     Der vollständige Katalog enthält absichtlich auch Legacy-Serialisierungen,
     Sprachschlüssel und reine Blockformen, damit vorhandene Welten lesbar und
@@ -1326,7 +1325,7 @@ def compute_addable_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, st
     # dürfen technische Aliasse auf Legacy-Serialisierungen behalten, benötigen
     # im Anzeigekatalog aber eigene Namen.
     del items
-    return sorted(item_ids)
+    return sorted(item_id for item_id in item_ids if not is_technical_block_only_item_id(item_id))
 
 
 def compute_block_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]]) -> list[str]:
