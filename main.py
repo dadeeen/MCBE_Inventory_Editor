@@ -1620,10 +1620,6 @@ def set_icon_index(index: dict) -> None:
     ICON_INDEX = index
 
 
-def known_item_ids():
-    return item_data_module.ITEMS.keys()
-
-
 def icon_route_deps() -> icon_api_routes.IconRouteDeps:
     return icon_api_routes.IconRouteDeps(
         settings_path=ICON_SETTINGS_PATH,
@@ -1632,7 +1628,6 @@ def icon_route_deps() -> icon_api_routes.IconRouteDeps:
         read_only=APP_CONFIG.read_only,
         get_icon_index=get_icon_index,
         set_icon_index=set_icon_index,
-        known_item_ids=known_item_ids,
         jsonify=jsonify,
         response=Response,
         api_error=api_error,

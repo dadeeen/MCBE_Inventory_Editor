@@ -6,7 +6,7 @@ import contextlib
 import json
 import threading
 import zipfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import TimeoutExpired
@@ -45,7 +45,6 @@ class IconRouteDeps:
     read_only: bool
     get_icon_index: Callable[[], dict]
     set_icon_index: Callable[[dict], None]
-    known_item_ids: Callable[[], Iterable[str]]
     jsonify: Callable[..., Any]
     response: Callable[..., Any]
     api_error: Callable[..., Any]
@@ -81,7 +80,6 @@ def _scan_and_store_icons(
 ) -> dict:
     with _icon_operation(deps):
         index = scan_icons(
-            deps.known_item_ids(),
             settings_path=deps.settings_path,
             force=force,
             extra_sources=extra_sources,

@@ -16,7 +16,7 @@ def test_local_icon_scan_uses_configured_roots(monkeypatch, tmp_path):
     (root / "diamond_sword.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     monkeypatch.setenv("MCBE_ICON_ROOTS", str(tmp_path / "pack"))
 
-    result = scan_icons(["minecraft:diamond_sword"])
+    result = scan_icons()
 
     assert result["success"] is True
     assert result["count"] == 1
@@ -30,10 +30,10 @@ def test_directory_icon_token_changes_when_cached_png_is_replaced(monkeypatch, t
     icon = root / "stone.png"
     icon.write_bytes(b"first")
     monkeypatch.setenv("MCBE_ICON_ROOTS", str(tmp_path / "pack"))
-    first = scan_icons(["minecraft:stone"], force=True)
+    first = scan_icons(force=True)
 
     icon.write_bytes(b"second-version")
-    second = scan_icons(["minecraft:stone"], force=True)
+    second = scan_icons(force=True)
 
     assert first["icons"]["minecraft:stone"]["token"] != second["icons"]["minecraft:stone"]["token"]
 
@@ -47,8 +47,8 @@ def test_internal_display_assets_are_separate_from_item_icons(monkeypatch, tmp_p
     (display_root / "axolotl_gold.png").write_bytes(b"axolotl")
     monkeypatch.setenv("MCBE_ICON_ROOTS", str(tmp_path / "pack"))
 
-    first = scan_icons(["minecraft:apple"], force=True)
-    second = scan_icons(["minecraft:apple"])
+    first = scan_icons(force=True)
+    second = scan_icons()
 
     assert first["count"] == 1
     assert first["display_count"] == 1
@@ -64,7 +64,7 @@ def test_local_icon_scan_ignores_non_texture_files(monkeypatch, tmp_path):
     (root / "diamond_sword.png").write_bytes(b"fake")
     monkeypatch.setenv("MCBE_ICON_ROOTS", str(root))
 
-    result = scan_icons(["minecraft:diamond_sword"])
+    result = scan_icons()
 
     assert result["count"] == 0
 
@@ -89,7 +89,7 @@ def test_icon_scan_reports_unreadable_directory_source(monkeypatch, tmp_path):
 
     monkeypatch.setattr(icons_module.os, "scandir", denied)
 
-    result = scan_icons([], force=True)
+    result = scan_icons(force=True)
 
     source = next(source for source in result["sources"] if source["path"] == str(root.resolve()))
     assert source["status"] == "warning"
@@ -162,7 +162,7 @@ def test_icon_scan_supports_manual_mcpack_archive(monkeypatch, tmp_path):
     settings = tmp_path / "icon_sources.json"
     add_icon_source(str(settings), str(pack))
 
-    result = scan_icons(["minecraft:apple"], settings_path=str(settings))
+    result = scan_icons(settings_path=str(settings))
 
     assert result["success"] is True
     assert result["count"] == 1
@@ -179,7 +179,7 @@ def test_icon_candidate_revalidates_directory_file_before_read(monkeypatch, tmp_
     icon.write_bytes(b"\x89PNG\r\n\x1a\n")
     settings = tmp_path / "icon_sources.json"
     add_icon_source(str(settings), str(tmp_path / "pack"))
-    result = scan_icons(["minecraft:apple"], settings_path=str(settings), force=True)
+    result = scan_icons(settings_path=str(settings), force=True)
     token = result["icons"]["minecraft:apple"]["token"]
 
     icon.write_bytes(b"x" * (_MAX_FILE_BYTES + 1))
@@ -195,7 +195,7 @@ def test_icon_candidate_revalidates_archive_member_before_read(monkeypatch, tmp_
         zf.writestr("textures/items/apple.png", b"\x89PNG\r\n\x1a\n")
     settings = tmp_path / "icon_sources.json"
     add_icon_source(str(settings), str(pack))
-    result = scan_icons(["minecraft:apple"], settings_path=str(settings), force=True)
+    result = scan_icons(settings_path=str(settings), force=True)
     token = result["icons"]["minecraft:apple"]["token"]
     with zipfile.ZipFile(pack, "w") as zf:
         zf.writestr("textures/items/apple.png", b"x" * (_MAX_FILE_BYTES + 1))
@@ -229,8 +229,8 @@ def test_icon_scan_uses_cache_on_second_run(monkeypatch, tmp_path):
     settings = tmp_path / "icon_sources.json"
     add_icon_source(str(settings), str(tmp_path / "pack"))
 
-    first = scan_icons(["minecraft:apple"], settings_path=str(settings), force=True)
-    second = scan_icons(["minecraft:apple"], settings_path=str(settings))
+    first = scan_icons(settings_path=str(settings), force=True)
+    second = scan_icons(settings_path=str(settings))
 
     assert first["cache"]["state"] == "rebuilt"
     assert second["cache"]["state"] == "hit"
@@ -250,7 +250,7 @@ def test_read_only_icon_status_loads_published_cache_without_scan(monkeypatch, t
     (root / "apple.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     settings = tmp_path / "icon_sources.json"
     add_icon_source(str(settings), str(tmp_path / "pack"))
-    scan_icons(["minecraft:apple"], settings_path=str(settings), force=True)
+    scan_icons(settings_path=str(settings), force=True)
 
     stored = {}
     deps = SimpleNamespace(
@@ -306,7 +306,7 @@ def test_icon_scan_reports_health_preview(monkeypatch, tmp_path):
     settings = tmp_path / "icon_sources.json"
     add_icon_source(str(settings), str(tmp_path / "pack"))
 
-    result = scan_icons(["minecraft:diamond_sword"], settings_path=str(settings), force=True)
+    result = scan_icons(settings_path=str(settings), force=True)
 
     assert result["health"]["status"] == "ok"
     assert result["health"]["sample_found"] >= 1
@@ -321,7 +321,7 @@ def test_icon_scan_uses_generated_vanilla_cache(monkeypatch, tmp_path):
     root.mkdir(parents=True)
     (root / "apple.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
-    result = scan_icons(["minecraft:apple"], force=True)
+    result = scan_icons(force=True)
 
     assert result["success"] is True
     assert "minecraft:apple" in result["icons"]
@@ -336,7 +336,7 @@ def test_icon_scan_adds_damage_variant_aliases(monkeypatch, tmp_path):
     root.mkdir(parents=True)
     (root / "red_carpet.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
-    result = scan_icons(["minecraft:carpet"], force=True)
+    result = scan_icons(force=True)
 
     assert result["variant_aliases"] >= 1
     assert result["icons"]["minecraft:carpet#14"]["token"] == result["icons"]["minecraft:red_carpet"]["token"]
@@ -351,8 +351,8 @@ def test_icon_cache_roundtrip_preserves_target_and_variant_alias_with_shared_tok
     (root / "blue_dye.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     settings = tmp_path / "data" / "icon_sources.json"
 
-    rebuilt = scan_icons(["minecraft:blue_dye"], settings_path=str(settings), force=True)
-    cached = scan_icons(["minecraft:blue_dye"], settings_path=str(settings))
+    rebuilt = scan_icons(settings_path=str(settings), force=True)
+    cached = scan_icons(settings_path=str(settings))
 
     assert rebuilt["icons"]["minecraft:blue_dye"]["token"] == rebuilt["icons"]["minecraft:dye#4"]["token"]
     assert cached["cache"]["state"] == "hit"
@@ -374,15 +374,6 @@ def test_icon_scan_aliases_heads_horse_armor_and_leaves_banner_to_fallback(monke
     (root / "barrier.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
     result = scan_icons(
-        [
-            "minecraft:player_head",
-            "minecraft:creeper_head",
-            "minecraft:horsearmorleather",
-            "minecraft:leather_helmet",
-            "minecraft:shield",
-            "minecraft:barrier",
-            "minecraft:banner",
-        ],
         force=True,
     )
 
@@ -406,12 +397,6 @@ def test_icon_scan_aliases_tuff_brick_variants_to_shared_vanilla_texture(monkeyp
     (root / "tuff_bricks.png").write_bytes(b"tuff-bricks")
 
     result = scan_icons(
-        [
-            "minecraft:tuff_bricks",
-            "minecraft:tuff_brick_stairs",
-            "minecraft:tuff_brick_slab",
-            "minecraft:tuff_brick_wall",
-        ],
         force=True,
     )
 
@@ -436,7 +421,7 @@ def test_icon_scan_aliases_bedrock_potion_texture_names(monkeypatch, tmp_path):
     (root / "potion_bottle_lingering_nightVision.png").write_bytes(b"night")
     (root / "tipped_arrow_swift.png").write_bytes(b"swift")
 
-    result = scan_icons(["minecraft:potion", "minecraft:splash_potion", "minecraft:lingering_potion", "minecraft:tipped_arrow"], force=True)
+    result = scan_icons(force=True)
 
     assert result["variant_aliases"] >= 3
     assert result["icons"]["minecraft:potion"]["token"] == result["icons"]["minecraft:potion_bottle_drinkable"]["token"]
@@ -506,7 +491,6 @@ def test_parallel_icon_scans_are_serialized(monkeypatch, tmp_path):
     index = {}
     deps = SimpleNamespace(
         read_only=False,
-        known_item_ids=lambda: [],
         settings_path=str(tmp_path / "settings.json"),
         set_icon_index=lambda value: index.update(value),
         jsonify=lambda value: value,

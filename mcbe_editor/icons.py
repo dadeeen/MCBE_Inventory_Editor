@@ -1238,15 +1238,14 @@ def clear_icon_cache(settings_path: str | None) -> None:
 
 
 def scan_icons(
-    known_item_ids: Iterable[str] = (),
     settings_path: str | None = None,
     *,
     force: bool = False,
     extra_sources: Iterable[dict | str | os.PathLike] | None = None,
 ) -> dict:
-    # known_item_ids bleibt aus API-Kompatibilität in der Signatur; die Quellen-
-    # Priorität regelt allein die Scan-Reihenfolge (erster Treffer gewinnt).
-    del known_item_ids
+    # Der Scan folgt allein der konfigurierten Quellen-Priorität; der erste
+    # Treffer je Bezeichner gewinnt. Eine Liste erwarteter IDs schränkt das
+    # Ergebnis bewusst nicht ein, damit Zusatzpakete vollständig erfasst werden.
     sources = configured_icon_sources(settings_path, extra_sources=extra_sources)
     source_signature = _sources_signature(sources)
     cache_path = _cache_file(settings_path)
