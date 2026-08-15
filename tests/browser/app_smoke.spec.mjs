@@ -123,7 +123,7 @@ test("app starts without JavaScript bootstrap errors and renders discovered worl
   await expect(page.locator("#worldSection")).toBeVisible();
   await expect(page.locator(".world-card")).toHaveCount(1);
   await expect(page.locator(".world-card")).toContainText("Smoke Test World");
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("German item search accepts German and English names", async ({ page }) => {
@@ -311,7 +311,7 @@ test.describe("English locale", () => {
     if (process.env.MCBE_QA_SCREENSHOT) {
       await page.screenshot({ path: process.env.MCBE_QA_SCREENSHOT, fullPage: false });
     }
-    expect(browserErrors).toEqual([]);
+    expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
   });
 });
 
@@ -506,7 +506,7 @@ test.describe("item variant editors", () => {
     if (process.env.MCBE_QA_VARIANT_SCREENSHOT) {
       await page.screenshot({ path: process.env.MCBE_QA_VARIANT_SCREENSHOT, fullPage: false });
     }
-    expect(browserErrors).toEqual([]);
+    expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
   });
 });
 
@@ -535,7 +535,7 @@ test("normal editor can load a world read-only before any write gate decision", 
   await expect(page.locator("#worldName")).toContainText("Smoke Test World");
   await expect(page.locator("#statusStackSummary")).toContainText("Welt geladen");
   await expect(page.locator("#statusStackButton")).toHaveClass(/warning/);
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("safe local-to-multiplayer migration is directly accessible and writes after backup", async ({ page }) => {
@@ -900,7 +900,7 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
       .reduce((underlay, overlay) => compositeColor(overlay, underlay), colorComponents("rgb(255, 255, 255)"));
     expect(contrastRatio(sample.color, background)).toBeGreaterThanOrEqual(4.5);
   }
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("unexpected server block responses are shown as errors instead of green status", async ({ page }) => {
@@ -932,7 +932,7 @@ test("unexpected server block responses are shown as errors instead of green sta
   await expect(page.locator("#loadErrorPanel")).toContainText("Server läuft noch");
   await expect(page.locator("#statusStackSummary")).toContainText("Fehler: Server läuft noch");
   await expect(page.locator("#statusStackButton")).toHaveClass(/error/);
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("read-only viewer is visibly labeled and blocks write endpoints", async ({ page }) => {
@@ -965,7 +965,7 @@ test("read-only viewer is visibly labeled and blocks write endpoints", async ({ 
   expect(result.data.success).toBe(false);
   expect(result.data.read_only).toBe(true);
   expect(result.data.category).toBe("world_write");
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("scan auth failures are shown explicitly instead of as an empty world list", async ({ page }) => {
@@ -984,7 +984,7 @@ test("scan auth failures are shown explicitly instead of as an empty world list"
   await expect(page.locator("#worldScanEmpty")).toContainText("Authentifizierung erforderlich");
   await expect(page.locator(".world-card")).toHaveCount(0);
   expect(await page.locator("#worldScanEmpty").innerText()).not.toContain("Keine Welten automatisch gefunden");
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("loaded desktop workflows keep world above focus and player context", async ({ page }) => {
@@ -1288,7 +1288,7 @@ test("item browser shows restrained availability labels including potion variant
   }));
   expect(mobileAutocompleteLayout.scrollWidth).toBeLessThanOrEqual(mobileAutocompleteLayout.clientWidth);
   expect(mobileAutocompleteLayout.rowScrollWidth).toBeLessThanOrEqual(mobileAutocompleteLayout.rowClientWidth);
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("light item browser keeps readable colors and a stable width while scrolling", async ({ page }) => {
@@ -1485,7 +1485,7 @@ test("regular tools update refreshes the dismissed setup banner and resolves rel
 
   await page.locator('.app-section-nav button[data-workflow-view="world"]').click();
   await expect(banner).toBeHidden();
-  expect(browserErrors).toEqual([]);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
 test("first-run setup overlay guides through item DB and icons, then hands over to the banner", async ({ page }) => {
