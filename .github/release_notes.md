@@ -1,13 +1,13 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.5.15
+## What changed in v0.5.16
 
-- Items that Mojang adds in a newer Bedrock release now show up in the item browser as soon as the Item DB is updated, marked **New · not yet reviewed** until the bundled curated classification catches up.
-- Identifiers that Mojang exposes only as technical block states, such as double slabs and sign states, are no longer offered as new inventory items. Existing worlds that contain them stay readable and are saved unchanged.
-- Registry items whose display name has not reached Mojang's public language files yet stay visible under a readable name derived from their identifier instead of dropping out of the browser.
-- Identifiers that Mojang removes from its item registry are no longer offered for new items, while worlds that already contain them keep them intact.
+- Item DB and vanilla-icon update output now follows the language selected in the app. English sessions no longer receive a mixture of English and German progress messages, diff summaries, cache status, and result counts.
+- The vanilla-icon section heading is localized as well, and direct updater CLI help follows the forwarded updater language.
+- The localization catalog check now covers both updater scripts, preventing new updater messages from silently shipping without an English translation.
+- Item DB schema v3, the availability schema, item classifications, and the underlying Mojang data remain unchanged in this patch release.
 
-> **After upgrading:** the Item DB may show **Verification pending** even when its data has not changed. This is expected because the verification rules changed; it does not mean that the database is damaged. If the setup dialog opens, select **Load now** for **Load item database**. Otherwise, open **Tools & settings → Item DB**, run a dry run, and then select **Apply update**. An apply with no data changes only refreshes the local verification record.
+> **If upgrading directly from v0.5.14 or earlier:** the Item DB may show **Verification pending** even when its data has not changed. This is expected because the verification rules changed in v0.5.15; it does not mean that the database is damaged. If the setup dialog opens, select **Load now** for **Load item database**. Otherwise, open **Tools & settings → Item DB**, run a dry run, and then select **Apply update**. An apply with no data changes only refreshes the local verification record.
 
 > **Before every edit:** stop Minecraft or the Bedrock server and create a complete, independent copy of the world. Keep that copy until the edited world has been verified in Minecraft. App-created backups are an additional safeguard, not a replacement.
 

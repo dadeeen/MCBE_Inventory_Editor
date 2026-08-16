@@ -1,6 +1,6 @@
 [project]
 name = "mcbe-inventory-editor"
-version = "0.5.15"
+version = "0.5.16"
 description = "Local Minecraft Bedrock inventory editor with isolated DB, NBT, backup, and UI layers."
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -64,6 +64,7 @@ files = [
     "mcbe_editor/runtime_data.py",
     "mcbe_editor/service_errors.py",
     "mcbe_editor/setup_state.py",
+    "mcbe_editor/update_output_i18n.py",
     "mcbe_editor/world_locks.py",
 ]
 strict = true
