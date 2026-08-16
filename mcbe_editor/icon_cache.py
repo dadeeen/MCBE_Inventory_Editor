@@ -8,6 +8,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from mcbe_editor.update_output_i18n import output_t as tr
+
 WarningHandler = Callable[[str], None]
 
 
@@ -127,7 +129,7 @@ def _recover_icon_cache_unlocked(target_root: Path, *, warn: WarningHandler | No
             try:
                 _remove_path(rollback)
             except OSError as exc:
-                _warn(warn, f"Veralteter Icon-Cache-Rollback konnte nicht entfernt werden: {rollback}: {exc}")
+                _warn(warn, tr("Veralteter Icon-Cache-Rollback konnte nicht entfernt werden: {path}: {error}", path=rollback, error=exc))
         return
 
     valid_rollback = next((path for path in rollbacks if _cache_is_complete(path)), None)
@@ -155,9 +157,9 @@ def publish_icon_cache(staging: Path, target_root: Path, *, warn: WarningHandler
     """Publish a complete cache while preserving the previous cache on failure."""
 
     if staging.parent != target_root.parent:
-        raise ValueError("Icon-Staging und Ziel müssen im selben Verzeichnis liegen.")
+        raise ValueError(tr("Icon-Staging und Ziel müssen im selben Verzeichnis liegen."))
     if not _cache_is_complete(staging):
-        raise ValueError("Der neue Icon-Cache ist unvollständig und wird nicht veröffentlicht.")
+        raise ValueError(tr("Der neue Icon-Cache ist unvollständig und wird nicht veröffentlicht."))
 
     with _cache_lock(target_root):
         _recover_icon_cache_unlocked(target_root, warn=warn)
@@ -187,7 +189,10 @@ def publish_icon_cache(staging: Path, target_root: Path, *, warn: WarningHandler
                     os.replace(rollback, target_root)
                 except OSError as restore_exc:
                     raise RuntimeError(
-                        f"Icon-Cache-Veröffentlichung fehlgeschlagen und der vorherige Cache konnte nicht wiederhergestellt werden: {restore_exc}"
+                        tr(
+                            "Icon-Cache-Veröffentlichung fehlgeschlagen und der vorherige Cache konnte nicht wiederhergestellt werden: {error}",
+                            error=restore_exc,
+                        )
                     ) from exc
             raise
 
@@ -195,10 +200,13 @@ def publish_icon_cache(staging: Path, target_root: Path, *, warn: WarningHandler
             try:
                 _remove_path(staging)
             except OSError as exc:
-                _warn(warn, f"Icon-Staging konnte nach erfolgreicher Veröffentlichung nicht entfernt werden: {staging}: {exc}")
+                _warn(warn, tr("Icon-Staging konnte nach erfolgreicher Veröffentlichung nicht entfernt werden: {path}: {error}", path=staging, error=exc))
 
         if moved_old and _path_exists(rollback):
             try:
                 _remove_path(rollback)
             except OSError as exc:
-                _warn(warn, f"Alter Icon-Cache konnte nach erfolgreicher Veröffentlichung nicht entfernt werden: {rollback}: {exc}")
+                _warn(
+                    warn,
+                    tr("Alter Icon-Cache konnte nach erfolgreicher Veröffentlichung nicht entfernt werden: {path}: {error}", path=rollback, error=exc),
+                )

@@ -3,8 +3,10 @@ from __future__ import annotations
 from unittest.mock import Mock, patch
 
 import main
-from mcbe_editor import update_output_i18n
-from scripts import update_db
+import pytest
+
+from mcbe_editor import icon_cache, update_output_i18n
+from scripts import update_db, update_icons
 
 
 def test_update_output_uses_forwarded_english_locale(monkeypatch):
@@ -32,6 +34,18 @@ def test_update_diff_is_rendered_in_forwarded_english_locale(monkeypatch, capsys
     assert "Statistics: 0 -> 1 (+1 / -0 / ~0)" in output
     assert "Neu" not in output
     assert "Statistik" not in output
+
+
+def test_updater_failures_use_forwarded_english_locale(monkeypatch, tmp_path):
+    monkeypatch.setenv(update_output_i18n.UPDATE_LOCALE_ENV, "en")
+
+    with pytest.raises(RuntimeError, match="Item DB JSON not found"):
+        update_icons.load_item_icon_targets(tmp_path / "missing-item-db.json")
+
+    staging = tmp_path / "staging-parent" / "staging"
+    target = tmp_path / "target-parent" / "target"
+    with pytest.raises(ValueError, match="same directory"):
+        icon_cache.publish_icon_cache(staging, target)
 
 
 def test_main_forwards_request_locale_to_both_updaters():

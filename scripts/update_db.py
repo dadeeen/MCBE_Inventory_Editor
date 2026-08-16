@@ -235,9 +235,9 @@ def _validate_https_url(url: str, allowed_hosts: set[str], *, label: str) -> str
         host = (parsed.hostname or "").lower()
         port = parsed.port
     except (TypeError, ValueError) as exc:
-        raise RuntimeError(f"Unsichere {label}-URL: {url!r}") from exc
+        raise RuntimeError(tr("Unsichere {label}-URL: {url}", label=label, url=repr(url))) from exc
     if parsed.scheme.lower() != "https" or host not in allowed_hosts or port not in (None, 443) or parsed.username is not None or parsed.password is not None:
-        raise RuntimeError(f"Unsichere {label}-URL: {url!r}")
+        raise RuntimeError(tr("Unsichere {label}-URL: {url}", label=label, url=repr(url)))
     return url
 
 
@@ -347,15 +347,15 @@ def fetch_github_json(url: str) -> dict:
             _validate_final_response_url(resp, ALLOWED_GITHUB_API_HOSTS, label="GitHub-API")
             raw = resp.read(5 * 1024 * 1024 + 1)
             if len(raw) > 5 * 1024 * 1024:
-                raise RuntimeError("GitHub-API-Antwort ist unerwartet gross.")
+                raise RuntimeError(tr("GitHub-API-Antwort ist unerwartet groß."))
             data = json.loads(raw)
             if not isinstance(data, dict):
-                raise RuntimeError("GitHub-API-Antwort hat ein unerwartetes JSON-Format.")
+                raise RuntimeError(tr("GitHub-API-Antwort hat ein unerwartetes JSON-Format."))
             return data
     except (OSError, TimeoutError) as exc:
-        raise RuntimeError(f"Fehler beim Laden von {url}: {exc}") from exc
+        raise RuntimeError(tr("Fehler beim Laden von {url}: {error}", url=url, error=exc)) from exc
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Ungültige JSON-Antwort von {url}: {exc}") from exc
+        raise RuntimeError(tr("Ungültige JSON-Antwort von {url}: {error}", url=url, error=exc)) from exc
 
 
 def get_latest_release_info() -> dict:
@@ -365,7 +365,7 @@ def get_latest_release_info() -> dict:
     log(f"  {tr('Gefunden:')} {Colors.CYAN}{tag}{Colors.END} ({tr('offizielles Mojang/bedrock-samples-Release')})")
     assets = data.get("assets")
     if not isinstance(assets, list):
-        raise RuntimeError("GitHub-API-Antwort enthält keine gültige Asset-Liste.")
+        raise RuntimeError(tr("GitHub-API-Antwort enthält keine gültige Asset-Liste."))
     for asset in assets:
         if not isinstance(asset, dict):
             continue
@@ -373,7 +373,7 @@ def get_latest_release_info() -> dict:
         asset_size = _safe_int(asset.get("size"), 0)
         if asset_name.endswith("-min.zip"):
             if asset_size <= 0 or asset_size > MAX_RESOURCE_PACK_BYTES:
-                raise RuntimeError(f"Resource-Pack-Asset hat eine unerwartete Größe: {asset_size} Bytes")
+                raise RuntimeError(tr("Resource-Pack-Asset hat eine unerwartete Größe: {size} Bytes", size=asset_size))
             download_url = _validate_https_url(str(asset.get("browser_download_url", "")), ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
             info = {
                 "resource_pack_release": tag,
@@ -384,7 +384,7 @@ def get_latest_release_info() -> dict:
             }
             log(f"  {tr('Asset:')} {Colors.GREEN}{asset_name}{Colors.END} ({asset_size // 1024 // 1024} MB)")
             return info
-    raise RuntimeError(f"No min asset found in release {tag}")
+    raise RuntimeError(tr("Kein Min-Asset im Release {release} gefunden.", release=tag))
 
 
 def write_release_metadata(info: dict) -> None:
@@ -539,10 +539,10 @@ def fetch_wiki_enchantment_snapshot(url: str = WIKI_ENCHANTMENTS_URL) -> tuple[d
             _validate_final_response_url(resp, ALLOWED_WIKI_HOSTS, label="Minecraft-Wiki")
             raw = resp.read(MAX_WIKI_BYTES + 1)
             if len(raw) > MAX_WIKI_BYTES:
-                raise RuntimeError("Minecraft-Wiki-Antwort ist unerwartet gross.")
+                raise RuntimeError(tr("Minecraft-Wiki-Antwort ist unerwartet groß."))
             content = raw.decode("utf-8", errors="replace")
     except (OSError, TimeoutError) as exc:
-        message = f"Fehler beim Laden der Minecraft Wiki MaxLevel-Tabelle: {exc}"
+        message = tr("Fehler beim Laden der Minecraft Wiki MaxLevel-Tabelle: {error}", error=exc)
         log(f"  {Colors.RED}{message}{Colors.END}")
         raise RuntimeError(message) from exc
     return parse_wiki_enchantment_max_levels(content), {
@@ -557,25 +557,27 @@ def load_local_enchantment_max_levels(path: Path = ENCHANTMENT_MAX_LEVELS_PATH) 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Lokale Verzauberungs-Maximalstufen fehlen: {path}") from exc
+        raise RuntimeError(tr("Lokale Verzauberungs-Maximalstufen fehlen: {path}", path=path)) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError(f"Lokale Verzauberungs-Maximalstufen sind nicht lesbar: {path}: {exc}") from exc
+        raise RuntimeError(tr("Lokale Verzauberungs-Maximalstufen sind nicht lesbar: {path}: {error}", path=path, error=exc)) from exc
 
     if not isinstance(data, dict) or data.get("schema_version") != 1:
-        raise RuntimeError("Lokale Verzauberungs-Maximalstufen haben eine unbekannte Schema-Version")
+        raise RuntimeError(tr("Lokale Verzauberungs-Maximalstufen haben eine unbekannte Schema-Version"))
     raw_levels = data.get("max_levels")
     if not isinstance(raw_levels, dict) or not raw_levels:
-        raise RuntimeError("Lokale Verzauberungs-Maximalstufen enthalten keine Einträge")
+        raise RuntimeError(tr("Lokale Verzauberungs-Maximalstufen enthalten keine Einträge"))
 
     levels: dict[str, int] = {}
     for raw_identifier, raw_level in raw_levels.items():
         if not isinstance(raw_identifier, str):
-            raise RuntimeError("Lokale Verzauberungs-Maximalstufen enthalten einen ungültigen Identifier")
+            raise RuntimeError(tr("Lokale Verzauberungs-Maximalstufen enthalten einen ungültigen Identifier"))
         identifier = _canonical_enchantment_identifier(raw_identifier)
         if identifier != raw_identifier or not re.fullmatch(r"[a-z0-9_]+", identifier):
-            raise RuntimeError(f"Lokale Verzauberungs-Maximalstufen enthalten keinen kanonischen Identifier: {raw_identifier!r}")
+            raise RuntimeError(
+                tr("Lokale Verzauberungs-Maximalstufen enthalten keinen kanonischen Identifier: {identifier}", identifier=repr(raw_identifier))
+            )
         if isinstance(raw_level, bool) or not isinstance(raw_level, int) or not 1 <= raw_level <= 255:
-            raise RuntimeError(f"Ungültige lokale Maximalstufe für {identifier}: {raw_level!r}")
+            raise RuntimeError(tr("Ungültige lokale Maximalstufe für {identifier}: {level}", identifier=identifier, level=repr(raw_level)))
         levels[identifier] = raw_level
     return dict(sorted(levels.items()))
 
@@ -584,29 +586,38 @@ def load_local_enchantment_numeric_ids(path: Path = ENCHANTMENT_MAX_LEVELS_PATH)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Lokale numerische Verzauberungs-IDs fehlen: {path}") from exc
+        raise RuntimeError(tr("Lokale numerische Verzauberungs-IDs fehlen: {path}", path=path)) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError(f"Lokale numerische Verzauberungs-IDs sind nicht lesbar: {path}: {exc}") from exc
+        raise RuntimeError(tr("Lokale numerische Verzauberungs-IDs sind nicht lesbar: {path}: {error}", path=path, error=exc)) from exc
 
     if not isinstance(data, dict) or data.get("schema_version") != 1:
-        raise RuntimeError("Lokale numerische Verzauberungs-IDs haben eine unbekannte Schema-Version")
+        raise RuntimeError(tr("Lokale numerische Verzauberungs-IDs haben eine unbekannte Schema-Version"))
     raw_ids = data.get("numeric_ids")
     if not isinstance(raw_ids, dict) or not raw_ids:
-        raise RuntimeError("Lokale numerische Verzauberungs-IDs enthalten keine Einträge")
+        raise RuntimeError(tr("Lokale numerische Verzauberungs-IDs enthalten keine Einträge"))
 
     numeric_ids: dict[str, int] = {}
     used_ids: dict[int, str] = {}
     for raw_identifier, raw_id in raw_ids.items():
         if not isinstance(raw_identifier, str):
-            raise RuntimeError("Lokale numerische Verzauberungs-IDs enthalten einen ungültigen Identifier")
+            raise RuntimeError(tr("Lokale numerische Verzauberungs-IDs enthalten einen ungültigen Identifier"))
         identifier = _canonical_enchantment_identifier(raw_identifier)
         if identifier != raw_identifier or not re.fullmatch(r"[a-z0-9_]+", identifier):
-            raise RuntimeError(f"Lokale numerische Verzauberungs-IDs enthalten keinen kanonischen Identifier: {raw_identifier!r}")
+            raise RuntimeError(
+                tr("Lokale numerische Verzauberungs-IDs enthalten keinen kanonischen Identifier: {identifier}", identifier=repr(raw_identifier))
+            )
         if isinstance(raw_id, bool) or not isinstance(raw_id, int) or not 0 <= raw_id <= 32767:
-            raise RuntimeError(f"Ungültige lokale numerische ID für {identifier}: {raw_id!r}")
+            raise RuntimeError(tr("Ungültige lokale numerische ID für {identifier}: {numeric_id}", identifier=identifier, numeric_id=repr(raw_id)))
         duplicate = used_ids.get(raw_id)
         if duplicate is not None:
-            raise RuntimeError(f"Numerische Verzauberungs-ID {raw_id} ist doppelt vergeben: {duplicate}, {identifier}")
+            raise RuntimeError(
+                tr(
+                    "Numerische Verzauberungs-ID {numeric_id} ist doppelt vergeben: {first}, {second}",
+                    numeric_id=raw_id,
+                    first=duplicate,
+                    second=identifier,
+                )
+            )
         numeric_ids[identifier] = raw_id
         used_ids[raw_id] = identifier
     return dict(sorted(numeric_ids.items()))
@@ -616,34 +627,48 @@ def load_local_effect_numeric_ids(path: Path = BUNDLED_ITEM_DB_JSON) -> dict[str
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Lokale numerische Effekt-IDs fehlen: {path}") from exc
+        raise RuntimeError(tr("Lokale numerische Effekt-IDs fehlen: {path}", path=path)) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError(f"Lokale numerische Effekt-IDs sind nicht lesbar: {path}: {exc}") from exc
+        raise RuntimeError(tr("Lokale numerische Effekt-IDs sind nicht lesbar: {path}: {error}", path=path, error=exc)) from exc
 
     raw_effects = data.get("effects") if isinstance(data, dict) else None
     if not isinstance(raw_effects, dict) or not raw_effects:
-        raise RuntimeError("Lokale numerische Effekt-IDs enthalten keine Einträge")
+        raise RuntimeError(tr("Lokale numerische Effekt-IDs enthalten keine Einträge"))
 
     numeric_ids: dict[str, int] = {}
     used_ids: dict[int, str] = {}
     for raw_id, values in raw_effects.items():
         if not isinstance(values, (list, tuple)) or len(values) < 2:
-            raise RuntimeError(f"Ungültiger lokaler Effekt-Eintrag für ID {raw_id!r}")
+            raise RuntimeError(tr("Ungültiger lokaler Effekt-Eintrag für ID {numeric_id}", numeric_id=repr(raw_id)))
         try:
             numeric_id = int(raw_id)
         except (TypeError, ValueError):
-            raise RuntimeError(f"Ungültige lokale numerische Effekt-ID: {raw_id!r}") from None
+            raise RuntimeError(tr("Ungültige lokale numerische Effekt-ID: {numeric_id}", numeric_id=repr(raw_id))) from None
         if not 0 <= numeric_id <= 255:
-            raise RuntimeError(f"Lokale numerische Effekt-ID außerhalb des gültigen Bereichs: {numeric_id}")
+            raise RuntimeError(tr("Lokale numerische Effekt-ID außerhalb des gültigen Bereichs: {numeric_id}", numeric_id=numeric_id))
         identifier = _canonical_effect_identifier(values[1] or values[0])
         if not re.fullmatch(r"[a-z0-9_]+", identifier):
-            raise RuntimeError(f"Lokaler Effekt hat keinen kanonischen Identifier: {values[1] or values[0]!r}")
+            raise RuntimeError(tr("Lokaler Effekt hat keinen kanonischen Identifier: {identifier}", identifier=repr(values[1] or values[0])))
         duplicate_id = used_ids.get(numeric_id)
         if duplicate_id is not None:
-            raise RuntimeError(f"Numerische Effekt-ID {numeric_id} ist doppelt vergeben: {duplicate_id}, {identifier}")
+            raise RuntimeError(
+                tr(
+                    "Numerische Effekt-ID {numeric_id} ist doppelt vergeben: {first}, {second}",
+                    numeric_id=numeric_id,
+                    first=duplicate_id,
+                    second=identifier,
+                )
+            )
         duplicate_identifier = numeric_ids.get(identifier)
         if duplicate_identifier is not None:
-            raise RuntimeError(f"Effekt-Identifier {identifier} ist doppelt vergeben: {duplicate_identifier}, {numeric_id}")
+            raise RuntimeError(
+                tr(
+                    "Effekt-Identifier {identifier} ist doppelt vergeben: {first}, {second}",
+                    identifier=identifier,
+                    first=duplicate_identifier,
+                    second=numeric_id,
+                )
+            )
         numeric_ids[identifier] = numeric_id
         used_ids[numeric_id] = identifier
     return dict(sorted(numeric_ids.items()))
@@ -774,19 +799,21 @@ def _validate_downloaded_zip(path: Path) -> None:
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
             if len(members) > MAX_RESOURCE_PACK_MEMBERS:
-                raise RuntimeError("Resource-Pack-Download enthält unerwartet viele ZIP-Einträge.")
+                raise RuntimeError(tr("Resource-Pack-Download enthält unerwartet viele ZIP-Einträge."))
             total_uncompressed = 0
             for member in members:
                 if member.file_size < 0 or member.file_size > MAX_RESOURCE_PACK_MEMBER_BYTES:
-                    raise RuntimeError(f"Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member.filename}")
+                    raise RuntimeError(
+                        tr("Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member}", member=member.filename)
+                    )
                 total_uncompressed += member.file_size
                 if total_uncompressed > MAX_RESOURCE_PACK_UNCOMPRESSED_BYTES:
-                    raise RuntimeError("Resource-Pack-Download ist entpackt unerwartet groß.")
+                    raise RuntimeError(tr("Resource-Pack-Download ist entpackt unerwartet groß."))
             damaged_member = archive.testzip()
     except (OSError, zipfile.BadZipFile) as exc:
-        raise RuntimeError("Resource-Pack-Download ist keine gültige ZIP-Datei.") from exc
+        raise RuntimeError(tr("Resource-Pack-Download ist keine gültige ZIP-Datei.")) from exc
     if damaged_member:
-        raise RuntimeError(f"Resource-Pack-Download enthält einen beschädigten ZIP-Eintrag: {damaged_member}")
+        raise RuntimeError(tr("Resource-Pack-Download enthält einen beschädigten ZIP-Eintrag: {member}", member=damaged_member))
 
 
 def download_with_progress(url: str, dest: Path, *, expected_size: int | None = None) -> None:
@@ -811,7 +838,7 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
             _validate_final_response_url(resp, ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
             total = _safe_int(resp.headers.get("Content-Length"), 0)
             if total > MAX_RESOURCE_PACK_BYTES:
-                raise RuntimeError(f"Resource-Pack-Download ist unerwartet gross: {total} Bytes")
+                raise RuntimeError(tr("Resource-Pack-Download ist unerwartet groß: {size} Bytes", size=total))
             downloaded = 0
             while True:
                 chunk = resp.read(1024 * 1024)
@@ -819,13 +846,19 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
                     break
                 downloaded += len(chunk)
                 if downloaded > MAX_RESOURCE_PACK_BYTES:
-                    raise RuntimeError("Resource-Pack-Download überschreitet das Sicherheitslimit.")
+                    raise RuntimeError(tr("Resource-Pack-Download überschreitet das Sicherheitslimit."))
                 out.write(chunk)
                 report(downloaded, total)
             out.flush()
             os.fsync(out.fileno())
         if expected_size and downloaded != expected_size:
-            raise RuntimeError(f"Resource-Pack-Download ist unvollständig: erwartet {expected_size} Bytes, erhalten {downloaded} Bytes")
+            raise RuntimeError(
+                tr(
+                    "Resource-Pack-Download ist unvollständig: erwartet {expected} Bytes, erhalten {actual} Bytes",
+                    expected=expected_size,
+                    actual=downloaded,
+                )
+            )
         _validate_downloaded_zip(temp_path)
         os.replace(temp_path, dest)
         print(f"\r  {Colors.GREEN}{tr('Heruntergeladen')}{Colors.END} ({dest.name}){' ' * 20}")
@@ -835,7 +868,7 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
                 os.close(fd)
         with contextlib.suppress(OSError):
             temp_path.unlink()
-        raise RuntimeError(f"Download failed: {exc}") from exc
+        raise RuntimeError(tr("Download fehlgeschlagen: {error}", error=exc)) from exc
 
 
 def download_latest_rp(dest: Path, *, release_info: dict | None = None) -> dict:
@@ -879,7 +912,12 @@ def download_latest_rp(dest: Path, *, release_info: dict | None = None) -> dict:
         with contextlib.suppress(OSError):
             candidate.unlink()
         if restore_failure is not None:
-            raise RuntimeError(f"Resource-Pack-Cache konnte nach einem Metadatenfehler nicht wiederhergestellt werden: {restore_failure}") from exc
+            raise RuntimeError(
+                tr(
+                    "Resource-Pack-Cache konnte nach einem Metadatenfehler nicht wiederhergestellt werden: {error}",
+                    error=restore_failure,
+                )
+            ) from exc
         raise
     finally:
         with contextlib.suppress(OSError):
@@ -909,7 +947,7 @@ def open_zip(zip_path: Path) -> zipfile.ZipFile:
     try:
         return zipfile.ZipFile(zip_path, "r")
     except zipfile.BadZipFile:
-        raise RuntimeError(f"Corrupted zip file: {zip_path}") from None
+        raise RuntimeError(tr("Beschädigte ZIP-Datei: {path}", path=zip_path)) from None
 
 
 def read_utf8(zf: zipfile.ZipFile, path: str) -> str:
@@ -962,39 +1000,46 @@ def _strip_json_comments(text: str) -> str:
 
 
 def _component_error(member: str, component: str, detail: str) -> RuntimeError:
-    return RuntimeError(f"Mojang-Itemkomponente {component} ist ungültig: {member}: {detail}")
+    return RuntimeError(
+        tr(
+            "Mojang-Itemkomponente {component} ist ungültig: {member}: {detail}",
+            component=component,
+            member=member,
+            detail=detail,
+        )
+    )
 
 
 def _normalize_enchantable_component(value, *, member: str) -> dict:
     component = "minecraft:enchantable"
     if not isinstance(value, dict):
-        raise _component_error(member, component, "erwartet ein Objekt")
+        raise _component_error(member, component, tr("erwartet ein Objekt"))
     slot = str(value.get("slot", "")).strip()
     if slot not in KNOWN_ENCHANTABLE_SLOTS:
-        raise _component_error(member, component, f"unbekannter Slot {slot!r}")
+        raise _component_error(member, component, tr("unbekannter Slot {slot}", slot=repr(slot)))
     enchantability = value.get("value")
     if type(enchantability) is not int or not 0 <= enchantability <= 32767:
-        raise _component_error(member, component, "value muss eine Ganzzahl zwischen 0 und 32767 sein")
+        raise _component_error(member, component, tr("value muss eine Ganzzahl zwischen 0 und 32767 sein"))
     return {"slot": slot, "value": enchantability}
 
 
 def _normalize_wearable_component(value, *, member: str) -> dict:
     component = "minecraft:wearable"
     if not isinstance(value, dict):
-        raise _component_error(member, component, "erwartet ein Objekt")
+        raise _component_error(member, component, tr("erwartet ein Objekt"))
     slot = str(value.get("slot", "")).strip()
     if slot not in KNOWN_WEARABLE_SLOTS:
-        raise _component_error(member, component, f"unbekannter Slot {slot!r}")
+        raise _component_error(member, component, tr("unbekannter Slot {slot}", slot=repr(slot)))
     result: dict = {"slot": slot}
     for key in ("hides_player_location", "dispensable"):
         if key in value:
             if type(value[key]) is not bool:
-                raise _component_error(member, component, f"{key} muss ein Boolean sein")
+                raise _component_error(member, component, tr("{key} muss ein Boolean sein", key=key))
             result[key] = value[key]
     if "protection" in value:
         protection = value["protection"]
         if type(protection) is not int or not 0 <= protection <= 32767:
-            raise _component_error(member, component, "protection muss eine Ganzzahl zwischen 0 und 32767 sein")
+            raise _component_error(member, component, tr("protection muss eine Ganzzahl zwischen 0 und 32767 sein"))
         result["protection"] = protection
     return result
 
@@ -1018,7 +1063,7 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
         try:
             payload = json.loads(_strip_json_comments(zf.read(info).decode("utf-8-sig")))
         except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-            raise RuntimeError(f"Mojang-Itemdefinition ist ungültig: {member}: {exc}") from exc
+            raise RuntimeError(tr("Mojang-Itemdefinition ist ungültig: {member}: {error}", member=member, error=exc)) from exc
         item = payload.get("minecraft:item") if isinstance(payload, dict) else None
         description = item.get("description") if isinstance(item, dict) else None
         components = item.get("components") if isinstance(item, dict) else None
@@ -1197,11 +1242,11 @@ def fetch_microsoft_item_listing_snapshot(url: str = MICROSOFT_ITEM_LISTINGS_URL
             _validate_final_response_url(resp, ALLOWED_MICROSOFT_LEARN_HOSTS, label="Microsoft-Learn-Itemliste")
             raw = resp.read(MAX_MICROSOFT_LEARN_BYTES + 1)
             if len(raw) > MAX_MICROSOFT_LEARN_BYTES:
-                raise RuntimeError("Microsoft-Learn-Itemliste ist unerwartet groß.")
+                raise RuntimeError(tr("Microsoft-Learn-Itemliste ist unerwartet groß."))
             content = raw.decode("utf-8", errors="replace")
             items = parse_microsoft_item_listing(content)
             if len(items) < 1000:
-                raise RuntimeError(f"Microsoft-Learn-Itemliste enthält unerwartet wenige Einträge: {len(items)}")
+                raise RuntimeError(tr("Microsoft-Learn-Itemliste enthält unerwartet wenige Einträge: {count}", count=len(items)))
             snapshot = {
                 "microsoft_item_listing_url": url,
                 "microsoft_item_listing_fetched_at": utc_now(),
@@ -1210,14 +1255,14 @@ def fetch_microsoft_item_listing_snapshot(url: str = MICROSOFT_ITEM_LISTINGS_URL
             }
             return items, snapshot
     except (OSError, TimeoutError) as exc:
-        raise RuntimeError(f"Fehler beim Laden der Microsoft-Learn-Itemliste: {exc}") from exc
+        raise RuntimeError(tr("Fehler beim Laden der Microsoft-Learn-Itemliste: {error}", error=exc)) from exc
 
 
 def write_microsoft_item_listing_cache(items: dict[str, str], snapshot: dict) -> None:
     try:
         payload = item_db_verification.build_item_listing_cache_payload(items, snapshot)
     except item_db_verification.UpdateReviewError as exc:
-        raise RuntimeError(f"Microsoft-Itemlisten-Snapshot ist ungültig: {exc}") from exc
+        raise RuntimeError(tr("Microsoft-Itemlisten-Snapshot ist ungültig: {error}", error=exc)) from exc
     atomic_write_text(ITEM_LISTING_CACHE_PATH, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
@@ -1225,11 +1270,11 @@ def read_microsoft_item_listing_cache() -> tuple[dict[str, str], dict]:
     try:
         items, snapshot = item_db_verification.read_item_listing_cache(ITEM_LISTING_CACHE_PATH)
     except item_db_verification.UpdateReviewError as exc:
-        raise RuntimeError(f"Kein gültiger Microsoft-Itemlisten-Snapshot aus dem Dry-Run vorhanden: {exc}") from exc
+        raise RuntimeError(tr("Kein gültiger Microsoft-Itemlisten-Snapshot aus dem Dry-Run vorhanden: {error}", error=exc)) from exc
     source_url = str(snapshot["microsoft_item_listing_url"])
     _validate_https_url(source_url, ALLOWED_MICROSOFT_LEARN_HOSTS, label="Microsoft-Learn-Itemliste")
     if source_url != MICROSOFT_ITEM_LISTINGS_URL:
-        raise RuntimeError("Der Microsoft-Itemlisten-Snapshot gehört nicht zur aktuellen offiziellen Quelle.")
+        raise RuntimeError(tr("Der Microsoft-Itemlisten-Snapshot gehört nicht zur aktuellen offiziellen Quelle."))
     return items, snapshot
 
 
@@ -1681,7 +1726,7 @@ def merge_effects(
     mojang_identifiers = {_canonical_effect_identifier(json_id) for json_id in json_ids}
     missing_numeric_ids = sorted(mojang_identifiers - set(local_numeric_ids))
     if missing_numeric_ids:
-        raise RuntimeError("Lokale numerische IDs fehlen für neue Mojang-Effekte: " + ", ".join(missing_numeric_ids))
+        raise RuntimeError(tr("Lokale numerische IDs fehlen für neue Mojang-Effekte: {identifiers}", identifiers=", ".join(missing_numeric_ids)))
 
     for identifier in mojang_identifiers:
         old_id = name_to_id.get(identifier)
@@ -1704,7 +1749,14 @@ def merge_effects(
         if collision is not None:
             collision_name = _canonical_effect_identifier(collision[1] or collision[0])
             if collision_name != canonical_json_id:
-                raise RuntimeError(f"Geprüfte Effekt-ID {reviewed_id} für {canonical_json_id} kollidiert mit vorhandenem Eintrag {collision_name}")
+                raise RuntimeError(
+                    tr(
+                        "Geprüfte Effekt-ID {numeric_id} für {identifier} kollidiert mit vorhandenem Eintrag {collision}",
+                        numeric_id=reviewed_id,
+                        identifier=canonical_json_id,
+                        collision=collision_name,
+                    )
+                )
         merged[reviewed_id] = reviewed_entry
 
     return merged
@@ -1768,17 +1820,26 @@ def merge_enchantments(
     mojang_identifiers = {_canonical_enchantment_identifier(name) for name, _ in json_list}
     missing_levels = sorted(mojang_identifiers - set(local_max_levels))
     if missing_levels:
-        raise RuntimeError("Lokale Maximalstufen fehlen für neue Mojang-Verzauberungen: " + ", ".join(missing_levels))
+        raise RuntimeError(tr("Lokale Maximalstufen fehlen für neue Mojang-Verzauberungen: {identifiers}", identifiers=", ".join(missing_levels)))
     missing_numeric_ids = sorted(mojang_identifiers - set(local_numeric_ids))
     if missing_numeric_ids:
-        raise RuntimeError("Lokale numerische IDs fehlen für neue Mojang-Verzauberungen: " + ", ".join(missing_numeric_ids))
+        raise RuntimeError(
+            tr("Lokale numerische IDs fehlen für neue Mojang-Verzauberungen: {identifiers}", identifiers=", ".join(missing_numeric_ids))
+        )
 
     numeric_id_owners: dict[int, str] = {}
     for identifier in mojang_identifiers:
         numeric_id = local_numeric_ids[identifier]
         duplicate = numeric_id_owners.get(numeric_id)
         if duplicate is not None:
-            raise RuntimeError(f"Numerische Verzauberungs-ID {numeric_id} ist doppelt vergeben: {duplicate}, {identifier}")
+            raise RuntimeError(
+                tr(
+                    "Numerische Verzauberungs-ID {numeric_id} ist doppelt vergeben: {first}, {second}",
+                    numeric_id=numeric_id,
+                    first=duplicate,
+                    second=identifier,
+                )
+            )
         numeric_id_owners[numeric_id] = identifier
 
     # Frühere Updater vergaben für neue Namen lediglich die nächste freie ID.
@@ -1807,7 +1868,14 @@ def merge_enchantments(
         if collision is not None:
             collision_name = _canonical_enchantment_identifier(collision[1] or collision[0])
             if collision_name != canonical_json_name:
-                raise RuntimeError(f"Geprüfte Verzauberungs-ID {reviewed_id} für {canonical_json_name} kollidiert mit vorhandenem Eintrag {collision_name}")
+                raise RuntimeError(
+                    tr(
+                        "Geprüfte Verzauberungs-ID {numeric_id} für {identifier} kollidiert mit vorhandenem Eintrag {collision}",
+                        numeric_id=reviewed_id,
+                        identifier=canonical_json_name,
+                        collision=collision_name,
+                    )
+                )
         merged[reviewed_id] = reviewed_entry
 
     return merged
@@ -1828,11 +1896,11 @@ def _load_item_db_json() -> dict:
     try:
         data = json.loads(ITEM_DB_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Item-DB JSON nicht gefunden: {ITEM_DB_PATH}") from exc
+        raise RuntimeError(tr("Item-DB JSON nicht gefunden: {path}", path=ITEM_DB_PATH)) from exc
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError(f"Item-DB JSON ist ungültig: {ITEM_DB_PATH}") from exc
+        raise RuntimeError(tr("Item-DB JSON ist ungültig: {path}", path=ITEM_DB_PATH)) from exc
     if not isinstance(data, dict):
-        raise RuntimeError("Item-DB JSON muss ein Objekt sein.")
+        raise RuntimeError(tr("Item-DB JSON muss ein Objekt sein."))
     return data
 
 
@@ -2218,7 +2286,7 @@ def commit_update_files(
     """Commit item data and matching source metadata as one recoverable unit."""
 
     if verify_item_db and source_metadata is None:
-        raise ValueError("Ein Item-DB-Prüfbeleg benötigt Quellenmetadaten.")
+        raise ValueError(tr("Ein Item-DB-Prüfbeleg benötigt Quellenmetadaten."))
     touched_paths = [ITEM_DB_PATH]
     if source_metadata is not None:
         touched_paths.append(SOURCE_VERSION_JSON)
@@ -2258,7 +2326,12 @@ def commit_update_files(
             except Exception as rollback_exc:
                 rollback_failures.append(f"{path}: {rollback_exc}")
         if rollback_failures:
-            raise RuntimeError(f"Update fehlgeschlagen und konnte nicht vollständig zurückgerollt werden: {'; '.join(rollback_failures)}") from exc
+            raise RuntimeError(
+                tr(
+                    "Update fehlgeschlagen und konnte nicht vollständig zurückgerollt werden: {failures}",
+                    failures="; ".join(rollback_failures),
+                )
+            ) from exc
         raise
 
 
@@ -2361,9 +2434,9 @@ def main() -> int:
     args = parser.parse_args()
     if args.expected_review_token:
         if not args.cache:
-            raise RuntimeError("Ein Dry-Run-Prüfbeleg kann nur mit dem internen Cache-Replay verwendet werden.")
+            raise RuntimeError(tr("Ein Dry-Run-Prüfbeleg kann nur mit dem internen Cache-Replay verwendet werden."))
         if not re.fullmatch(r"[0-9a-f]{64}", args.expected_review_token):
-            raise RuntimeError("Der Dry-Run-Prüfbeleg ist ungültig.")
+            raise RuntimeError(tr("Der Dry-Run-Prüfbeleg ist ungültig."))
 
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
     log(f"{Colors.BOLD}  {tr('Minecraft Bedrock Item-DB-Updater (Items + Effekte + Verzauberungen)')}{Colors.END}")
@@ -2383,9 +2456,9 @@ def main() -> int:
                 scope=args.only,
             )
         except item_db_verification.UpdateReviewError as exc:
-            raise RuntimeError(f"Der Dry-Run-Prüfbeleg kann nicht validiert werden: {exc}") from exc
+            raise RuntimeError(tr("Der Dry-Run-Prüfbeleg kann nicht validiert werden: {error}", error=exc)) from exc
         if not hmac.compare_digest(args.expected_review_token, current_review["token"]):
-            raise RuntimeError("Die geprüften Dry-Run-Eingaben haben sich geändert. Bitte den Dry-Run erneut ausführen.")
+            raise RuntimeError(tr("Die geprüften Dry-Run-Eingaben haben sich geändert. Bitte den Dry-Run erneut ausführen."))
         log(f"  {Colors.GREEN}{tr('Dry-Run-Prüfbeleg validiert ({scope})', scope=current_review['scope'])}{Colors.END}")
 
     step(tr("1/4  Resource Pack herunterladen"))
@@ -2393,11 +2466,11 @@ def main() -> int:
     release_info: dict = {}
     if args.cache:
         if not rp_zip.exists():
-            raise RuntimeError("Kein gecachtes Resource-Pack für die erneute Verarbeitung vorhanden.")
+            raise RuntimeError(tr("Kein gecachtes Resource-Pack für die erneute Verarbeitung vorhanden."))
         _validate_downloaded_zip(rp_zip)
         release_info = read_release_metadata()
         if not release_info:
-            raise RuntimeError("Die Metadaten des gecachten Resource-Packs fehlen oder sind ungültig.")
+            raise RuntimeError(tr("Die Metadaten des gecachten Resource-Packs fehlen oder sind ungültig."))
         message = tr(
             "Verwende gecachtes Release ohne Online-Versionsprüfung: {release}",
             release=release_info["resource_pack_release"],

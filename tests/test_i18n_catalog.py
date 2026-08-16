@@ -153,6 +153,67 @@ def test_all_direct_translation_literals_exist_in_english_catalog() -> None:
     assert not missing, "Missing English catalog entries:\n" + "\n".join(missing)
 
 
+def test_updater_exceptions_and_direct_output_do_not_bypass_localization() -> None:
+    """Keep rare updater failures from falling back to mixed-language output."""
+
+    paths = [
+        ROOT / "mcbe_editor" / "icon_cache.py",
+        ROOT / "scripts" / "update_db.py",
+        ROOT / "scripts" / "update_icons.py",
+    ]
+    missing: list[str] = []
+
+    def contains_tr(node: ast.AST) -> bool:
+        return any(
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Name)
+            and child.func.id == "tr"
+            for child in ast.walk(node)
+        )
+
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+
+        def enclosing_scope(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> ast.AST:
+            while not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+                node = parent_map[node]
+            return node
+
+        assigned_values: dict[tuple[ast.AST, str], list[ast.AST]] = {}
+        for assignment in ast.walk(tree):
+            if not isinstance(assignment, (ast.Assign, ast.AnnAssign)) or assignment.value is None:
+                continue
+            targets = assignment.targets if isinstance(assignment, ast.Assign) else [assignment.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    assigned_values.setdefault((enclosing_scope(assignment, parents), target.id), []).append(assignment.value)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) and node.exc.args:
+                function_name = node.exc.func.id if isinstance(node.exc.func, ast.Name) else ""
+                argument = node.exc.args[0]
+                values = assigned_values.get((enclosing_scope(node, parents), argument.id), []) if isinstance(argument, ast.Name) else []
+                uses_translated_name = bool(values) and all(contains_tr(value) for value in values)
+                if function_name in {"RuntimeError", "ValueError"} and not (contains_tr(argument) or uses_translated_name):
+                    missing.append(f"{path.relative_to(ROOT)}:{node.lineno}: exception")
+            if isinstance(node, ast.Call) and node.args and isinstance(node.func, ast.Name) and node.func.id in {"log", "step", "input"}:
+                literal_text = " ".join(
+                    str(child.value)
+                    for child in ast.walk(node.args[0])
+                    if isinstance(child, ast.Constant) and isinstance(child.value, str)
+                )
+                if GERMAN_TEXT_RE.search(literal_text) and not contains_tr(node.args[0]):
+                    missing.append(f"{path.relative_to(ROOT)}:{node.lineno}: {node.func.id}")
+
+    assert not missing, "Updater output bypasses localization:\n" + "\n".join(missing)
+
+
 def test_indirect_presentation_literals_exist_in_english_catalog() -> None:
     """Presentation maps are translated at render time, not at the literal.
 

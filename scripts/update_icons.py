@@ -690,9 +690,9 @@ def _validate_https_url(url: str, allowed_hosts: set[str], *, label: str) -> str
         host = (parsed.hostname or "").lower()
         port = parsed.port
     except (TypeError, ValueError) as exc:
-        raise RuntimeError(f"Unsichere {label}-URL: {url!r}") from exc
+        raise RuntimeError(tr("Unsichere {label}-URL: {url}", label=label, url=repr(url))) from exc
     if parsed.scheme.lower() != "https" or host not in allowed_hosts or port not in (None, 443) or parsed.username is not None or parsed.password is not None:
-        raise RuntimeError(f"Unsichere {label}-URL: {url!r}")
+        raise RuntimeError(tr("Unsichere {label}-URL: {url}", label=label, url=repr(url)))
     return url
 
 
@@ -747,13 +747,13 @@ def fetch_github_json(url: str) -> dict[str, Any]:
         _validate_final_response_url(resp, ALLOWED_GITHUB_API_HOSTS, label="GitHub-API")
         raw = resp.read(MAX_RELEASE_JSON_BYTES + 1)
     if len(raw) > MAX_RELEASE_JSON_BYTES:
-        raise RuntimeError("GitHub-API-Antwort ist unerwartet groß.")
+        raise RuntimeError(tr("GitHub-API-Antwort ist unerwartet groß."))
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"GitHub-API-Antwort enthält ungültiges JSON: {exc}") from exc
+        raise RuntimeError(tr("GitHub-API-Antwort enthält ungültiges JSON: {error}", error=exc)) from exc
     if not isinstance(data, dict):
-        raise RuntimeError("GitHub-API-Antwort hat ein unerwartetes JSON-Format.")
+        raise RuntimeError(tr("GitHub-API-Antwort hat ein unerwartetes JSON-Format."))
     return data
 
 
@@ -762,7 +762,7 @@ def get_latest_full_release_info() -> dict[str, Any]:
     tag = str(data.get("tag_name") or "unknown")
     assets = data.get("assets")
     if not isinstance(assets, list):
-        raise RuntimeError("GitHub-API-Antwort enthält keine gültige Asset-Liste.")
+        raise RuntimeError(tr("GitHub-API-Antwort enthält keine gültige Asset-Liste."))
     candidates = []
     for asset in assets:
         if not isinstance(asset, dict):
@@ -775,10 +775,10 @@ def get_latest_full_release_info() -> dict[str, Any]:
             continue
         candidates.append((name, size, str(asset.get("browser_download_url") or "")))
     if not candidates:
-        raise RuntimeError(f"Kein Full-Asset im Release {tag} gefunden.")
+        raise RuntimeError(tr("Kein Full-Asset im Release {release} gefunden.", release=tag))
     name, size, url = sorted(candidates, key=lambda row: row[1], reverse=True)[0]
     if size <= 0 or size > MAX_RESOURCE_PACK_BYTES:
-        raise RuntimeError(f"Resource-Pack-Asset hat eine unerwartete Größe: {size} Bytes")
+        raise RuntimeError(tr("Resource-Pack-Asset hat eine unerwartete Größe: {size} Bytes", size=size))
     return {
         "resource_pack_release": tag,
         "resource_pack_asset": name,
@@ -837,29 +837,31 @@ def _validate_downloaded_zip(path: Path) -> None:
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
             if len(members) > MAX_RESOURCE_PACK_MEMBERS:
-                raise RuntimeError("Resource-Pack-Download enthält unerwartet viele ZIP-Einträge.")
+                raise RuntimeError(tr("Resource-Pack-Download enthält unerwartet viele ZIP-Einträge."))
             total_uncompressed = 0
             for member in members:
                 if member.file_size < 0 or member.file_size > MAX_RESOURCE_PACK_MEMBER_BYTES:
-                    raise RuntimeError(f"Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member.filename}")
+                    raise RuntimeError(
+                        tr("Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member}", member=member.filename)
+                    )
                 total_uncompressed += member.file_size
                 if total_uncompressed > MAX_RESOURCE_PACK_UNCOMPRESSED_BYTES:
-                    raise RuntimeError("Resource-Pack-Download ist entpackt unerwartet groß.")
+                    raise RuntimeError(tr("Resource-Pack-Download ist entpackt unerwartet groß."))
             damaged_member = archive.testzip()
     except (OSError, zipfile.BadZipFile) as exc:
-        raise RuntimeError("Resource-Pack-Download ist keine gültige ZIP-Datei.") from exc
+        raise RuntimeError(tr("Resource-Pack-Download ist keine gültige ZIP-Datei.")) from exc
     if damaged_member:
-        raise RuntimeError(f"Resource-Pack-Download enthält einen beschädigten ZIP-Eintrag: {damaged_member}")
+        raise RuntimeError(tr("Resource-Pack-Download enthält einen beschädigten ZIP-Eintrag: {member}", member=damaged_member))
 
 
 def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     asset_name = str(info.get("resource_pack_asset") or "")
     if not asset_name or Path(asset_name).name != asset_name or any(separator in asset_name for separator in ("/", "\\")):
-        raise RuntimeError("Resource-Pack-Assetname ist ungültig.")
+        raise RuntimeError(tr("Resource-Pack-Assetname ist ungültig."))
     expected_size = _safe_int(info.get("resource_pack_asset_size"), 0)
     if expected_size <= 0 or expected_size > MAX_RESOURCE_PACK_BYTES:
-        raise RuntimeError(f"Resource-Pack-Asset hat eine unerwartete Größe: {expected_size} Bytes")
+        raise RuntimeError(tr("Resource-Pack-Asset hat eine unerwartete Größe: {size} Bytes", size=expected_size))
     zip_path = CACHE_DIR / asset_name
     if use_cache and zip_path.exists() and zip_path.stat().st_size == expected_size:
         try:
@@ -885,12 +887,18 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
                     break
                 total += len(chunk)
                 if total > MAX_RESOURCE_PACK_BYTES:
-                    raise RuntimeError("Resource-Pack-Download ist größer als erwartet.")
+                    raise RuntimeError(tr("Resource-Pack-Download ist größer als erwartet."))
                 output.write(chunk)
             output.flush()
             os.fsync(output.fileno())
         if total != expected_size:
-            raise RuntimeError(f"Resource-Pack-Download ist unvollständig: erwartet {expected_size} Bytes, erhalten {total} Bytes")
+            raise RuntimeError(
+                tr(
+                    "Resource-Pack-Download ist unvollständig: erwartet {expected} Bytes, erhalten {actual} Bytes",
+                    expected=expected_size,
+                    actual=total,
+                )
+            )
         _validate_downloaded_zip(temp_path)
         os.replace(temp_path, zip_path)
         return zip_path
@@ -931,7 +939,7 @@ def prune_cached_icon_release_zips(current_zip: Path) -> dict[str, Any]:
         return {
             "removed_count": 0,
             "removed_bytes": 0,
-            "warnings": [f"Icon-Download-Cache konnte nicht geprüft werden: {exc}"],
+            "warnings": [tr("Icon-Download-Cache konnte nicht geprüft werden: {error}", error=exc)],
         }
 
     for candidate in candidates:
@@ -946,7 +954,7 @@ def prune_cached_icon_release_zips(current_zip: Path) -> dict[str, Any]:
             removed_count += 1
             removed_bytes += max(0, size)
         except OSError as exc:
-            warnings.append(f"Alter Icon-Release-Cache konnte nicht entfernt werden: {name}: {exc}")
+            warnings.append(tr("Alter Icon-Release-Cache konnte nicht entfernt werden: {name}: {error}", name=name, error=exc))
 
     return {
         "removed_count": removed_count,
@@ -991,12 +999,12 @@ def _validate_model_icon_mapping(
     has_entity_definition = model_spec.entity_definition_path is not None
     has_entity_variant = model_spec.entity_variant is not None
     if has_entity_definition != has_entity_variant:
-        raise ValueError("Modell-Icon-Spezifikation enthält eine unvollständige Entity-Zuordnung.")
+        raise ValueError(tr("Modell-Icon-Spezifikation enthält eine unvollständige Entity-Zuordnung."))
     if (model_spec.geometry_variant or model_spec.block_texture_key) and not has_entity_definition:
-        raise ValueError("Modell-Icon-Spezifikation enthält eine unvollständige Block-/Geometrie-Zuordnung.")
+        raise ValueError(tr("Modell-Icon-Spezifikation enthält eine unvollständige Block-/Geometrie-Zuordnung."))
     if not has_entity_definition:
         if model_spec.texture_path not in item_textures.get(item_id, []):
-            raise ValueError("Item-Textur verweist nicht auf den freigegebenen Modell-Atlas.")
+            raise ValueError(tr("Item-Textur verweist nicht auf den freigegebenen Modell-Atlas."))
         return
 
     entity_data = _read_json_member(zf, model_spec.entity_definition_path or "")
@@ -1007,14 +1015,14 @@ def _validate_model_icon_mapping(
     variant = model_spec.entity_variant or ""
     geometry_variant = model_spec.geometry_variant or variant
     if not isinstance(textures, dict) or _normalized_texture_reference(textures.get(variant)) != model_spec.texture_path:
-        raise ValueError("Entity-Definition verweist nicht auf den freigegebenen Modell-Atlas.")
+        raise ValueError(tr("Entity-Definition verweist nicht auf den freigegebenen Modell-Atlas."))
     if not isinstance(geometries, dict) or geometries.get(geometry_variant) != model_spec.geometry_identifier:
-        raise ValueError("Entity-Definition verweist nicht auf die freigegebene Modell-Geometrie.")
+        raise ValueError(tr("Entity-Definition verweist nicht auf die freigegebene Modell-Geometrie."))
     if model_spec.block_texture_key:
         blocks = _read_json_member(zf, "blocks.json")
         block_definition = blocks.get(item_id)
         if not isinstance(block_definition, dict) or block_definition.get("textures") != model_spec.block_texture_key:
-            raise ValueError("Block-Definition verweist nicht auf die freigegebene Modell-Texturvariante.")
+            raise ValueError(tr("Block-Definition verweist nicht auf die freigegebene Modell-Texturvariante."))
 
 
 def _strip_json_comments(text: str) -> str:
@@ -1110,9 +1118,9 @@ def load_item_icon_targets(path: Path = ITEM_DB_PATH) -> tuple[list[str], list[s
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Item-DB JSON nicht gefunden: {path}") from exc
+        raise RuntimeError(tr("Item-DB JSON nicht gefunden: {path}", path=path)) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError(f"Item-DB JSON ist ungültig oder nicht lesbar: {path}") from exc
+        raise RuntimeError(tr("Item-DB JSON ist ungültig oder nicht lesbar: {path}", path=path)) from exc
     items = data.get("items") if isinstance(data, dict) else {}
     if not isinstance(items, dict):
         return [], [], 0
@@ -1144,9 +1152,9 @@ def load_block_item_targets(path: Path = ITEM_DB_PATH) -> set[str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Item-DB JSON nicht gefunden: {path}") from exc
+        raise RuntimeError(tr("Item-DB JSON nicht gefunden: {path}", path=path)) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError(f"Item-DB JSON ist ungültig oder nicht lesbar: {path}") from exc
+        raise RuntimeError(tr("Item-DB JSON ist ungültig oder nicht lesbar: {path}", path=path)) from exc
     raw = data.get("block_items", []) if isinstance(data, dict) else []
     if not isinstance(raw, list):
         return set()
@@ -1474,7 +1482,7 @@ def _png_chunk(kind: bytes, payload: bytes) -> bytes:
 
 def _encode_rgba_png(width: int, height: int, rgba: bytes) -> bytes:
     if width <= 0 or height <= 0 or len(rgba) != width * height * 4:
-        raise ValueError("Ungültige RGBA-Bilddaten.")
+        raise ValueError(tr("Ungültige RGBA-Bilddaten."))
     rows = bytearray()
     stride = width * 4
     for y in range(height):
@@ -1491,12 +1499,12 @@ def _tga_pixel_to_rgba(pixel: bytes, bits_per_pixel: int) -> bytes:
     if bits_per_pixel == 24 and len(pixel) == 3:
         blue, green, red = pixel
         return bytes((red, green, blue, 255))
-    raise ValueError(f"Nicht unterstützte TGA-Farbtiefe: {bits_per_pixel}")
+    raise ValueError(tr("Nicht unterstützte TGA-Farbtiefe: {bits_per_pixel}", bits_per_pixel=bits_per_pixel))
 
 
 def _decode_tga_to_png(raw: bytes) -> bytes:
     if len(raw) < 18:
-        raise ValueError("TGA-Datei ist zu kurz.")
+        raise ValueError(tr("TGA-Datei ist zu kurz."))
     id_length, color_map_type, image_type = raw[0], raw[1], raw[2]
     color_map_first = raw[3] | (raw[4] << 8)
     color_map_length = raw[5] | (raw[6] << 8)
@@ -1506,12 +1514,12 @@ def _decode_tga_to_png(raw: bytes) -> bytes:
     bits_per_pixel = raw[16]
     descriptor = raw[17]
     if width <= 0 or height <= 0 or width * height > MAX_DECODED_ICON_PIXELS:
-        raise ValueError("TGA-Bildgröße ist unerwartet.")
+        raise ValueError(tr("TGA-Bildgröße ist unerwartet."))
     offset = 18 + id_length
     palette: list[bytes] = []
     if color_map_type:
         if color_map_depth not in {24, 32}:
-            raise ValueError(f"Nicht unterstützte TGA-Paletten-Farbtiefe: {color_map_depth}")
+            raise ValueError(tr("Nicht unterstützte TGA-Paletten-Farbtiefe: {bits_per_pixel}", bits_per_pixel=color_map_depth))
         color_bytes = color_map_depth // 8
         for _ in range(color_map_length):
             palette.append(_tga_pixel_to_rgba(raw[offset : offset + color_bytes], color_map_depth))
@@ -1521,11 +1529,11 @@ def _decode_tga_to_png(raw: bytes) -> bytes:
     pixel_bytes = max(bits_per_pixel // 8, 1)
     if image_type == 1 and color_map_type:
         if bits_per_pixel != 8:
-            raise ValueError(f"Nicht unterstützte TGA-Index-Farbtiefe: {bits_per_pixel}")
+            raise ValueError(tr("Nicht unterstützte TGA-Index-Farbtiefe: {bits_per_pixel}", bits_per_pixel=bits_per_pixel))
         for value in raw[offset : offset + pixel_count]:
             palette_index = value - color_map_first
             if palette_index < 0 or palette_index >= len(palette):
-                raise ValueError("TGA-Palettenindex außerhalb der Palette.")
+                raise ValueError(tr("TGA-Palettenindex außerhalb der Palette."))
             pixels.append(palette[palette_index])
     elif image_type == 2 and not color_map_type:
         for _ in range(pixel_count):
@@ -1545,9 +1553,9 @@ def _decode_tga_to_png(raw: bytes) -> bytes:
                     pixels.append(_tga_pixel_to_rgba(raw[offset : offset + pixel_bytes], bits_per_pixel))
                     offset += pixel_bytes
     else:
-        raise ValueError(f"Nicht unterstützter TGA-Typ: {image_type}")
+        raise ValueError(tr("Nicht unterstützter TGA-Typ: {image_type}", image_type=image_type))
     if len(pixels) != pixel_count:
-        raise ValueError("TGA-Pixeldaten sind unvollständig.")
+        raise ValueError(tr("TGA-Pixeldaten sind unvollständig."))
     origin_top = bool(descriptor & 0x20)
     origin_right = bool(descriptor & 0x10)
     rows = []
@@ -1571,7 +1579,7 @@ def _write_texture_as_png(zf: zipfile.ZipFile, source: TextureMember, target: Pa
     if kind == "tga":
         target.write_bytes(_decode_tga_to_png(zf.read(info)))
         return
-    raise ValueError(f"Nicht unterstützte Texturquelle: {kind}")
+    raise ValueError(tr("Nicht unterstützte Texturquelle: {kind}", kind=kind))
 
 
 def _texture_source_png_bytes(zf: zipfile.ZipFile, source: TextureMember) -> bytes:
@@ -1581,7 +1589,7 @@ def _texture_source_png_bytes(zf: zipfile.ZipFile, source: TextureMember) -> byt
         return raw
     if kind == "tga":
         return _decode_tga_to_png(raw)
-    raise ValueError(f"Nicht unterstützte Texturquelle: {kind}")
+    raise ValueError(tr("Nicht unterstützte Texturquelle: {kind}", kind=kind))
 
 
 def build_icon_cache(
@@ -1634,7 +1642,7 @@ def build_icon_cache(
                         _validate_model_icon_mapping(zf, item_id, item_textures, model_spec)
                         source = texture_members.get(model_spec.texture_path)
                         if source is None:
-                            raise ValueError(f"Modell-Atlas {model_spec.texture_path!r} fehlt.")
+                            raise ValueError(tr("Modell-Atlas {path} fehlt.", path=repr(model_spec.texture_path)))
                         rendered_png = render_bedrock_model_icon(
                             _read_json_member(zf, model_spec.geometry_path),
                             _texture_source_png_bytes(zf, source),
@@ -1830,7 +1838,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cache and not args.force:
         info = read_release_metadata()
         if not info:
-            raise RuntimeError("Die Metadaten des gecachten Icon-Releases fehlen oder sind ungültig.")
+            raise RuntimeError(tr("Die Metadaten des gecachten Icon-Releases fehlen oder sind ungültig."))
         log(tr("Release ohne Online-Versionsprüfung wiederverwenden: {release}", release=info["resource_pack_release"]))
     else:
         info = get_latest_full_release_info()
