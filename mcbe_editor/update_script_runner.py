@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from mcbe_editor.i18n import SUPPORTED_LOCALES
+from mcbe_editor.update_output_i18n import UPDATE_LOCALE_ENV
+
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
@@ -29,6 +32,11 @@ def _ensure_dirs(paths: set[Path | None]) -> None:
             directory.mkdir(parents=True, exist_ok=True)
 
 
+def _normalized_locale(locale: str) -> str:
+    normalized = str(locale or "").strip().lower()
+    return normalized if normalized in SUPPORTED_LOCALES else "de"
+
+
 def run_update_db(
     app_root: Path,
     app_config: Any,
@@ -38,6 +46,7 @@ def run_update_db(
     only: str | None = None,
     use_cache: bool = False,
     expected_review_token: str | None = None,
+    locale: str = "de",
 ) -> tuple[int, str]:
     """Run the item_db update script and return its output."""
     cmd = [sys.executable, "-m", "scripts.update_db"]
@@ -65,6 +74,7 @@ def run_update_db(
         if value:
             env[name] = value
     env["NO_COLOR"] = "1"
+    env[UPDATE_LOCALE_ENV] = _normalized_locale(locale)
 
     _ensure_dirs(
         {
@@ -94,6 +104,7 @@ def run_update_icons(
     *,
     force: bool = False,
     use_cache: bool = False,
+    locale: str = "de",
 ) -> tuple[int, str]:
     """Run the vanilla icon update script and return its output."""
     cmd = [sys.executable, "-m", "scripts.update_icons"]
@@ -115,6 +126,7 @@ def run_update_icons(
         if value:
             env[name] = str(value)
     env["NO_COLOR"] = "1"
+    env[UPDATE_LOCALE_ENV] = _normalized_locale(locale)
 
     _ensure_dirs(
         {

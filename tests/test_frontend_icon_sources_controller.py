@@ -617,6 +617,52 @@ def test_frontend_icon_hint_banner_vanilla_button_confirms_and_updates() -> None
     )
 
 
+def test_frontend_icon_update_output_localizes_its_heading() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            (async () => {
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/icon_sources_controller.js", "utf8");
+            const context = {
+                window: {
+                    t: text => text === "Vanilla-Icons" ? "Vanilla icons" : text,
+                },
+                console,
+            };
+            vm.runInNewContext(code, context, { filename: "static/icon_sources_controller.js" });
+
+            const output = [];
+            const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                fetchImpl: async () => ({ ok: true, headers: { get: () => "application/json" }, text: async () => "{}" }),
+                parseJsonResponse: async () => ({
+                    success: true,
+                    output: "Icons: 1/1 inventory items mapped",
+                    icons: {},
+                    count: 1,
+                    sources: [],
+                    manifest: { mapped_items: 1, known_items: 1 },
+                }),
+                withCsrf: () => ({ "Content-Type": "application/json" }),
+                iconManagerView: {
+                    iconManagerHtml() { return ""; },
+                    iconManagerSummaryText() { return ""; },
+                },
+                appendUpdateOutput: message => output.push(message),
+            });
+
+            await controller.updateVanillaIcons();
+
+            assert.ok(output[0].startsWith("\n=== Vanilla icons ===\n"));
+            assert.ok(output[0].includes("Icons: 1/1 inventory items mapped"));
+            })();
+            """
+        )
+    )
+
+
 def test_frontend_icon_hint_banner_locks_vanilla_button_in_read_only() -> None:
     _run_node(
         _HINT_BANNER_HARNESS

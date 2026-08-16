@@ -57,6 +57,7 @@ def test_run_update_db_builds_command_env_and_directories(tmp_path, monkeypatch)
     assert kwargs["timeout"] == 180
     assert kwargs["check"] is False
     assert kwargs["env"]["NO_COLOR"] == "1"
+    assert kwargs["env"]["MCBE_UPDATE_LOCALE"] == "de"
     assert kwargs["env"]["MCBE_ITEM_DB_PATH"] == config.item_db_path
     assert kwargs["env"]["MCBE_UPDATE_CACHE_DIR"] == config.update_cache_dir
     assert (tmp_path / "data").is_dir()
@@ -78,7 +79,7 @@ def test_run_update_icons_builds_icon_cache_env_and_directories(tmp_path, monkey
         update_cache_dir=str(tmp_path / "cache"),
     )
 
-    result = update_script_runner.run_update_icons(tmp_path, config, force=True, use_cache=False)
+    result = update_script_runner.run_update_icons(tmp_path, config, force=True, use_cache=False, locale="en")
 
     assert result == (7, "script output")
     args, kwargs = calls[0]
@@ -86,6 +87,7 @@ def test_run_update_icons_builds_icon_cache_env_and_directories(tmp_path, monkey
     assert kwargs["cwd"] == str(tmp_path)
     assert kwargs["timeout"] == 300
     assert kwargs["env"]["NO_COLOR"] == "1"
+    assert kwargs["env"]["MCBE_UPDATE_LOCALE"] == "en"
     assert kwargs["env"]["MCBE_DATA_ROOT"] == str(tmp_path / "data")
     assert kwargs["env"]["MCBE_ICON_CACHE_ROOT"] == str(tmp_path / "data" / "icons" / "vanilla")
     assert (tmp_path / "data").is_dir()
@@ -103,6 +105,25 @@ def test_strip_terminal_formatting_removes_ansi_and_normalizes_newlines():
     output = "\x1b[1m\x1b[96mÜberschrift\x1b[0m\r\n\x1b[92mFertig\x1b[0m\r"
 
     assert update_script_runner.strip_terminal_formatting(output) == "Überschrift\nFertig\n"
+
+
+def test_update_runner_falls_back_to_german_for_an_unknown_locale(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return Completed()
+
+    monkeypatch.setattr(update_script_runner.subprocess, "run", fake_run)
+    config = SimpleNamespace(
+        data_root=str(tmp_path / "data"),
+        item_db_path=str(tmp_path / "data" / "item_db.json"),
+        update_cache_dir=str(tmp_path / "cache"),
+    )
+
+    update_script_runner.run_update_icons(tmp_path, config, locale="fr")
+
+    assert calls[0][1]["env"]["MCBE_UPDATE_LOCALE"] == "de"
 
 
 @pytest.mark.parametrize("script_name", ["update_db.py", "update_icons.py"])

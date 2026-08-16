@@ -316,7 +316,7 @@
             updateStatus(t("Vanilla-Icons werden aus Mojang/bedrock-samples geladen..."), "running", true);
             try {
                 const data = await postJson("/api/icons/vanilla/update", {});
-                if (data.output) appendUpdateOutput(`\n=== Vanilla-Icons ===\n${data.output}`);
+                if (data.output) appendUpdateOutput(`\n=== ${t("Vanilla-Icons")} ===\n${data.output}`);
                 if (!data.success) {
                     const message = data.error || t("Vanilla-Icons konnten nicht geladen werden.");
                     updateStatus(message, "error", true);

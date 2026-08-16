@@ -27,11 +27,12 @@ def _load_runtime_dependencies():
     from mcbe_editor import item_db_verification
     from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
+    from mcbe_editor.update_output_i18n import output_t
 
-    return BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id
+    return BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, output_t
 
 
-BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id = _load_runtime_dependencies()
+BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, tr = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 ENCHANTMENT_MAX_LEVELS_PATH = REPO_ROOT / "mcbe_editor" / "resources" / "enchantment_max_levels.json"
@@ -358,10 +359,10 @@ def fetch_github_json(url: str) -> dict:
 
 
 def get_latest_release_info() -> dict:
-    log("  Looking up latest release...", Colors.YELLOW)
+    log(f"  {tr('Suche nach dem neuesten Release...')}", Colors.YELLOW)
     data = fetch_github_json(RP_LATEST_API)
     tag = data.get("tag_name", "unknown")
-    log(f"  Found: {Colors.CYAN}{tag}{Colors.END} (official Mojang/bedrock-samples)")
+    log(f"  {tr('Gefunden:')} {Colors.CYAN}{tag}{Colors.END} ({tr('offizielles Mojang/bedrock-samples-Release')})")
     assets = data.get("assets")
     if not isinstance(assets, list):
         raise RuntimeError("GitHub-API-Antwort enthält keine gültige Asset-Liste.")
@@ -381,7 +382,7 @@ def get_latest_release_info() -> dict:
                 "resource_pack_fetched_at": utc_now(),
                 "resource_pack_url": download_url,
             }
-            log(f"  Asset: {Colors.GREEN}{asset_name}{Colors.END} ({asset_size // 1024 // 1024} MB)")
+            log(f"  {tr('Asset:')} {Colors.GREEN}{asset_name}{Colors.END} ({asset_size // 1024 // 1024} MB)")
             return info
     raise RuntimeError(f"No min asset found in release {tag}")
 
@@ -529,7 +530,7 @@ def fetch_wiki_enchantment_max_levels(url: str = WIKI_ENCHANTMENTS_URL) -> dict[
 
 
 def fetch_wiki_enchantment_snapshot(url: str = WIKI_ENCHANTMENTS_URL) -> tuple[dict[str, int], dict]:
-    log(f"  {Colors.YELLOW}Lade MaxLevel-Tabelle aus der Minecraft Wiki...{Colors.END}")
+    log(f"  {Colors.YELLOW}{tr('Lade MaxLevel-Tabelle aus der Minecraft Wiki...')}{Colors.END}")
     _validate_https_url(url, ALLOWED_WIKI_HOSTS, label="Minecraft-Wiki")
     opener = _build_validating_opener(ALLOWED_WIKI_HOSTS, label="Minecraft-Wiki")
     opener.addheaders = [("User-Agent", "MCBE-Inventory-Editor-Updater/1.0")]
@@ -668,7 +669,7 @@ def optional_wiki_enchantment_check(enabled: bool, local_levels: dict[str, int])
     try:
         wiki_levels, snapshot = fetch_wiki_enchantment_snapshot()
     except RuntimeError as exc:
-        log(f"  {Colors.YELLOW}Optionale Wiki-Prüfung nicht verfügbar: {exc}{Colors.END}")
+        log(f"  {Colors.YELLOW}{tr('Optionale Wiki-Prüfung nicht verfügbar: {error}', error=exc)}{Colors.END}")
         return None
 
     differences = diff_enchantment_max_levels(local_levels, wiki_levels)
@@ -676,16 +677,16 @@ def optional_wiki_enchantment_check(enabled: bool, local_levels: dict[str, int])
     missing = differences["missing_in_wiki"]
     wiki_only = differences["wiki_only"]
     if not different and not missing and not wiki_only:
-        log(f"  {Colors.GREEN}Wiki-Prüfung: lokale Maximalstufen stimmen überein{Colors.END}")
+        log(f"  {Colors.GREEN}{tr('Wiki-Prüfung: lokale Maximalstufen stimmen überein')}{Colors.END}")
         return snapshot
 
-    log(f"  {Colors.YELLOW}Wiki-Prüfung meldet Abweichungen; lokale Werte bleiben unverändert.{Colors.END}")
+    log(f"  {Colors.YELLOW}{tr('Wiki-Prüfung meldet Abweichungen; lokale Werte bleiben unverändert.')}{Colors.END}")
     for identifier, values in different.items():
-        log(f"    ~ {identifier}: lokal {values['local']}, Wiki {values['wiki']}", Colors.YELLOW)
+        log(tr("    ~ {identifier}: lokal {local}, Wiki {wiki}", identifier=identifier, local=values["local"], wiki=values["wiki"]), Colors.YELLOW)
     if missing:
-        log(f"    - In der Wiki nicht gefunden: {', '.join(missing)}", Colors.YELLOW)
+        log(tr("    - In der Wiki nicht gefunden: {identifiers}", identifiers=", ".join(missing)), Colors.YELLOW)
     if wiki_only:
-        log(f"    + Nur in der Wiki gefunden: {', '.join(wiki_only)}", Colors.YELLOW)
+        log(tr("    + Nur in der Wiki gefunden: {identifiers}", identifiers=", ".join(wiki_only)), Colors.YELLOW)
     return snapshot
 
 
@@ -721,16 +722,21 @@ def parse_wiki_enchantment_max_levels(content: str) -> dict[str, int]:
             elif identifier and max_level is None:
                 skipped_rows.append(f"{identifier}: {row[max_level_index]!r}")
     if not found_table:
-        message = "MaxLevel-Tabelle nicht in der Minecraft Wiki gefunden"
+        message = tr("MaxLevel-Tabelle nicht in der Minecraft Wiki gefunden")
         log(f"  {Colors.RED}{message}{Colors.END}")
         raise RuntimeError(message)
     if not result:
-        message = "Keine MaxLevel-Einträge aus der Minecraft Wiki geparst"
+        message = tr("Keine MaxLevel-Einträge aus der Minecraft Wiki geparst")
         log(f"  {Colors.RED}{message}{Colors.END}")
         raise RuntimeError(message)
     if skipped_rows:
         shown = ", ".join(skipped_rows[:5])
-        log(f"  {Colors.YELLOW}Wiki-MaxLevel-Parser ignoriert {len(skipped_rows)} Zeilen ohne lesbares MaxLevel: {shown}{Colors.END}")
+        message = tr(
+            "Wiki-MaxLevel-Parser ignoriert {count} Zeilen ohne lesbares MaxLevel: {rows}",
+            count=len(skipped_rows),
+            rows=shown,
+        )
+        log(f"  {Colors.YELLOW}{message}{Colors.END}")
     return result
 
 
@@ -784,13 +790,13 @@ def _validate_downloaded_zip(path: Path) -> None:
 
 
 def download_with_progress(url: str, dest: Path, *, expected_size: int | None = None) -> None:
-    log("  Downloading...", Colors.YELLOW)
+    log(f"  {tr('Wird heruntergeladen...')}", Colors.YELLOW)
     _validate_https_url(url, ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
 
     def report(downloaded: int, totalsize: int) -> None:
         if totalsize > 0:
             pct = min(100, downloaded * 100 // totalsize)
-            sys.stdout.write(f"\r  Downloading... {pct}%")
+            sys.stdout.write(f"\r  {tr('Wird heruntergeladen...')} {pct}%")
             sys.stdout.flush()
 
     opener = _build_validating_opener(ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
@@ -822,7 +828,7 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
             raise RuntimeError(f"Resource-Pack-Download ist unvollständig: erwartet {expected_size} Bytes, erhalten {downloaded} Bytes")
         _validate_downloaded_zip(temp_path)
         os.replace(temp_path, dest)
-        print(f"\r  {Colors.GREEN}Downloaded{Colors.END} ({dest.name}){' ' * 20}")
+        print(f"\r  {Colors.GREEN}{tr('Heruntergeladen')}{Colors.END} ({dest.name}){' ' * 20}")
     except Exception as exc:
         if fd >= 0:
             with contextlib.suppress(OSError):
@@ -886,13 +892,15 @@ def resolve_latest_rp(dest: Path) -> dict:
     latest_info = get_latest_release_info()
     cached_info = _matching_cached_release(dest, latest_info)
     if cached_info:
-        log(
-            f"  {Colors.GREEN}Cache ist aktuell: {cached_info['resource_pack_release']} "
-            f"({cached_info['resource_pack_asset']}){Colors.END}"
+        message = tr(
+            "Cache ist aktuell: {release} ({asset})",
+            release=cached_info["resource_pack_release"],
+            asset=cached_info["resource_pack_asset"],
         )
+        log(f"  {Colors.GREEN}{message}{Colors.END}")
         return cached_info
     if dest.exists():
-        log(f"  {Colors.YELLOW}Cache ist veraltet oder ungültig; aktuelles Release wird geladen{Colors.END}")
+        log(f"  {Colors.YELLOW}{tr('Cache ist veraltet oder ungültig; aktuelles Release wird geladen')}{Colors.END}")
     return download_latest_rp(dest, release_info=latest_info)
 
 
@@ -1183,7 +1191,7 @@ def fetch_microsoft_item_listing_snapshot(url: str = MICROSOFT_ITEM_LISTINGS_URL
     _validate_https_url(url, ALLOWED_MICROSOFT_LEARN_HOSTS, label="Microsoft-Learn-Itemliste")
     opener = _build_validating_opener(ALLOWED_MICROSOFT_LEARN_HOSTS, label="Microsoft-Learn-Itemliste")
     opener.addheaders = [("User-Agent", "MCBE-Inventory-Editor-Updater/1.0")]
-    log("  Lade offizielle Microsoft-Learn-Itemliste...", Colors.YELLOW)
+    log(f"  {tr('Lade offizielle Microsoft-Learn-Itemliste...')}", Colors.YELLOW)
     try:
         with opener.open(url, timeout=30) as resp:
             _validate_final_response_url(resp, ALLOWED_MICROSOFT_LEARN_HOSTS, label="Microsoft-Learn-Itemliste")
@@ -1230,10 +1238,7 @@ def resolve_microsoft_item_listing_snapshot(*, reuse_cached: bool) -> tuple[dict
 
     if reuse_cached:
         items, snapshot = read_microsoft_item_listing_cache()
-        log(
-            f"  {Colors.YELLOW}Verwende im Dry-Run geprüfte Microsoft-Learn-Itemliste "
-            f"({len(items)} Einträge){Colors.END}"
-        )
+        log(f"  {Colors.YELLOW}{tr('Verwende im Dry-Run geprüfte Microsoft-Learn-Itemliste ({count} Einträge)', count=len(items))}{Colors.END}")
         return items, snapshot
     items, snapshot = fetch_microsoft_item_listing_snapshot()
     write_microsoft_item_listing_cache(items, snapshot)
@@ -2270,7 +2275,7 @@ def show_diff(label: str, old: dict, new: dict) -> bool:
     changed = {k for k in common if old[k] != new[k]}
 
     if not added and not removed and not changed:
-        log(f"  {Colors.GREEN}{label}: aktuell ({len(old)} Einträge){Colors.END}")
+        log(f"  {Colors.GREEN}{tr('{label}: aktuell ({count} Einträge)', label=label, count=len(old))}{Colors.END}")
         return False
 
     log(f"\n  {Colors.BOLD}{'-' * 50}{Colors.END}")
@@ -2278,21 +2283,30 @@ def show_diff(label: str, old: dict, new: dict) -> bool:
     log(f"  {Colors.BOLD}{'-' * 50}{Colors.END}")
 
     if added:
-        log(f"\n  {Colors.GREEN}Neu (+{len(added)}):{Colors.END}")
+        log(f"\n  {Colors.GREEN}{tr('Neu (+{count}):', count=len(added))}{Colors.END}")
         for k in sorted(added):
             log(f"    + {k}: {new[k]}", color=Colors.GREEN)
 
     if removed:
-        log(f"\n  {Colors.RED}Entfernt (-{len(removed)}):{Colors.END}")
+        log(f"\n  {Colors.RED}{tr('Entfernt (-{count}):', count=len(removed))}{Colors.END}")
         for k in sorted(removed):
             log(f"    - {k}: {old[k]}", color=Colors.RED)
 
     if changed:
-        log(f"\n  {Colors.YELLOW}Geändert (~{len(changed)}):{Colors.END}")
+        log(f"\n  {Colors.YELLOW}{tr('Geändert (~{count}):', count=len(changed))}{Colors.END}")
         for k in sorted(changed):
             log(f"    ~ {k}: {old[k]} -> {new[k]}", color=Colors.YELLOW)
 
-    log(f"\n  Statistik: {len(old)} -> {len(new)} (+{len(added)} / -{len(removed)} / ~{len(changed)})")
+    log(
+        tr(
+            "\n  Statistik: {old_count} -> {new_count} (+{added_count} / -{removed_count} / ~{changed_count})",
+            old_count=len(old),
+            new_count=len(new),
+            added_count=len(added),
+            removed_count=len(removed),
+            changed_count=len(changed),
+        )
+    )
     return True
 
 
@@ -2311,10 +2325,10 @@ def report_blocked_sections(blocked_sections: list[tuple[str, str]]) -> int:
 
     if not blocked_sections:
         return 0
-    log(f"\n  {Colors.BOLD}{Colors.RED}Übersprungene Abschnitte ({len(blocked_sections)}):{Colors.END}")
+    log(f"\n  {Colors.BOLD}{Colors.RED}{tr('Übersprungene Abschnitte ({count}):', count=len(blocked_sections))}{Colors.END}")
     for section_name, reason in blocked_sections:
         log(f"    {Colors.RED}{section_name}: {reason}{Colors.END}")
-    log(f"  {Colors.YELLOW}Alle übrigen Abschnitte wurden regulär verarbeitet. Fehlende Werte kuratieren und erneut ausführen.{Colors.END}")
+    log(f"  {Colors.YELLOW}{tr('Alle übrigen Abschnitte wurden regulär verarbeitet. Fehlende Werte kuratieren und erneut ausführen.')}{Colors.END}")
     return 1
 
 
@@ -2322,27 +2336,27 @@ def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Aktualisiert item_db.json aus Mojang/bedrock-samples und lokal geprüften Vanilla-Fakten.",
+        description=tr("Aktualisiert item_db.json aus Mojang/bedrock-samples und lokal geprüften Vanilla-Fakten."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--dry-run", action="store_true", help="Nur anzeigen, nicht schreiben")
-    parser.add_argument("--force", action="store_true", help="Ohne Nachfrage schreiben")
+    parser.add_argument("--dry-run", action="store_true", help=tr("Nur anzeigen, nicht schreiben"))
+    parser.add_argument("--force", action="store_true", help=tr("Ohne Nachfrage schreiben"))
     parser.add_argument(
         "--cache",
         "--reuse-cached-release",
         dest="cache",
         action="store_true",
-        help="Im Dry-Run geprüfte Quellen ohne erneuten Online-Abruf verarbeiten",
+        help=tr("Im Dry-Run geprüfte Quellen ohne erneuten Online-Abruf verarbeiten"),
     )
     parser.add_argument(
         "--expected-review-token",
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--only", choices=["items", "effects", "enchants"], help="Nur bestimmte Daten aktualisieren")
+    parser.add_argument("--only", choices=["items", "effects", "enchants"], help=tr("Nur bestimmte Daten aktualisieren"))
     parser.add_argument(
         "--check-wiki",
         action="store_true",
-        help="Maximalstufen optional mit der Minecraft Wiki vergleichen; Abweichungen werden nicht übernommen",
+        help=tr("Maximalstufen optional mit der Minecraft Wiki vergleichen; Abweichungen werden nicht übernommen"),
     )
     args = parser.parse_args()
     if args.expected_review_token:
@@ -2352,7 +2366,7 @@ def main() -> int:
             raise RuntimeError("Der Dry-Run-Prüfbeleg ist ungültig.")
 
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
-    log(f"{Colors.BOLD}  Minecraft Bedrock Item-DB Updater (Items + Effects + Enchantments){Colors.END}")
+    log(f"{Colors.BOLD}  {tr('Minecraft Bedrock Item-DB-Updater (Items + Effekte + Verzauberungen)')}{Colors.END}")
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
 
     ensure_data_paths()
@@ -2372,9 +2386,9 @@ def main() -> int:
             raise RuntimeError(f"Der Dry-Run-Prüfbeleg kann nicht validiert werden: {exc}") from exc
         if not hmac.compare_digest(args.expected_review_token, current_review["token"]):
             raise RuntimeError("Die geprüften Dry-Run-Eingaben haben sich geändert. Bitte den Dry-Run erneut ausführen.")
-        log(f"  {Colors.GREEN}Dry-Run-Prüfbeleg validiert ({current_review['scope']}){Colors.END}")
+        log(f"  {Colors.GREEN}{tr('Dry-Run-Prüfbeleg validiert ({scope})', scope=current_review['scope'])}{Colors.END}")
 
-    step("1/4  Resource Pack herunterladen")
+    step(tr("1/4  Resource Pack herunterladen"))
     rp_zip = CACHE_DIR / "bedrock_resource_pack.zip"
     release_info: dict = {}
     if args.cache:
@@ -2384,14 +2398,15 @@ def main() -> int:
         release_info = read_release_metadata()
         if not release_info:
             raise RuntimeError("Die Metadaten des gecachten Resource-Packs fehlen oder sind ungültig.")
-        log(
-            f"  {Colors.YELLOW}Verwende gecachtes Release ohne Online-Versionsprüfung: "
-            f"{release_info['resource_pack_release']}{Colors.END}"
+        message = tr(
+            "Verwende gecachtes Release ohne Online-Versionsprüfung: {release}",
+            release=release_info["resource_pack_release"],
         )
+        log(f"  {Colors.YELLOW}{message}{Colors.END}")
     else:
         release_info = resolve_latest_rp(rp_zip)
 
-    step("2/4  Daten extrahieren und parsen")
+    step(tr("2/4  Daten extrahieren und parsen"))
     old_items, old_effects, old_enchants = read_all_dicts()
     old_stack_limits = read_stack_limits()
     old_durability = read_durability()
@@ -2437,15 +2452,15 @@ def main() -> int:
 
             # ── ITEMS ──
             if not args.only or args.only == "items":
-                step("3/4 · Items verarbeiten")
+                step(tr("3/4 · Items verarbeiten"))
                 en_item_names, de_item_names = parse_lang_items(en_lang, de_lang) if en_lang else ({}, {})
                 item_localizations = parse_lang_item_localizations(en_lang, de_lang) if en_lang else {}
                 item_serialization_aliases = parse_json_item_serialization_aliases(zf)
                 microsoft_items, item_listing_snapshot = resolve_microsoft_item_listing_snapshot(reuse_cached=args.cache)
-                log(f"  {Colors.GREEN}Microsoft-Learn-Item-IDs: {len(microsoft_items)}{Colors.END}")
-                log(f"  {Colors.GREEN}Vollständige Item-Lokalisierungen: {len(item_localizations)}{Colors.END}")
+                log(f"  {Colors.GREEN}{tr('Microsoft-Learn-Item-IDs: {count}', count=len(microsoft_items))}{Colors.END}")
+                log(f"  {Colors.GREEN}{tr('Vollständige Item-Lokalisierungen: {count}', count=len(item_localizations))}{Colors.END}")
                 if item_serialization_aliases:
-                    log(f"  {Colors.GREEN}Mojang-Serialization-Aliasse: {len(item_serialization_aliases)}{Colors.END}")
+                    log(f"  {Colors.GREEN}{tr('Mojang-Serialization-Aliasse: {count}', count=len(item_serialization_aliases))}{Colors.END}")
                 new_items = merge_items(
                     old_items,
                     en_item_names,
@@ -2457,7 +2472,7 @@ def main() -> int:
                 if show_diff("ITEMS", old_items, new_items):
                     changes.append("ITEMS")
                     final_items = format_items(new_items)
-                log(f"  {Colors.GREEN}Items: {len(old_items)} -> {len(new_items)}{Colors.END}")
+                log(f"  {Colors.GREEN}{tr('Items: {old_count} -> {new_count}', old_count=len(old_items), new_count=len(new_items))}{Colors.END}")
 
                 new_block_only = compute_block_only_item_ids(zf, new_items)
                 old_block_only = read_block_only_item_ids()
@@ -2465,7 +2480,12 @@ def main() -> int:
                     show_diff("BLOCK_ONLY_ITEMS", dict.fromkeys(old_block_only, True), dict.fromkeys(new_block_only, True))
                     changes.append("BLOCK_ONLY_ITEMS")
                     final_block_only = new_block_only
-                log(f"  {Colors.GREEN}Block-only-IDs: {len(old_block_only)} -> {len(new_block_only)}{Colors.END}")
+                message = tr(
+                    "Block-only-IDs: {old_count} -> {new_count}",
+                    old_count=len(old_block_only),
+                    new_count=len(new_block_only),
+                )
+                log(f"  {Colors.GREEN}{message}{Colors.END}")
 
                 new_addable_items = compute_addable_item_ids(zf, new_items)
                 old_addable_items = read_addable_item_ids()
@@ -2473,7 +2493,12 @@ def main() -> int:
                     show_diff("ADDABLE_ITEMS", dict.fromkeys(old_addable_items, True), dict.fromkeys(new_addable_items, True))
                     changes.append("ADDABLE_ITEMS")
                     final_addable_items = new_addable_items
-                log(f"  {Colors.GREEN}Neu hinzufügbar: {len(old_addable_items)} -> {len(new_addable_items)}{Colors.END}")
+                message = tr(
+                    "Neu hinzufügbar: {old_count} -> {new_count}",
+                    old_count=len(old_addable_items),
+                    new_count=len(new_addable_items),
+                )
+                log(f"  {Colors.GREEN}{message}{Colors.END}")
 
                 component_stack_limits, component_durability, new_item_components = parse_json_item_components(zf)
                 new_behavior_item_source = build_behavior_item_source(
@@ -2493,13 +2518,23 @@ def main() -> int:
                     show_diff("STACK_LIMITS", old_stack_limits, new_stack_limits)
                     changes.append("STACK_LIMITS")
                     final_stack_limits = new_stack_limits
-                log(f"  {Colors.GREEN}Stack-Limits: {len(old_stack_limits)} -> {len(new_stack_limits)}{Colors.END}")
+                message = tr(
+                    "Stack-Limits: {old_count} -> {new_count}",
+                    old_count=len(old_stack_limits),
+                    new_count=len(new_stack_limits),
+                )
+                log(f"  {Colors.GREEN}{message}{Colors.END}")
 
                 if new_durability != old_durability:
                     show_diff("DURABILITY", old_durability, new_durability)
                     changes.append("DURABILITY")
                     final_durability = new_durability
-                log(f"  {Colors.GREEN}Haltbarkeitswerte: {len(old_durability)} -> {len(new_durability)}{Colors.END}")
+                message = tr(
+                    "Haltbarkeitswerte: {old_count} -> {new_count}",
+                    old_count=len(old_durability),
+                    new_count=len(new_durability),
+                )
+                log(f"  {Colors.GREEN}{message}{Colors.END}")
 
                 if new_item_components != old_item_components:
                     for component_name in TRACKED_ITEM_COMPONENTS:
@@ -2510,7 +2545,7 @@ def main() -> int:
                     changes.append("ITEM_COMPONENTS")
                     final_item_components = new_item_components
                 component_counts = ", ".join(f"{component}={len(new_item_components.get(component, {}))}" for component in TRACKED_ITEM_COMPONENTS)
-                log(f"  {Colors.GREEN}Offizielle Item-Komponenten: {component_counts}{Colors.END}")
+                log(f"  {Colors.GREEN}{tr('Offizielle Item-Komponenten: {component_counts}', component_counts=component_counts)}{Colors.END}")
                 if new_behavior_item_source != old_behavior_item_source:
                     show_diff(
                         "BEHAVIOR_ITEM_SOURCE",
@@ -2526,11 +2561,16 @@ def main() -> int:
                     show_diff("BLOCK_ITEMS", dict.fromkeys(old_block_items, True), dict.fromkeys(new_block_items, True))
                     changes.append("BLOCK_ITEMS")
                     final_block_items = new_block_items
-                log(f"  {Colors.GREEN}Block-Item-IDs: {len(old_block_items)} -> {len(new_block_items)}{Colors.END}")
+                message = tr(
+                    "Block-Item-IDs: {old_count} -> {new_count}",
+                    old_count=len(old_block_items),
+                    new_count=len(new_block_items),
+                )
+                log(f"  {Colors.GREEN}{message}{Colors.END}")
 
             # ── EFFECTS ──
             if not args.only or args.only == "effects":
-                step("3/4 · Effekte verarbeiten")
+                step(tr("3/4 · Effekte verarbeiten"))
                 # Fehlen geprüfte numerische IDs, bleibt der Abschnitt bewusst
                 # ungeschrieben — geraten wird hier nicht. Items, Blocklisten und
                 # Verzauberungen sind davon unabhängig und laufen weiter.
@@ -2539,7 +2579,7 @@ def main() -> int:
                     en_eff_names = parse_lang_effects(en_content)
                     de_eff_names = parse_lang_effects(de_content)
                     local_effect_numeric_ids = load_local_effect_numeric_ids()
-                    log(f"  {Colors.GREEN}Lokale numerische Effekt-IDs: {len(local_effect_numeric_ids)}{Colors.END}")
+                    log(f"  {Colors.GREEN}{tr('Lokale numerische Effekt-IDs: {count}', count=len(local_effect_numeric_ids))}{Colors.END}")
                     new_effects = merge_effects(
                         old_effects,
                         json_effects,
@@ -2549,16 +2589,16 @@ def main() -> int:
                     )
                 except RuntimeError as exc:
                     blocked_sections.append(("EFFECTS", str(exc)))
-                    log(f"  {Colors.RED}EFFECTS übersprungen: {exc}{Colors.END}")
+                    log(f"  {Colors.RED}{tr('EFFECTS übersprungen: {error}', error=exc)}{Colors.END}")
                 else:
                     if show_diff("EFFECTS", old_effects, new_effects):
                         changes.append("EFFECTS")
                         final_effects = format_effects(new_effects)
-                    log(f"  {Colors.GREEN}Effects: {len(old_effects)} -> {len(new_effects)}{Colors.END}")
+                    log(f"  {Colors.GREEN}{tr('Effekte: {old_count} -> {new_count}', old_count=len(old_effects), new_count=len(new_effects))}{Colors.END}")
 
         # ── ENCHANTMENTS ── (zip still open, tmp dir closed — content strings remain)
         if not args.only or args.only == "enchants":
-            step("3/4 · Verzauberungen verarbeiten")
+            step(tr("3/4 · Verzauberungen verarbeiten"))
             # Gleiche Begründung wie bei den Effekten: fehlende geprüfte IDs
             # blockieren nur diesen Abschnitt, nicht den gesamten Lauf.
             try:
@@ -2567,7 +2607,12 @@ def main() -> int:
                 de_ench_names = parse_lang_enchantments(de_content)
                 local_max_levels = load_local_enchantment_max_levels()
                 local_numeric_ids = load_local_enchantment_numeric_ids()
-                log(f"  {Colors.GREEN}Lokale Verzauberungsdaten: {len(local_max_levels)} Maximalstufen, {len(local_numeric_ids)} numerische IDs{Colors.END}")
+                message = tr(
+                    "Lokale Verzauberungsdaten: {level_count} Maximalstufen, {id_count} numerische IDs",
+                    level_count=len(local_max_levels),
+                    id_count=len(local_numeric_ids),
+                )
+                log(f"  {Colors.GREEN}{message}{Colors.END}")
                 wiki_snapshot = optional_wiki_enchantment_check(args.check_wiki, local_max_levels)
                 new_enchants = merge_enchantments(
                     old_enchants,
@@ -2579,12 +2624,12 @@ def main() -> int:
                 )
             except RuntimeError as exc:
                 blocked_sections.append(("ENCHANTMENTS", str(exc)))
-                log(f"  {Colors.RED}ENCHANTMENTS übersprungen: {exc}{Colors.END}")
+                log(f"  {Colors.RED}{tr('ENCHANTMENTS übersprungen: {error}', error=exc)}{Colors.END}")
             else:
                 if show_diff("ENCHANTMENTS", old_enchants, new_enchants):
                     changes.append("ENCHANTMENTS")
                     final_enchants = format_enchantments(new_enchants)
-                log(f"  {Colors.GREEN}Enchantments: {len(old_enchants)} -> {len(new_enchants)}{Colors.END}")
+                log(f"  {Colors.GREEN}{tr('Verzauberungen: {old_count} -> {new_count}', old_count=len(old_enchants), new_count=len(new_enchants))}{Colors.END}")
 
     old_version = read_source_version()
     new_version = merge_source_metadata(
@@ -2602,23 +2647,23 @@ def main() -> int:
         if not verification_eligible:
             pending_source_version.pop(item_db_verification.VERIFICATION_FIELD, None)
 
-    step("4/4  Änderungen schreiben")
+    step(tr("4/4  Änderungen schreiben"))
     if not changes and not source_identity_changed:
-        log(f"  {Colors.GREEN}Alles aktuell, keine Änderungen.{Colors.END}")
+        log(f"  {Colors.GREEN}{tr('Alles aktuell, keine Änderungen.')}{Colors.END}")
         if args.dry_run or not verification_eligible:
             return report_blocked_sections(blocked_sections)
 
     if args.dry_run:
-        log(f"\n  {Colors.YELLOW}Dry-Run: Keine Änderungen geschrieben.{Colors.END}")
+        log(f"\n  {Colors.YELLOW}{tr('Dry-Run: Keine Änderungen geschrieben.')}{Colors.END}")
         return report_blocked_sections(blocked_sections)
 
     if not args.force:
         try:
-            answer = input(f"\n  {Colors.BOLD}Schreiben? (j/N): {Colors.END}").strip().lower()
+            answer = input(f"\n  {Colors.BOLD}{tr('Schreiben? (j/N):')} {Colors.END}").strip().lower()
         except (EOFError, KeyboardInterrupt):
             answer = "n"
         if answer not in ("j", "ja", "y", "yes"):
-            log(f"  {Colors.YELLOW}Abgebrochen.{Colors.END}")
+            log(f"  {Colors.YELLOW}{tr('Abgebrochen.')}{Colors.END}")
             return report_blocked_sections(blocked_sections)
 
     commit_update_files(
@@ -2638,12 +2683,12 @@ def main() -> int:
         behavior_item_source=final_behavior_item_source,
     )
     for block_name in changes:
-        log(f"  {Colors.GREEN}{block_name} aktualisiert{Colors.END}")
+        log(f"  {Colors.GREEN}{tr('{block_name} aktualisiert', block_name=block_name)}{Colors.END}")
     if source_identity_changed:
-        log(f"  {Colors.GREEN}SOURCE_VERSION aktualisiert{Colors.END}")
+        log(f"  {Colors.GREEN}{tr('SOURCE_VERSION aktualisiert')}{Colors.END}")
     if verification_eligible:
-        log(f"  {Colors.GREEN}ITEM_DB_PRÜFBELEG aktualisiert{Colors.END}")
-    log(f"\n  {Colors.BOLD}{Colors.GREEN}Fertig! Update-Dateien konsistent aktualisiert.{Colors.END}")
+        log(f"  {Colors.GREEN}{tr('ITEM_DB_PRÜFBELEG aktualisiert')}{Colors.END}")
+    log(f"\n  {Colors.BOLD}{Colors.GREEN}{tr('Fertig! Update-Dateien konsistent aktualisiert.')}{Colors.END}")
     return report_blocked_sections(blocked_sections)
 
 

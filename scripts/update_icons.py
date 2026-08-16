@@ -33,6 +33,7 @@ def _load_runtime_dependencies():
     from mcbe_editor.icon_cache import publish_icon_cache, recover_icon_cache
     from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
+    from mcbe_editor.update_output_i18n import output_t
 
     return (
         publish_icon_cache,
@@ -44,6 +45,7 @@ def _load_runtime_dependencies():
         crop_png,
         BUNDLED_ITEM_DB_JSON,
         is_technical_block_only_item_id,
+        output_t,
     )
 
 
@@ -57,6 +59,7 @@ def _load_runtime_dependencies():
     crop_png,
     BUNDLED_ITEM_DB_JSON,
     is_technical_block_only_item_id,
+    tr,
 ) = _load_runtime_dependencies()
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DATA_ROOT = Path(os.environ.get("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser()
@@ -864,7 +867,7 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
         except RuntimeError:
             pass
         else:
-            log(f"Cache verwendet: {zip_path}")
+            log(tr("Cache verwendet: {path}", path=zip_path))
             return zip_path
 
     opener = _build_validating_opener(ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
@@ -1812,28 +1815,28 @@ def build_icon_cache(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Lädt Vanilla-Item-Icons aus dem offiziellen Mojang/bedrock-samples Full-Release.")
-    parser.add_argument("--force", action="store_true", help="Release neu abfragen und Cache neu bauen.")
+    parser = argparse.ArgumentParser(description=tr("Lädt Vanilla-Item-Icons aus dem offiziellen Mojang/bedrock-samples Full-Release."))
+    parser.add_argument("--force", action="store_true", help=tr("Release neu abfragen und Cache neu bauen."))
     parser.add_argument(
         "--cache",
         "--reuse-cached-release",
         dest="cache",
         action="store_true",
-        help="Vorhandene Release-Metadaten ohne Online-Versionsprüfung erneut verarbeiten.",
+        help=tr("Vorhandene Release-Metadaten ohne Online-Versionsprüfung erneut verarbeiten."),
     )
-    parser.add_argument("--dry-run", action="store_true", help="Nur Quelle prüfen, nichts extrahieren.")
+    parser.add_argument("--dry-run", action="store_true", help=tr("Nur Quelle prüfen, nichts extrahieren."))
     args = parser.parse_args(argv)
 
     if args.cache and not args.force:
         info = read_release_metadata()
         if not info:
             raise RuntimeError("Die Metadaten des gecachten Icon-Releases fehlen oder sind ungültig.")
-        log(f"Release ohne Online-Versionsprüfung wiederverwenden: {info['resource_pack_release']}")
+        log(tr("Release ohne Online-Versionsprüfung wiederverwenden: {release}", release=info["resource_pack_release"]))
     else:
         info = get_latest_full_release_info()
     cached_metadata = read_release_metadata()
     metadata_needs_write = info != cached_metadata
-    log(f"Release: {info['resource_pack_release']} · {info['resource_pack_asset']}")
+    log(tr("Release: {release} · {asset}", release=info["resource_pack_release"], asset=info["resource_pack_asset"]))
     if args.dry_run:
         return 0
     # The latest release metadata is always queried in normal mode.  Reusing a
@@ -1860,19 +1863,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     retention = prune_cached_icon_release_zips(zip_path)
     if retention["removed_count"]:
-        log(f"Icon-Download-Cache bereinigt: {retention['removed_count']} alte Release-ZIP(s), {retention['removed_bytes']} Bytes entfernt")
+        log(
+            tr(
+                "Icon-Download-Cache bereinigt: {count} alte Release-ZIP(s), {bytes} Bytes entfernt",
+                count=retention["removed_count"],
+                bytes=retention["removed_bytes"],
+            )
+        )
     for warning in retention["warnings"]:
-        log(f"Warnung: {warning}")
-    log(f"Icons: {manifest['mapped_items']}/{manifest['inventory_item_targets']} Inventaritems gemappt")
-    log(f"Blockmodelle gerendert: {manifest.get('generated_block_icon_count', 0)}")
-    log(f"Explizite Itemmodelle gerendert: {manifest.get('generated_model_icon_count', 0)}")
+        log(tr("Warnung: {warning}", warning=warning))
+    log(tr("Icons: {mapped}/{targets} Inventaritems gemappt", mapped=manifest["mapped_items"], targets=manifest["inventory_item_targets"]))
+    log(tr("Blockmodelle gerendert: {count}", count=manifest.get("generated_block_icon_count", 0)))
+    log(tr("Explizite Itemmodelle gerendert: {count}", count=manifest.get("generated_model_icon_count", 0)))
     if manifest.get("render_failure_count", 0):
-        log(f"Modell-Fehler: {manifest['render_failure_count']}")
-    log(f"Nicht neu hinzufügbar ausgeschlossen: {manifest['excluded_non_addable_items']}")
-    log(f"Ziel: {ICON_ROOT}")
+        log(tr("Modell-Fehler: {count}", count=manifest["render_failure_count"]))
+    log(tr("Nicht neu hinzufügbar ausgeschlossen: {count}", count=manifest["excluded_non_addable_items"]))
+    log(tr("Ziel: {path}", path=ICON_ROOT))
     if manifest["missing_count"]:
         preview = ", ".join(manifest["missing_items"][:12])
-        log(f"Fehlend: {manifest['missing_count']} ({preview})")
+        log(tr("Fehlend: {count} ({preview})", count=manifest["missing_count"], preview=preview))
     return 0
 
 

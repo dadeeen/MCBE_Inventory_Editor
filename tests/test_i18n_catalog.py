@@ -134,13 +134,19 @@ def test_all_direct_translation_literals_exist_in_english_catalog() -> None:
         for match in TEMPLATE_LITERAL_T_RE.finditer(source):
             referenced.append((path, source.count("\n", 0, match.start()) + 1, _template_literal(match.group(1))))
 
-    for path in [ROOT / "main.py", *_source_files(ROOT / "mcbe_editor", "*.py")]:
+    python_sources = [
+        ROOT / "main.py",
+        *_source_files(ROOT / "mcbe_editor", "*.py"),
+        ROOT / "scripts" / "update_db.py",
+        ROOT / "scripts" / "update_icons.py",
+    ]
+    for path in python_sources:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not node.args:
                 continue
             function_name = node.func.id if isinstance(node.func, ast.Name) else node.func.attr if isinstance(node.func, ast.Attribute) else ""
-            if function_name == "t" and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            if function_name in {"t", "tr"} and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
                 referenced.append((path, node.lineno, node.args[0].value))
 
     missing = [f"{path.relative_to(ROOT)}:{line}: {key}" for path, line, key in referenced if key not in catalog]

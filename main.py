@@ -1325,6 +1325,7 @@ def run_update_db(dry_run=False, force=False, only=None, use_cache=False, expect
         only=only,
         use_cache=use_cache,
         expected_review_token=expected_review_token,
+        locale=i18n.request_locale(),
     )
 
 
@@ -1334,6 +1335,7 @@ def run_update_icons(force=False, use_cache=False):
         APP_CONFIG,
         force=force,
         use_cache=use_cache,
+        locale=i18n.request_locale(),
     )
 
 
