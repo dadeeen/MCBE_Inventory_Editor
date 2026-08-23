@@ -396,6 +396,9 @@
         pushUndo,
         updateGridVisuals,
         setDirty,
+        editingBlocked = () => false,
+        getEditingBlockedReason = () => "",
+        syncEditControls = () => {},
         logStatus,
         recordAction,
         showToast,
@@ -421,6 +424,13 @@
 
         function enchDb() {
             return getEnchantmentsDb?.() || {};
+        }
+
+        function guardEditingAction() {
+            if (editingBlocked?.() !== true) return false;
+            const reason = getEditingBlockedReason?.() || t("Bearbeitung ist aktuell gesperrt.");
+            showToast?.(reason, "warning", 4500);
+            return true;
         }
 
         function detailLoreLinesFromForm() {
@@ -684,6 +694,7 @@
             buildEnchantmentsList();
             updateDetailPreview();
             updateDetailQuickActions();
+            syncEditControls?.();
 
             switchTab?.("tabGeneral");
             if (!item.name) elements.detailItemSearch?.focus();
@@ -840,7 +851,7 @@
                 const checkbox = row.querySelector(".ench-checkbox");
 
                 slider.addEventListener("input", (e) => {
-                    if (controlsDisabled) return;
+                    if (controlsDisabled || guardEditingAction()) return;
                     const val = parseInt(e.target.value, 10);
                     valSpan.innerText = val;
                     currentEditingEnchantments = window.MCBEEnchantmentEditorLogic.updateEnchantmentLevel(currentEditingEnchantments, id, val);
@@ -849,7 +860,7 @@
                 });
 
                 checkbox.addEventListener("change", (e) => {
-                    if (controlsDisabled) return;
+                    if (controlsDisabled || guardEditingAction()) return;
                     if (e.target.checked) {
                         slider.removeAttribute("disabled");
                         const val = parseInt(slider.value, 10);
@@ -921,6 +932,7 @@
         }
 
         function applySingleChanges(slotId) {
+            if (guardEditingAction()) return;
             const containerName = currentEditingIsEnder ? "ender_chest" : "inventory";
             const protectedKnown = isProtectedKnownSlot(slotId, containerName);
             const source = currentEditingIsEnder ? enderChestInventory() : inventory();
@@ -960,6 +972,7 @@
         }
 
         function applyQuickClearSlot() {
+            if (guardEditingAction()) return;
             const target = currentDetailTarget();
             const plan = logic.quickClearSlotPlan({
                 hasTarget: Boolean(target),
@@ -993,6 +1006,7 @@
         }
 
         function applyQuickMaxStack() {
+            if (guardEditingAction()) return;
             const target = currentDetailTarget();
             const name = logic.normalizedItemName(elements.detailItemSearch?.value);
             const plan = logic.quickMaxStackPlan({
@@ -1009,6 +1023,7 @@
         }
 
         function applyQuickRepairSlot() {
+            if (guardEditingAction()) return;
             const target = currentDetailTarget();
             const name = logic.normalizedItemName(elements.detailItemSearch?.value);
             const damage = target ? itemCatalog.clampNumber(elements.detailDamage?.value, 0, 0, itemCatalog.getMaxDamage(name)) : 0;
@@ -1027,6 +1042,7 @@
 
         function wireEnchantments() {
             elements.btnMaxAllEnch?.addEventListener("click", () => {
+                if (guardEditingAction()) return;
                 const itemName = window.MCBEEnchantmentEditorLogic.normalizedItemName(elements.detailItemSearch?.value);
                 const plan = window.MCBEEnchantmentEditorLogic.maxAllEnchantmentsPlan({
                     itemName,
@@ -1047,6 +1063,7 @@
             });
 
             elements.btnClearAllEnch?.addEventListener("click", () => {
+                if (guardEditingAction()) return;
                 currentEditingEnchantments = [];
                 buildEnchantmentsList();
                 updateDetailPreview();
@@ -1193,6 +1210,9 @@
             pushUndo: helpers.pushUndo,
             updateGridVisuals: helpers.updateGridVisuals,
             setDirty: helpers.setDirty,
+            editingBlocked: helpers.editingBlocked,
+            getEditingBlockedReason: helpers.getEditingBlockedReason,
+            syncEditControls: helpers.syncEditControls,
             logStatus: helpers.logStatus,
             recordAction: helpers.recordAction,
             showToast: helpers.showToast,

@@ -36,6 +36,7 @@
         "#btnCopyFromPlayer",
         "#btnBrowserDetail",
         "#btnBrowserBulk",
+        "#btnMountCreate",
         "#btnUndo",
         "#btnRedo",
     ].join(", ");
@@ -72,6 +73,26 @@
         return buttons;
     }
 
+    function applyIntrinsicEditControlState(control, { disabled = false, title = "" } = {}) {
+        if (!control || !("disabled" in control)) return;
+        const intrinsicDisabled = Boolean(disabled);
+        const intrinsicTitle = String(title || "");
+        const dataset = control.dataset || null;
+        if (dataset?.writeGateEditBlocked === "true") {
+            // Dynamic editor renderers may update their own disabled state while
+            // the write gate is active. Remember that intrinsic state without
+            // visually reopening the control until the gate is lifted.
+            dataset.writeGatePreviousDisabled = intrinsicDisabled ? "true" : "false";
+            dataset.writeGatePreviousTitle = intrinsicTitle;
+            control.disabled = true;
+            control.title = dataset.writeGateBlockedTitle || control.title || "";
+            control.setAttribute?.("aria-disabled", "true");
+            return;
+        }
+        control.disabled = intrinsicDisabled;
+        control.title = intrinsicTitle;
+    }
+
     function applyWriteControlModel(elements = {}, model = {}) {
         const {
             saveButtons = [],
@@ -103,6 +124,7 @@
                     dataset.writeGatePreviousTitle = control.title || "";
                     dataset.writeGateEditBlocked = "true";
                 }
+                if (dataset) dataset.writeGateBlockedTitle = model.editTitle || "";
                 control.disabled = true;
                 control.title = model.editTitle || "";
                 control.setAttribute?.("aria-disabled", "true");
@@ -113,6 +135,7 @@
                 delete dataset.writeGatePreviousDisabled;
                 delete dataset.writeGatePreviousTitle;
                 delete dataset.writeGateEditBlocked;
+                delete dataset.writeGateBlockedTitle;
             }
         }
     }
@@ -391,14 +414,19 @@
             updateDirtyBanner();
         }
 
-        function renderServerStatus(payload, { requestOrder = null } = {}) {
+        function renderServerStatus(payload, { requestOrder = null, authoritativeBlock = false } = {}) {
             if (!payload) return false;
             const incomingRequestOrder = normalizedRequestOrder(requestOrder);
-            if (incomingRequestOrder < appliedServerStatusRequestOrder) return false;
-            appliedServerStatusRequestOrder = incomingRequestOrder;
             const localizedPayload = localizeServerStatusPayload(payload);
             const previousGate = getCurrentWriteGate();
             const gate = localizedPayload.write_gate || previousGate;
+            const hardAuthoritativeBlock = Boolean(
+                authoritativeBlock
+                && gate?.allowed === false
+                && gate?.requires_unknown_server_confirmation !== true
+            );
+            if (incomingRequestOrder < appliedServerStatusRequestOrder && !hardAuthoritativeBlock) return false;
+            appliedServerStatusRequestOrder = Math.max(appliedServerStatusRequestOrder, incomingRequestOrder);
             const status = localizedPayload.server_status || gate.server_status || {};
             const incomingRevision = serverStatusRevision(localizedPayload, gate, status);
             const incomingGuardToken = serverGuardToken(localizedPayload, gate, status);
@@ -537,6 +565,16 @@
             const reason = controller.effectiveWriteGate()?.reason || t("Bearbeitung ist aktuell gesperrt.");
             deps.showToast?.(reason, "warning", 4500);
         }
+        function guardEditingAction() {
+            if (!controller.editingBlocked()) return false;
+            blockedFeedback();
+            return true;
+        }
+        function guardWorldWriteAction() {
+            if (!controller.writeBlocked()) return false;
+            blockedFeedback();
+            return true;
+        }
         function guardEditEvent(event) {
             if (!controller.editingBlocked()) return;
             const target = event?.target;
@@ -565,13 +603,16 @@
         wireEditGuard();
         return {
             ...controller,
+            guardEditingAction,
             guardEditEvent,
+            guardWorldWriteAction,
             wireEditGuard,
         };
     }
 
     window.MCBEWriteStatusView = {
         applyServerStatusBadgeModel,
+        applyIntrinsicEditControlState,
         collectWriteGateElements,
         createInventoryWriteGateController,
         createWriteGateController,

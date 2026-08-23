@@ -218,6 +218,7 @@
         loadBackupsList = async () => {},
         beginServerStatusRequest = () => null,
         renderWriteGate = () => {},
+        guardWorldWriteAction = () => false,
         renderPlayersList = () => {},
         renderPlayerToolOptions = () => {},
         renderWorldAnalysis = () => {},
@@ -359,6 +360,7 @@
         }
 
         async function restoreBackup(filename) {
+            if (guardWorldWriteAction()) return false;
             const previewWorldPath = getWorldPath();
             const previewWorldName = getWorldName();
             showLoading(t("Lade Restore-Vorschau..."));
@@ -372,6 +374,7 @@
                     showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
                     return;
                 }
+                if (guardWorldWriteAction()) return false;
             } catch (e) {
                 hideLoading();
                 const message = t("Restore-Vorschau konnte nicht geladen werden: {error}", { error: e.message });
@@ -391,6 +394,11 @@
                 logRestoreStatus(outcome.statusMessage, outcome.statusType);
                 return;
             }
+
+            // Der Serverstatus kann sich ändern, während der irreversible
+            // Bestätigungsdialog geöffnet ist. Unmittelbar vor dem Request
+            // erneut prüfen; das Backend bleibt die autoritative letzte Linie.
+            if (guardWorldWriteAction()) return false;
 
             if (getWorldPath() !== previewWorldPath) {
                 const outcome = restoreWorldChangedOutcome();
@@ -427,6 +435,7 @@
                         logRestoreStatus(retryPlan.abortedStatusMessage, retryPlan.abortedStatusType);
                         return;
                     }
+                    if (guardWorldWriteAction()) return false;
                     showLoading(retryPlan.retryLoadingText);
                     statusRequestOrder = beginServerStatusRequest();
                     const retry = await fetch("/api/restore_backup", {
@@ -506,6 +515,7 @@
             loadBackupsList: flow.loadBackupsList,
             beginServerStatusRequest: flow.beginServerStatusRequest,
             renderWriteGate: flow.renderWriteGate,
+            guardWorldWriteAction: flow.guardWorldWriteAction,
             renderPlayersList: flow.renderPlayersList,
             renderPlayerToolOptions: flow.renderPlayerToolOptions,
             renderWorldAnalysis: flow.renderWorldAnalysis,

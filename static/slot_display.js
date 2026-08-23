@@ -358,9 +358,19 @@
             inspectButton.disabled = Boolean(model.inspectDisabled);
             inspectButton.title = model.inspectTitle || "";
         }
-        if (clearButton) clearButton.disabled = Boolean(model.clearDisabled);
-        if (maxStackButton) maxStackButton.disabled = Boolean(model.maxStackDisabled);
-        if (repairButton) repairButton.disabled = Boolean(model.repairDisabled);
+        const applyEditState = (control, disabled) => {
+            if (!control) return;
+            const gateAwareApply = window.MCBEWriteStatusView?.applyIntrinsicEditControlState;
+            if (gateAwareApply) {
+                gateAwareApply(control, { disabled, title: "" });
+                return;
+            }
+            control.disabled = Boolean(disabled);
+            control.title = "";
+        };
+        applyEditState(clearButton, model.clearDisabled);
+        applyEditState(maxStackButton, model.maxStackDisabled);
+        applyEditState(repairButton, model.repairDisabled);
     }
 
     function slotHoverPosition({ clientX = 0, clientY = 0, cardWidth = 0, cardHeight = 0, viewportWidth = 0, viewportHeight = 0, margin = 14, offset = 16 } = {}) {

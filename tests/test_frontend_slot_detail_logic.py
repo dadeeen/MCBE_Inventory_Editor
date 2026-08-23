@@ -626,6 +626,69 @@ def test_frontend_slot_detail_logic_quick_action_plans() -> None:
     )
 
 
+def test_frontend_slot_detail_controller_blocks_quick_actions_at_execution_time() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            vm.runInNewContext(
+                fs.readFileSync("static/slot_detail_logic.js", "utf8"),
+                context,
+                { filename: "static/slot_detail_logic.js" },
+            );
+
+            function fakeButton() {
+                return {
+                    handlers: {},
+                    addEventListener(name, handler) { this.handlers[name] = handler; },
+                    click() { this.handlers.click(); },
+                };
+            }
+
+            const clearButton = fakeButton();
+            const maxStackButton = fakeButton();
+            const repairButton = fakeButton();
+            const count = { value: "21", addEventListener() {} };
+            const toasts = [];
+            const dirtyCalls = [];
+            const statuses = [];
+            const actions = [];
+            const controller = context.window.MCBESlotDetailLogic.createSlotDetailController({
+                elements: {
+                    btnQuickClearSlot: clearButton,
+                    btnQuickMaxStack: maxStackButton,
+                    btnQuickRepairSlot: repairButton,
+                    detailCount: count,
+                },
+                itemCatalog: {},
+                editingBlocked: () => true,
+                getEditingBlockedReason: () => "Nur ansehen: Server online.",
+                setDirty: value => dirtyCalls.push(value),
+                logStatus: (...args) => statuses.push(args),
+                recordAction: (...args) => actions.push(args),
+                showToast: (...args) => toasts.push(args),
+            });
+            controller.wire();
+
+            clearButton.click();
+            maxStackButton.click();
+            repairButton.click();
+
+            assert.strictEqual(count.value, "21");
+            assert.deepStrictEqual(dirtyCalls, []);
+            assert.deepStrictEqual(statuses, []);
+            assert.deepStrictEqual(actions, []);
+            assert.strictEqual(toasts.length, 3);
+            assert.ok(toasts.every(toast => toast[0] === "Nur ansehen: Server online."));
+            assert.ok(toasts.every(toast => toast[1] === "warning"));
+            """
+        )
+    )
+
+
 def test_frontend_slot_detail_logic_keeps_custom_name_padding() -> None:
     """Name padding is valid Bedrock formatting and must survive the form.
 

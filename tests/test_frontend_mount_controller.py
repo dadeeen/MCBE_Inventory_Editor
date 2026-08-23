@@ -85,6 +85,59 @@ def test_mount_controller_ignores_preview_from_previous_player_context() -> None
     )
 
 
+def test_mount_controller_syncs_dynamic_controls_and_guards_queue_commit() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(
+                fs.readFileSync("static/mount_controller.js", "utf8"),
+                context,
+                { filename: "static/mount_controller.js" },
+            );
+
+            let renders = 0;
+            let syncCalls = 0;
+            let guardCalls = 0;
+            let undoWrites = 0;
+            let pendingWrites = 0;
+            const doc = { getElementById: () => null, querySelectorAll: () => [] };
+            const controller = context.window.MCBEMountController.createMountController({
+                doc,
+                getWorldPath: () => "C:/World",
+                getCurrentPlayerKey: () => "player",
+                getCurrentPlayer: () => ({ player_key: "player" }),
+                render: {
+                    DEFAULT_HORSE_PROFILE: {},
+                    applyMountPanelState: () => { renders += 1; },
+                },
+                syncEditControls: () => { syncCalls += 1; },
+                guardEditingAction: () => { guardCalls += 1; return true; },
+                pushUndo: () => { undoWrites += 1; },
+                onPendingChanged: () => { pendingWrites += 1; },
+            });
+
+            controller.refresh();
+            assert.strictEqual(renders, 1);
+            assert.strictEqual(syncCalls, 1);
+            (async () => {
+                assert.strictEqual(await controller.queueMount(), false);
+                assert.strictEqual(guardCalls, 1);
+                assert.strictEqual(undoWrites, 0);
+                assert.strictEqual(pendingWrites, 0);
+                assert.strictEqual(controller.getPendingMounts().length, 0);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_mount_controller_reads_every_stat_field_generically_including_temper() -> None:
     """The field list lives only in the view; the controller reads data-stat-key.
 

@@ -1,11 +1,9 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.5.16
+## What changed in v0.5.17
 
-- Item DB and vanilla-icon update output now follows the language selected in the app. English sessions no longer receive a mixture of English and German progress messages, diff summaries, cache status, result counts, failure details, or cleanup warnings.
-- The vanilla-icon section heading is localized as well, and direct updater CLI help follows the forwarded updater language.
-- The localization checks now cover both updater scripts and their shared icon-cache path, preventing new updater output or exceptions from silently bypassing the English catalog.
-- Item DB schema v3, the availability schema, item classifications, and the underlying Mojang data remain unchanged in this patch release.
+- The Docker/server write lock now remains effective for dynamically rendered editor controls and blocks stale quick-action, clipboard, drag-and-drop, bulk-edit, player-copy, mount, backup, restore, import, and save actions at execution time.
+- Unsaved local changes remain visible while writing is locked, and blocked actions no longer produce misleading local success messages.
 
 > **If upgrading directly from v0.5.14 or earlier:** the Item DB may show **Verification pending** even when its data has not changed. This is expected because the verification rules changed in v0.5.15; it does not mean that the database is damaged. If the setup dialog opens, select **Load now** for **Load item database**. Otherwise, open **Tools & settings → Item DB**, run a dry run, and then select **Apply update**. An apply with no data changes only refreshes the local verification record.
 

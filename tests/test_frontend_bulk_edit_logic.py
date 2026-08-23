@@ -137,3 +137,50 @@ def test_frontend_bulk_edit_logic_count_and_repair_plans() -> None:
             """
         )
     )
+
+
+def test_frontend_bulk_edit_controller_guards_every_mutation_entrypoint() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(
+                fs.readFileSync("static/bulk_edit_logic.js", "utf8"),
+                context,
+                { filename: "static/bulk_edit_logic.js" },
+            );
+
+            function button() {
+                return {
+                    listener: null,
+                    addEventListener(_name, handler) { this.listener = handler; },
+                };
+            }
+            const buttons = {
+                fillButton: button(),
+                clearButton: button(),
+                setCountButton: button(),
+                repairSelectedButton: button(),
+                repairAllButton: button(),
+            };
+            let guardCalls = 0;
+            let undoWrites = 0;
+            let dirtyWrites = 0;
+            const controller = context.window.MCBEBulkEditLogic.createBulkEditController({
+                elements: buttons,
+                guardEditingAction: () => { guardCalls += 1; return true; },
+                pushUndo: () => { undoWrites += 1; },
+                setDirty: () => { dirtyWrites += 1; },
+            });
+            controller.wire();
+            Object.values(buttons).forEach(control => control.listener());
+
+            assert.strictEqual(guardCalls, 5);
+            assert.strictEqual(undoWrites, 0);
+            assert.strictEqual(dirtyWrites, 0);
+            """
+        )
+    )

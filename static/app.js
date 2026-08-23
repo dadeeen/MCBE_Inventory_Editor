@@ -147,6 +147,8 @@ function getMountController() {
             onPendingChanged: () => setDirty(buildChangeSummary({ limit: 1, includeSections: true }).total > 0),
             onReviewRequested: () => setWorkflowView("save", { user: true }),
             pushUndo,
+            guardEditingAction,
+            syncEditControls: () => updateWriteControls(),
         });
     }
     return mountController;
@@ -341,6 +343,7 @@ function getInventoryGridController() {
                 pushUndo,
                 recordAction,
                 setDirty,
+                guardEditingAction,
             },
         });
     }
@@ -539,10 +542,16 @@ function getPlayerToolsController() {
             renderPlayerInventorySummary,
             getIsDirty: () => isDirty,
             writeBlocked: () => writeBlocked(),
+            guardEditingAction,
             getServerGuardEpoch: () => currentServerGuardEpoch,
             getServerGuardToken: () => currentServerGuardToken,
             getWorldPresenceSessionId,
             confirmPresenceConflict,
+            beginServerStatusRequest: () => beginServerStatusRequest(),
+            renderWriteGate: (writeGate, options) => renderServerStatus(
+                { server_status: writeGate.server_status, write_gate: writeGate },
+                { ...options, authoritativeBlock: true },
+            ),
             refreshAfterStateTransfer: async () => {
                 const playerToReload = currentPlayerKey;
                 const refreshed = await loadPlayersList(false);
@@ -712,6 +721,8 @@ const {
     permissions,
     writeBlocked,
 } = writeGateController;
+function guardEditingAction() { return writeGateController.guardEditingAction(); }
+function guardWorldWriteAction() { return writeGateController.guardWorldWriteAction(); }
 
 const playerImportPreviewController = window.MCBEPlayerTransferLogic.createInventoryPlayerImportPreviewController({
     doc: document,
@@ -1057,7 +1068,7 @@ const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createCo
     },
     selection: { currentSelectionState },
     slotHandlers: { handleSlotClick, handleEnderSlotClick },
-    helpers: { isProtectedKnownSlot, showProtectedSlotMessage, pushUndo, updateGridVisuals, setDirty, showToast, recordAction },
+    helpers: { isProtectedKnownSlot, showProtectedSlotMessage, pushUndo, updateGridVisuals, setDirty, showToast, recordAction, guardEditingAction },
     renderer: { slotDisplayName },
 });
 inventoryClipboardController.bindContextMenu();
@@ -1198,6 +1209,7 @@ function createConfiguredSaveAppController() {
             updateWriteControls,
             validateInventoryState,
             writeBlocked,
+            guardWorldWriteAction,
             finalizePendingMounts: (results, options) => getMountController().finalizePendingMounts(results, options),
         },
     });
@@ -1245,6 +1257,9 @@ const slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetai
         pushUndo,
         updateGridVisuals,
         setDirty,
+        editingBlocked: () => writeGateController.editingBlocked(),
+        getEditingBlockedReason: () => writeGateController.effectiveWriteGate()?.reason || "",
+        syncEditControls: updateWriteControls,
         logStatus,
         recordAction,
         showToast,
@@ -1294,6 +1309,7 @@ const bulkEditController = window.MCBEBulkEditLogic.createInventoryBulkEditContr
         recordAction,
         showToast,
         clearSelection,
+        guardEditingAction,
     },
 });
 bulkEditController.wire();
@@ -1402,6 +1418,13 @@ const backupsController = window.MCBEBackupsView.createInventoryBackupsControlle
     showLoading,
     hideLoading,
     onRestoreBackup: filename => restoreBackup(filename),
+    guardWorldWriteAction,
+    beginServerStatusRequest,
+    renderWriteGate: (writeGate, options) => renderServerStatus(
+        { server_status: writeGate.server_status, write_gate: writeGate },
+        { ...options, authoritativeBlock: true },
+    ),
+    syncWriteControls: () => updateWriteControls(),
 });
 const loadBackupsList = backupsController.loadBackupsList;
 backupsController.wire();
@@ -1489,6 +1512,7 @@ const playerTransferController = window.MCBEPlayerTransferLogic.createInventoryP
         logStatus,
         showToast,
         recordAction,
+        guardWorldWriteAction,
         refreshImportedPlayer: async playerKey => {
             await loadPlayersList(false);
             await loadPlayer(playerKey, true, { showLoadingOverlay: false });
@@ -1517,8 +1541,9 @@ const backupRestoreController = window.MCBEBackupRestoreLogic.createConfiguredBa
         beginServerStatusRequest,
         renderWriteGate: (writeGate, options) => renderServerStatus(
             { server_status: writeGate.server_status, write_gate: writeGate },
-            options,
+            { ...options, authoritativeBlock: true },
         ),
+        guardWorldWriteAction,
         renderPlayersList,
         renderPlayerToolOptions,
         renderWorldAnalysis,

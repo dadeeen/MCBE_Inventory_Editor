@@ -169,6 +169,7 @@
         setDirty = () => {},
         showToast = () => {},
         recordAction = () => {},
+        guardEditingAction = () => false,
         slotDisplayName = (slotId, containerName) => `${containerName}:${slotId}`,
         clearTargets = targets => window.MCBEInventoryState?.clearTargets?.(targets),
         cloneSlotItem = (item, containerName, helpers) => window.MCBEInventoryState?.cloneSlotItemForClipboard?.(item, containerName, helpers),
@@ -274,6 +275,7 @@
                 if (plan.selectSlot) isEnder ? handleEnderSlotClick(null, slotId) : handleSlotClick(null, slotId);
                 return true;
             }
+            if (guardEditingAction()) return true;
             if (plan.operation === "paste") {
                 pushUndo();
                 pasteClipboardToTargets([{ map: source, slotId, container: ctxSlotContainer }]);
@@ -342,6 +344,7 @@
 
         function handlePasteShortcut(event) {
             event.preventDefault();
+            if (guardEditingAction()) return true;
             if (!slotClipboard) {
                 showToast(`${t("📄 Einfügen")}: ${t("keine Daten")}`, "warning", 2600);
                 return true;
@@ -392,6 +395,7 @@
 
         function handleCutShortcut(event) {
             event.preventDefault();
+            if (guardEditingAction()) return true;
             const selection = getCurrentSelectionState();
             const singleTarget = window.MCBESelectionState.selectedSingleTarget(selection);
             const sourceMap = singleTarget?.isEnder ? getEnderChestInventory() : getInventory();
@@ -475,6 +479,7 @@
             setDirty: helpers.setDirty,
             showToast: helpers.showToast,
             recordAction: helpers.recordAction,
+            guardEditingAction: helpers.guardEditingAction,
             slotDisplayName: renderer.slotDisplayName,
         });
     }

@@ -143,6 +143,10 @@
     }
 
     function safeEditBannerText({ blocked = false, blockedReason = "", isDirty = false, changeTotal = 0 } = {}) {
+        if (blocked && isDirty) {
+            const dirtyText = t("Ungespeicherte Änderungen: {changes}", { changes: changeCountText(changeTotal) });
+            return `${dirtyText} · ${blockedReason || t("Schreibaktionen sind aktuell blockiert.")}`;
+        }
         if (blocked) return blockedReason || t("Schreibaktionen sind aktuell blockiert.");
         if (isDirty) return t("Ungespeicherte Änderungen: {changes}", { changes: changeCountText(changeTotal) });
         return t("Keine ungespeicherten Änderungen.");
@@ -165,7 +169,7 @@
     } = {}) {
         const hasEditablePlayer = Boolean(worldPath && currentPlayerKey);
         const showDirtyBanner = Boolean(hasEditablePlayer && isDirty);
-        const safeEditChangeTotal = isDirty && !blocked ? changeTotal : 0;
+        const safeEditChangeTotal = isDirty ? changeTotal : 0;
         return {
             dirtyBannerDisplay: showDirtyBanner ? "flex" : "none",
             dirtyBannerText: showDirtyBanner ? dirtyBannerText({ playerLabel, changeTotal }) : "",
@@ -341,7 +345,7 @@
             if (!viewModel) {
                 const gate = effectiveWriteGate();
                 const blocked = writeBlocked(gate);
-                const summary = getIsDirty() && !blocked ? buildChangeSummary({ limit: 3, includeSections: false }) : { total: 0 };
+                const summary = getIsDirty() ? buildChangeSummary({ limit: 3, includeSections: false }) : { total: 0 };
                 viewModel = dirtyUiModel({
                     worldPath: getWorldPath(),
                     currentPlayerKey: getCurrentPlayerKey(),

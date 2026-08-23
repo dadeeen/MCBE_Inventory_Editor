@@ -403,6 +403,103 @@ def test_frontend_player_import_request_freezes_confirmed_plan_target() -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+def test_frontend_player_import_runtime_guard_covers_confirmation_and_retry_boundaries() -> None:
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            textwrap.dedent(
+                r"""
+                const assert = require("assert");
+                const fs = require("fs");
+                const vm = require("vm");
+                const context = { window: {}, console, fetch: null };
+                vm.runInNewContext(
+                    fs.readFileSync("static/player_transfer_logic.js", "utf8"),
+                    context,
+                    { filename: "static/player_transfer_logic.js" },
+                );
+                const logic = context.window.MCBEPlayerTransferLogic;
+
+                function makeController({ guardResults, responses = [], confirms = [] }) {
+                    const state = { fetchCalls: 0, guardCalls: 0, confirmCalls: 0 };
+                    context.fetch = async () => {
+                        state.fetchCalls += 1;
+                        return { json: async () => responses.shift() };
+                    };
+                    const controller = logic.createPlayerTransferController({
+                        elements: {
+                            importPathInput: { value: "C:/Exports/player.mcbe-player.zip" },
+                            importAsExportedCheckbox: { checked: false },
+                        },
+                        withCsrf: () => ({}),
+                        parseJsonResponse: response => response.json(),
+                        getWorldPath: () => "C:/World",
+                        getCurrentPlayerKey: () => "player-a",
+                        getCurrentPlayer: () => ({ editable: true }),
+                        getCurrentPlayerRevision: () => "a".repeat(64),
+                        getCurrentPlayerLabel: () => "Spieler",
+                        getCurrentImportPreview: () => ({
+                            export_path: "C:/Exports/player.mcbe-player.zip",
+                            world_path: "C:/World",
+                            importable: true,
+                            import_token: { version: 1 },
+                            player: { label: "Quelle" },
+                        }),
+                        guardWorldWriteAction: () => {
+                            state.guardCalls += 1;
+                            return guardResults.shift() === true;
+                        },
+                        showConfirmDialog: async () => {
+                            state.confirmCalls += 1;
+                            return confirms.shift() ?? true;
+                        },
+                        confirmPresenceConflict: async () => true,
+                    });
+                    return { controller, state };
+                }
+
+                (async () => {
+                    {
+                        const { controller, state } = makeController({ guardResults: [true] });
+                        assert.strictEqual(await controller.importPlayer(), false);
+                        assert.strictEqual(state.fetchCalls, 0);
+                        assert.strictEqual(state.confirmCalls, 0);
+                    }
+                    {
+                        const { controller, state } = makeController({
+                            guardResults: [false, true],
+                            confirms: [true],
+                        });
+                        assert.strictEqual(await controller.importPlayer(), false);
+                        assert.strictEqual(state.fetchCalls, 0);
+                        assert.strictEqual(state.confirmCalls, 1);
+                    }
+                    {
+                        const { controller, state } = makeController({
+                            guardResults: [false, false, true],
+                            responses: [{ success: false, presence_conflict: { sessions: [] } }],
+                            confirms: [true],
+                        });
+                        assert.strictEqual(await controller.importPlayer(), false);
+                        assert.strictEqual(state.fetchCalls, 1);
+                        assert.strictEqual(state.guardCalls, 3);
+                    }
+                })().catch(error => {
+                    console.error(error);
+                    process.exit(1);
+                });
+                """
+            ),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
 def test_frontend_successful_import_refreshes_selected_player() -> None:
     result = subprocess.run(
         [

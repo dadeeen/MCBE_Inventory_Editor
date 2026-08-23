@@ -6,6 +6,62 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _run_node(source: str) -> None:
+    result = subprocess.run(
+        ["node", "-e", source],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_frontend_restore_rechecks_write_gate_before_commit() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const requests = [];
+            let guardCalls = 0;
+            const context = {
+                window: {},
+                console,
+                fetch: async url => {
+                    requests.push(url);
+                    return { payload: { success: true, backup_token: { version: 1 } } };
+                },
+            };
+            vm.runInNewContext(
+                fs.readFileSync("static/backup_restore_logic.js", "utf8"),
+                context,
+                { filename: "static/backup_restore_logic.js" },
+            );
+            const controller = context.window.MCBEBackupRestoreLogic.createBackupRestoreController({
+                parseJsonResponse: async response => response.payload,
+                getWorldPath: () => "C:/World",
+                getWorldName: () => "World",
+                guardWorldWriteAction: () => {
+                    guardCalls += 1;
+                    return guardCalls >= 3;
+                },
+            });
+
+            (async () => {
+                assert.strictEqual(await controller.restoreBackup("backup.zip"), false);
+                assert.deepStrictEqual(requests, ["/api/backup/restore_preview"]);
+                assert.strictEqual(guardCalls, 3);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_frontend_backup_restore_logic_plans_and_outcomes() -> None:
     result = subprocess.run(
         [

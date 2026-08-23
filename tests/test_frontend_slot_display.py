@@ -392,9 +392,11 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
             const fs = require("fs");
             const vm = require("vm");
             const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
+            const writeStatusCode = fs.readFileSync("static/write_status_view.js", "utf8");
             const slotDisplayCode = fs.readFileSync("static/slot_display.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
+            vm.runInNewContext(writeStatusCode, context, { filename: "static/write_status_view.js" });
             vm.runInNewContext(slotDisplayCode, context, { filename: "static/slot_display.js" });
 
             const display = context.window.MCBESlotDisplay;
@@ -421,9 +423,15 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
                 title: { textContent: "" },
                 subtitle: { innerHTML: "" },
                 inspectButton: { disabled: true, title: "" },
-                clearButton: { disabled: true },
-                maxStackButton: { disabled: true },
-                repairButton: { disabled: true },
+                clearButton: { disabled: true, title: "", dataset: {} },
+                maxStackButton: {
+                    disabled: true,
+                    title: "",
+                    dataset: {},
+                    setAttribute(name, value) { this[name] = value; },
+                    removeAttribute(name) { delete this[name]; },
+                },
+                repairButton: { disabled: true, title: "", dataset: {} },
             };
             display.applySlotQuickActionsModel(elements, model);
 
@@ -434,6 +442,25 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
             assert.strictEqual(elements.clearButton.disabled, false);
             assert.strictEqual(elements.maxStackButton.disabled, false);
             assert.strictEqual(elements.repairButton.disabled, false);
+
+            context.window.MCBEWriteStatusView.applyWriteControlModel({
+                editControls: [elements.maxStackButton],
+            }, {
+                editDisabled: true,
+                editTitle: "Nur ansehen: Server online.",
+            });
+            display.applySlotQuickActionsModel(elements, model);
+            assert.strictEqual(elements.maxStackButton.disabled, true);
+            assert.strictEqual(elements.maxStackButton.title, "Nur ansehen: Server online.");
+            assert.strictEqual(elements.maxStackButton.dataset.writeGatePreviousDisabled, "false");
+
+            context.window.MCBEWriteStatusView.applyWriteControlModel({
+                editControls: [elements.maxStackButton],
+            }, {
+                editDisabled: false,
+            });
+            assert.strictEqual(elements.maxStackButton.disabled, false);
+            assert.strictEqual(elements.maxStackButton.title, "");
 
             const empty = display.slotQuickActionsModel({
                 slotLabel: "Slot 2",

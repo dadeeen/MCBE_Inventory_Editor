@@ -238,3 +238,51 @@ def test_frontend_inventory_rendering_escapes_icon_and_fallback_visuals() -> Non
             """
         )
     )
+
+
+def test_frontend_inventory_rendering_runtime_guard_blocks_direct_mutations() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = {
+                window: {
+                    MCBESlotInteractionLogic: {
+                        keyboardSlotPlan: () => ({ action: "clear", ok: true }),
+                    },
+                },
+            };
+            vm.runInNewContext(
+                fs.readFileSync("static/inventory_rendering.js", "utf8"),
+                context,
+                { filename: "static/inventory_rendering.js" },
+            );
+
+            let guardCalls = 0;
+            let dirtyWrites = 0;
+            let undoWrites = 0;
+            let prevented = 0;
+            const inventory = {
+                0: { name: "minecraft:lead", count: 21 },
+                1: { name: "minecraft:apple", count: 1 },
+            };
+            const controller = context.window.MCBEInventoryRendering.createInventoryGridController({
+                doc: { querySelectorAll: () => [], querySelector: () => null, body: {} },
+                getInventory: () => inventory,
+                guardEditingAction: () => { guardCalls += 1; return true; },
+                pushUndo: () => { undoWrites += 1; },
+                setDirty: () => { dirtyWrites += 1; },
+            });
+
+            assert.strictEqual(controller.moveOrCopySlot("inventory", 0, "inventory", 1, false), false);
+            controller.handleSlotKeyboard({ key: "Delete", preventDefault: () => { prevented += 1; } }, 0, "inventory");
+            assert.strictEqual(guardCalls, 2);
+            assert.strictEqual(undoWrites, 0);
+            assert.strictEqual(dirtyWrites, 0);
+            assert.strictEqual(prevented, 0);
+            assert.strictEqual(inventory[0].count, 21);
+            """
+        )
+    )

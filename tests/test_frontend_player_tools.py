@@ -375,6 +375,63 @@ def test_frontend_player_tools_does_not_copy_into_a_new_target_player() -> None:
     )
 
 
+def test_frontend_player_tools_rechecks_edit_gate_after_async_snapshot_load() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/player_tools.js", "utf8"), context);
+
+            let resolveSnapshot;
+            const snapshot = new Promise(resolve => { resolveSnapshot = resolve; });
+            let blocked = false;
+            let inventoryWrites = 0;
+            let dirtyWrites = 0;
+            let undoWrites = 0;
+            const controller = context.window.MCBEPlayerTools.createPlayerToolsController({
+                elements: {
+                    copySourcePlayerSelect: { value: "source" },
+                    copyInventoryArea: { checked: true },
+                    copyEnderArea: { checked: false },
+                    copyStatsArea: { checked: false },
+                },
+                getPlayers: () => [{ player_key: "source", label: "Quelle" }],
+                getWorldPath: () => "world",
+                getCurrentPlayerKey: () => "target",
+                currentPlayerLabel: () => "Ziel",
+                showConfirmDialog: async () => true,
+                guardEditingAction: () => blocked,
+                api: { loadPlayerOrThrow: async () => snapshot },
+                setInventory: () => { inventoryWrites += 1; },
+                pushUndo: () => { undoWrites += 1; },
+                setDirty: value => { if (value) dirtyWrites += 1; },
+            });
+
+            (async () => {
+                const pending = controller.copyFromSelectedPlayer();
+                await new Promise(resolve => setImmediate(resolve));
+                blocked = true;
+                resolveSnapshot({
+                    player: { label: "Quelle" },
+                    inventory: { 0: { name: "minecraft:lead", count: 21 } },
+                });
+                assert.strictEqual(await pending, false);
+                assert.strictEqual(inventoryWrites, 0);
+                assert.strictEqual(undoWrites, 0);
+                assert.strictEqual(dirtyWrites, 0);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_frontend_player_api_exposes_safe_state_transfer_endpoints() -> None:
     _run_node(
         textwrap.dedent(
@@ -742,6 +799,108 @@ def test_state_transfer_confirmation_is_single_flight_and_rechecks_world_context
                     entry.type === "warning"
                     && entry.message.includes("während der Bestätigung geändert")
                 )));
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
+def test_state_transfer_applies_authoritative_write_gate_failure_immediately() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(
+                fs.readFileSync("static/player_view_models.js", "utf8"),
+                context,
+                { filename: "static/player_view_models.js" },
+            );
+            vm.runInNewContext(
+                fs.readFileSync("static/player_tools.js", "utf8"),
+                context,
+                { filename: "static/player_tools.js" },
+            );
+
+            function element(extra = {}) {
+                return {
+                    value: "",
+                    innerHTML: "",
+                    disabled: false,
+                    style: { display: "none" },
+                    attributes: {},
+                    addEventListener() {},
+                    setAttribute(name, value) { this.attributes[name] = String(value); },
+                    removeAttribute(name) { delete this.attributes[name]; },
+                    ...extra,
+                };
+            }
+
+            (async () => {
+                const source = element();
+                const target = element();
+                const applyButton = element({ disabled: true });
+                let writeBlocked = false;
+                const renderedGates = [];
+                const controller = context.window.MCBEPlayerTools.createPlayerToolsController({
+                    elements: {
+                        stateTransferSourcePlayerSelect: source,
+                        stateTransferTargetPlayerSelect: target,
+                        stateTransferPreview: element(),
+                        stateTransferPreviewButton: element(),
+                        stateTransferApplyButton: applyButton,
+                        stateTransferSwapButton: element(),
+                    },
+                    getPlayers: () => [
+                        { player_key: "local", label: "Local player", editable: true, kind: "local" },
+                        { player_key: "remote", label: "Remote player", editable: true, kind: "remote" },
+                    ],
+                    getWorldPath: () => "C:/World",
+                    getIsDirty: () => false,
+                    writeBlocked: () => writeBlocked,
+                    showConfirmDialog: async () => true,
+                    beginServerStatusRequest: () => 73,
+                    renderWriteGate: (gate, options) => {
+                        renderedGates.push({ gate, options });
+                        writeBlocked = gate.allowed === false;
+                    },
+                    api: {
+                        previewStateTransfer: async () => ({
+                            success: true,
+                            source_player: { label: "Local player" },
+                            target_player: { label: "Remote player" },
+                            transfer_token: {
+                                version: 4,
+                                source_player_key: "local",
+                                target_player_key: "remote",
+                            },
+                            plan: { groups: [] },
+                        }),
+                        applyStateTransfer: async () => ({
+                            success: false,
+                            error: "Server läuft noch.",
+                            write_gate: {
+                                allowed: false,
+                                reason: "Server läuft noch.",
+                                server_status: { status: "online" },
+                            },
+                        }),
+                    },
+                });
+
+                controller.renderOptions();
+                assert.strictEqual(await controller.previewStateTransfer(), true);
+                assert.strictEqual(applyButton.disabled, false);
+                assert.strictEqual(await controller.applyStateTransfer(), false);
+                assert.strictEqual(renderedGates.length, 1);
+                assert.strictEqual(renderedGates[0].gate.server_status.status, "online");
+                assert.strictEqual(renderedGates[0].options.requestOrder, 73);
+                assert.strictEqual(applyButton.disabled, true);
             })().catch(error => {
                 console.error(error);
                 process.exit(1);

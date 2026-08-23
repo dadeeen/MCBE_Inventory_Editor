@@ -31,6 +31,7 @@ def test_frontend_write_status_view_models_and_badge_applier() -> None:
             const view = context.window.MCBEWriteStatusView;
             assert.ok(view.EDIT_CONTROL_SELECTOR.includes("#btnUndo"));
             assert.ok(view.EDIT_CONTROL_SELECTOR.includes("#btnRedo"));
+            assert.ok(view.EDIT_CONTROL_SELECTOR.includes("#btnMountCreate"));
             assert.strictEqual(
                 JSON.stringify(view.writeControlModel({ isDirty: true, blocked: false })),
                 JSON.stringify({
@@ -137,6 +138,48 @@ def test_frontend_write_status_view_models_and_badge_applier() -> None:
             assert.strictEqual(backupCreateButtons[0].disabled, true);
             assert.strictEqual(backupCreateButtons[0].title, "Server online");
             assert.strictEqual(backupCreateButtons[0].dataset.writeGateBlocked, "true");
+            """
+        )
+    )
+
+
+def test_frontend_write_status_view_exposes_shared_runtime_guards() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const listeners = {};
+            const doc = {
+                getElementById: () => null,
+                querySelectorAll: () => [],
+                addEventListener: (name, handler) => { listeners[name] = handler; },
+            };
+            let gate = { allowed: false, reason: "Server online" };
+            const toasts = [];
+            const context = { window: {} };
+            vm.runInNewContext(
+                fs.readFileSync("static/write_status_view.js", "utf8"),
+                context,
+                { filename: "static/write_status_view.js" },
+            );
+
+            const controller = context.window.MCBEWriteStatusView.createInventoryWriteGateController({
+                doc,
+                getCurrentWriteGate: () => gate,
+                getCurrentPlayerKey: () => "player",
+                showToast: (...args) => toasts.push(args),
+            });
+
+            assert.strictEqual(controller.guardEditingAction(), true);
+            assert.strictEqual(controller.guardWorldWriteAction(), true);
+            assert.strictEqual(toasts.length, 2);
+            assert.strictEqual(toasts[0][0], "Server online");
+
+            gate = { allowed: true };
+            assert.strictEqual(controller.guardEditingAction(), false);
+            assert.strictEqual(controller.guardWorldWriteAction(), false);
             """
         )
     )
@@ -412,6 +455,71 @@ def test_frontend_write_status_view_orders_responses_by_client_request() -> None
             assert.strictEqual(revision, 50);
             assert.strictEqual(gate.allowed, false);
             assert.strictEqual(gate.server_status.status, "online");
+            """
+        )
+    )
+
+
+def test_frontend_write_status_view_never_discards_stale_authoritative_hard_block() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            vm.runInNewContext(
+                fs.readFileSync("static/write_status_view.js", "utf8"),
+                context,
+                { filename: "static/write_status_view.js" },
+            );
+
+            let gate = { allowed: true, server_status: { status: "offline" } };
+            const controller = context.window.MCBEWriteStatusView.createWriteGateController({
+                elements: { serverStatusBadge: {} },
+                getCurrentWriteGate: () => gate,
+                setCurrentWriteGate: value => { gate = value; },
+            });
+
+            const slowWriteRequest = controller.beginServerStatusRequest();
+            const newerPollRequest = controller.beginServerStatusRequest();
+            assert.strictEqual(controller.renderServerStatus({
+                server_status: { status: "offline" },
+                write_gate: { allowed: true, server_status: { status: "offline" } },
+            }, { requestOrder: newerPollRequest }), true);
+
+            // Der langsame Schreibrequest beobachtet den gestarteten Server erst
+            // bei seiner finalen Backend-Prüfung. Dieser harte Block ist trotz
+            // älterer Request-ID sicherheitsrelevant und darf nicht verloren gehen.
+            assert.strictEqual(controller.renderServerStatus({
+                server_status: { status: "online" },
+                write_gate: {
+                    allowed: false,
+                    reason: "Server läuft noch.",
+                    server_status: { status: "online" },
+                },
+            }, { requestOrder: slowWriteRequest, authoritativeBlock: true }), true);
+            assert.strictEqual(gate.allowed, false);
+            assert.strictEqual(gate.server_status.status, "online");
+
+            // Ein veralteter, nur bestätigbarer Unknown-Zustand darf dagegen
+            // keinen neueren harten Block abschwächen.
+            assert.strictEqual(controller.renderServerStatus({
+                server_status: { status: "unknown" },
+                write_gate: {
+                    allowed: false,
+                    requires_unknown_server_confirmation: true,
+                    server_status: { status: "unknown" },
+                },
+            }, { requestOrder: slowWriteRequest, authoritativeBlock: true }), false);
+            assert.strictEqual(gate.server_status.status, "online");
+
+            const nextPollRequest = controller.beginServerStatusRequest();
+            assert.strictEqual(controller.renderServerStatus({
+                server_status: { status: "offline" },
+                write_gate: { allowed: true, server_status: { status: "offline" } },
+            }, { requestOrder: nextPollRequest }), true);
+            assert.strictEqual(gate.allowed, true);
             """
         )
     )

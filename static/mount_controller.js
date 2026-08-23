@@ -24,6 +24,8 @@
         onPendingChanged = () => {},
         onReviewRequested = () => {},
         pushUndo = () => {},
+        guardEditingAction = () => false,
+        syncEditControls = () => {},
         confirmUncheckedCreate = message => window.confirm(message),
         confirmUnknownServerWrite = message => window.confirm(message),
         render = window.MCBEMountView,
@@ -352,6 +354,10 @@
             });
             restoreOpenDisclosures(reopen);
             wireButtons();
+            // Das Optionspanel wird vollständig ersetzt. Neue Edit-Controls
+            // müssen noch im selben synchronen Render-Schritt den aktuellen
+            // Write-Gate-Zustand erhalten.
+            syncEditControls();
         }
 
         async function loadPreview() {
@@ -401,6 +407,7 @@
         }
 
         async function queueMount() {
+            if (guardEditingAction()) return false;
             if (!hasReferencePlayer()) {
                 showToast(t("Lade zuerst einen Spieler."), "warning");
                 renderIdle(t("Lade zuerst eine Welt und einen Spieler."));

@@ -257,6 +257,7 @@
             pushUndo = () => {},
             recordAction = () => {},
             setDirty = () => {},
+            guardEditingAction = () => false,
             slotDisplayName = (slotId, containerName) => `${containerName}:${slotId}`,
         } = deps;
         const {
@@ -294,6 +295,7 @@
         }
 
         function moveOrCopySlot(fromContainerName, fromSlot, toContainerName, toSlot, copyMode = false) {
+            if (guardEditingAction()) return false;
             const fromMap = getContainerMap(fromContainerName);
             const toMap = getContainerMap(toContainerName);
             const fromItem = fromMap[fromSlot];
@@ -413,6 +415,7 @@
             }
             if (plan.action === "clear") {
                 if (plan.ok) {
+                    if (guardEditingAction()) return;
                     event.preventDefault();
                     pushUndo(`Slot ${slotDisplayName(slotId, containerName)} geleert`);
                     window.MCBEInventoryState.clearTargets([{ map, slotId }]);
@@ -725,6 +728,7 @@
             pushUndo: helpers.pushUndo,
             recordAction: helpers.recordAction,
             setDirty: helpers.setDirty,
+            guardEditingAction: helpers.guardEditingAction,
             slotDisplayName: renderer.slotDisplayName,
         });
     }

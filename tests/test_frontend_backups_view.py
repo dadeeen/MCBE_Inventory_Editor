@@ -43,6 +43,68 @@ def test_frontend_backups_view_status_html_and_error_fallback() -> None:
     )
 
 
+def test_frontend_backups_view_reconciles_new_restore_buttons_with_write_gate() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const restoreButton = {
+                disabled: false,
+                dataset: { backupFilename: "manual.zip" },
+                addEventListener() {},
+            };
+            let renderedHtml = "";
+            let syncCalls = 0;
+            const container = {
+                get innerHTML() { return renderedHtml; },
+                set innerHTML(value) { renderedHtml = value; },
+                querySelectorAll(selector) {
+                    if (selector.startsWith(".restore-btn") && renderedHtml.includes("restore-btn")) {
+                        return [restoreButton];
+                    }
+                    return [];
+                },
+            };
+            const context = {
+                window: {},
+                console,
+                fetch: async () => ({
+                    json: async () => ({
+                        success: true,
+                        backup_dir: "C:/Backups",
+                        backups: [{ filename: "manual.zip", date: "heute", size_mb: 1, kind: "manual" }],
+                    }),
+                }),
+            };
+            vm.runInNewContext(
+                fs.readFileSync("static/backups_view.js", "utf8"),
+                context,
+                { filename: "static/backups_view.js" },
+            );
+            const controller = context.window.MCBEBackupsView.createBackupsController({
+                elements: { container },
+                getWorldPath: () => "C:/World",
+                syncWriteControls: () => {
+                    syncCalls += 1;
+                    container.querySelectorAll(".restore-btn").forEach(button => { button.disabled = true; });
+                },
+            });
+
+            (async () => {
+                assert.strictEqual(await controller.loadBackupsList(), true);
+                assert.strictEqual(syncCalls, 1);
+                assert.strictEqual(restoreButton.disabled, true);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
 def test_frontend_backups_view_folder_controls_and_applier() -> None:
     _run_node(
         textwrap.dedent(
@@ -169,7 +231,15 @@ def test_frontend_backups_view_manual_backup_keeps_write_gate_blocked_button_dis
                 console,
                 fetch: async (url) => {
                     if (url === "/api/backup/create") {
-                        return { json: async () => ({ success: false, error: "Server läuft noch." }) };
+                        return { json: async () => ({
+                            success: false,
+                            error: "Server läuft noch.",
+                            write_gate: {
+                                allowed: false,
+                                reason: "Server läuft noch.",
+                                server_status: { status: "online" },
+                            },
+                        }) };
                     }
                     return { json: async () => ({ success: true, backups: [], backup_dir: "C:/Backups" }) };
                 },
@@ -177,13 +247,14 @@ def test_frontend_backups_view_manual_backup_keeps_write_gate_blocked_button_dis
             vm.runInNewContext(code, context, { filename: "static/backups_view.js" });
 
             const createButton = {
-                disabled: true,
-                title: "Server läuft noch.",
-                dataset: { writeGateBlocked: "true" },
+                disabled: false,
+                title: "",
+                dataset: { writeGateBlocked: "false" },
                 listeners: {},
                 addEventListener(type, fn) { this.listeners[type] = fn; },
             };
             const loading = [];
+            const renderedGates = [];
             const controller = context.window.MCBEBackupsView.createBackupsController({
                 elements: { createButton },
                 appConfig: { read_only: false },
@@ -193,6 +264,13 @@ def test_frontend_backups_view_manual_backup_keeps_write_gate_blocked_button_dis
                 showToast: () => {},
                 showLoading: message => loading.push(["show", message]),
                 hideLoading: () => loading.push(["hide"]),
+                beginServerStatusRequest: () => 41,
+                renderWriteGate: (gate, options) => {
+                    renderedGates.push({ gate, options });
+                    createButton.dataset.writeGateBlocked = "true";
+                    createButton.disabled = true;
+                    createButton.title = gate.reason;
+                },
             });
             controller.wire();
 
@@ -201,12 +279,59 @@ def test_frontend_backups_view_manual_backup_keeps_write_gate_blocked_button_dis
                 .then(() => {
                     assert.strictEqual(createButton.disabled, true);
                     assert.strictEqual(createButton.title, "Server läuft noch.");
+                    assert.strictEqual(renderedGates.length, 1);
+                    assert.strictEqual(renderedGates[0].gate.server_status.status, "online");
+                    assert.strictEqual(renderedGates[0].options.requestOrder, 41);
                     assert.deepStrictEqual(loading, [
                         ["show", "Backup wird erstellt..."],
                         ["hide"],
                     ]);
                 })
                 .catch(err => { console.error(err); process.exit(1); });
+            """
+        )
+    )
+
+
+def test_frontend_backups_view_manual_backup_runtime_guard_prevents_stale_click() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            let fetchCalls = 0;
+            const context = {
+                window: {},
+                console,
+                fetch: async () => {
+                    fetchCalls += 1;
+                    return { json: async () => ({ success: true }) };
+                },
+            };
+            vm.runInNewContext(
+                fs.readFileSync("static/backups_view.js", "utf8"),
+                context,
+                { filename: "static/backups_view.js" },
+            );
+
+            let guardCalls = 0;
+            const controller = context.window.MCBEBackupsView.createBackupsController({
+                getWorldPath: () => "C:/World",
+                guardWorldWriteAction: () => {
+                    guardCalls += 1;
+                    return true;
+                },
+            });
+
+            (async () => {
+                assert.strictEqual(await controller.createBackup(), false);
+                assert.strictEqual(guardCalls, 1);
+                assert.strictEqual(fetchCalls, 0);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
             """
         )
     )

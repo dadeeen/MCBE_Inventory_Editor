@@ -255,3 +255,62 @@ def test_frontend_inventory_clipboard_controller_never_clears_multi_selection_on
             """
         )
     )
+
+
+def test_frontend_inventory_clipboard_runtime_guard_blocks_cut_and_paste() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            class Element {}
+            const context = {
+                Element,
+                window: {
+                    MCBESelectionState: {
+                        hasSelection: () => true,
+                        selectedSingleTarget: () => ({ slotId: 1, containerName: "inventory", isEnder: false }),
+                    },
+                },
+            };
+            vm.runInNewContext(
+                fs.readFileSync("static/inventory_clipboard_logic.js", "utf8"),
+                context,
+                { filename: "static/inventory_clipboard_logic.js" },
+            );
+
+            let guardCalls = 0;
+            let dirtyWrites = 0;
+            let undoWrites = 0;
+            let clearWrites = 0;
+            const controller = context.window.MCBEInventoryClipboardLogic.createInventoryClipboardController({
+                doc: { querySelector: () => null },
+                win: { getSelection: () => null },
+                getInventory: () => ({ 1: { name: "minecraft:lead", count: 21 } }),
+                getCurrentSelectionState: () => ({ selectedSlots: [1], selectedEnderSlot: -1 }),
+                getActiveWorkflowView: () => "inventory",
+                guardEditingAction: () => { guardCalls += 1; return true; },
+                pushUndo: () => { undoWrites += 1; },
+                setDirty: () => { dirtyWrites += 1; },
+                clearTargets: () => { clearWrites += 1; },
+            });
+            const event = (key, shiftKey = false) => ({
+                ctrlKey: true,
+                metaKey: false,
+                shiftKey,
+                altKey: false,
+                key,
+                target: new Element(),
+                preventDefault() {},
+            });
+
+            assert.strictEqual(controller.handleKeydown(event("x")), true);
+            assert.strictEqual(controller.handleKeydown(event("v", true)), true);
+            assert.strictEqual(guardCalls, 2);
+            assert.strictEqual(undoWrites, 0);
+            assert.strictEqual(dirtyWrites, 0);
+            assert.strictEqual(clearWrites, 0);
+            """
+        )
+    )

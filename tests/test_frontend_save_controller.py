@@ -34,6 +34,8 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
                     currentPlayerKey: "local_player",
                     isDirty: true,
                     writeBlockedValue: false,
+                    guardResults: null,
+                    guardCalls: 0,
                     currentWriteGate: { reason: "blocked" },
                     createFlags: { inventory: false, enderChest: false, effects: false, abilities: false },
                     payload: {
@@ -151,6 +153,12 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
                     },
                     validateInventoryState: () => state.validation,
                     writeBlocked: () => state.writeBlockedValue,
+                    guardWorldWriteAction: state.guardResults
+                        ? () => {
+                            state.guardCalls += 1;
+                            return state.guardResults.shift() === true;
+                        }
+                        : null,
                 });
                 return { controller, state };
             }
@@ -377,6 +385,44 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
                     assert.strictEqual(state.statuses.at(-1).type, "error");
                     assert.strictEqual(state.statuses.at(-1).options.key, "player-save");
                     assert.deepStrictEqual(state.toasts.at(-1), { message: "blocked", type: "error", duration: 5000 });
+                }
+
+                {
+                    const { controller, state } = makeController({ guardResults: [false, true] });
+                    await controller.saveCurrentPlayer({ skipReview: false });
+                    assert.strictEqual(state.posts.length, 0);
+                    assert.strictEqual(state.guardCalls, 2);
+                }
+
+                {
+                    const { controller, state } = makeController({
+                        guardResults: [false, false, true],
+                        postResponses: [{ success: false, presence_conflict: { sessions: [] } }],
+                        presenceResponse: true,
+                    });
+                    await controller.saveCurrentPlayer({ skipReview: true });
+                    assert.strictEqual(state.posts.length, 1);
+                    assert.strictEqual(state.guardCalls, 3);
+                    assert.strictEqual(state.cleanCount, 0);
+                }
+
+                {
+                    const { controller, state } = makeController({
+                        guardResults: [false, false, true],
+                        confirmResponses: [true],
+                        postResponses: [{
+                            success: false,
+                            write_gate: {
+                                requires_unknown_server_confirmation: true,
+                                reason: "Serverstatus unbekannt",
+                                server_status: { status: "unknown" },
+                            },
+                        }],
+                    });
+                    await controller.saveCurrentPlayer({ skipReview: true });
+                    assert.strictEqual(state.posts.length, 1);
+                    assert.strictEqual(state.guardCalls, 3);
+                    assert.strictEqual(state.cleanCount, 0);
                 }
 
                 {

@@ -73,10 +73,13 @@
             renderPlayerInventorySummary = () => {},
             getIsDirty = () => false,
             writeBlocked = () => false,
+            guardEditingAction = () => false,
             getServerGuardEpoch = () => null,
             getServerGuardToken = () => "",
             getWorldPresenceSessionId = () => "",
             confirmPresenceConflict = async () => false,
+            beginServerStatusRequest = () => null,
+            renderWriteGate = () => {},
             refreshAfterStateTransfer = async () => {},
             setDirty = () => {},
             recordAction = () => {},
@@ -335,6 +338,7 @@
         }
 
         async function copyFromSelectedPlayer() {
+            if (guardEditingAction()) return false;
             const requestId = ++copyRequestId;
             const worldPath = getWorldPath();
             const targetPlayerKey = getCurrentPlayerKey();
@@ -355,6 +359,7 @@
             if (!request.valid) { showToast(request.message, "warning"); return; }
             const ok = await showConfirmDialog(request.confirmationText);
             if (!ok) return;
+            if (guardEditingAction()) return false;
             if (requestId !== copyRequestId || !playerContextIsCurrent(worldPath, targetPlayerKey)) {
                 showToast(t("Übernahme abgebrochen: Welt oder Zielspieler wurde inzwischen gewechselt."), "warning");
                 return false;
@@ -366,6 +371,7 @@
                     showToast(t("Übernahme abgebrochen: Welt oder Zielspieler wurde inzwischen gewechselt."), "warning");
                     return false;
                 }
+                if (guardEditingAction()) return false;
                 pushUndo();
                 if (useInv) {
                     const copied = stripUntransferableRootEquipment(JSON.parse(JSON.stringify(data.inventory || {})));
@@ -750,7 +756,9 @@
                     sessionId: getWorldPresenceSessionId(),
                     confirmPresenceConflict: confirmConflict,
                 });
+                let statusRequestOrder = beginServerStatusRequest();
                 let data = await request(false);
+                if (data?.write_gate) renderWriteGate(data.write_gate, { requestOrder: statusRequestOrder });
                 if (requestId !== stateTransferRequestId || getWorldPath() !== worldPath) return false;
                 if (!data.success && data.presence_conflict) {
                     const proceed = await confirmPresenceConflict(data);
@@ -778,7 +786,9 @@
                         showToast(t("Migration ist derzeit durch die Schreibschutzprüfung blockiert."), "warning");
                         return false;
                     }
+                    statusRequestOrder = beginServerStatusRequest();
                     data = await request(true);
+                    if (data?.write_gate) renderWriteGate(data.write_gate, { requestOrder: statusRequestOrder });
                 }
                 if (requestId !== stateTransferRequestId || getWorldPath() !== worldPath) return false;
                 if (!data.success) {

@@ -40,10 +40,23 @@
             updateWriteControls,
             validateInventoryState,
             writeBlocked,
+            guardWorldWriteAction = null,
         } = deps;
 
         function logSaveStatus(message, type = "") {
             logStatus(message, type, { key: SAVE_STATUS_KEY });
+        }
+
+        function currentWriteActionBlocked() {
+            if (typeof guardWorldWriteAction === "function") {
+                return guardWorldWriteAction() === true;
+            }
+            if (!writeBlocked()) return false;
+            const currentWriteGate = getCurrentWriteGate();
+            const reason = currentWriteGate.reason || t("Schreibaktion aktuell blockiert.");
+            logSaveStatus(reason, "error");
+            showToast(reason, "error", 5000);
+            return true;
         }
 
         async function confirmMissingTagCreates(payload) {
@@ -153,12 +166,7 @@
 
         async function performSaveCurrentPlayer({ skipReview = false } = {}) {
             if (!getWorldPath() || !getCurrentPlayerKey() || !getIsDirty()) return;
-            if (writeBlocked()) {
-                const currentWriteGate = getCurrentWriteGate();
-                logSaveStatus(currentWriteGate.reason || t("Schreibaktion aktuell blockiert."), "error");
-                showToast(currentWriteGate.reason || t("Schreibaktion aktuell blockiert."), "error", 5000);
-                return;
-            }
+            if (currentWriteActionBlocked()) return;
 
             const saveWorldPath = getWorldPath();
             const savePlayerKey = getCurrentPlayerKey();
@@ -201,6 +209,10 @@
                 showToast(t("Speichern wegen Validierungsfehlern blockiert."), "error", 5000);
                 return;
             }
+
+            // Dialoge und Vorschauen sind asynchrone Grenzen. Der aktuelle
+            // Write-Gate-Zustand muss unmittelbar vor dem Request erneut gelten.
+            if (currentWriteActionBlocked()) return;
 
             setPrimarySaveDisabled(true);
             setReviewConfirmDisabled(true);
@@ -270,6 +282,7 @@
                         reportChangedSaveContext();
                         return;
                     }
+                    if (currentWriteActionBlocked()) return;
                     payload.confirm_unknown_server_status = true;
                     showLoading(t("Serverstatus bestätigt: Schreibprüfung wird erneut ausgeführt..."));
                     data = await postSavePayload(payload, pendingMounts);
@@ -291,6 +304,7 @@
                         reportChangedSaveContext();
                         return;
                     }
+                    if (currentWriteActionBlocked()) return;
                     showLoading(t("Speichere trotz bestätigtem Bearbeitungskonflikt..."));
                     payload.confirm_presence_conflict = true;
                     data = await postSavePayload(payload, pendingMounts);
@@ -555,6 +569,7 @@
             updateWriteControls = () => {},
             validateInventoryState = () => ({ errors: 0 }),
             writeBlocked = () => false,
+            guardWorldWriteAction = null,
         } = helpers;
         const {
             saveButton = null,
@@ -694,7 +709,10 @@
                 recordAction,
                 renderWriteGate: writeGate => renderServerStatus(
                     { server_status: writeGate.server_status, write_gate: writeGate },
-                    { requestOrder: saveStatusRequestOrders.get(writeGate) ?? null },
+                    {
+                        requestOrder: saveStatusRequestOrders.get(writeGate) ?? null,
+                        authoritativeBlock: true,
+                    },
                 ),
                 setPrimarySaveDisabled: disabled => { if (saveButton) saveButton.disabled = disabled; },
                 setReviewConfirmDisabled: disabled => { if (saveReviewConfirmButton) saveReviewConfirmButton.disabled = disabled; },
@@ -706,6 +724,7 @@
                 updateWriteControls,
                 validateInventoryState,
                 writeBlocked,
+                guardWorldWriteAction,
             },
         });
 

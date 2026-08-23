@@ -435,6 +435,7 @@
         getLastPlayerExportDir = () => "",
         setLastPlayerExportDir = () => {},
         writeBlocked = () => false,
+        guardWorldWriteAction = () => false,
         updatePlayerExportFolderControl = () => {},
         updateImportControls = () => {},
         schedulePlayerImportPreview = () => {},
@@ -556,6 +557,7 @@
         }
 
         async function importPlayer() {
+            if (guardWorldWriteAction()) return false;
             const exportPath = String(importPathInput?.value || "").trim();
             const importAsExported = importAsExportedCheckbox && importAsExportedCheckbox.checked;
             const currentPlayer = getCurrentPlayer();
@@ -580,6 +582,7 @@
 
             const confirmed = await showConfirmDialog(plan.confirmationText);
             if (!confirmed) return;
+            if (guardWorldWriteAction()) return false;
 
             showLoading(plan.loadingText);
             logTransferStatus(PLAYER_IMPORT_STATUS_KEY, plan.statusMessage, plan.statusType);
@@ -613,6 +616,7 @@
                         );
                         return;
                     }
+                    if (guardWorldWriteAction()) return false;
                     showLoading(retryPlan.retryLoadingText);
                     statusRequestOrder = beginServerStatusRequest();
                     const retry = await fetch("/api/player/import", {
@@ -627,7 +631,7 @@
                 if (outcome.writeGate) {
                     renderServerStatus(
                         { server_status: outcome.writeGate.server_status, write_gate: outcome.writeGate },
-                        { requestOrder: statusRequestOrder },
+                        { requestOrder: statusRequestOrder, authoritativeBlock: true },
                     );
                 }
                 if (outcome.ok) {
@@ -779,6 +783,7 @@
             getLastPlayerExportDir: state.getLastPlayerExportDir,
             setLastPlayerExportDir: state.setLastPlayerExportDir,
             writeBlocked: helpers.writeBlocked,
+            guardWorldWriteAction: helpers.guardWorldWriteAction,
             updatePlayerExportFolderControl: helpers.updatePlayerExportFolderControl,
             updateImportControls: helpers.updateImportControls,
             schedulePlayerImportPreview: helpers.schedulePlayerImportPreview,

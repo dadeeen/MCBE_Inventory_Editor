@@ -207,6 +207,7 @@
         recordAction,
         showToast,
         clearSelection,
+        guardEditingAction = () => false,
     } = {}) {
         function selectedBulkTargets() {
             return window.MCBEInventoryState.selectedBulkTargets({
@@ -237,6 +238,7 @@
 
         function wireBulkFill() {
             elements.fillButton?.addEventListener("click", () => {
+                if (guardEditingAction()) return;
                 const name = logic.normalizedItemName(elements.bulkItemSearch?.value);
                 const validBulkItemId = !name || name === "minecraft:air"
                     || (itemCatalog.isValidItemId(name) && itemCatalog.isAddableItemId(name));
@@ -280,6 +282,7 @@
 
         function wireBulkClear() {
             elements.clearButton?.addEventListener("click", () => {
+                if (guardEditingAction()) return;
                 const writableTargets = selectedBulkTargets();
                 const plan = logic.bulkClearPlan({
                     writableCount: writableTargets.length,
@@ -301,6 +304,7 @@
 
         function wireBulkSetCount() {
             elements.setCountButton?.addEventListener("click", () => {
+                if (guardEditingAction()) return;
                 const targets = window.MCBEInventoryState.visibleItemTargets(selectedBulkTargets(), itemIsVisiblePresent);
                 const plan = logic.bulkSetCountPlan({
                     targetCount: targets.length,
@@ -325,6 +329,7 @@
 
         function wireBulkRepairSelected() {
             elements.repairSelectedButton?.addEventListener("click", () => {
+                if (guardEditingAction()) return;
                 const targets = window.MCBEInventoryState.damagedItemTargets(selectedBulkTargets(), {
                     maxDamage: getMaxDamage?.() || {},
                     isItemVisiblePresent: itemIsVisiblePresent,
@@ -344,6 +349,7 @@
 
         function wireRepairAll() {
             elements.repairAllButton?.addEventListener("click", () => {
+                if (guardEditingAction()) return;
                 const repairTargets = window.MCBEInventoryState.damagedInventoryTargets({
                     sources: [{ map: getInventory?.() || {} }, { map: getEnderChestInventory?.() || {} }],
                     maxDamage: getMaxDamage?.() || {},
@@ -417,6 +423,7 @@
             recordAction: helpers.recordAction,
             showToast: helpers.showToast,
             clearSelection: helpers.clearSelection,
+            guardEditingAction: helpers.guardEditingAction,
         });
     }
 

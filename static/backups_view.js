@@ -196,6 +196,10 @@
         showLoading = () => {},
         hideLoading = () => {},
         onRestoreBackup = () => {},
+        guardWorldWriteAction = () => false,
+        beginServerStatusRequest = () => null,
+        renderWriteGate = () => {},
+        syncWriteControls = () => {},
         confirmDelete = filename => window.confirm(`${t("Backup wirklich löschen?")}\n\n${filename}`),
     } = {}) {
         const {
@@ -245,9 +249,11 @@
                 showToast(message, "warning", 4000);
                 return;
             }
+            if (guardWorldWriteAction()) return false;
             if (createButton) createButton.disabled = true;
             showLoading(t("Backup wird erstellt..."));
             logBackupStatus(BACKUP_CREATE_STATUS_KEY, t("Backup wird erstellt..."), "running");
+            const statusRequestOrder = beginServerStatusRequest();
             try {
                 const res = await fetch("/api/backup/create", {
                     method: "POST",
@@ -255,6 +261,7 @@
                     body: JSON.stringify({ world_path: worldPath }),
                 });
                 const data = await parseJsonResponse(res);
+                if (data?.write_gate) renderWriteGate(data.write_gate, { requestOrder: statusRequestOrder });
                 if (data.success) {
                     const warning = data.cleanup_warning
                         ? ` ${t("Hinweis: {warning}", { warning: data.cleanup_warning })}`
@@ -385,6 +392,11 @@
                 if (data.success) {
                     lastBackupDir = String(data.backup_dir ?? "").trim();
                     container.innerHTML = backupsListHtml({ ...data, read_only: appConfig.read_only === true });
+                    // Restore-Buttons werden mit der Liste neu erzeugt. Den
+                    // zentralen Write-Gate deshalb im selben Render-Schritt auf
+                    // die neuen Elemente anwenden, statt auf den nächsten Poll
+                    // zu warten.
+                    syncWriteControls();
                     applyFolderControlsFor(lastBackupDir, lastBackupDir ? "ready" : "unavailable");
                     wireBackupKindDisclosures(container);
                     container.querySelectorAll(".restore-btn[data-backup-filename]").forEach(button => {
@@ -465,6 +477,10 @@
         showLoading = () => {},
         hideLoading = () => {},
         onRestoreBackup = () => {},
+        guardWorldWriteAction = () => false,
+        beginServerStatusRequest = () => null,
+        renderWriteGate = () => {},
+        syncWriteControls = () => {},
     } = {}) {
         return createBackupsController({
             elements: collectBackupsElements(doc),
@@ -479,6 +495,10 @@
             showLoading,
             hideLoading,
             onRestoreBackup,
+            guardWorldWriteAction,
+            beginServerStatusRequest,
+            renderWriteGate,
+            syncWriteControls,
         });
     }
 

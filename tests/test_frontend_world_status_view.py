@@ -126,7 +126,7 @@ def test_frontend_world_status_view_dirty_ui_model() -> None:
             assert.strictEqual(blocked.dirtyDiscardDisabled, false);
             assert.strictEqual(blocked.savePreviewDisabled, true);
             assert.strictEqual(blocked.saveDiscardDisabled, false);
-            assert.strictEqual(blocked.safeEditText, "Server online");
+            assert.strictEqual(blocked.safeEditText, "Ungespeicherte Änderungen: 1 Änderung · Server online");
             """
         )
     )
@@ -355,7 +355,7 @@ def test_frontend_world_status_view_uses_central_write_block_decision() -> None:
             assert.strictEqual(dirtyDiscardButton.disabled, false);
             assert.strictEqual(safeEditDiscardButton.disabled, false);
             assert.strictEqual(title.textContent, "Schreiben gesperrt");
-            assert.strictEqual(text.textContent, "Server online.");
+            assert.strictEqual(text.textContent, "Ungespeicherte Änderungen: 1 Änderung · Server online.");
             assert.strictEqual(writeBlockChecks, 2);
             """
         )
