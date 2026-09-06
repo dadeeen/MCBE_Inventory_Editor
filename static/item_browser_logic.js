@@ -297,30 +297,63 @@
         return entries;
     }
 
+    function autocompleteMatchRank(item, normalized) {
+        const ids = [item.id, ...(item.searchIds || [])];
+        if (ids.some(value => String(value || "").toLowerCase() === normalized)) return 0;
+        if (ids.some(value => itemPath(value) === normalized)
+            || String(item.en || "").toLowerCase() === normalized
+            || (!isEnglishItemLocale() && String(item.de || "").toLowerCase() === normalized)) return 1;
+        return 2;
+    }
+
+    // Varianten derselben ID sind kein mehrdeutiger Treffer. Es gewinnt der
+    // niedrigste Datenwert, denn genau den setzt auch das Slot-Formular ein,
+    // wenn nur die nackte ID eingetragen wird (dataVariantSelectionPlan).
+    function primaryItemVariant(items) {
+        if (!items.length) return null;
+        const ids = new Set(items.map(item => String(item.id || "").toLowerCase()));
+        if (ids.size !== 1) return null;
+        return items.reduce((primary, item) => (
+            (Number(item.damage) || 0) < (Number(primary.damage) || 0) ? item : primary
+        ), items[0]);
+    }
+
+    function autocompleteSelection(matches, query) {
+        const normalized = String(query || "").toLowerCase().trim();
+        if (!normalized) return null;
+        const exactIds = matches.filter(item => autocompleteMatchRank(item, normalized) === 0);
+        if (exactIds.length) return primaryItemVariant(exactIds);
+        const exactNames = matches.filter(item => autocompleteMatchRank(item, normalized) === 1);
+        if (exactNames.length) return primaryItemVariant(exactNames);
+        return matches.length === 1 ? matches[0] : null;
+    }
+
     function autocompleteMatches(itemsDb, query, limit = 10, blockOnlyIds = null, addableIds = null, itemVariantsForId = null) {
         const normalized = String(query || "").toLowerCase().trim();
         if (!normalized) return [];
-        const matches = [];
-        for (const [id, names, metadata] of browserEntries(itemsDb, itemVariantsForId)) {
-            if (!isAddable(addableIds, id) || isBlockOnly(blockOnlyIds, id)) continue;
-            if (itemMatchesQuery(id, names, normalized, metadata)) {
-                matches.push({
-                    id,
-                    de: names[0],
-                    en: names[1],
-                    ...(Number.isInteger(metadata?.damage) ? { damage: metadata.damage } : {}),
-                    searchIds: metadata?.searchIds || [],
-                });
-            }
+        const matches = browserItems(itemsDb, {
+            query: normalized, blockOnlyIds, addableIds, itemVariantsForId,
+        }).map(([id, names, metadata]) => ({
+            id,
+            de: names[0],
+            en: names[1],
+            ...(Number.isInteger(metadata?.damage) ? { damage: metadata.damage } : {}),
+            searchIds: metadata?.searchIds || [],
+        }));
+        function matchesBaseId(item) {
+            return item.id.toLowerCase() === normalized || itemPath(item.id) === normalized;
         }
-        const exactIndex = matches.findIndex(item => (
-            item.id.toLowerCase() === normalized
-            || item.searchIds.some(value => String(value || "").toLowerCase() === normalized)
-        ));
-        if (exactIndex > 0) {
-            const [exact] = matches.splice(exactIndex, 1);
-            matches.unshift(exact);
+        const primaryDamage = Number(primaryItemVariant(matches.filter(matchesBaseId))?.damage) || 0;
+        // Trifft die Eingabe die nackte Basis-ID, gehört nur deren erster
+        // Datenwert nach vorne. Sonst verdrängten allein die 16 Farbvarianten
+        // eines Banners alle übrigen Treffer aus der Vorauswahl.
+        function sortRank(item) {
+            const rank = autocompleteMatchRank(item, normalized);
+            if (rank === 2 || !matchesBaseId(item) || !Number.isInteger(item.damage)) return rank;
+            return item.damage === primaryDamage ? rank : 2;
         }
+        // Exakte Treffer vor dem Limit sichern; sonst die Browser-Sortierung beibehalten.
+        matches.sort((a, b) => sortRank(a) - sortRank(b));
         return matches.slice(0, limit);
     }
 
@@ -631,6 +664,7 @@
 
     window.MCBEItemBrowserLogic = {
         autocompleteMatches,
+        autocompleteSelection,
         autocompleteItemElement,
         autocompleteItemHtml,
         availabilityBadgeHtml,

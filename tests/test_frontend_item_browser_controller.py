@@ -91,6 +91,174 @@ def test_frontend_item_browser_controller_autocomplete_selects_and_applies_detai
     )
 
 
+def test_frontend_item_browser_controller_enter_resolves_names_without_guessing() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            let english = false;
+            const context = {
+                window: { MCBEI18n: { isEnglish: () => english } },
+                document: { addEventListener() {} },
+                Event: function Event(type) { this.type = type; },
+            };
+            for (const name of ["item_browser_logic", "item_browser_controller"]) {
+                vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
+            }
+            const data = JSON.parse(fs.readFileSync("mcbe_editor/resources/item_db.json", "utf8"));
+            let items = data.items;
+            let blocked = new Set(data.block_only_items);
+            let addable = new Set(data.addable_items);
+            const input = () => ({
+                value: "", listeners: {},
+                addEventListener(type, fn) { this.listeners[type] = fn; },
+                dispatchEvent() {},
+            });
+            const detailInput = input();
+            const bulkInput = input();
+            const applied = [];
+            const variants = [];
+            const controller = context.window.MCBEItemBrowserController.createItemBrowserController({
+                elements: {
+                    detailInput, detailAutocomplete: { style: {}, innerHTML: "" },
+                    bulkInput, bulkAutocomplete: { style: {}, innerHTML: "" },
+                },
+                getItemsDb: () => items,
+                getBlockOnlyItems: () => blocked,
+                getAddableItems: () => addable,
+                getItemVariantsForId: id => id === "minecraft:bed" ? [
+                    { damage: 0, names: ["Weißes Bett", "White Bed"], searchIds: ["minecraft:white_bed"] },
+                    { damage: 15, names: ["Schwarzes Bett", "Black Bed"], searchIds: ["minecraft:black_bed"] },
+                ] : [],
+                onApplyDetailItem: () => applied.push(detailInput.value),
+                onDetailItemVariantSelected: item => variants.push(item.damage),
+            });
+            controller.wire();
+            function enter(query, expected, target = detailInput) {
+                target.value = query;
+                let prevented = false;
+                const before = applied.length;
+                target.listeners.keydown({ key: "Enter", preventDefault() { prevented = true; } });
+                assert.strictEqual(target.value, expected || query, query);
+                assert.strictEqual(prevented, Boolean(expected), query);
+                assert.strictEqual(applied.length - before, expected && target === detailInput ? 1 : 0);
+            }
+            for (const query of ["Stein", "  StEiN  ", "stone", "minecraft:stone"]) {
+                enter(query, "minecraft:stone");
+            }
+            enter("stein", "minecraft:stone", bulkInput);
+            enter("sto", null);
+            enter("", null);
+            blocked.add("minecraft:stone");
+            enter("stein", null);
+            blocked.delete("minecraft:stone");
+            english = true;
+            enter("stein", null);
+            enter("stone", "minecraft:stone");
+            english = false;
+            enter("schwarzes bett", "minecraft:bed");
+            enter("black_bed", "minecraft:bed");
+            enter("minecraft:black_bed", "minecraft:bed");
+            enter("minecraft:bed", "minecraft:bed");
+            // A base id without namespace resolves like the full id.
+            enter("bed", "minecraft:bed");
+            assert.deepStrictEqual(variants, [15, 15, 15, 0, 0]);
+
+            // Duplicate exact names beyond the visible ten must stay ambiguous.
+            items = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [
+                `test:duplicate_${i}`, ["Testname", "Test name"],
+            ]));
+            addable = null;
+            blocked = null;
+            assert.strictEqual(controller.autocompleteMatches("Testname").length, 10);
+            enter("Testname", null);
+            enter("test:duplicate_11", "test:duplicate_11");
+            enter("duplicate_11", "test:duplicate_11");
+            enter("cate_11", "test:duplicate_11");
+            """
+        )
+    )
+
+
+def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selection() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = {
+                window: {},
+                document: { addEventListener() {} },
+                Event: function Event(type) { this.type = type; },
+            };
+            vm.runInNewContext(fs.readFileSync("static/item_browser_controller.js", "utf8"), context);
+
+            const detailInput = {
+                value: "", listeners: {},
+                addEventListener(type, fn) { this.listeners[type] = fn; },
+                // The real input element runs its own listeners on a dispatched event.
+                dispatchEvent(event) { this.listeners[event.type]?.({ type: event.type, target: this }); },
+            };
+            const detailList = {
+                rows: [], style: { display: "none" },
+                // Assigning an empty innerHTML detaches the rendered rows.
+                set innerHTML(value) { if (!value) this.rows = []; this.html = value; },
+                get innerHTML() { return this.html || ""; },
+                appendChild(row) { this.rows.push(row); },
+                contains() { return false; },
+            };
+            const applied = [];
+            const controller = context.window.MCBEItemBrowserController.createItemBrowserController({
+                elements: { detailInput, detailAutocomplete: detailList },
+                itemBrowserLogic: {
+                    autocompleteMatches: () => [
+                        { id: "minecraft:stone", de: "Stein", en: "Stone" },
+                        { id: "minecraft:stone_stairs", de: "Steintreppe", en: "Stone Stairs" },
+                    ],
+                    autocompleteSelection: matches => matches[0],
+                    autocompleteItemElement: item => ({
+                        item, addEventListener(type, fn) { this[type] = fn; },
+                    }),
+                },
+                onApplyDetailItem: () => applied.push(detailInput.value),
+            });
+            controller.wire();
+
+            function type(query) {
+                detailInput.value = query;
+                detailInput.listeners.input({ type: "input", target: detailInput });
+            }
+
+            type("stein");
+            assert.strictEqual(detailList.style.display, "block");
+            assert.strictEqual(detailList.rows.length, 2);
+
+            detailInput.listeners.keydown({ key: "Enter", preventDefault() {} });
+            assert.strictEqual(detailInput.value, "minecraft:stone");
+            assert.strictEqual(detailList.style.display, "none");
+            assert.strictEqual(detailList.rows.length, 0);
+            assert.deepStrictEqual(applied, ["minecraft:stone"]);
+
+            type("stein");
+            assert.strictEqual(detailList.style.display, "block");
+            detailList.rows[1].click();
+            assert.strictEqual(detailInput.value, "minecraft:stone_stairs");
+            assert.strictEqual(detailList.style.display, "none");
+            assert.strictEqual(detailList.rows.length, 0);
+            assert.deepStrictEqual(applied, ["minecraft:stone", "minecraft:stone_stairs"]);
+
+            // Later input still opens the list again.
+            type("stein");
+            assert.strictEqual(detailList.style.display, "block");
+            assert.strictEqual(detailList.rows.length, 2);
+            """
+        )
+    )
+
+
 def test_frontend_item_browser_controller_applies_selected_bed_damage_before_save() -> None:
     _run_node(
         textwrap.dedent(

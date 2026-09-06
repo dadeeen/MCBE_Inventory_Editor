@@ -35,6 +35,7 @@
         } = elements;
         let browserActiveInput = null;
         let returnFocusElement = null;
+        let selectingAutocompleteItem = false;
         let pageScrollLocked = false;
         let pageScrollPosition = 0;
 
@@ -42,11 +43,11 @@
             return inputEl && inputEl === detailInput;
         }
 
-        function autocompleteMatches(query, inputEl = detailInput) {
+        function autocompleteMatches(query, inputEl = detailInput, limit = 10) {
             return itemBrowserLogic.autocompleteMatches(
                 getItemsDb(),
                 query,
-                10,
+                limit,
                 getBlockOnlyItems(),
                 getAddableItems(),
                 isDetailInput(inputEl) ? getItemVariantsForId : null,
@@ -80,7 +81,14 @@
                 }
             }
 
-            dispatchInput(inputEl, { bubbles: true });
+            // Das gesendete "input"-Event darf die eben getroffene Auswahl nicht
+            // erneut als Vorschlagsliste öffnen.
+            selectingAutocompleteItem = true;
+            try {
+                dispatchInput(inputEl, { bubbles: true });
+            } finally {
+                selectingAutocompleteItem = false;
+            }
             if (options.applyOnSelect && isDetailInput(inputEl)) {
                 onApplyDetailItem();
             }
@@ -92,7 +100,7 @@
                 const query = event.target.value.toLowerCase().trim();
                 listEl.innerHTML = "";
 
-                if (!query) {
+                if (!query || selectingAutocompleteItem) {
                     listEl.style.display = "none";
                     return;
                 }
@@ -129,12 +137,9 @@
                 if (event.key !== "Enter") return;
                 const query = String(inputEl.value || "").toLowerCase().trim();
                 if (!query) return;
-                const matches = autocompleteMatches(query, inputEl);
-                const exact = matches.find(item => (
-                    item.id.toLowerCase() === query
-                    || item.searchIds?.some(value => String(value || "").toLowerCase() === query)
-                ));
-                const selected = exact || (matches.length === 1 ? matches[0] : null);
+                // Mehrdeutige Namen auch jenseits der sichtbaren Vorschläge erkennen.
+                const matches = autocompleteMatches(query, inputEl, Infinity);
+                const selected = itemBrowserLogic.autocompleteSelection(matches, query);
                 if (!selected) return;
                 event.preventDefault();
                 selectAutocompleteItem(inputEl, listEl, selected, options);

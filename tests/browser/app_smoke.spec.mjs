@@ -1291,6 +1291,105 @@ test("item browser shows restrained availability labels including potion variant
   expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
+test("slot editor suggestions rank exact names first and close after Enter", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  const player = {
+    player_key: "local",
+    label: "Lokaler Spieler",
+    kind: "local",
+    editable: true,
+    exportable: true,
+    has_inventory_tag: true,
+  };
+  // Registry order deliberately keeps the exact match behind its substring hits.
+  const itemsDb = {
+    "minecraft:bedrock": ["Grundgestein", "Bedrock"],
+    "minecraft:blackstone": ["Schwarzstein", "Blackstone"],
+    "minecraft:cobblestone": ["Bruchstein", "Cobblestone"],
+    "minecraft:stone": ["Stein", "Stone"],
+    "minecraft:stone_stairs": ["Steintreppe", "Stone Stairs"],
+  };
+  await page.route("**/api/players", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      success: true,
+      world_name: "Smoke Test World",
+      players: [player],
+      capabilities: {},
+      compatibility: {},
+    }),
+  }));
+  await page.route("**/api/player/load", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      success: true,
+      player,
+      player_revision: "autocomplete-revision",
+      server_guard_epoch: 0,
+      inventory: { 0: { slot: 0, name: "minecraft:cobblestone", count: 1, damage: 0 } },
+      ender_chest: {},
+      has_ender_chest: false,
+      stats: { pos: [0, 64, 0], health: 20, gamemode: 0, xp_level: 0, xp_progress: 0, food_level: 20, food_saturation: 5 },
+      effects: [],
+      abilities: {},
+      protected_nbt: {
+        has_inventory_tag: true,
+        has_ender_chest_tag: false,
+        has_active_effects_tag: false,
+        has_abilities_tag: false,
+      },
+      hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
+      items_db: itemsDb,
+      compat_item_aliases: {},
+      addable_items: Object.keys(itemsDb),
+      block_only_items: [],
+      block_items: [],
+      ench_db: {},
+      enchantment_compatibility: {},
+      item_components: {},
+      effects_db: {},
+      stack_limits: { __default__: 64 },
+      max_damage: { __default__: 32767 },
+      compatibility: {},
+    }),
+  }));
+
+  await openAppWithSmokeWorldScan(page);
+  await page.locator(".world-card").click();
+  await page.locator("#btnLoad").click();
+  await page.locator('[data-slot="0"]').click();
+  await expect(page.locator("#detailItemSearch")).toBeVisible();
+
+  const autocomplete = page.locator("#detailItemAutocomplete");
+  await page.locator("#detailItemSearch").fill("Stein");
+  await expect(autocomplete).toBeVisible();
+  await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(5);
+  await expect(autocomplete.locator(".autocomplete-item").first().locator(".item-id")).toHaveText("minecraft:stone");
+
+  // Enter applies the exact match and leaves the suggestion list closed.
+  await page.locator("#detailItemSearch").press("Enter");
+  await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:stone");
+  await expect(autocomplete).toBeHidden();
+  await expect(page.locator("#detailPreviewName")).toHaveText("Stein");
+
+  // Ambiguous input keeps the choice with the user.
+  await page.locator("#detailItemSearch").fill("stei");
+  await expect(autocomplete).toBeVisible();
+  await page.locator("#detailItemSearch").press("Enter");
+  await expect(page.locator("#detailItemSearch")).toHaveValue("stei");
+  await expect(autocomplete).toBeVisible();
+
+  // A unique substring resolves without an exact name.
+  await page.locator("#detailItemSearch").fill("stone_st");
+  await page.locator("#detailItemSearch").press("Enter");
+  await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:stone_stairs");
+  await expect(autocomplete).toBeHidden();
+
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
+});
+
 test("light item browser keeps readable colors and a stable width while scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 947, height: 813 });
   await page.route("**/api/scan_worlds", route => route.fulfill({

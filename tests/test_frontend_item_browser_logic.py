@@ -89,6 +89,101 @@ def test_frontend_item_browser_finds_real_items_by_new_german_localizations() ->
     )
 
 
+def test_frontend_autocomplete_keeps_exact_names_in_limited_real_catalog_results() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            let english = false;
+            const context = { window: { MCBEI18n: {
+                isEnglish: () => english,
+                localizedPair: (de, en) => ({ primary: english ? en : de, secondary: "" }),
+            } } };
+            vm.runInNewContext(fs.readFileSync("static/item_browser_logic.js", "utf8"), context);
+            const logic = context.window.MCBEItemBrowserLogic;
+            const data = JSON.parse(fs.readFileSync("mcbe_editor/resources/item_db.json", "utf8"));
+            const blocked = new Set(data.block_only_items);
+            const addable = new Set(data.addable_items);
+            const suggest = (query, limit = 10) => logic.autocompleteMatches(
+                data.items, query, limit, blocked, addable,
+            );
+            for (const query of ["stein", "  StEiN  ", "stone", "minecraft:stone"]) {
+                assert.strictEqual(suggest(query)[0].id, "minecraft:stone", query);
+            }
+            assert.strictEqual(suggest("stein").length, 10);
+            assert.strictEqual(suggest("stein", 1)[0].id, "minecraft:stone");
+            assert.strictEqual(suggest("  ").length, 0);
+
+            const browser = logic.browserItems(data.items, {
+                query: "stein", blockOnlyIds: blocked, addableIds: addable,
+            }).map(([id]) => id);
+            const allSuggestions = suggest("stein", Infinity).map(item => item.id);
+            assert.ok(browser.length > 10);
+            assert.strictEqual(JSON.stringify(allSuggestions.slice(1)), JSON.stringify(
+                browser.filter(id => id !== "minecraft:stone"),
+            ));
+            english = true;
+            assert.strictEqual(suggest("stone")[0].id, "minecraft:stone");
+            assert.ok(!suggest("stein", Infinity).some(item => item.id === "minecraft:stone"));
+            """
+        )
+    )
+
+
+def test_frontend_autocomplete_prioritizes_ids_aliases_and_localized_variant_names() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            vm.runInNewContext(fs.readFileSync("static/item_browser_logic.js", "utf8"), context);
+            const logic = context.window.MCBEItemBrowserLogic;
+            const items = {
+                "minecraft:black_bed_frame": ["Schwarzes Bettgestell", "Black Bed Frame"],
+                "minecraft:bed": ["Bett", "Bed"],
+                "minecraft:example": ["minecraft:black_bed", "minecraft:black_bed"],
+            };
+            const variants = id => id === "minecraft:bed" ? [
+                { damage: 0, names: ["Weißes Bett", "White Bed"], searchIds: ["minecraft:white_bed"] },
+                { damage: 15, names: ["Schwarzes Bett", "Black Bed"], searchIds: ["minecraft:black_bed"] },
+            ] : [];
+            for (const query of ["schwarzes bett", "black bed", "black_bed", "minecraft:black_bed"]) {
+                const matches = logic.autocompleteMatches(items, query, 1, null, null, variants);
+                assert.strictEqual(matches[0].id, "minecraft:bed", query);
+                assert.strictEqual(matches[0].damage, 15, query);
+            }
+            const tag = item => `${item.id}#${item.damage}`;
+            for (const query of ["bed", "minecraft:bed"]) {
+                const matches = logic.autocompleteMatches(items, query, 1, null, null, variants);
+                assert.strictEqual(matches[0].id, "minecraft:bed", query);
+                assert.strictEqual(matches[0].damage, 0, query);
+
+                // Only the leading data value is hoisted; the remaining variants
+                // keep the item browser's order instead of filling the list.
+                const suggestions = logic.autocompleteMatches(items, query, Infinity, null, null, variants);
+                const browser = logic.browserItems(items, { query, itemVariantsForId: variants })
+                    .map(([id, , metadata]) => `${id}#${metadata?.damage}`);
+                assert.ok(browser.length >= 2, query);
+                assert.strictEqual(JSON.stringify(suggestions.map(tag)), JSON.stringify([
+                    "minecraft:bed#0",
+                    ...browser.filter(entry => entry !== "minecraft:bed#0"),
+                ]), query);
+            }
+            assert.strictEqual(logic.autocompleteMatches(items, "black_bed_frame", 1)[0].id,
+                "minecraft:black_bed_frame");
+            assert.strictEqual(logic.autocompleteMatches(items, "black bed", 1,
+                new Set(["minecraft:bed"]), null, variants)[0].id, "minecraft:black_bed_frame");
+            assert.strictEqual(logic.autocompleteMatches(items, "black bed", 1,
+                null, new Set(["minecraft:black_bed_frame"]), variants)[0].id, "minecraft:black_bed_frame");
+            """
+        )
+    )
+
+
 def test_frontend_item_browser_categories_are_multi_label_and_token_safe() -> None:
     _run_node(
         textwrap.dedent(
