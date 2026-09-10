@@ -29,8 +29,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    from mcbe_editor.block_icon_renderer import composite_png_overlay, crop_png, render_bedrock_model_icon, render_block_icon, tint_png
+    from mcbe_editor.block_icon_renderer import composite_png_overlay, crop_png, render_bedrock_model_icon, render_block_icon, supports_block_preview, tint_png
     from mcbe_editor.icon_cache import publish_icon_cache, recover_icon_cache
+    from mcbe_editor.icon_resolution import IconResolution, resolve_icon_definition
     from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
     from mcbe_editor.update_output_i18n import output_t
@@ -46,6 +47,9 @@ def _load_runtime_dependencies():
         BUNDLED_ITEM_DB_JSON,
         is_technical_block_only_item_id,
         output_t,
+        resolve_icon_definition,
+        supports_block_preview,
+        IconResolution,
     )
 
 
@@ -60,6 +64,9 @@ def _load_runtime_dependencies():
     BUNDLED_ITEM_DB_JSON,
     is_technical_block_only_item_id,
     tr,
+    resolve_icon_definition,
+    supports_block_preview,
+    IconResolution,
 ) = _load_runtime_dependencies()
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DATA_ROOT = Path(os.environ.get("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser()
@@ -984,6 +991,32 @@ def _read_json_member(zf: zipfile.ZipFile, key: str) -> dict[str, Any]:
     return {}
 
 
+def _read_item_icon_definitions(zf: zipfile.ZipFile) -> dict[str, Any]:
+    """Read only base behavior-pack items, never experimental pack overlays."""
+    result: dict[str, Any] = {}
+    for info in zf.infolist():
+        parts = PurePosixPath(info.filename.replace("\\", "/")).parts
+        if "behavior_pack" not in parts or not info.filename.endswith(".json"):
+            continue
+        relative = parts[parts.index("behavior_pack") + 1 :]
+        if len(relative) != 2 or relative[0] != "items" or info.file_size > MAX_ICON_BYTES:
+            continue
+        raw = json.loads(_strip_json_comments(zf.read(info).decode("utf-8-sig")))
+        item = raw.get("minecraft:item", {}) if isinstance(raw, dict) else {}
+        if not isinstance(item, dict):
+            continue
+        description, components = item.get("description", {}), item.get("components", {})
+        if not isinstance(description, dict) or not isinstance(components, dict) or "minecraft:icon" not in components:
+            continue
+        identifier = description.get("identifier")
+        if not isinstance(identifier, str) or not identifier.startswith("minecraft:"):
+            continue
+        key, icon = normalize_identifier(identifier), components["minecraft:icon"]
+        # Conflicting declarations must not depend on archive ordering.
+        result[key] = None if key in result and result[key] != icon else icon
+    return result
+
+
 def _normalized_texture_reference(value: Any) -> str:
     if not isinstance(value, str):
         return ""
@@ -1609,12 +1642,17 @@ def build_icon_cache(
     with zipfile.ZipFile(zip_path) as zf:
         item_textures = parse_texture_data(_read_json_member(zf, "textures/item_texture.json"))
         terrain_textures = parse_texture_data(_read_json_member(zf, "textures/terrain_texture.json"))
-        texture_data = {**terrain_textures, **item_textures}
+        block_definitions = {normalize_identifier(key): value for key, value in _read_json_member(zf, "blocks.json").items()}
+        item_definitions = _read_item_icon_definitions(zf)
         known_item_set = set(known_items)
         icon_targets = sorted(known_item_set | set(EXTRA_ITEM_ICON_IDS))
         display_texture_targets = list(AXOLOTL_DISPLAY_ASSETS.values())
-        data_driven_aliases = build_data_driven_texture_aliases(texture_data, icon_targets + display_texture_targets)
+        item_aliases = build_data_driven_texture_aliases(item_textures, icon_targets + display_texture_targets)
+        block_aliases = build_data_driven_texture_aliases(terrain_textures, icon_targets + display_texture_targets)
         texture_members = _texture_members(zf)
+        available_textures = set(texture_members)
+        block_members = {key: value for key, value in texture_members.items() if not key.startswith("items/")}
+        item_members = {key: value for key, value in texture_members.items() if not key.startswith("blocks/")}
         target_root.parent.mkdir(parents=True, exist_ok=True)
         recover_icon_cache(target_root, warn=log)
         with tempfile.TemporaryDirectory(prefix=f".{target_root.name}.staging-", dir=target_root.parent) as staging_name:
@@ -1632,8 +1670,49 @@ def build_icon_cache(
             generated_block_icons: dict[str, dict[str, str]] = {}
             generated_model_icons: dict[str, dict[str, str]] = {}
             render_failures: dict[str, str] = {}
+            resolutions: dict[str, dict[str, Any]] = {}
             block_items = {normalize_identifier(value) for value in (block_item_ids or set())}
             for item_id in icon_targets:
+                is_block = item_id in block_items
+                texture_data = terrain_textures if is_block else item_textures
+                data_driven_aliases = block_aliases if is_block else item_aliases
+                declared = resolve_icon_definition(
+                    item_id, is_block=is_block, item_icons=item_definitions, blocks=block_definitions,
+                    item_atlas=item_textures, terrain_atlas=terrain_textures, available=available_textures,
+                )
+                # These reviewed previews render the body only. Vanilla's
+                # carried bindings describe tendrils/the portal eye; the beacon
+                # needs several nested meshes, of which we preview its core.
+                if item_id in {"sculk_sensor", "calibrated_sculk_sensor", "end_portal_frame", "beacon"} and item_id in block_definitions:
+                    body = dict(block_definitions[item_id])
+                    body.pop("carried_textures", None)
+                    if item_id == "beacon":
+                        body["textures"] = "beacon_core"
+                    declared = resolve_icon_definition(
+                        item_id, is_block=is_block, item_icons=item_definitions, blocks={item_id: body},
+                        item_atlas=item_textures, terrain_atlas=terrain_textures, available=available_textures,
+                    )
+                    if declared:
+                        declared = IconResolution("reviewed_block_preview", declared.atlas, declared.path, declared.faces, declared.issue)
+                if item_id in {"player_head", "piglin_head"} and not (
+                    declared and (declared.basis == "item_definition" or (declared.path and declared.path.startswith("items/")))
+                ):
+                    # The Vanilla skull material is soul sand, not a head icon.
+                    # No validated model for these two heads is available here.
+                    declared = IconResolution("reviewed_model", "entity", issue="model_required")
+                if (
+                    declared and declared.faces and not supports_block_preview(item_id)
+                    and declared.path and not declared.path.startswith("items/")
+                    and isinstance(block_definitions.get(item_id, {}).get("textures"), dict)
+                ):
+                    # A multi-part model cannot be represented by choosing
+                    # an arbitrary east/up face. Retain the labelled legacy
+                    # thumbnail until a model is explicitly supported.
+                    declared = IconResolution(declared.basis, declared.atlas, issue="unsupported_geometry")
+                # Reviewed inventory overrides may replace a bare atlas key,
+                # never an explicit item definition.
+                if item_id in PREFER_COMMON_ALIAS_ITEMS and declared and declared.basis in {"item_atlas", "inventory_sprite"}:
+                    declared = None
                 model_spec = MODEL_ICON_SPECS.get(item_id)
                 model_handled = model_spec is not None
                 if model_spec:
@@ -1678,18 +1757,38 @@ def build_icon_cache(
                         if item_id in known_item_set:
                             missing.append(namespaced_item_id)
 
-                selected = (
-                    None
-                    if model_handled
-                    else _select_texture_source(
-                        candidate_texture_keys(item_id, data_driven_aliases),
-                        texture_data,
-                        texture_members,
-                        preserve_candidate_order=item_id not in block_items,
+                selected = None
+                resolution = declared.metadata() if declared else {"basis": "legacy_heuristic", "atlas": "terrain" if is_block else "items"}
+                if model_handled:
+                    resolution = {
+                        "basis": "reviewed_model", "atlas": "entity", "representation": "model_preview",
+                        "texture": model_spec.texture_path,
+                    }
+                    if f"minecraft:{item_id}" in render_failures:
+                        resolution.update(issue="render_failed", representation="missing")
+                elif declared and declared.path:
+                    selected = (declared.path, texture_members[declared.path])
+                elif declared is None or declared.issue in {"variant_selection_required", "unsupported_geometry"}:
+                    fallback_is_block = is_block and not (declared and declared.atlas == "items")
+                    known_non_block = block_item_ids is not None and item_id in known_item_set and not is_block
+                    texture_data = terrain_textures if fallback_is_block else item_textures
+                    data_driven_aliases = block_aliases if fallback_is_block else item_aliases
+                    fallback_members = block_members if fallback_is_block else item_members if known_non_block else texture_members
+                    selected = _select_texture_source(
+                        candidate_texture_keys(item_id, data_driven_aliases), texture_data,
+                        fallback_members, preserve_candidate_order=not fallback_is_block,
                     )
-                )
+                    if not selected and not is_block and not known_non_block:
+                        selected = _select_texture_source(
+                            candidate_texture_keys(item_id, block_aliases), terrain_textures, texture_members, preserve_candidate_order=True,
+                        )
+                        if selected:
+                            resolution["atlas"] = "terrain"
+                    resolution["basis"] = "legacy_heuristic"
+                resolutions[f"minecraft:{item_id}"] = resolution
                 if selected:
                     texture_path, source = selected
+                    resolution["texture"] = texture_path
                     target = extracted / f"{item_id}.png"
                     rendered = None
                     if not texture_path.startswith("items/") and "inventory_" not in texture_path:
@@ -1697,16 +1796,30 @@ def build_icon_cache(
                             alternate_faces: dict[str, tuple[str, TextureMember]] = {}
                             faces = () if item_id.endswith("_leaves") else ("side", "top", "front")
                             for face in faces:
-                                face_source = _select_texture_source(block_face_texture_keys(item_id, texture_path, face), texture_data, texture_members)
+                                face_source = None
+                                overrides = SPECIAL_BLOCK_FACE_TEXTURE_KEYS.get(item_id, {}).get(face, ())
+                                if overrides:
+                                    face_source = _select_texture_source(list(overrides), terrain_textures, block_members)
+                                    if face_source:
+                                        resolution["preview_override"] = True
+                                if not face_source and declared and declared.path:
+                                    path = declared.faces.get(face)
+                                    if item_id.endswith(BARK_ON_EVERY_FACE_SUFFIXES):
+                                        path = declared.faces.get("side", path)
+                                    if path:
+                                        face_source = (path, texture_members[path])
+                                elif not face_source:
+                                    face_source = _select_texture_source(block_face_texture_keys(item_id, texture_path, face), terrain_textures, block_members)
                                 if face_source:
                                     alternate_faces[face] = face_source
                             side_source = alternate_faces.get("side", (texture_path, source))
                             side_png = _texture_source_png_bytes(zf, side_source[1])
                             top_png = _texture_source_png_bytes(zf, alternate_faces["top"][1]) if "top" in alternate_faces else None
                             front_png = _texture_source_png_bytes(zf, alternate_faces["front"][1]) if "front" in alternate_faces else None
+                            resolution["render_faces"] = {face: binding[0] for face, binding in alternate_faces.items()}
                             if item_id == "grass_block":
                                 front_overlay_png = front_png or side_png
-                                dirt_source = _select_texture_source(["dirt"], texture_data, texture_members)
+                                dirt_source = _select_texture_source(["dirt"], terrain_textures, block_members)
                                 if dirt_source:
                                     alternate_faces["side_underlay"] = dirt_source
                                     dirt_png = _texture_source_png_bytes(zf, dirt_source[1])
@@ -1737,6 +1850,7 @@ def build_icon_cache(
                             # in diesem Fall übersprungen und diagnostiziert.
                             rendered = None
                             render_failures[f"minecraft:{item_id}"] = f"{exc.__class__.__name__}: {exc}"
+                            resolution["issue"] = "render_failed"
                     if rendered:
                         rendered_png, shape = rendered
                         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1746,6 +1860,7 @@ def build_icon_cache(
                     else:
                         _write_texture_as_png(zf, source, target)
                     mapped[f"minecraft:{item_id}"] = texture_path
+                    resolution["representation"] = "block_preview" if rendered else "sprite" if texture_path.startswith("items/") else "flat_texture"
                     used_members.add(_zip_member_key(source[1].filename))
                     if item_id in known_item_set:
                         mapped_item_icons += 1
@@ -1753,27 +1868,34 @@ def build_icon_cache(
                         mapped_extra_item_icons += 1
                 elif not model_handled and item_id in known_item_set:
                     missing.append(f"minecraft:{item_id}")
+                    resolution["representation"] = "missing"
                 for damage, texture_key in potion_variant_texture_keys(item_id).items():
-                    selected_variant = _select_texture_source([texture_key], texture_data, texture_members)
+                    selected_variant = _select_texture_source([texture_key], item_textures, texture_members)
                     if not selected_variant:
                         continue
                     texture_path, source = selected_variant
                     _write_texture_as_png(zf, source, extracted / f"{item_id}#{damage}.png")
                     mapped[f"minecraft:{item_id}#{damage}"] = texture_path
+                    resolutions[f"minecraft:{item_id}#{damage}"] = {
+                        "basis": "reviewed_variant", "atlas": "items", "texture": texture_path, "representation": "sprite",
+                    }
                     used_members.add(_zip_member_key(source[1].filename))
                     potion_variant_icons += 1
-                for damage, texture_path in bed_variant_texture_keys(item_id, texture_data).items():
+                for damage, texture_path in bed_variant_texture_keys(item_id, item_textures).items():
                     source = texture_members.get(texture_path)
                     if not source:
                         continue
                     _write_texture_as_png(zf, source, extracted / f"{item_id}#{damage}.png")
                     mapped[f"minecraft:{item_id}#{damage}"] = texture_path
+                    resolutions[f"minecraft:{item_id}#{damage}"] = {
+                        "basis": "reviewed_variant", "atlas": "items", "texture": texture_path, "representation": "sprite",
+                    }
                     used_members.add(_zip_member_key(source[1].filename))
                     bed_variant_icons += 1
             for asset_id, texture_target in AXOLOTL_DISPLAY_ASSETS.items():
                 selected = _select_texture_source(
-                    candidate_texture_keys(texture_target, data_driven_aliases),
-                    texture_data,
+                    candidate_texture_keys(texture_target, item_aliases),
+                    item_textures,
                     texture_members,
                 )
                 if not selected:
@@ -1784,7 +1906,8 @@ def build_icon_cache(
                 display_assets[asset_id] = texture_path
                 used_members.add(_zip_member_key(source[1].filename))
             manifest = {
-                "schema_version": 5,
+                "schema_version": 6,
+                "resolutions": resolutions,
                 "generated_at": utc_now(),
                 "source": "Mojang/bedrock-samples full release",
                 "release": release_info,
@@ -1809,8 +1932,8 @@ def build_icon_cache(
                 "render_failures": render_failures,
                 "missing_items": missing,
                 "missing_count": len(missing),
-                "texture_data_keys": len(texture_data),
-                "data_driven_texture_aliases": sum(len(values) for values in data_driven_aliases.values()),
+                "texture_data_keys": len(item_textures) + len(terrain_textures),
+                "data_driven_texture_aliases": sum(len(values) for aliases in (item_aliases, block_aliases) for values in aliases.values()),
                 "png_candidates": len(texture_members),
                 "used_png_members": len(used_members),
                 "sha256": hashlib.sha256(json.dumps({"items": mapped, "display_assets": display_assets}, sort_keys=True).encode("utf-8")).hexdigest(),

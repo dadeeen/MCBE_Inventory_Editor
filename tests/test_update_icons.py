@@ -33,6 +33,104 @@ def _solid_png(red: int, green: int, blue: int) -> bytes:
     return encode_rgba_png(16, 16, bytes((red, green, blue, 255)) * (16 * 16))
 
 
+def test_official_bindings_separate_ingredients_blocks_and_inventory_sprites(tmp_path):
+    # Entirely synthetic pack: no game-world data or proprietary image fixtures.
+    archive = tmp_path / "reference.zip"
+    variants = {"brick_block": ("brick", "cube"), "brick_stairs": ("brick", "stairs"),
+                "quartz_stairs": ("quartz_wall", "stairs"), "resin_brick_slab": ("resin_bricks", "slab"),
+                "resin_brick_stairs": ("resin_bricks", "stairs"), "resin_brick_wall": ("resin_bricks", "wall")}
+    blocks = {key: {"textures": texture} for key, (texture, _) in variants.items()}
+    blocks["waxed_copper_lantern"] = {"textures": "copper_lantern", "carried_textures": "lantern_inventory"}
+    sprite, material = _solid_png(255, 0, 0), _solid_png(0, 255, 0)
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("resource_pack/blocks.json", json.dumps(blocks))
+        zf.writestr("resource_pack/textures/item_texture.json", json.dumps({"texture_data": {
+            key: {"textures": "textures/items/" + key} for key in ("brick", "quartz", "resin_brick")
+        }}))
+        terrain = {key: {"textures": "textures/blocks/" + key} for key in ("brick", "quartz_wall", "resin_bricks", "copper_lantern")}
+        terrain["lantern_inventory"] = {"textures": "textures/items/lantern"}
+        zf.writestr("resource_pack/textures/terrain_texture.json", json.dumps({"texture_data": terrain}))
+        for key in ("brick", "quartz", "resin_brick", "lantern"):
+            zf.writestr("resource_pack/textures/items/" + key + ".png", sprite)
+        for key in ("brick", "quartz_wall", "resin_bricks", "copper_lantern"):
+            zf.writestr("resource_pack/textures/blocks/" + key + ".png", material)
+    target = tmp_path / "icons"
+    result = build_icon_cache(archive, list(blocks) + ["brick", "quartz", "resin_brick"], target, {}, block_item_ids=set(blocks))
+    for key, (texture, shape) in variants.items():
+        assert result["items"]["minecraft:" + key] == "blocks/" + texture
+        assert result["generated_block_icons"]["minecraft:" + key]["shape"] == shape
+        pixels = decode_png((target / "textures/items" / (key + ".png")).read_bytes())
+        assert any(pixels.rgba[offset + 1] for offset in range(0, len(pixels.rgba), 4))
+        assert not any(pixels.rgba[offset] for offset in range(0, len(pixels.rgba), 4))
+    assert result["items"]["minecraft:waxed_copper_lantern"] == "items/lantern"
+    for item in ("brick", "quartz", "resin_brick"):
+        assert (target / "textures/items" / (item + ".png")).read_bytes() == sprite
+    assert result["render_failure_count"] == 0
+
+
+def test_item_definition_is_used_even_when_filename_and_atlas_key_differ(tmp_path):
+    archive = tmp_path / "definitions.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("behavior_pack/items/unrelated_filename.json", json.dumps({"minecraft:item": {
+            "description": {"identifier": "minecraft:apple"}, "components": {"minecraft:icon": {"textures": {"default": "fruit"}}},
+        }}))
+        zf.writestr("resource_pack/textures/item_texture.json", json.dumps({"texture_data": {"fruit": {"textures": "textures/items/actual"}}}))
+        zf.writestr("resource_pack/textures/items/actual.png", b"correct")
+        zf.writestr("resource_pack/textures/items/apple.png", b"wrong")
+    result = build_icon_cache(archive, ["apple"], tmp_path / "icons", {})
+    assert result["items"]["minecraft:apple"] == "items/actual"
+    assert result["resolutions"]["minecraft:apple"]["basis"] == "item_definition"
+
+
+def test_missing_declared_texture_does_not_silently_use_ingredient(tmp_path):
+    archive = tmp_path / "broken.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("resource_pack/blocks.json", '{"brick_block":{"textures":"missing"}}')
+        zf.writestr("resource_pack/textures/items/brick.png", b"ingredient")
+        zf.writestr("resource_pack/textures/blocks/brick.png", b"unrelated fallback")
+    result = build_icon_cache(archive, ["brick_block"], tmp_path / "icons", {}, block_item_ids={"brick_block"})
+    assert "minecraft:brick_block" in result["missing_items"]
+    assert result["resolutions"]["minecraft:brick_block"]["issue"] == "unknown_texture_key"
+
+
+def test_missing_ingredient_sprite_does_not_use_same_named_block_material(tmp_path):
+    archive = tmp_path / "ingredient.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("resource_pack/textures/terrain_texture.json", '{"texture_data":{"brick":{"textures":"textures/blocks/brick"}}}')
+        zf.writestr("resource_pack/textures/blocks/brick.png", _opaque_checker_png())
+    result = build_icon_cache(archive, ["brick"], tmp_path / "icons", {}, block_item_ids=set())
+    assert result["missing_items"] == ["minecraft:brick"]
+    assert "minecraft:brick" not in result["items"]
+
+
+def test_unmodelled_head_does_not_use_placeholder_skull_material(tmp_path):
+    archive = tmp_path / "head.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("resource_pack/blocks.json", '{"player_head":{"textures":"skull"}}')
+        zf.writestr("resource_pack/textures/terrain_texture.json", '{"texture_data":{"skull":{"textures":"textures/blocks/soul_sand"}}}')
+        zf.writestr("resource_pack/textures/blocks/soul_sand.png", _opaque_checker_png())
+    result = build_icon_cache(archive, ["player_head"], tmp_path / "icons", {}, block_item_ids={"player_head"})
+    assert "minecraft:player_head" in result["missing_items"]
+    assert result["resolutions"]["minecraft:player_head"]["issue"] == "model_required"
+
+
+def test_unmodelled_flower_keeps_thumbnail_instead_of_arbitrary_block_side(tmp_path):
+    archive = tmp_path / "flower.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("resource_pack/blocks.json", json.dumps({"spore_blossom": {
+            "textures": {"down": "flower", "side": "base", "up": "base"},
+        }}))
+        zf.writestr("resource_pack/textures/terrain_texture.json", json.dumps({"texture_data": {
+            "flower": {"textures": "textures/blocks/spore_blossom"}, "base": {"textures": "textures/blocks/spore_blossom_base"},
+        }}))
+        zf.writestr("resource_pack/textures/blocks/spore_blossom.png", _solid_png(255, 0, 255))
+        zf.writestr("resource_pack/textures/blocks/spore_blossom_base.png", _solid_png(0, 255, 0))
+    result = build_icon_cache(archive, ["spore_blossom"], tmp_path / "icons", {}, block_item_ids={"spore_blossom"})
+    assert result["items"]["minecraft:spore_blossom"] == "blocks/spore_blossom"
+    assert result["resolutions"]["minecraft:spore_blossom"]["basis"] == "legacy_heuristic"
+    assert result["resolutions"]["minecraft:spore_blossom"]["issue"] == "unsupported_geometry"
+
+
 def _shield_model_json() -> str:
     return json.dumps(
         {
@@ -475,7 +573,7 @@ def test_build_icon_cache_renders_explicit_model_atlas_with_authoritative_geomet
         {"resource_pack_release": "test", "resource_pack_asset": "test.zip"},
     )
 
-    assert manifest["schema_version"] == 5
+    assert manifest["schema_version"] == 6
     assert manifest["items"]["minecraft:shield"] == "entity/shield"
     assert manifest["generated_model_icon_count"] == 1
     assert manifest["generated_model_icons"]["minecraft:shield"] == {

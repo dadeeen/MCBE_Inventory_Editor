@@ -25,7 +25,7 @@ _MAX_FILE_BYTES = 2_000_000
 _MAX_SCAN_FILES = 12000
 _MAX_ARCHIVE_MEMBERS = 20000
 _SOURCE_FILE_VERSION = 2
-_INDEX_FILE_VERSION = 5
+_INDEX_FILE_VERSION = 6
 _ICON_SOURCES_LOCK = threading.RLock()
 _LOGGER = logging.getLogger(__name__)
 _POTION_DAMAGE_TEXTURE_SUFFIXES = {
@@ -885,6 +885,31 @@ def _add_icon(icons: dict[str, IconCandidate], candidate: IconCandidate) -> None
     icons.setdefault(candidate.item_id, candidate)
 
 
+def _add_source_texture(icons: dict[str, IconCandidate], candidate: IconCandidate) -> None:
+    """Resolve filename-only overrides within one source, never across sources.
+
+    A raw material texture cannot impersonate a known non-block item. Dedicated
+    sprites win collisions independent of directory/ZIP enumeration order.
+    Generated caches already store final item-ID-named PNGs in textures/items.
+    """
+    from .item_data import is_block_item_id, is_block_only_item_id, is_known_item_id
+
+    def priority(value: IconCandidate) -> tuple[int, str]:
+        name = str(value.archive_member or value.path).replace("\\", "/")
+        parts = PurePosixPath(name.lower()).parts
+        # Scope classification to the texture tree, not enclosing pack folders.
+        texture_root = max((index for index, part in enumerate(parts) if part == "textures"), default=-1)
+        category = parts[texture_root + 1] if 0 <= texture_root < len(parts) - 2 else ""
+        return (0 if category in {"items", "item"} else 1, name)
+
+    material = priority(candidate)[0] == 1
+    if material and is_known_item_id(candidate.item_id) and not is_block_item_id(candidate.item_id) and not is_block_only_item_id(candidate.item_id):
+        return
+    previous = icons.get(candidate.item_id)
+    if previous is None or priority(candidate) < priority(previous):
+        icons[candidate.item_id] = candidate
+
+
 def _variant_key(item_id: str, damage: int) -> str:
     return f"{item_id}#{damage}"
 
@@ -947,6 +972,7 @@ def _scan_directory(
     scanned: int,
 ) -> tuple[int, list[str]]:
     warnings: list[str] = []
+    source_icons: dict[str, IconCandidate] = {}
     try:
         # pathlib's recursive glob may silently yield no entries when the root
         # itself is unreadable. Probe one directory entry first so diagnostics
@@ -970,10 +996,15 @@ def _scan_directory(
             asset_id = _normalize_display_asset_id(path.stem) if is_display_asset else _normalize_item_id(path.stem)
             if not asset_id:
                 continue
-            target = display_assets if is_display_asset else icons
-            _add_icon(target, IconCandidate(item_id=asset_id, path=path, source=source_label, token=_token_for(path)))
+            candidate = IconCandidate(item_id=asset_id, path=path, source=source_label, token=_token_for(path))
+            if is_display_asset:
+                _add_icon(display_assets, candidate)
+            else:
+                _add_source_texture(source_icons, candidate)
     except OSError as exc:
         warnings.append(f"{root}: {exc.__class__.__name__}: {exc}")
+    for candidate in source_icons.values():
+        _add_icon(icons, candidate)
     return scanned, warnings
 
 
@@ -985,6 +1016,7 @@ def _scan_archive(
     scanned: int,
 ) -> tuple[int, list[str]]:
     warnings: list[str] = []
+    source_icons: dict[str, IconCandidate] = {}
     try:
         with zipfile.ZipFile(path) as zf:
             infos = zf.infolist()
@@ -1011,10 +1043,15 @@ def _scan_archive(
                 archive_stat = _safe_stat(path)
                 revision = f"{getattr(archive_stat, 'st_size', 0)}:{getattr(archive_stat, 'st_mtime_ns', 0)}:{info.CRC}:{info.file_size}"
                 token = _token_for_text(f"{path.resolve()}::{member}::{revision}")
-                target = display_assets if is_display_asset else icons
-                _add_icon(target, IconCandidate(item_id=asset_id, path=None, archive_path=path, archive_member=member, source=source_label, token=token))
+                candidate = IconCandidate(item_id=asset_id, path=None, archive_path=path, archive_member=member, source=source_label, token=token)
+                if is_display_asset:
+                    _add_icon(display_assets, candidate)
+                else:
+                    _add_source_texture(source_icons, candidate)
     except (OSError, zipfile.BadZipFile) as exc:
         warnings.append(f"{path}: {exc.__class__.__name__}: {exc}")
+    for candidate in source_icons.values():
+        _add_icon(icons, candidate)
     return scanned, warnings
 
 

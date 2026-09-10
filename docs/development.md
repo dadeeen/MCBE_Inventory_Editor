@@ -69,6 +69,9 @@ A `wiki_*` stamp in `source_version.json` records a comparison made by that upda
 
 Regression tests cover missing local values, table completeness, and wiki-only entries.
 
+Inventory icon binding, preview limitations, and before/after verification are
+documented in [Inventory icon resolution](icon-resolution.md).
+
 ## Curated item-availability labels
 
 `mcbe_editor/resources/item_availability.json` is the reviewed source for the availability badges shown by the item browser. It is deliberately separate from generated `item_db.json`: Mojang's registry establishes that an identifier exists, while availability in Survival, Creative, command tooling, Education features, generated world state, or legacy saves is a curated gameplay claim.

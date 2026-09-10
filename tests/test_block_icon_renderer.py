@@ -21,6 +21,21 @@ def _solid_texture(red: int, green: int, blue: int) -> bytes:
     return encode_rgba_png(16, 16, bytes((red, green, blue, 255)) * (16 * 16))
 
 
+@pytest.mark.parametrize("item_id", ["anvil", "chipped_anvil", "damaged_anvil"])
+def test_anvil_top_padding_does_not_cut_holes_or_retexture_the_pedestal(item_id):
+    base = _solid_texture(80, 80, 80)
+    strip = bytes(channel for _y in range(16) for x in range(16) for channel in (255, 0, 0, 255 if 3 <= x < 13 else 0))
+    top = encode_rgba_png(16, 16, strip)
+    plain_png, _ = render_block_icon(item_id, base, is_block_item=True)
+    actual_png, _ = render_block_icon(item_id, base, top_png_bytes=top, is_block_item=True)
+    plain, actual = decode_png(plain_png), decode_png(actual_png)
+    assert actual.rgba[3::4] == plain.rgba[3::4]
+    # A red work face must appear, but the lower half must retain base pixels.
+    assert any(actual.rgba[i] == 255 and actual.rgba[i + 1] == 0 for i in range(0, len(actual.rgba), 4))
+    lower_half = ICON_SIZE * (ICON_SIZE // 2) * 4
+    assert actual.rgba[lower_half:] == plain.rgba[lower_half:]
+
+
 def _shield_model(*, plate_uv: list[int] | None = None) -> dict:
     return {
         "minecraft:geometry": [

@@ -70,6 +70,7 @@ _FULL_CUBE_IDS = {
     "bone_block",
     "bookshelf",
     "border_block",
+    "brick_block",
     "budding_amethyst",
     "calcite",
     "carved_pumpkin",
@@ -598,8 +599,12 @@ def _draw_triangle(
             _blend(canvas, x, y, texture.pixel(u, v), shade)
 
 
-def _draw_quad(canvas: bytearray, texture: Texture, points: list[tuple[float, float]], shade: float) -> None:
-    uv = [(0.0, 0.0), (1.0 - 1e-9, 0.0), (1.0 - 1e-9, 1.0 - 1e-9), (0.0, 1.0 - 1e-9)]
+def _draw_quad(
+    canvas: bytearray, texture: Texture, points: list[tuple[float, float]], shade: float,
+    uv: list[tuple[float, float]] | None = None,
+) -> None:
+    if uv is None:
+        uv = [(0.0, 0.0), (1.0 - 1e-9, 0.0), (1.0 - 1e-9, 1.0 - 1e-9), (0.0, 1.0 - 1e-9)]
     _draw_triangle(canvas, texture, (points[0], points[1], points[2]), (uv[0], uv[1], uv[2]), shade)
     _draw_triangle(canvas, texture, (points[0], points[2], points[3]), (uv[0], uv[2], uv[3]), shade)
 
@@ -611,12 +616,13 @@ def _draw_cuboid(
     front_texture: Texture,
     box: tuple[float, float, float, float, float, float],
     project: Callable[[float, float, float], tuple[float, float]],
+    top_uv: list[tuple[float, float]] | None = None,
 ) -> None:
     x0, y0, z0, x1, y1, z1 = box
     # Visible positive-X and positive-Z faces, followed by the lit top face.
     _draw_quad(canvas, side_texture, [project(x1, y1, z0), project(x1, y1, z1), project(x1, y0, z1), project(x1, y0, z0)], 0.78)
     _draw_quad(canvas, front_texture, [project(x0, y1, z1), project(x1, y1, z1), project(x1, y0, z1), project(x0, y0, z1)], 0.62)
-    _draw_quad(canvas, top_texture, [project(x0, y1, z0), project(x1, y1, z0), project(x1, y1, z1), project(x0, y1, z1)], 1.0)
+    _draw_quad(canvas, top_texture, [project(x0, y1, z0), project(x1, y1, z0), project(x1, y1, z1), project(x0, y1, z1)], 1.0, top_uv)
 
 
 def _model_triplet(value: Any, field_name: str, *, positive: bool = False) -> tuple[float, float, float]:
@@ -971,5 +977,21 @@ def render_block_icon(
     boxes = sorted(_cuboids(shape), key=lambda box: (box[0] + box[2], box[1]))
     project = _projection_for(boxes)
     for box in boxes:
-        _draw_cuboid(canvas, texture, top_texture, front_texture, box, project)
+        face_top = top_texture
+        top_uv = None
+        if shape == "anvil":
+            if box[4] == 16 and top_png_bytes is not None:
+                # Vanilla's anvil top occupies x=3..13, y=0..16 in the
+                # 16x16 texture. Rotate that strip onto the 16x10 work face;
+                # its transparent padding is not a hole in the geometry.
+                top_uv = [(3 / 16, 0), (3 / 16, 1 - 1e-9), (13 / 16 - 1e-9, 1 - 1e-9), (13 / 16 - 1e-9, 0)]
+            else:
+                # Damage belongs on the work face, not the pedestal/neck.
+                face_top = texture
+        _draw_cuboid(canvas, texture, face_top, front_texture, box, project, top_uv)
     return encode_rgba_png(ICON_SIZE, ICON_SIZE, bytes(canvas)), shape
+
+
+def supports_block_preview(item_id: str) -> bool:
+    """Whether our simplified renderer has a reviewed shape for this item."""
+    return _shape_name(item_id) is not None

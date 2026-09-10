@@ -24,6 +24,42 @@ def test_local_icon_scan_uses_configured_roots(monkeypatch, tmp_path):
     assert result["icons"]["minecraft:diamond_sword"]["url"].startswith("/api/icons/")
 
 
+@pytest.mark.parametrize("archive", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("prefix", ["", "items/pack/"])
+def test_raw_texture_collisions_do_not_depend_on_file_order(monkeypatch, tmp_path, archive, reverse, prefix):
+    import zipfile
+
+    root = tmp_path / ("pack.zip" if archive else "pack")
+    entries = [("blocks/brick", b"wrong material"), ("items/brick", b"brick sprite"),
+               ("blocks/lever", b"lever material"), ("items/lever", b"lever sprite")]
+    if reverse:
+        entries.reverse()
+    if archive:
+        with zipfile.ZipFile(root, "w") as zf:
+            for name, data in entries:
+                zf.writestr(prefix + "textures/" + name + ".png", data)
+    else:
+        for name, data in entries:
+            path = root / prefix / "textures" / (name + ".png")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+    monkeypatch.setenv("MCBE_ICON_ROOTS", str(root))
+    result = scan_icons(force=True)
+    for item in ("brick", "lever"):
+        token = result["icons"]["minecraft:" + item]["token"]
+        assert result["_by_token"][token].read_bytes() == (item + " sprite").encode()
+
+
+def test_raw_block_material_is_not_a_substitute_for_missing_ingredient_icon(monkeypatch, tmp_path):
+    root = tmp_path / "items" / "pack"
+    path = root / "textures/blocks/brick.png"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"masonry")
+    monkeypatch.setenv("MCBE_ICON_ROOTS", str(root))
+    assert "minecraft:brick" not in scan_icons(force=True)["icons"]
+
+
 def test_directory_icon_token_changes_when_cached_png_is_replaced(monkeypatch, tmp_path):
     root = tmp_path / "pack" / "textures" / "items"
     root.mkdir(parents=True)
@@ -623,7 +659,7 @@ def test_icon_index_cache_tolerates_invalid_numeric_counters(tmp_path):
 
     cache = tmp_path / "icon_index_cache.json"
     cache.write_text(
-        '{"version":5,"sources_signature":"sig","sources":[],"icons":{},"warnings":[],"scanned_files":"broken","variant_aliases":"broken"}',
+        '{"version":6,"sources_signature":"sig","sources":[],"icons":{},"warnings":[],"scanned_files":"broken","variant_aliases":"broken"}',
         encoding="utf-8",
     )
 
