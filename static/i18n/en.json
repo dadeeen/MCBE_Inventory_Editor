@@ -2583,5 +2583,6 @@
   "protection muss eine Ganzzahl zwischen 0 und 32767 sein": "protection must be an integer between 0 and 32767",
   "unbekannter Slot {slot}": "unknown slot {slot}",
   "value muss eine Ganzzahl zwischen 0 und 32767 sein": "value must be an integer between 0 and 32767",
-  "{key} muss ein Boolean sein": "{key} must be a Boolean"
+  "{key} muss ein Boolean sein": "{key} must be a Boolean",
+  "Bearbeitung ist während des Speicherns gesperrt.": "Editing is locked while saving."
 }

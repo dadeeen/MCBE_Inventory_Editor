@@ -17,6 +17,60 @@ def _run_node(source: str) -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+def test_player_load_app_discards_pending_mounts_on_reload_and_reset() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, document: { getElementById: () => null } };
+            for (const name of ["player_view_models", "player_load_controller", "player_load_app"]) {
+                vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
+            }
+
+            (async () => {
+                const state = { worldPath: "world-A", currentPlayerKey: "local", players: [], isDirty: true };
+                let pending = [{ id: "pending-horse", worldPath: "world-A", playerKey: "local" }];
+                let cleared = 0;
+                const app = context.window.MCBEPlayerLoadApp.createInventoryPlayerLoadApp({
+                    state: {
+                        getPlayerLoadState: () => state,
+                        assignAppState: patch => Object.assign(state, patch),
+                    },
+                    actions: {
+                        clearPendingMounts: () => {
+                            pending = [];
+                            cleared++;
+                            // The real mount callback recomputes dirty state against
+                            // the previous clean snapshot before reset finishes.
+                            state.isDirty = true;
+                        },
+                        markCleanState: () => { state.isDirty = false; },
+                    },
+                    controllerFactory: deps => context.window.MCBEPlayerLoadController.createInventoryPlayerLoadController({
+                        ...deps,
+                        api: { loadPlayer: async () => ({ success: true, player: { editable: true }, inventory: {}, stats: {} }) },
+                    }),
+                });
+
+                assert.strictEqual(await app.loadPlayer("local", true), true);
+                assert.strictEqual(pending.length, 0);
+                assert.strictEqual(cleared, 1);
+                assert.strictEqual(state.isDirty, false);
+
+                pending = [{ id: "another-pending-horse" }];
+                app.resetLoadedPlayerState();
+                assert.strictEqual(pending.length, 0);
+                assert.strictEqual(cleared, 2);
+                assert.strictEqual(state.currentPlayerKey, "");
+                assert.strictEqual(state.isDirty, false);
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        )
+    )
+
+
 def test_frontend_player_load_app_wires_app_dependencies_and_facade_methods() -> None:
     _run_node(
         textwrap.dedent(

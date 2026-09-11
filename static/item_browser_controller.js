@@ -89,6 +89,7 @@
             } finally {
                 selectingAutocompleteItem = false;
             }
+            inputEl.focus?.({ preventScroll: true });
             if (options.applyOnSelect && isDetailInput(inputEl)) {
                 onApplyDetailItem();
             }
@@ -96,6 +97,16 @@
 
         function setupAutocomplete(inputEl, listEl, options = {}) {
             if (!inputEl || !listEl) return;
+            function dismissAutocomplete(event) {
+                if (event.key !== "Escape" || listEl.style.display !== "block") return false;
+                event.preventDefault();
+                event.stopPropagation();
+                listEl.style.display = "none";
+                listEl.innerHTML = "";
+                inputEl.focus?.({ preventScroll: true });
+                return true;
+            }
+            listEl.addEventListener?.("keydown", dismissAutocomplete);
             inputEl.addEventListener("input", event => {
                 const query = event.target.value.toLowerCase().trim();
                 listEl.innerHTML = "";
@@ -105,35 +116,76 @@
                     return;
                 }
 
-                const matches = autocompleteMatches(query, inputEl);
+                // Limit only the rendered page, never the searchable result set.
+                // Otherwise broad queries silently lose every match after ten.
+                const matches = autocompleteMatches(query, inputEl, Infinity);
 
                 if (matches.length > 0) {
-                    matches.forEach(item => {
-                        const fallbackIcon = getItemEmoji(item.id) || "□";
-                        const iconMeta = getItemIconMeta(itemIconTarget(item.id, item.damage));
-                        const row = itemBrowserLogic.autocompleteItemElement(
-                            item,
-                            {
-                                iconUrl: iconMeta?.url || "",
-                                fallbackIcon,
-                                iconTint: getItemIconTint(item.id) || "",
-                            },
-                            getItemAvailability(item.id, item.damage),
-                        );
+                    const appendMatches = (start, end) => {
+                        let firstRow = null;
+                        matches.slice(start, end).forEach(item => {
+                            const fallbackIcon = getItemEmoji(item.id) || "□";
+                            const iconMeta = getItemIconMeta(itemIconTarget(item.id, item.damage));
+                            const row = itemBrowserLogic.autocompleteItemElement(
+                                item,
+                                {
+                                    iconUrl: iconMeta?.url || "",
+                                    fallbackIcon,
+                                    iconTint: getItemIconTint(item.id) || "",
+                                },
+                                getItemAvailability(item.id, item.damage),
+                            );
 
-                        row.addEventListener("click", () => {
-                            selectAutocompleteItem(inputEl, listEl, item, options);
+                            row.addEventListener("click", () => {
+                                selectAutocompleteItem(inputEl, listEl, item, options);
+                            });
+
+                            listEl.appendChild(row);
+                            firstRow ||= row;
                         });
-
-                        listEl.appendChild(row);
-                    });
+                        return firstRow;
+                    };
+                    const chunkPlanFor = typeof itemBrowserLogic.browserRenderChunkPlan === "function"
+                        ? renderedCount => itemBrowserLogic.browserRenderChunkPlan({
+                            totalCount: matches.length, renderedCount, chunkSize: 10,
+                        })
+                        : renderedCount => ({ start: renderedCount, end: matches.length, hasMore: false });
+                    let plan = chunkPlanFor(0);
+                    appendMatches(plan.start, plan.end);
+                    if (plan.hasMore) {
+                        const moreButton = documentObj.createElement("button");
+                        moreButton.type = "button";
+                        moreButton.className = "autocomplete-load-more";
+                        moreButton.textContent = plan.buttonLabel;
+                        moreButton.addEventListener("click", event => {
+                            // Removing the final button must not make the document
+                            // click handler treat this as a click outside the list.
+                            event.stopPropagation();
+                            const hadFocus = documentObj.activeElement === moreButton;
+                            moreButton.remove();
+                            plan = chunkPlanFor(plan.end);
+                            const firstRow = appendMatches(plan.start, plan.end);
+                            if (plan.hasMore) {
+                                moreButton.textContent = plan.buttonLabel;
+                                listEl.appendChild(moreButton);
+                            }
+                            if (hadFocus) {
+                                firstRow?.focus({ preventScroll: true });
+                                firstRow?.scrollIntoView({ block: "nearest" });
+                            }
+                        });
+                        listEl.appendChild(moreButton);
+                    }
                     listEl.style.display = "block";
+                    // A hidden list ignores scrollTop; reset after showing it.
+                    listEl.scrollTop = 0;
                 } else {
                     listEl.style.display = "none";
                 }
             });
 
             inputEl.addEventListener("keydown", event => {
+                if (dismissAutocomplete(event)) return;
                 if (event.key !== "Enter") return;
                 const query = String(inputEl.value || "").toLowerCase().trim();
                 if (!query) return;
@@ -316,6 +368,7 @@
             setupAutocomplete(detailInput, detailAutocomplete, { applyOnSelect: true });
             setupAutocomplete(bulkInput, bulkAutocomplete);
             documentObj.addEventListener("click", hideAutocompleteLists);
+            documentObj.addEventListener("focusin", hideAutocompleteLists);
             detailBrowserButton?.addEventListener("click", () => openItemBrowser(detailInput, detailBrowserButton));
             bulkBrowserButton?.addEventListener("click", () => openItemBrowser(bulkInput, bulkBrowserButton));
             overlay?.addEventListener("click", event => {

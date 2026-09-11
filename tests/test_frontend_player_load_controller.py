@@ -669,6 +669,65 @@ def test_frontend_player_list_refresh_ignores_previous_world_response() -> None:
     )
 
 
+def test_world_switch_clears_old_player_before_loading_new_world_player() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console: { error() {} } };
+            for (const name of ["player_view_models", "player_load_controller"]) {
+                vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
+            }
+            (async () => {
+                for (const scenario of ["player-error", "player-connection-error", "success", "cancel", "world-error"]) {
+                    const state = {
+                        worldPath: "world-A", currentPlayerKey: "local", currentPlayerRevision: "revision-A",
+                        inventory: { 0: { count: 7 } }, isDirty: true,
+                    };
+                    let playerReads = 0;
+                    const controller = context.window.MCBEPlayerLoadController.createPlayerLoadController({
+                        elements: { worldPathInput: { value: "world-B" } },
+                        getState: () => state,
+                        setState: patch => Object.assign(state, patch),
+                        showConfirmDialog: async () => scenario !== "cancel",
+                        api: {
+                            listPlayers: async () => ({
+                                success: scenario !== "world-error",
+                                players: [{ player_key: "local", editable: true }],
+                            }),
+                            loadPlayer: async world => {
+                                playerReads++;
+                                assert.strictEqual(world, "world-B");
+                                assert.strictEqual(state.currentPlayerKey, "");
+                                assert.strictEqual(state.currentPlayerRevision, "");
+                                assert.strictEqual(Object.keys(state.inventory).length, 0);
+                                assert.strictEqual(state.isDirty, false);
+                                if (scenario === "player-connection-error") throw new Error("Disconnected");
+                                return { success: scenario === "success", player: { editable: true }, player_revision: "revision-B", inventory: {} };
+                            },
+                        },
+                    });
+                    const result = await controller.loadWorldFromInput();
+                    assert.strictEqual(result, scenario === "success", scenario);
+                    if (["cancel", "world-error"].includes(scenario)) {
+                        assert.strictEqual(playerReads, 0);
+                        assert.strictEqual(state.worldPath, "world-A");
+                        assert.strictEqual(state.currentPlayerRevision, "revision-A");
+                        assert.strictEqual(state.inventory[0].count, 7);
+                    } else {
+                        assert.strictEqual(playerReads, 1);
+                        assert.strictEqual(state.worldPath, "world-B");
+                        assert.strictEqual(state.currentPlayerRevision, scenario === "success" ? "revision-B" : "");
+                    }
+                }
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        )
+    )
+
+
 def test_frontend_player_load_controller_hides_overlay_after_load_failure() -> None:
     _run_node(
         textwrap.dedent(

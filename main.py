@@ -715,7 +715,7 @@ def _valid_login(username: str, password: str) -> bool:
             LOGGER.error("auth invalid_password_hash source=environment")
             return False
     if APP_CONFIG.auth_password:
-        return secrets.compare_digest(APP_CONFIG.auth_password, password)
+        return secrets.compare_digest(APP_CONFIG.auth_password.encode("utf-8"), password.encode("utf-8"))
     setup_hash = SETUP_STATE.password_hash()
     if setup_hash:
         try:

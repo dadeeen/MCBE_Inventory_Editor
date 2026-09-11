@@ -702,6 +702,7 @@ const writeGateController = window.MCBEWriteStatusView.createInventoryWriteGateC
     getCurrentPlayerKey: () => currentPlayerKey,
     getIsDirty: () => isDirty,
     buildChangeSummary,
+    getIsSaving: () => saveAppController?.isSaving() || false,
     updateImportControls: () => updateImportControls(),
     updatePlayerTransferControls: () => getPlayerToolsController().updateStateTransferWriteControl(),
     renderSaveWorkflowPanel,
@@ -1046,7 +1047,7 @@ const undoRedoAppController = window.MCBEUndoRedoController.createInventoryUndoR
     setDirty,
     recordAction,
     editingBlocked: () => writeGateController.editingBlocked(),
-    getEditingBlockedReason: () => writeGateController.effectiveWriteGate()?.reason || "",
+    getEditingBlockedReason: () => writeGateController.editingBlockedReason(),
 });
 function markCleanState() { return undoRedoAppController.markCleanState(); }
 function pushUndo(label = t("Änderung")) { return undoRedoAppController.pushUndo(label); }
@@ -1176,6 +1177,7 @@ function createConfiguredSaveAppController() {
         ui: {
             saveButton: btnSave,
             saveReviewConfirmButton: btnSaveReviewConfirm,
+            editorContainer: document.querySelector(".app-container"),
             getWorldLabel: () => worldNameEl?.textContent || selectedWorld?.name || t("Geladene Welt"),
         },
         helpers: {
@@ -1207,6 +1209,7 @@ function createConfiguredSaveAppController() {
             takeSnapshot: () => takeSnapshot(),
             updateWorldPresence,
             updateWriteControls,
+            updateUndoButtons,
             validateInventoryState,
             writeBlocked,
             guardWorldWriteAction,
@@ -1258,7 +1261,7 @@ const slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetai
         updateGridVisuals,
         setDirty,
         editingBlocked: () => writeGateController.editingBlocked(),
-        getEditingBlockedReason: () => writeGateController.effectiveWriteGate()?.reason || "",
+        getEditingBlockedReason: () => writeGateController.editingBlockedReason(),
         syncEditControls: updateWriteControls,
         logStatus,
         recordAction,

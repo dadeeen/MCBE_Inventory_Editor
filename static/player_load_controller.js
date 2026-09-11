@@ -125,6 +125,9 @@
 
         function resetLoadedPlayerState({ showEmptyState = true } = {}) {
             const state = getState();
+            // Clearing mounts may notify the dirty-state observer. Finish by
+            // assigning the unloaded state so that notification cannot keep it dirty.
+            clearPendingMounts();
             setState({
                 inventory: {},
                 enderChestInventory: {},
@@ -157,7 +160,6 @@
                 isDirty: false,
             });
             clearLoadedPlayerStaleState();
-            clearPendingMounts();
             clearSelection();
             resetUndoRedoForUnloadedPlayer();
             if (btnExportPlayer) btnExportPlayer.disabled = true;
@@ -500,6 +502,9 @@
 
                 showLoading(t("2/2 Spieler vorbereiten..."));
                 const nextPlayers = data.players || [];
+                // Never attach the previous player's inventory/revision to the
+                // new world, including when the following player read fails.
+                resetLoadedPlayerState({ showEmptyState: false });
                 setState({ worldPath: nextWorldPath, players: nextPlayers });
                 if (worldNameElement) worldNameElement.innerText = data.world_name;
                 if (worldBanner) worldBanner.style.display = "flex";
@@ -513,10 +518,10 @@
 
                 const firstEditable = nextPlayers.find(player => player.editable);
                 if (firstEditable) {
-                    await loadPlayer(firstEditable.player_key, true, { showLoadingOverlay: false });
+                    const playerLoaded = await loadPlayer(firstEditable.player_key, true, { showLoadingOverlay: false });
                     if (requestId !== worldLoadRequestId) return false;
+                    if (!playerLoaded) return false;
                 } else {
-                    resetLoadedPlayerState({ showEmptyState: false });
                     if (playerManager) playerManager.style.display = "flex";
                     renderPlayersList();
                     renderPlayerToolOptions();

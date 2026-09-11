@@ -638,7 +638,8 @@
         const availabilityIsDocument = availability && typeof availability.createElement === "function";
         const documentObj = doc || (availabilityIsDocument ? availability : document);
         const badge = availabilityIsDocument ? null : availability;
-        const row = documentObj.createElement("div");
+        const row = documentObj.createElement("button");
+        row.type = "button";
         row.className = "autocomplete-item";
         row.innerHTML = autocompleteItemHtml(item, icon, badge);
         return row;

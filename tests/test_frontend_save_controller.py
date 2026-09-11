@@ -642,6 +642,122 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
     )
 
 
+def test_configured_save_locks_editing_through_review_and_request_and_releases_on_exit() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console: { error() {} } };
+            for (const name of ["write_status_view", "undo_redo_view", "undo_redo_controller", "workflow_state", "save_payload_logic", "save_controller"]) {
+                vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
+            }
+            const modules = context.window;
+            function deferred() {
+                let resolve, reject;
+                const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+                return { promise, resolve, reject };
+            }
+            const tick = () => new Promise(resolve => setImmediate(resolve));
+
+            (async () => {
+                for (const outcome of ["success", "cancel", "rejected", "connection-error", "preparation-error"]) {
+                    const state = { inventory: { 0: { slot: 0, name: "minecraft:stone", count: 1 } }, dirty: false };
+                    const editorContainer = { inert: false };
+                    const review = deferred();
+                    const response = deferred();
+                    const posts = [];
+                    let saveApp;
+                    const gate = modules.MCBEWriteStatusView.createWriteGateController({
+                        getCurrentPlayerKey: () => "local",
+                        getCurrentWriteGate: () => ({ allowed: true }),
+                        getIsSaving: () => saveApp?.isSaving() || false,
+                    });
+                    const undo = modules.MCBEUndoRedoController.createUndoRedoAppController({
+                        takeSnapshot: () => JSON.parse(JSON.stringify({ inv: state.inventory, ec: {}, stats: {}, effects: [], abilities: {} })),
+                        snapshotHash: snapshot => JSON.stringify(snapshot),
+                        setInventory: value => { state.inventory = value; },
+                        setDirty: value => { state.dirty = value; },
+                        editingBlocked: gate.editingBlocked,
+                    });
+                    undo.markCleanState();
+                    undo.pushUndo("Change count");
+                    state.inventory[0].count = 2;
+                    state.dirty = true;
+                    const keyboard = modules.MCBEWorkflowState.createAppKeyboardController({
+                        doc: {}, undo: undo.undo, redo: undo.redo,
+                    });
+                    const pressUndo = () => keyboard.handleKeydown({
+                        ctrlKey: true, key: "z", target: { matches: () => false }, preventDefault() {},
+                    });
+                    saveApp = modules.MCBESaveController.createConfiguredSaveAppController({
+                        api: {
+                            fetchFn: async (_url, options) => {
+                                posts.push(JSON.parse(options.body));
+                                return response.promise;
+                            },
+                        },
+                        state: {
+                            getWorldPath: () => "world-A",
+                            getCurrentPlayerKey: () => "local",
+                            getCurrentPlayerRevision: () => "revision-A",
+                            getInventory: () => state.inventory,
+                            getCleanSnapshot: undo.getCleanSnapshot,
+                            getIsDirty: () => state.dirty,
+                        },
+                        ui: { editorContainer },
+                        helpers: {
+                            buildChangeSummary: () => {
+                                if (outcome === "preparation-error") throw new Error("Preparation failed");
+                                return { total: 1 };
+                            },
+                            sectionChanged: (before, after) => JSON.stringify(before) !== JSON.stringify(after),
+                            itemIsVisiblePresent: item => Boolean(item?.name),
+                            openSaveReview: () => review.promise,
+                            markCleanState: undo.markCleanState,
+                            updateUndoButtons: undo.updateUndoButtons,
+                            guardWorldWriteAction: gate.writeBlocked,
+                        },
+                    });
+                    const saving = saveApp.saveCurrentPlayer();
+                    assert.strictEqual(saveApp.isSaving(), true);
+                    assert.strictEqual(editorContainer.inert, true);
+                    assert.strictEqual(gate.editingBlocked(), true);
+                    assert.strictEqual(gate.writeBlocked(), false, "the current save must still pass the server gate");
+                    pressUndo();
+                    assert.strictEqual(state.inventory[0].count, 2, "review must lock keyboard editing");
+                    if (outcome === "preparation-error") {
+                        await assert.rejects(saving, /Preparation failed/);
+                    } else {
+                        await tick();
+                        assert.strictEqual(posts.length, 0);
+                        review.resolve(outcome !== "cancel");
+                        await tick();
+                        if (outcome !== "cancel") {
+                            assert.strictEqual(posts.length, 1);
+                            assert.strictEqual(posts[0].inventory[0].count, 2);
+                            assert.strictEqual(editorContainer.inert, true);
+                            pressUndo();
+                            assert.strictEqual(state.inventory[0].count, 2, "pending request must lock keyboard editing");
+                            if (outcome === "connection-error") response.reject(new Error("Disconnected"));
+                            else response.resolve({ json: async () => ({ success: outcome === "success", player_revision: "revision-B" }) });
+                        }
+                        await saving;
+                    }
+                    assert.strictEqual(saveApp.isSaving(), false, outcome);
+                    assert.strictEqual(editorContainer.inert, false, outcome);
+                    assert.strictEqual(gate.editingBlocked(), false, outcome);
+                    assert.strictEqual(state.dirty, outcome !== "success");
+                    pressUndo();
+                    assert.strictEqual(state.inventory[0].count, outcome === "success" ? 2 : 1, "failed/cancelled saves preserve undo");
+                }
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        )
+    )
+
+
 def test_configured_save_controller_uses_atomic_workspace_endpoint_for_mounts() -> None:
     source = (ROOT / "static" / "save_controller.js").read_text(encoding="utf-8")
 

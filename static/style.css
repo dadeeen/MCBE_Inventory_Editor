@@ -1332,8 +1332,8 @@ body {
     top: calc(100% + 4px);
     left: 0;
     right: 0;
-    background: #1e2530;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--floating-card-bg, #1e2530);
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     max-height: 200px;
     overflow-y: auto;
@@ -1342,6 +1342,12 @@ body {
     display: none;
 }
 .autocomplete-item {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
     padding: 10px 14px;
     cursor: pointer;
     font-size: 0.9rem;
@@ -1357,6 +1363,11 @@ body {
 }
 .autocomplete-item:hover {
     background: rgba(255, 255, 255, 0.05);
+}
+.autocomplete-item:focus-visible,
+.autocomplete-load-more:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
 }
 .autocomplete-item .autocomplete-emoji {
     grid-area: icon;
@@ -2085,7 +2096,8 @@ body.item-browser-open {
     contain-intrinsic-size: auto 126px;
 }
 
-.browser-load-more {
+.browser-load-more,
+.autocomplete-load-more {
     grid-column: 1 / -1;
     background: rgba(16, 185, 129, 0.08);
     border: 1px dashed rgba(16, 185, 129, 0.35);
@@ -2098,9 +2110,15 @@ body.item-browser-open {
     transition: all 0.15s;
 }
 
-.browser-load-more:hover {
+.browser-load-more:hover,
+.autocomplete-load-more:hover {
     background: rgba(16, 185, 129, 0.16);
     border-color: rgba(16, 185, 129, 0.5);
+}
+
+.autocomplete-load-more {
+    width: 100%;
+    color: inherit;
 }
 
 @media (max-width: 900px) {

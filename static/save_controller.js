@@ -26,6 +26,7 @@
             markCleanState,
             normalizeOriginsToCurrentSavedState,
             openSaveReview,
+            onSaveBusyChanged = () => {},
             payloadContainsUserChanges,
             postSavePayload,
             recordAction,
@@ -435,14 +436,19 @@
             const attempt = performSaveCurrentPlayer(options);
             const trackedAttempt = attempt.finally(() => {
                 if (activeSavePromise === trackedAttempt) activeSavePromise = null;
+                onSaveBusyChanged(false);
             });
             activeSavePromise = trackedAttempt;
+            // Covers confirmation/review dialogs as well as the request. A
+            // visual loading overlay alone does not stop keyboard mutations.
+            onSaveBusyChanged(true);
             return trackedAttempt;
         }
 
         return {
             confirmMissingTagCreates,
             confirmUnknownServerStatus,
+            isSaving: () => activeSavePromise !== null,
             saveCurrentPlayer,
         };
     }
@@ -514,6 +520,7 @@
             changeKindLabel: kind => getSaveLogic().changeKindLabel(kind),
             collectEditorDecisionDetails: (summary, validation) => getSaveLogic().collectEditorDecisionDetails(summary, validation),
             decisionLogText: (summary, validation) => getSaveLogic().decisionLogText(summary, validation),
+            isSaving: () => saveController?.isSaving() || false,
             saveCurrentPlayer: options => getSaveController().saveCurrentPlayer(options),
             shouldSyncAbilitiesFromUIForSave: () => getSavePayloadLogic().shouldSyncAbilitiesFromUIForSave(),
             validateInventoryState: options => getSaveLogic().validateInventoryState(options),
@@ -566,6 +573,7 @@
             syncEffectsFromUI = () => [],
             takeSnapshot = () => ({}),
             updateWorldPresence = async () => {},
+            updateUndoButtons = () => {},
             updateWriteControls = () => {},
             validateInventoryState = () => ({ errors: 0 }),
             writeBlocked = () => false,
@@ -574,6 +582,7 @@
         const {
             saveButton = null,
             saveReviewConfirmButton = null,
+            editorContainer = null,
             flashDurationMs = 1500,
             getWorldLabel = () => t("Geladene Welt"),
         } = ui;
@@ -704,6 +713,11 @@
                 markCleanState,
                 normalizeOriginsToCurrentSavedState,
                 openSaveReview,
+                onSaveBusyChanged: busy => {
+                    if (editorContainer) editorContainer.inert = busy;
+                    updateUndoButtons();
+                    updateWriteControls();
+                },
                 payloadContainsUserChanges: window.MCBESavePayloadLogic.payloadContainsUserChanges,
                 postSavePayload,
                 recordAction,

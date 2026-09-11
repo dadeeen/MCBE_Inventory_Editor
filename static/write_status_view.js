@@ -300,6 +300,7 @@
         setCurrentPlayerStaleReason = () => {},
         getCurrentPlayerKey = () => "",
         getIsDirty = () => false,
+        getIsSaving = () => false,
         buildChangeSummary = () => ({ total: 0 }),
         updateImportControls = () => {},
         updatePlayerTransferControls = () => {},
@@ -376,7 +377,13 @@
         }
 
         function editingBlocked() {
-            return Boolean(getCurrentPlayerKey()) && writeBlocked();
+            return getIsSaving() || (Boolean(getCurrentPlayerKey()) && writeBlocked());
+        }
+
+        function editingBlockedReason() {
+            return getIsSaving()
+                ? t("Bearbeitung ist während des Speicherns gesperrt.")
+                : effectiveWriteGate()?.reason || t("Bearbeitung ist aktuell gesperrt.");
         }
 
         function permissions() {
@@ -528,6 +535,7 @@
             beginServerStatusRequest,
             clearLoadedPlayerStaleState,
             editingBlocked,
+            editingBlockedReason,
             effectiveWriteGate,
             markLoadedPlayerStale,
             normalizeServerGuardEpoch,
@@ -562,7 +570,7 @@
         });
         let editGuardWired = false;
         function blockedFeedback() {
-            const reason = controller.effectiveWriteGate()?.reason || t("Bearbeitung ist aktuell gesperrt.");
+            const reason = controller.editingBlockedReason();
             deps.showToast?.(reason, "warning", 4500);
         }
         function guardEditingAction() {

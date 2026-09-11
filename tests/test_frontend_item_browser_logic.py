@@ -432,7 +432,8 @@ def test_frontend_item_browser_logic_element_helpers_build_expected_rows() -> No
                 de: "Diamant & Test",
                 en: "Diamond <Test>",
             }, { fallbackIcon: "<>" }, doc);
-            assert.strictEqual(row.tagName, "div");
+            assert.strictEqual(row.tagName, "button");
+            assert.strictEqual(row.type, "button");
             assert.strictEqual(row.className, "autocomplete-item");
             assert.ok(row.innerHTML.includes("&lt;&gt;"));
             assert.ok(row.innerHTML.includes("Diamant &amp; Test"));

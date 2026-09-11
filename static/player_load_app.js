@@ -81,6 +81,7 @@
             updateGridVisuals: actions.updateGridVisuals,
             clearSelection: actions.clearSelection,
             markCleanState: actions.markCleanState,
+            clearPendingMounts: actions.clearPendingMounts,
             renderPlayerInventorySummary: actions.renderPlayerInventorySummary,
             recordAction: actions.recordAction,
             getCurrentPlayerLabel: actions.getCurrentPlayerLabel,

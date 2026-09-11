@@ -47,6 +47,37 @@ def _post_login_with_next(monkeypatch, next_target: str):
     )
 
 
+@pytest.mark.parametrize(
+    ("configured", "submitted", "accepted"),
+    [
+        ("Prüfpasswort123", "Prüfpasswort123", True),
+        ("Prüfpasswort123", "Prufpasswort123", False),
+        ("ascii-password", "falsch-ü", False),
+        ("密码🔑12345678", "密码🔑12345678", True),
+        ("ascii-password", "ascii-password", True),
+    ],
+)
+def test_login_supports_unicode_environment_passwords(monkeypatch, configured, submitted, accepted):
+    from dataclasses import replace
+
+    import main
+
+    monkeypatch.setattr(
+        main,
+        "APP_CONFIG",
+        replace(main.APP_CONFIG, auth_required=True, auth_username="admin", auth_password=configured, auth_password_hash=None),
+    )
+    client = main.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        csrf_token = session["csrf_token"]
+    response = client.post("/login", data={"username": "admin", "password": submitted, "_csrf_token": csrf_token})
+
+    assert response.status_code == (302 if accepted else 200)
+    with client.session_transaction() as session:
+        assert (session.get("authenticated") is True) == accepted
+
+
 def test_login_allows_local_next_redirect(monkeypatch):
     response = _post_login_with_next(monkeypatch, "/versions?from=login")
 

@@ -1301,8 +1301,13 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
     exportable: true,
     has_inventory_tag: true,
   };
+  const catalog = JSON.parse(fs.readFileSync("mcbe_editor/resources/item_db.json", "utf8"));
+  const fences = Object.fromEntries(Object.entries(catalog.items).filter(([id]) => (
+    catalog.addable_items.includes(id) && id.includes("fence")
+  )));
   // Registry order deliberately keeps the exact match behind its substring hits.
   const itemsDb = {
+    ...fences,
     "minecraft:bedrock": ["Grundgestein", "Bedrock"],
     "minecraft:blackstone": ["Schwarzstein", "Blackstone"],
     "minecraft:cobblestone": ["Bruchstein", "Cobblestone"],
@@ -1386,6 +1391,97 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   await page.locator("#detailItemSearch").press("Enter");
   await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:stone_stairs");
   await expect(autocomplete).toBeHidden();
+
+  // Broad searches must make every match reachable, including fences after
+  // the initial ten suggestions. Loading the last page must not close the list.
+  await page.locator("#detailItemSearch").fill("Zaun");
+  const more = autocomplete.locator(".autocomplete-load-more");
+  await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(10);
+  await expect(more).toHaveText("Weitere 10 von 15 anzeigen");
+  await more.focus();
+  await more.press("Enter");
+  await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(20);
+  await expect(autocomplete.locator(".autocomplete-item").nth(10)).toBeFocused();
+  await more.click();
+  await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(25);
+  await expect(more).toHaveCount(0);
+  await expect(autocomplete).toBeVisible();
+  const fenceRow = autocomplete.locator(".autocomplete-item").filter({
+    has: page.locator(".item-id", { hasText: /^minecraft:dark_oak_fence$/ }),
+  });
+  await fenceRow.focus();
+  await fenceRow.press("Enter");
+  await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:dark_oak_fence");
+  await expect(page.locator("#detailPreviewName")).toHaveText("Schwarzeichenholzzaun");
+  await expect(autocomplete).toBeHidden();
+  await expect(page.locator("#detailItemSearch")).toBeFocused();
+
+  // A new query starts a fresh page and scroll position; exact IDs still win.
+  await page.locator("#detailItemSearch").fill("Zaun");
+  await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(10);
+  await expect.poll(() => autocomplete.evaluate(element => element.scrollTop)).toBe(0);
+  await page.locator("#detailItemSearch").fill("minecraft:dark_oak_fence");
+  await expect(more).toHaveCount(0);
+  await expect(autocomplete.locator(".autocomplete-item").first().locator(".item-id")).toHaveText("minecraft:dark_oak_fence");
+  await page.locator("#detailItemSearch").press("Enter");
+  await expect(autocomplete).toBeHidden();
+
+  await page.locator("#detailItemSearch").fill("Zaun");
+  await page.locator("#detailItemSearch").press("Escape");
+  await expect(autocomplete).toBeHidden();
+  await expect(page.locator("#detailItemSearch")).toHaveValue("Zaun");
+  await expect(page.locator("#detailItemSearch")).toBeVisible();
+
+  // Moving focus to another field must not leave a stale popup in the editor.
+  await page.locator("#detailItemSearch").fill("Zaun");
+  await page.locator("#detailCount").focus();
+  await expect(autocomplete).toBeHidden();
+
+  // Bulk autocomplete exposes the same later matches, but choosing one only
+  // fills the bulk form; it must not immediately overwrite selected slots.
+  await page.locator('[data-slot="0"]').click();
+  await page.locator('[data-slot="1"]').click({ modifiers: ["Control"] });
+  const bulkSearch = page.locator("#bulkItemSearch");
+  const bulkList = page.locator("#bulkItemAutocomplete");
+  await bulkSearch.fill("Zaun");
+  await bulkList.locator(".autocomplete-load-more").click();
+  await bulkList.locator(".autocomplete-load-more").click();
+  await expect(bulkList.locator(".autocomplete-item")).toHaveCount(25);
+  const spruceRow = bulkList.locator(".autocomplete-item").filter({
+    has: page.locator(".item-id", { hasText: /^minecraft:spruce_fence$/ }),
+  });
+  await spruceRow.focus();
+  await spruceRow.press("Enter");
+  await expect(bulkSearch).toHaveValue("minecraft:spruce_fence");
+  await expect(bulkList).toBeHidden();
+  await expect(bulkSearch).toBeFocused();
+  await page.locator('[data-slot="0"]').click();
+  await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:dark_oak_fence");
+
+  // The popup must remain readable and fit its input in every theme, including
+  // narrow layouts. The old fixed dark background obscured light-theme text.
+  for (const theme of ["dark", "light", "minecraft"]) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (width < 700) await page.locator('[data-panel="right"]').click();
+      await page.locator("#detailItemSearch").fill("Zaun");
+      const popup = await autocomplete.evaluate(element => ({
+        background: getComputedStyle(element).backgroundColor,
+        name: getComputedStyle(element.querySelector("strong")).color,
+        id: getComputedStyle(element.querySelector(".item-id")).color,
+        more: getComputedStyle(element.querySelector(".autocomplete-load-more")).color,
+        moreBackground: getComputedStyle(element.querySelector(".autocomplete-load-more")).backgroundColor,
+        client: element.clientWidth,
+        scroll: element.scrollWidth,
+      }));
+      for (const foreground of [popup.name, popup.id]) {
+        expect(contrastRatio(foreground, popup.background), `${theme} text at ${width}px`).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(contrastRatio(popup.more, compositeColor(popup.moreBackground, popup.background))).toBeGreaterThanOrEqual(4.5);
+      expect(popup.scroll).toBeLessThanOrEqual(popup.client);
+    }
+  }
 
   expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
