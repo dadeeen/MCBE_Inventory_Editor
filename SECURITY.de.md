@@ -80,9 +80,11 @@ Private Fixture-Welten gehören ausschließlich unter `fixtures/private/`; diese
 
 ## Abhängigkeiten und Prüfung
 
-Lokale und Release-Umgebungen verwenden hashgebundene Abhängigkeiten für Python 3.12. Maßgeblich sind `pyproject.toml` und die Lockfiles; Versionen werden in dieser Richtlinie nicht dupliziert.
+Lokale und Release-Umgebungen verwenden hashgebundene Abhängigkeiten für Python 3.12–3.14. Maßgeblich sind `pyproject.toml` und die Lockfiles; Versionen werden in dieser Richtlinie nicht dupliziert.
 
-Vollständige lokale Sicherheitsprüfung. Führe zuerst einmal `setup.bat` aus, falls `.venv` noch nicht existiert; das erstellt die Umgebung mit Python 3.12. Die Befehle rufen diesen Interpreter direkt auf, da ein globaler die Entwicklungsabhängigkeiten systemweit installieren würde:
+Runtime-ZIPs enthalten vom Projekt gebaute Windows-x64-LevelDB-Wheels für neuere unterstützte Python-Versionen. CI baut das unveränderte, hashgebundene Quellarchiv mit festgeschriebenen Python-Build-Werkzeugen, prüft jedes Wheel in einer frischen Umgebung ohne Quellbau und legt Herkunftsangaben sowie die vorgelagerten Lizenztexte bei. Das Setup prüft Wheel und Lizenzdateien vor der Installation. Die Herkunfts-Hashes belegen die Konsistenz mit dem Release; prüfe zusätzlich die Prüfsumme des Release-ZIPs. Ein Quellcode-Checkout kann weiterhin ein veröffentlichtes Wheel oder nach Compiler-/SDK-Prüfung einen lokalen Quellbau verwenden.
+
+Vollständige lokale Sicherheitsprüfung. Führe zuerst einmal `setup.bat` aus, falls `.venv` noch nicht existiert; das erstellt die Umgebung mit Python 3.12–3.14. Die Befehle rufen diesen Interpreter direkt auf, da ein globaler die Entwicklungsabhängigkeiten systemweit installieren würde:
 
 ```bash
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock

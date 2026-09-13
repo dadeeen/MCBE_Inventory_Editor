@@ -80,9 +80,11 @@ Private fixture worlds belong only under `fixtures/private/`, which is ignored a
 
 ## Dependencies and verification
 
-Local and release environments use hash-pinned dependencies for Python 3.12. The authoritative versions are in `pyproject.toml` and the lockfiles rather than duplicated in this policy.
+Local and release environments use hash-pinned dependencies for Python 3.12–3.14. The authoritative versions are in `pyproject.toml` and the lockfiles rather than duplicated in this policy.
 
-For a full local security check. Run `setup.bat` once first if `.venv` does not exist yet; it creates the environment on Python 3.12. The commands call that interpreter directly, because a global one would install the development dependencies system-wide:
+Runtime ZIPs include project-built Windows x64 LevelDB wheels for newer supported Python versions. CI builds the unchanged hash-locked upstream archive with locked Python build tools, tests each wheel in a fresh environment without source builds, and packages provenance and upstream license notices. Setup verifies the wheel and notices before installation. Provenance hashes establish consistency with the release; verify the release ZIP checksum as well. A source checkout can still use a published wheel or a compiler/SDK preflight before a local build.
+
+For a full local security check. Run `setup.bat` once first if `.venv` does not exist yet; it creates the environment on Python 3.12–3.14. The commands call that interpreter directly, because a global one would install the development dependencies system-wide:
 
 ```bash
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock

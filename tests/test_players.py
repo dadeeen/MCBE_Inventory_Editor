@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 from flask import Flask
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.players import (
     classify_player_record,

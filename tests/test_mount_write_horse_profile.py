@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import pytest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.bedrock_nbt import LOAD_KWARGS
 from mcbe_editor.mount_profile import DEFAULT_HORSE_TEMPER

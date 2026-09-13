@@ -69,7 +69,8 @@ def _isolate_in_memory_rate_limits():
 
 
 def _nbt_module():
-    return pytest.importorskip("amulet_nbt", reason="amulet_nbt is required for NBT fixture tests")
+    from mcbe_editor import nbt
+    return nbt
 
 
 def make_minimal_player_tag():

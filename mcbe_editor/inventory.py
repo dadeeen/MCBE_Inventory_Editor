@@ -12,7 +12,6 @@ import hashlib as _hashlib
 import hmac as _hmac
 import importlib as _importlib
 import json as _json
-import math as _math
 
 from . import _inventory_core as _core
 from ._inventory_core import (
@@ -159,29 +158,11 @@ __all__ = (
 )
 
 
-def _json_safe_value(value):
-    if hasattr(value, "tolist"):
-        value = value.tolist()
-    if isinstance(value, (bytes, bytearray)):
-        return {"bytes": list(value)}
-    if isinstance(value, dict):
-        return {str(key): _json_safe_value(item) for key, item in sorted(value.items(), key=lambda entry: str(entry[0]))}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe_value(item) for item in value]
-    if isinstance(value, float) and not _math.isfinite(value):
-        return {"float": repr(value)}
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    return repr(value)
-
-
 def _canonical_nbt(tag):
-    if _core._is_compound_tag(tag):
-        entries = [[str(key), _canonical_nbt(tag[key])] for key in sorted(tag.keys(), key=str)]
-        return [type(tag).__name__, entries]
-    if _core._is_list_tag(tag):
-        return [type(tag).__name__, [_canonical_nbt(entry) for entry in tag]]
-    return [type(tag).__name__, _json_safe_value(_core.get_tag_value(tag))]
+    # Opaque fields are copied verbatim. Their wire representation also captures
+    # empty-list element types, raw string/name bytes and NaN payload bits, which
+    # a JSON projection of their visible values cannot distinguish.
+    return [type(tag).__name__, _core.save_player_nbt(_core.nbt.NamedTag(tag)).hex()]
 
 
 def _canonical_preserved_enchantments(list_tag):
@@ -208,7 +189,7 @@ def _canonical_preserved_enchantments(list_tag):
                 [[str(key), _canonical_nbt(enchantment[key])] for key in extra_keys],
             ]
         )
-    return [type(list_tag).__name__, entries]
+    return [type(list_tag).__name__, entries, list_tag.list_data_type]
 
 
 def _canonical_preserved_item_tag(tag_compound, item_name: str):
@@ -231,7 +212,7 @@ def _canonical_preserved_item_tag(tag_compound, item_name: str):
                 entry_value = value[entry]
                 if entry_name == "Name" and isinstance(entry_value, _core.nbt.StringTag):
                     continue
-                if entry_name == "Lore" and _core._is_string_list_tag(entry_value):
+                if entry_name == "Lore" and _core._is_string_list_tag(entry_value) and entry_value.list_data_type in (0, 8):
                     continue
                 preserved_keys.append(entry)
             preserved_keys.sort(key=str)
@@ -245,8 +226,7 @@ def _canonical_preserved_item_tag(tag_compound, item_name: str):
             continue
         if key_name in {"ench", "enchantments"}:
             preserved = _canonical_preserved_enchantments(value)
-            if not _core._is_list_tag(value) or preserved[1]:
-                entries.append([key_name, preserved])
+            entries.append([key_name, preserved])
             continue
         entries.append([key_name, _canonical_nbt(value)])
     return [type(tag_compound).__name__, entries]
@@ -454,7 +434,7 @@ def _build_item_nbt_list(
         raise ValueError(_core.t("{label}-Daten müssen eine Liste sein.", label=duplicate_label))
 
     original_tag = player_tag.get(tag_name)
-    if original_tag is not None and not _core._is_list_tag(original_tag):
+    if original_tag is not None and not _core._is_editable_item_list(original_tag):
         if inventory_list:
             raise ValueError(f"{duplicate_label}-Tag hat einen unbekannten NBT-Typ und kann nicht bearbeitet werden, ohne Datenverlust zu riskieren.")
         return original_tag.copy()
@@ -518,7 +498,10 @@ def _build_item_nbt_list(
             _core._apply_entity_variant_edit(item_compound, validated_item, base_item_tag, duplicate_label)
         new_items_by_slot[slot] = item_compound
 
-    return _core.nbt.ListTag(_core._merge_items_into_original_sequence(original_sequence, valid_slots, new_items_by_slot))
+    return _core.nbt.ListTag(
+        _core._merge_items_into_original_sequence(original_sequence, valid_slots, new_items_by_slot),
+        original_tag.list_data_type if _core._is_list_tag(original_tag) else 1,
+    )
 
 
 def build_inventory_nbt(

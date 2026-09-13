@@ -90,6 +90,20 @@ dedicated item sprites win filename collisions independently of directory or
 archive ordering. The user's ordering between separate sources is preserved.
 The scanner index version is bumped so old collision results are not reused.
 
+Status refreshes and source changes retain the world sources from the latest
+explicit scan. An explicit scan of another world, or a scan without a world,
+replaces that context. When multiple workers share an index, its publication
+takes precedence over a worker's older local state. Source-change handlers
+capture the world metadata before invalidating the cache, under the existing
+lock covering the change and rescan. Only metadata is reused this way; the scan
+checks the current source signature before reusing cached icon references.
+
+`tests/test_icon_context_regressions.py` covers this continuity using temporary
+packs and separate worker states, including source changes that delete the
+shared cache. It also checks byte access to internal `textures/display` assets
+from directories and archives. Those assets remain absent from public icon
+metadata; their existing size and archive checks still apply.
+
 After upgrading the application, rebuild Vanilla icons through the existing
 icon-update action to replace old generated PNGs. Rescanning alone cannot repair
 an already-generated incorrect PNG.

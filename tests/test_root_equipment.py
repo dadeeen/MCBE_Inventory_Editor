@@ -1,6 +1,6 @@
 import pytest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor import root_equipment as root_equipment_module
 from mcbe_editor.inventory import ENCHANTMENTS, _item_source_digest, build_inventory_nbt, nbt_to_json

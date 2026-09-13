@@ -32,8 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import amulet_nbt as nbt  # noqa: E402
-
+from mcbe_editor import nbt  # noqa: E402
 from mcbe_editor.bedrock_nbt import LOAD_KWARGS  # noqa: E402
 from mcbe_editor.db import ReadonlyLevelDbAdapter  # noqa: E402
 from mcbe_editor.mount_write import ACTOR_PREFIX, SYNTHETIC_CREATABLE_MOUNT_TYPES  # noqa: E402

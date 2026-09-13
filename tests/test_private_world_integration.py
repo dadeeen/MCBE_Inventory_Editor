@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -25,6 +26,21 @@ DEFAULT_MAX_WORLDS = 3
 DEFAULT_MAX_PLAYERS = 6
 
 pytestmark = [pytest.mark.private_world, pytest.mark.slow]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _private_fixture_copies(tmp_path_factory):
+    """Even read-only integration tests run on disposable fixture copies."""
+    if not _env_enabled("MCBE_RUN_PRIVATE_WORLD_TESTS") or not PRIVATE_WORLD_ROOT.is_dir():
+        yield
+        return
+    root = tmp_path_factory.mktemp("private-fixture-copies")
+    sources = _private_world_paths()
+    for index, source in enumerate(sources):
+        _copy_world_for_write_test(source, root, index)
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(sys.modules[__name__], "PRIVATE_WORLD_ROOT", root)
+        yield
 
 
 def _env_enabled(name: str) -> bool:

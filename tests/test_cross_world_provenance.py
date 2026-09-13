@@ -2,7 +2,7 @@ import pytest
 
 
 def test_cross_world_marker_is_rejected_server_side_for_addable_item() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     player = nbt.CompoundTag({"Inventory": nbt.ListTag([])})

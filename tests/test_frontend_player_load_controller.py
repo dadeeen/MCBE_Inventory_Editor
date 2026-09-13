@@ -17,6 +17,62 @@ def _run_node(source: str) -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+def test_player_context_changes_invalidate_pending_loads_and_release_only_their_overlay() -> None:
+    _run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
+        const context = {window: {}};
+        for (const name of ['player_view_models', 'player_load_controller']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        function deferred() { let resolve; return {promise: new Promise(r => {resolve = r}), resolve}; }
+        const loaded = key => ({success: true, player: {player_key: key, label: key}, inventory: {}, stats: {}});
+        (async () => {
+            for (const action of ['reset', 'export', 'refresh', 'new-load']) {
+                const old = deferred(), next = deferred();
+                const state = {worldPath: 'world', players: [], isDirty: false};
+                let overlay = false, hidden = 0;
+                const controller = context.window.MCBEPlayerLoadController.createPlayerLoadController({
+                    getState: () => state, setState: patch => Object.assign(state, patch),
+                    showLoading: () => {overlay = true}, hideLoading: () => {overlay = false; hidden++},
+                    api: {loadPlayer: async (_world, key) => key === 'a' ? old.promise : next.promise,
+                          listPlayers: async () => ({success: true, players: []})},
+                });
+                const pending = controller.loadPlayer('a');
+                assert.equal(overlay, true);
+                let newer;
+                if (action === 'reset') controller.resetLoadedPlayerState();
+                if (action === 'export') await controller.selectExportOnlyPlayer({player_key: 'b', exportable: true});
+                if (action === 'refresh') await controller.loadPlayersList(false);
+                if (action === 'new-load') newer = controller.loadPlayer('b');
+                assert.equal(overlay, action === 'new-load', action);
+                old.resolve(loaded('a'));
+                assert.equal(await pending, false, action);
+                assert.notEqual(state.currentPlayerKey, 'a');
+                assert.equal(overlay, action === 'new-load', 'old completion must not hide a newer overlay');
+                if (newer) { next.resolve(loaded('b')); assert.equal(await newer, true); }
+                assert.equal(state.currentPlayerKey, ['export', 'new-load'].includes(action) ? 'b' : '');
+                assert.equal(overlay, false);
+                assert.equal(hidden, action === 'new-load' ? 2 : 1);
+            }
+            for (const action of ['reset', 'export', 'new-load']) {
+                const list = deferred();
+                const state = {worldPath: 'world', players: [], isDirty: false};
+                const controller = context.window.MCBEPlayerLoadController.createPlayerLoadController({
+                    getState: () => state, setState: patch => Object.assign(state, patch),
+                    api: {listPlayers: async () => list.promise, loadPlayer: async (_world, key) => loaded(key)},
+                });
+                const refresh = controller.loadPlayersList(true);
+                if (action === 'reset') controller.resetLoadedPlayerState();
+                if (action === 'export') await controller.selectExportOnlyPlayer({player_key: 'b', exportable: true});
+                if (action === 'new-load') await controller.loadPlayer('b');
+                list.resolve({success: true, players: [{player_key: 'a', editable: true}]});
+                assert.equal(await refresh, false);
+                assert.equal(state.currentPlayerKey, action === 'reset' ? '' : 'b');
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1});
+    """)
+
+
 def test_player_load_preserves_an_existing_workflow_view() -> None:
     _run_node(
         textwrap.dedent(

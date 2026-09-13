@@ -302,16 +302,21 @@
             return await parseJsonResponse(res);
         }
 
-        async function reloadWorldAfterRestore(preferredPlayerKey = "", cleanupWarning = "") {
+        async function reloadWorldAfterRestore(preferredPlayerKey = "", cleanupWarning = "", expectedWorldPath = getWorldPath()) {
+            if (getWorldPath() !== expectedWorldPath) return false;
             const cleanupInfo = cleanupWarning
                 ? ` ${t("Hinweis: {warning}", { warning: cleanupWarning })}`
                 : "";
             clearLoadError();
             resetLoadedPlayerState({ showEmptyState: false });
             setPlayers([]);
+            const reloadPlayerKey = getCurrentPlayerKey();
+            const reloadContextIsCurrent = () => getWorldPath() === expectedWorldPath && getCurrentPlayerKey() === reloadPlayerKey;
 
             const playersLoaded = await loadPlayersList(false);
+            if (!reloadContextIsCurrent()) return false;
             await loadBackupsList();
+            if (!reloadContextIsCurrent()) return false;
 
             if (!playersLoaded) {
                 const outcome = restorePlayersLoadFailureOutcome(cleanupWarning);
@@ -330,6 +335,7 @@
                 renderPlayerToolOptions();
                 renderWorldAnalysis();
                 await updateWorldPresence();
+                if (!reloadContextIsCurrent()) return false;
                 setWorkflowView("player", { scroll: false });
                 logRestoreStatus(`${reloadPlan.statusMessage}${cleanupInfo}`, reloadPlan.statusType);
                 showToast(reloadPlan.toast.message, reloadPlan.toast.type, reloadPlan.toast.ms);
@@ -337,6 +343,7 @@
             }
 
             await loadPlayer(reloadPlan.playerKey, true, { showLoadingOverlay: false });
+            if (getWorldPath() !== expectedWorldPath) return false;
             const reloadOutcome = restoredPlayerLoadOutcome({
                 expectedPlayerKey: reloadPlan.playerKey,
                 currentPlayerKey: getCurrentPlayerKey(),
@@ -363,10 +370,25 @@
             if (guardWorldWriteAction()) return false;
             const previewWorldPath = getWorldPath();
             const previewWorldName = getWorldName();
+            const previewPlayerKey = getCurrentPlayerKey();
+            const restoreContextIsCurrent = () => getWorldPath() === previewWorldPath && getCurrentPlayerKey() === previewPlayerKey;
+            const reportContextChange = (data) => {
+                const message = data?.success === true
+                    ? t("Backup wurde in der ursprünglichen Welt wiederhergestellt. Die inzwischen gewechselte Ansicht bleibt unverändert. Lade die wiederhergestellte Welt vor weiteren Änderungen neu.")
+                    : t("Restore-Kontext wurde gewechselt. Die aktuelle Ansicht bleibt unverändert. Prüfe die ursprüngliche Welt erneut.");
+                logRestoreStatus(message, "warning");
+                showToast(message, "warning", 8000);
+            };
             showLoading(t("Lade Restore-Vorschau..."));
             let preview = null;
             try {
                 preview = await loadRestorePreview(filename, previewWorldPath);
+                if (getWorldPath() !== previewWorldPath) {
+                    const outcome = restoreWorldChangedOutcome();
+                    logRestoreStatus(outcome.statusMessage, outcome.statusType);
+                    showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
+                    return false;
+                }
                 if (!preview.success) {
                     hideLoading();
                     const outcome = restorePreviewFailure(preview);
@@ -407,6 +429,10 @@
                 return;
             }
 
+            if (!restoreContextIsCurrent()) {
+                reportContextChange();
+                return false;
+            }
             const restoredWorldPath = previewWorldPath;
             const preferredPlayerKey = getCurrentPlayerKey();
             const startPlan = restoreStartPlan();
@@ -427,6 +453,10 @@
                     body: JSON.stringify(request()),
                 });
                 let data = await parseJsonResponse(res);
+                if (!restoreContextIsCurrent()) {
+                    reportContextChange(data);
+                    return false;
+                }
                 if (!data.success && data.presence_conflict) {
                     hideLoading();
                     const retryPlan = restorePresenceConflictRetryPlan();
@@ -434,6 +464,10 @@
                     if (!proceed) {
                         logRestoreStatus(retryPlan.abortedStatusMessage, retryPlan.abortedStatusType);
                         return;
+                    }
+                    if (!restoreContextIsCurrent()) {
+                        reportContextChange();
+                        return false;
                     }
                     if (guardWorldWriteAction()) return false;
                     showLoading(retryPlan.retryLoadingText);
@@ -444,6 +478,10 @@
                         body: JSON.stringify(request(true)),
                     });
                     data = await parseJsonResponse(retry);
+                    if (!restoreContextIsCurrent()) {
+                        reportContextChange(data);
+                        return false;
+                    }
                 }
                 const outcome = restoreOutcome(data);
                 if (outcome.writeGate) {
@@ -455,18 +493,30 @@
                     return;
                 }
                 try {
-                    const reloaded = await reloadWorldAfterRestore(preferredPlayerKey, data.cleanup_warning || "");
+                    const reloaded = await reloadWorldAfterRestore(preferredPlayerKey, data.cleanup_warning || "", restoredWorldPath);
+                    if (getWorldPath() !== restoredWorldPath) {
+                        reportContextChange(data);
+                        return false;
+                    }
                     if (reloaded) {
                         showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
                     }
                 } catch (reloadError) {
                     console.error("reloadWorldAfterRestore:", reloadError);
+                    if (getWorldPath() !== restoredWorldPath) {
+                        reportContextChange(data);
+                        return false;
+                    }
                     const reloadFailure = restorePlayersLoadFailureOutcome(data.cleanup_warning || "");
                     logRestoreStatus(reloadFailure.statusMessage, reloadFailure.statusType);
                     showToast(reloadFailure.toast.message, reloadFailure.toast.type, reloadFailure.toast.ms);
                 }
             } catch (e) {
                 console.error("restoreBackup:", e);
+                if (!restoreContextIsCurrent()) {
+                    reportContextChange();
+                    return false;
+                }
                 logRestoreStatus(t("Fehler bei der Verbindung zur Wiederherstellung."), "error");
                 showToast(t("Fehler bei der Verbindung zur Wiederherstellung."), "error", 5000);
             } finally {

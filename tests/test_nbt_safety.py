@@ -1,4 +1,3 @@
-import pytest
 import io
 import json
 import unittest
@@ -6,7 +5,7 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.item_data import ENCHANTMENTS
 from mcbe_editor.backup import resolve_backup_path, validate_zip_members

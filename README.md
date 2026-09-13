@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/dadeeen/MCBE_Inventory_Editor/actions/workflows/ci.yml/badge.svg)](https://github.com/dadeeen/MCBE_Inventory_Editor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](#local-windows-setup)
+[![Python 3.12–3.14](https://img.shields.io/badge/Python-3.12%E2%80%933.14-blue.svg)](#local-windows-setup)
 
 A local web editor for selected Minecraft Bedrock player data: inventory, ender chest, effects, abilities, player values, and experimental mounts.
 
@@ -28,8 +28,8 @@ The editor is intended for local use and trusted home networks. Do not expose it
    - Windows: `Get-FileHash <runtime.zip> -Algorithm SHA256`
    - Linux: `sha256sum <runtime.zip>`
 4. Stop Minecraft or the server and copy the complete world folder to an independent location.
-5. Install [Python 3.12 for Windows](https://www.python.org/downloads/windows/) if it is not already available. Python 3.11, 3.13, and 3.14 are not supported. During installation, enable the Python Launcher or **Add Python to PATH**.
-6. Extract the runtime ZIP, run `setup.bat` once, then start the editor with `start.bat`.
+5. Install [Python for Windows](https://www.python.org/downloads/windows/) if needed. For the runtime ZIP on Windows x64 we recommend **Python 3.14**; 3.12 and 3.13 are also supported. The ZIP includes validated LevelDB wheels for 3.13/3.14, so C++ Build Tools are not needed there. Enable the Python launcher or **Add Python to PATH**. For a source checkout without bundled wheels, setup prefers an installed Python 3.12 with a published wheel; only then does it consider a source build with Microsoft C++ Build Tools and the Windows SDK already installed. Python 3.15 is not approved yet.
+6. Extract the runtime ZIP, run `setup.bat` once, then start the editor with `start.bat`. If setup reports a missing C++ runtime, install the current [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) for your Python architecture and rerun setup. This runtime is separate from the compiler/Build Tools.
 7. On first start, follow the setup dialog and load **Item DB** and **Vanilla icons**. You can postpone this and return through the setup notice or **Tools** later. The editor ships with a bundled item snapshot and no icons, so without this step items from newer Minecraft versions are missing and every slot shows a placeholder symbol.
 
 If no release is available yet, experienced users can use the source setup below.
@@ -59,7 +59,7 @@ The app is not a public hosting service, server administration panel, or unrestr
 
 ## Local Windows setup
 
-Local Mode requires **Python 3.12** because the native Amulet dependencies are version-specific.
+Local Mode supports **Python 3.12–3.14**. NBT is handled by the project’s standard-library Python codec; NumPy and Amulet-NBT are no longer runtime dependencies. The Bedrock LevelDB engine remains native. Setup retains an existing supported `.venv` and prefers the newest installed Python with a compatible wheel for new environments. Bundled Windows x64 wheels are checked against their provenance, hashes and license notices. Source builds require a detected compiler and SDK; missing prerequisites are reported before package installation. The Docker image remains on Python 3.12.
 
 From the source tree or an extracted runtime package:
 
@@ -300,8 +300,8 @@ Bug reports and contributions are welcome. Use synthetic data and sanitized logs
 
 Contributor instructions, tests, fixtures, and release hygiene are in [docs/development.md on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md). Internal save invariants are documented in [docs/save_contract.md](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md).
 
-The project's own code is licensed under the [MIT license](LICENSE). The application depends on `amulet_nbt` and `amulet_leveldb`, which use the Amulet Team License 1.0.0 (PolyForm Shield and Noncommercial terms, with a limited exception for commercial use exclusively for educational purposes). This is not a conventional open-source license and restricts permitted use; the upstream license texts are authoritative. `amulet_mutf8` is MIT-licensed.
+The project's own code is licensed under the [MIT license](LICENSE). The application depends on `amulet_leveldb`, which uses the Amulet Team License 1.0.0 (PolyForm Shield and Noncommercial terms, with a limited exception for commercial use exclusively for educational purposes). This is not a conventional open-source license and restricts permitted use; the upstream license texts are authoritative. Amulet-NBT and its dependencies are used only in the separate Python 3.12 reference tests; their upstream licenses still apply to that test environment.
 
 Minecraft content is not covered by this project's license. The repository includes an item-data snapshot generated from `Mojang/bedrock-samples` and Microsoft Learn; vanilla icons are downloaded only on request and are not shipped. The origin of the locally maintained enchantment maximum levels is documented in [docs/development.md on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#bundled-item-database-and-enchantment-max-levels). Minecraft and its content belong to Mojang Studios/Microsoft and remain subject to their terms.
 
-Key upstream projects include [Amulet Team](https://github.com/Amulet-Team), [NumPy](https://numpy.org/), Flask and the Pallets team, and the [Minecraft Wiki](https://minecraft.wiki/) as a reference for manually verified gameplay mechanics.
+Key upstream projects include [Amulet Team](https://github.com/Amulet-Team), Flask and the Pallets team, and the [Minecraft Wiki](https://minecraft.wiki/) as a reference for manually verified gameplay mechanics.

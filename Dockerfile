@@ -23,7 +23,7 @@ RUN mkdir -p /wheelhouse/bootstrap /wheelhouse/runtime \
  && python -m pip download --no-cache-dir --only-binary=:all: --require-hashes --dest /wheelhouse/bootstrap -r requirements/bootstrap.lock \
  && python -m pip install --no-cache-dir --no-index --only-binary=:all: --find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock \
  && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements/build.lock \
- && python -c "import Cython; version = Cython.__version__; print(f'Locked native build toolchain: Cython {version}'); assert version == '3.0.12', version" \
+ && python -c "import Cython; version = Cython.__version__; print(f'Locked native build toolchain: Cython {version}'); assert version == '3.2.4', version" \
  && python -m pip wheel --no-cache-dir --no-build-isolation --require-hashes --wheel-dir /wheelhouse/runtime -r requirements/docker.lock
 
 FROM builder AS dependency-audit

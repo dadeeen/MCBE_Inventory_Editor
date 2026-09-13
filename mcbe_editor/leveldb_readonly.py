@@ -11,7 +11,7 @@ Supported on-disk features:
 * CURRENT / MANIFEST (VersionEdit records) to discover live table files
 * Write-ahead log replay (in memory only) so unflushed saves are visible
 * SST/.ldb table files with block index and restart points
-* WAL/MANIFEST physical record CRC32C validation
+* WAL/MANIFEST and SST block CRC32C validation
 * Mojang compression IDs: 0 (none), 2 (zlib) and 4 (raw zlib);
   Snappy (1) is rejected with a clear error because Bedrock never writes it
 
@@ -20,7 +20,8 @@ Limitations (by design):
 * No LOCK handling: reading while another process is actively writing can
   observe a torn state.  Callers should treat results as a best-effort
   snapshot; the write path of this project keeps using amulet-leveldb.
-* SST block CRCs are not verified (corruption surfaces as parse errors instead).
+* Blocks are limited to 64 MiB stored/decompressed; the combined MANIFEST/WAL
+  input is limited to 256 MiB per reader. Larger inputs fail explicitly.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ import zlib
 _TABLE_MAGIC = 0xDB4775248B80FB57
 _LOG_BLOCK_SIZE = 32768
 _MAX_SEQUENCE = (1 << 56) - 1
+_MAX_BLOCK_BYTES = 64 * 1024 * 1024
+_MAX_METADATA_BYTES = 256 * 1024 * 1024
 _TYPE_DELETION = 0
 _TYPE_VALUE = 1
 
@@ -94,6 +97,8 @@ def _decode_varint(data: bytes, pos: int) -> tuple[int, int]:
             raise CorruptDatabaseError("Unerwartetes Datenende beim Varint-Lesen.")
         byte = data[pos]
         pos += 1
+        if shift == 63 and byte > 1:
+            raise CorruptDatabaseError("Varint zu lang.")
         result |= (byte & 0x7F) << shift
         if not byte & 0x80:
             return result, pos
@@ -205,14 +210,26 @@ def _parse_manifest(data: bytes) -> tuple[dict[int, dict[int, tuple[bytes, bytes
 def _decompress_block(raw: bytes) -> bytes:
     if len(raw) < 5:
         raise CorruptDatabaseError("Block ist zu kurz.")
+    if len(raw) - 5 > _MAX_BLOCK_BYTES:
+        raise CorruptDatabaseError("SST-Block überschreitet das Größenlimit.")
+    expected_crc = struct.unpack_from("<I", raw, len(raw) - 4)[0]
+    if expected_crc != _mask_crc32c(_crc32c(raw[:-4])):
+        raise CorruptDatabaseError("SST-Block-CRC ist ungültig.")
     compression = raw[-5]
     content = raw[:-5]
     if compression == 0:
         return content
-    if compression == 2:
-        return zlib.decompress(content)
-    if compression == 4:
-        return zlib.decompress(content, -15)
+    if compression in (2, 4):
+        try:
+            decoder = zlib.decompressobj(15 if compression == 2 else -15)
+            result = decoder.decompress(content, _MAX_BLOCK_BYTES + 1)
+        except zlib.error as exc:
+            raise CorruptDatabaseError("Ungültiger komprimierter SST-Block.") from exc
+        if len(result) > _MAX_BLOCK_BYTES or decoder.unconsumed_tail:
+            raise CorruptDatabaseError("SST-Block überschreitet das Größenlimit.")
+        if not decoder.eof or decoder.unused_data:
+            raise CorruptDatabaseError("Ungültiger komprimierter SST-Block.")
+        return result
     if compression == 1:
         raise CorruptDatabaseError(
             "Snappy-komprimierter Block gefunden. Diese Welt stammt nicht aus Minecraft Bedrock und wird vom Readonly-Reader nicht unterstützt."
@@ -258,6 +275,10 @@ class _Table:
         self._handle.close()
 
     def _read_at(self, offset: int, size: int) -> bytes:
+        if offset < 0 or size < 0 or offset > self._size or size > self._size - offset:
+            raise CorruptDatabaseError("SST-Blockreferenz liegt außerhalb der Datei.")
+        if size > _MAX_BLOCK_BYTES + 5:
+            raise CorruptDatabaseError("SST-Block überschreitet das Größenlimit.")
         self._handle.seek(offset)
         data = self._handle.read(size)
         if len(data) != size:
@@ -352,6 +373,8 @@ def _replay_wal(data: bytes, memtable: dict[bytes, tuple[int, int, bytes]]) -> N
             existing = memtable.get(key)
             if existing is None or entry_sequence >= existing[0]:
                 memtable[key] = (entry_sequence, entry_type, value)
+        if pos != len(record):
+            raise CorruptDatabaseError("Ungültige Eintragsanzahl im WAL-Batch.")
 
 
 class ReadonlyLevelDbAdapter:
@@ -365,6 +388,7 @@ class ReadonlyLevelDbAdapter:
         self._db_path = db_path
         self._tables: dict[int, _Table] = {}
         self._closed = False
+        self._metadata_bytes = 0
 
         current_path = os.path.join(db_path, "CURRENT")
         if not os.path.isfile(current_path):
@@ -373,8 +397,7 @@ class ReadonlyLevelDbAdapter:
             manifest_name = handle.read(4096).decode("utf-8", errors="strict").strip()
         if not re.fullmatch(r"MANIFEST-\d{6,}", manifest_name):
             raise CorruptDatabaseError(f"Ungültiger CURRENT-Inhalt: {manifest_name!r}")
-        with open(os.path.join(db_path, manifest_name), "rb") as handle:
-            self._files, log_number, prev_log_number = _parse_manifest(handle.read())
+        self._files, log_number, prev_log_number = _parse_manifest(self._read_metadata(os.path.join(db_path, manifest_name)))
 
         self._memtable: dict[bytes, tuple[int, int, bytes]] = {}
         for filename in sorted(os.listdir(db_path)):
@@ -384,8 +407,18 @@ class ReadonlyLevelDbAdapter:
             file_number = int(match.group(1))
             if file_number < log_number and file_number != prev_log_number:
                 continue
-            with open(os.path.join(db_path, filename), "rb") as handle:
-                _replay_wal(handle.read(), self._memtable)
+            _replay_wal(self._read_metadata(os.path.join(db_path, filename)), self._memtable)
+
+    def _read_metadata(self, path: str) -> bytes:
+        with open(path, "rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
+            if size > _MAX_METADATA_BYTES - self._metadata_bytes:
+                raise CorruptDatabaseError("MANIFEST/WAL-Daten überschreiten das Leselimit.")
+            data = handle.read(size)
+        if len(data) != size:
+            raise CorruptDatabaseError("MANIFEST/WAL-Datei wurde während des Lesens verkürzt.")
+        self._metadata_bytes += size
+        return data
 
     def _table(self, file_no: int) -> _Table:
         table = self._tables.get(file_no)

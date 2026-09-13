@@ -1,7 +1,6 @@
-import pytest
 import unittest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor import _inventory_core as inventory_core
 from mcbe_editor.item_data import ENCHANTMENTS

@@ -2,6 +2,135 @@
 
 This repository-only document is aimed at contributors and maintainers working in the full Git source tree. The public getting-started documentation is in the [README](../README.md). The project shape and dependency direction are summarized in the [architecture overview](architecture.md). Durable engineering contracts are documented in the [save contract](save_contract.md) and the [experimental mount specification](experimental_mount_creation_status.md).
 
+## Python portability
+
+Python 3.12, 3.13 and 3.14 are supported. CI runs the complete application suite on
+all three versions on Windows and Linux. Docker intentionally retains its pinned
+3.12 base image. Runtime release ZIPs include Windows x64 LevelDB wheels for
+3.13/3.14, built and tested by CI. A source checkout without those wheels first
+prefers an installed Python 3.12 with a published wheel. A local 3.13/3.14 source
+build requires Microsoft C++ Build Tools, the Windows SDK, and Cython 3.2.4
+from the hash-locked build requirements. Python 3.15 is not enabled implicitly.
+
+The project-owned `mcbe_editor.nbt` codec uses only the standard library.
+Amulet-NBT, Amulet-MUTF8 and NumPy are absent from runtime and build requirements.
+The separate `requirements/nbt-reference.lock` keeps Amulet-NBT as an independent
+oracle for explicit tests on Python 3.12; do not install it in runtime environments.
+Generate shared locks with Python 3.12, then validate installations on all supported
+interpreters. See [the validation record](dependency-portability-assessment.md).
+
+For codec changes, run the standard suite on every supported interpreter and,
+from an isolated Python 3.12 reference environment:
+
+```bash
+python -m pip install --only-binary=:all: --require-hashes -r requirements/nbt-reference.lock
+python -c "import amulet_nbt"
+python -m pytest tests/test_nbt_reference.py tests/test_nbt_reference_write_path.py tests/test_nbt_reference_workflows.py tests/test_nbt_codec.py -q
+```
+
+`tests/test_nbt_reference_write_path.py` is the write-path differential: the same
+player edit runs through the real service layer in two separate processes, once
+with the project codec and once with Amulet-NBT installed as `mcbe_editor.nbt`
+(the pre-migration binding), and the resulting logical database records must be
+byte-identical. Each editable player must complete the requested edit; shared
+save errors, unsuccessful results and unexpected no-op results fail instead of
+becoming skips. An independent Amulet-based comparison also
+checks untouched player NBT against the original, excluding only the worker's
+explicitly edited slots and fields. Regression cases inject common data loss
+and a change from negative to positive floating zero into both backends.
+Its always-on case in the reference environment uses a synthetic world. With `MCBE_RUN_PRIVATE_WORLD_TESTS=1`
+and `MCBE_RUN_PRIVATE_WORLD_WRITE_TESTS=1` it repeats the comparison on temporary
+copies of the git-ignored `fixtures/private` worlds (limited by
+`MCBE_PRIVATE_WORLD_MAX_WORLDS`, default 3); no private data is part of the test.
+
+`tests/test_nbt_reference_workflows.py` extends the service differential to mount
+creation (all supported types and tame states, automatic fallback, and explicit
+or automatic template cloning), player-state transfer in both directions, and
+player export/import. Both codecs export local and server players; all four
+exporter/importer combinations overwrite an existing player and create a new
+record. The exported and imported `player.nbt` must equal the original bytes.
+Mount actor NBT, chunk `digp` references and transferred player NBT must match
+between backends. Every untouched database key/value is checked against the
+original, and independent fixture expectations cover transferred gameplay,
+preserved target identity, unknown nested data and template data. Service
+failures, missing writes, missing backups and failed post-write validation fail
+the comparison. Only path-dependent tokens, backup filenames, export timestamps
+and ZIP container metadata are excluded; NBT bytes are never normalized.
+These synthetic native-database cases run in the Python 3.12 oracle CI step.
+The same two private-world flags and world limit enable an additional workflow
+case on temporary copies of each selected world: transfer a real player into a
+synthetic counterpart, export with both backends and import all four combinations,
+then create a synthetic horse. Private worlds without editable players are not
+eligible; failed eligible operations fail the test. Copies and real backup ZIPs
+need temporary disk space (several times the largest selected world); completed
+stages and import copies are removed before proceeding. Source fixtures remain
+unchanged and no private payload is checked into the repository.
+They compare current services using the old NBT binding, not an entire historical
+application checkout, and do not replace Minecraft gameplay validation.
+
+When running multiple local interpreter suites concurrently, give each process
+its own `MCBE_DATA_ROOT` before Python starts. Some tests import the app during
+collection, before session fixtures can isolate persisted server-guard state.
+
+### Windows wheel bundles
+
+`setup.bat` retains a supported existing `.venv`. For a new environment it checks
+installed versions in descending order for a bundled or published wheel before
+considering source builds. `scripts/windows_setup.py` checks the compiler and
+SDK before installing anything when a source build is necessary. Its `--no-build`
+option rejects source builds explicitly; installation is restricted to the
+project's `.venv`.
+
+The native wheel still dynamically links the Microsoft C++ runtime
+(`MSVCP140.dll`). Setup checks that DLL before invoking pip and verifies a
+real LevelDB import after installation. If the runtime is missing or outdated,
+install or repair the current Microsoft Visual C++ Redistributable for the
+Python architecture. No compiler is needed for this. A clean virtual
+environment on a build machine does not prove deployment on a clean Windows
+installation; keep that distinction in validation reports.
+
+CI builds unchanged, hash-verified `amulet-leveldb==1.0.6` source separately on
+standard CPython 3.13 and 3.14 for Windows x64. The build Python must contain
+the exact tools from `requirements/build.lock`. For each version, use an
+isolated build environment and run:
+
+```powershell
+python -m pip install --require-hashes -r requirements/bootstrap.lock
+python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
+# Use cp313 when running the corresponding Python 3.13 interpreter.
+python scripts/build_windows_wheel.py --output wheels/cp314
+```
+
+The builder optionally accepts `--source <locked-sdist.tar.gz>` for a cached
+source archive; it still verifies its hash. `wheels/` is ignored by Git and
+excluded from Docker. Each bundle contains the wheel, a provenance manifest,
+and the upstream Amulet-LevelDB, LevelDB and zlib license notices. Provenance
+records the source hash, build lock hash, tool versions, Python, wheel and
+notice hashes, and CI identifiers when available. The upstream source archive
+already includes a precompiled Windows zlib static library; the manifest
+records this fact. These are traceable builds, not a claim of bit-for-bit
+reproducibility or a cryptographic attestation of the build host.
+
+CI installs each resulting wheel in a fresh `.venv` with source builds disabled,
+then runs the complete application suite before making it available to the
+runtime packaging job. To repeat the installation test, use a separate source
+copy or extracted runtime ZIP that contains the appropriate `wheels/` bundle:
+
+```powershell
+py -3.14 -m venv .venv
+.venv/Scripts/python.exe scripts/windows_setup.py install --no-build
+```
+
+`make_release_zip.py` validates every present bundle and includes it in
+`RELEASE_MANIFEST.json`. The installer verifies provenance, metadata and hashes
+before using a bundle, then installs the wheel by an exact local file URL with
+pip hash checking. Other dependencies retain the canonical runtime lock.
+Release downloads must still be checked against the separately published ZIP
+checksum. Local runtime packaging includes bundles only when they have been
+built; without them its source-build/Python-3.12 fallback applies. A deliberate
+LevelDB upgrade must update the locks, the wheel-version constant, both builds,
+license notices, and the installation/native-database checks together.
+
 ## Local check round
 
 Recommended local check round on Windows:
@@ -26,7 +155,7 @@ python scripts/test_full.py -v
 
 The GitHub Actions workflow runs on pull requests, pushes to `main`, version tags, a weekly schedule, and manually via **Actions → CI → Run workflow**. Pull requests, `main`, scheduled runs, and manual runs execute the full validation including a Docker build, but never publish. Only a version-tag push may publish the Docker image and create a GitHub Release; a separate publish workflow without tests does not exist. External actions are immutably pinned to full commit SHAs, with the corresponding release tag documented as a comment.
 
-Native Amulet packages have no Linux wheels for the supported versions. Their source archives remain covered by the normal requirement hashes; CI and Docker additionally install the complete build toolchain from `requirements/build.lock` using wheels and hashes, then disable pip build isolation. This prevents an isolated build subprocess from resolving untracked build dependencies. `requirements/build-constraints.txt` is an exact fallback constraint, not the primary security boundary.
+The remaining native Amulet-LevelDB dependency has no Linux wheels for the supported versions. Its source archives remain covered by the normal requirement hashes; CI and Docker additionally install the complete build toolchain from `requirements/build.lock` using wheels and hashes, then disable pip build isolation. This prevents an isolated build subprocess from resolving untracked build dependencies. `requirements/build-constraints.txt` is an exact fallback constraint, not the primary security boundary.
 
 Both Docker stages use the same multi-architecture digest for `python:3.12-slim`. During a deliberate dependency or release refresh, inspect the current official digest with `docker buildx imagetools inspect python:3.12-slim`, review the reported Python/Debian version, update the single `PYTHON_BASE_IMAGE` argument in `Dockerfile`, and run the complete Docker and release checks. A digest update is a reviewed dependency change, not an automatic side effect of an ordinary build.
 

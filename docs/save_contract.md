@@ -131,7 +131,15 @@ After a successful save, the frontend updates the respective `has_*_tag` and con
 
 If the mount post-validation fails after an already completed workspace write, the backend responds with `success=false`, `write_committed=true`, and `validation_failed=true`. The same applies to any error occurring after the committed `put_batch` — for example while closing the database or pruning old backups: these post-write errors must no longer overwrite the write status and are likewise reported with `write_committed=true`, not as a normal 500 error. This is not a normally retryable error: the frontend adopts the revision and any created player tags, marks the local state as written, removes the already written mounts from the queue, and shows an error with a backup notice. It must not display normal success and must not release the save button for an unchanged retry — even if processing of optional mount details fails afterwards.
 
-The mount write receipt reads actor and `digp` values back immediately after the atomic batch and compares them byte-exactly with the final write plan. In addition, the expected `digp` key is recomputed from the final mount position. This is a targeted write-set check; a full world diff is neither required nor part of the save path.
+The mount write receipt reads actor and `digp` values back immediately after the atomic batch and compares them byte-exactly with the final write plan. It independently decodes the stored Float32 `Pos`, checks it against the plan, and derives the expected chunk index from those stored coordinates. Preview generation and footprint checks use the same storable coordinates, including after placement adjustments. Non-finite values, Float32 overflow, and rounded coordinates outside the supported chunk range are rejected before writing. This is a targeted write-set check; a full world diff is neither required nor part of the save path.
+
+Equine templates are eligible only when unowned and unequipped, with no active tame, rider, leash, target, breeding, or death state in the checked fields. Nonempty or malformed `LinksTag` data and conflicting active tame/equipment definitions exclude a template. Automatic creation falls back to the synthetic writer if no eligible template exists; explicit template cloning fails before the write. Eligible templates retain unknown passive data while identity and the requested horse profile are replaced. Post-validation checks tame and owner values/types, exact definitions, absent actor links, and empty equipment against the creation contract. These checks do not establish complete in-game semantics for arbitrary unknown entity fields.
+
+Readonly database access validates SST block CRC32C before decompression and rejects invalid uint64 varints and file handles outside the table. Stored and expanded blocks are limited to 64 MiB; MANIFEST and relevant WAL input share a 256 MiB budget per reader. These are input limits, not a guarantee of total process memory usage. Larger inputs fail explicitly. The reader still does not lock against concurrent external writes.
+
+A body-read failure, malformed or empty JSON, or a response without a boolean `success` cannot establish whether a write committed. The API client marks these responses as unreadable; the save controller treats them as connection failures, including after confirmation retries. With staged mounts it blocks further saves until reload. A valid backend rejection with `success=false` remains retryable unless it explicitly reports a committed write.
+
+The direct `/api/mount/create` path also performs its initial player checks through the readonly database adapter. It opens the mutating adapter only after the backup succeeds, so a failed backup leaves the original database files untouched.
 
 ## Revision, presence, and write gates
 
@@ -145,6 +153,24 @@ The mount write receipt reads actor and `digp` values back immediately after the
 - Successful responses update `currentPlayerRevision` from `player_revision`, if present.
 
 ## Protected and preserved NBT data
+
+Player resets, export-only selection and list refreshes invalidate pending player loads. A late list response must not automatically select a player after the user changed context. Each player-load overlay belongs to its request; invalidating it closes that overlay without allowing an old completion to close a newer one.
+
+Save completions also recheck the player and world after presence updates and in error handlers. A context change must not apply the old operation's revision, history, backup list or reload requirement to the new view. Status messages retain a known failed post-validation or confirmed no-op even when a later presence request fails. Starting another save request after confirmation discards the previous response as evidence of that new request's outcome.
+
+Import responses and conflict retries also retain their confirmed target while checking the current world, player, revision, import selection and unsaved edits before updating the view. The import refresh checks the original loaded context before refreshing the player list, then expects the empty player key and revision produced by that list's own reset. Only a successful, still-current list refresh may load the target player. A failed reload is reported separately from the already completed import; a changed view is not forcibly reloaded. Known import errors retain their rollback warning, backup name and severity even after a context change.
+
+Restore responses and their reload steps remain bound to the original world and expected player context across asynchronous boundaries. Scan-path changes report server rejections and transport failures through the existing error UI instead of continuing the success refresh; failed toggle operations restore the checkbox state.
+
+Inventory drops require a strict internal payload and the ID of the currently active drag. The source map and item, world, and player must still match. Drag end, an accepted/rejected drop, and inventory redraws invalidate the context. Plain text and payloads from earlier drags cannot modify inventory state. Normal move/copy and equipment rules remain shared with keyboard and clipboard operations.
+
+Section copying retains the original target's missing-tag confirmation flags. Copying statistics uses the source's protection flags and `stat_fields_unreadable` metadata to skip missing, opaque and non-finite display fallbacks. Position and dimension are copied together only when both source values are readable. Skipped values retain the target's state and produce a warning; the source's protection status does not replace the target's protection status.
+
+Import and migration rollback recheck the target through the same exclusive native write handle used to restore it. A newer external record is neither overwritten nor deleted. A target already restored to its original bytes requires no further write.
+
+XP progress must satisfy `0 <= xp < 1` both before and after Float32 conversion. Root tags and synchronized attributes receive the same rounded value; an input that rounds to `1.0` is rejected.
+
+Unrelated ability edits retain truthy boolean bytes and their existing aliases. Non-finite or out-of-range ability speeds remain protected instead of being replaced with display defaults. Populated item/effect lists with non-compound elements are protected; empty inventory and ender chest lists retain their declared element type on an unchanged save, so no backup or write is needed.
 
 Item serialization removes pure frontend metadata:
 
@@ -168,6 +194,10 @@ For items with original NBT that must be preserved, these rules continue to appl
 - During a repair, the clean inventory and ender chest snapshots are searched.
 - A repaired source is only used on exactly one unambiguous match.
 - Unknown or future hidden NBT data is preserved through section omission and backend merge.
+- Unchanged display strings retain their original tags and encoded bytes, including when another field on the item changes. Lore line breaks are normalized only in newly entered or changed lines, after resolving the original item.
+- Unknown Name/Lore child types remain preserved and cannot be replaced through normal text edits. Their display representations must still be JSON-safe.
+- Newly entered or changed display text uses literal UTF-8. A visible `␛x41` is user text, not an instruction to write byte `0x41`; existing escaped raw-byte strings retain their original codec behavior.
+- Preservation digests include the wire bytes of opaque fields, including declared empty-list types, raw strings/names and floating-point bit patterns. Even a reorder inside an opaque compound invalidates a copied source. Editable display text, counts and durability values retain their existing exemptions; empty Lore with an incompatible element type and empty enchantment list types remain preservation-relevant.
 - Opaque inventory/ender chest lists must not be replaced.
 
 ## Required regression tests

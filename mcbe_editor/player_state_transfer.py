@@ -11,7 +11,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 
 from .bedrock_nbt import load_player_nbt, save_player_nbt
 from .i18n import t

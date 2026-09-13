@@ -164,7 +164,7 @@ def _payload(*, slot: int, name: str, protected: bool = False) -> dict:
 
 
 def test_load_payload_contains_preservation_digest() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     source = _item_tag(nbt, slot=5, name="minecraft:stone", marker=123, was_picked_up=1)
@@ -175,7 +175,7 @@ def test_load_payload_contains_preservation_digest() -> None:
 
 
 def test_preservation_digest_ignores_editable_fields_but_tracks_preserved_nbt() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     first = _item_tag(nbt, slot=5, name="minecraft:stone", was_picked_up=1, count=1, damage=0)
@@ -187,7 +187,7 @@ def test_preservation_digest_ignores_editable_fields_but_tracks_preserved_nbt() 
 
 
 def test_plain_addable_item_preserves_exact_external_source_nbt() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     foreign = _item_tag(nbt, slot=5, name="minecraft:stone", marker=1234)
@@ -209,7 +209,7 @@ def test_plain_addable_item_preserves_exact_external_source_nbt() -> None:
 
 
 def test_stale_cross_player_source_digest_is_rejected() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     loaded_source = _item_tag(nbt, slot=5, name="minecraft:stone", was_picked_up=1)
@@ -229,7 +229,7 @@ def test_stale_cross_player_source_digest_is_rejected() -> None:
 
 
 def test_stale_same_player_source_digest_is_rejected() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     loaded_source = _item_tag(nbt, slot=5, name="minecraft:stone", marker=1)
@@ -248,7 +248,7 @@ def test_stale_same_player_source_digest_is_rejected() -> None:
 
 
 def test_partial_external_origin_is_rejected_before_target_nbt_fallback() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     target = _item_tag(nbt, slot=8, name="minecraft:stone", marker=9876)
@@ -266,7 +266,7 @@ def test_partial_external_origin_is_rejected_before_target_nbt_fallback() -> Non
 
 
 def test_plain_addable_item_rejects_unverifiable_external_source_instead_of_falling_back() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     target = _item_tag(nbt, slot=8, name="minecraft:stone", marker=9876)
@@ -283,7 +283,7 @@ def test_plain_addable_item_rejects_unverifiable_external_source_instead_of_fall
 
 
 def test_plain_same_player_move_preserves_standard_unedited_root_nbt() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     source = _item_tag(nbt, slot=5, name="minecraft:stone", was_picked_up=1)
@@ -303,7 +303,7 @@ def test_plain_same_player_move_preserves_standard_unedited_root_nbt() -> None:
 def test_saving_an_unedited_item_keeps_empty_list_element_types() -> None:
     """copy.deepcopy resets empty ListTags to byte and silently rewrites add-on NBT."""
 
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     # 0 = TAG_End (canonical empty list), 8 = string, 10 = compound.
@@ -326,7 +326,7 @@ def test_saving_an_unedited_item_keeps_empty_list_element_types() -> None:
 
 
 def test_saving_an_unedited_item_preserves_lore_formatting_byte_exact() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
     from mcbe_editor.bedrock_nbt import save_player_nbt
 
@@ -362,7 +362,7 @@ def test_saving_an_unedited_item_preserves_lore_formatting_byte_exact() -> None:
 
 
 def test_non_addable_item_keeps_exact_external_source_even_without_extra_nbt_flags() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     addon_name = "example:custom_item"
@@ -384,7 +384,7 @@ def test_non_addable_item_keeps_exact_external_source_even_without_extra_nbt_fla
 
 
 def test_protected_item_rejects_missing_or_mismatched_external_origin() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     player = nbt.CompoundTag({"Inventory": nbt.ListTag([])})
@@ -405,7 +405,7 @@ def test_protected_item_rejects_missing_or_mismatched_external_origin() -> None:
     [("minecraft:stone", True), ("example:custom_item", False)],
 )
 def test_moved_source_dependent_item_rejects_incomplete_origin(name: str, protected: bool) -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     original = _item_tag(nbt, slot=5, name=name, marker=777)

@@ -23,20 +23,26 @@
         ];
     }
 
+    function validSlot(slot, container) {
+        if (!Number.isInteger(slot)) return false;
+        if (container === "ender_chest") return slot >= 0 && slot < 27;
+        return container === "inventory" && ((slot >= 0 && slot < 36) || (slot >= 100 && slot <= 103) || slot === -106);
+    }
+
     function parseDragPayloadRaw(raw) {
-        const text = String(raw || "");
+        if (typeof raw !== "string" || raw.length > 512) return null;
         try {
-            const parsed = JSON.parse(text);
-            if (parsed && Number.isInteger(parsed.slot)) {
+            const parsed = JSON.parse(raw);
+            if (parsed && !Array.isArray(parsed) && validSlot(parsed.slot, parsed.container)
+                && typeof parsed.dragId === "string" && parsed.dragId.length > 0 && parsed.dragId.length <= 64
+                && Object.keys(parsed).every(key => ["slot", "container", "dragId"].includes(key))) {
                 return {
                     slot: parsed.slot,
-                    container: parsed.container || "inventory",
+                    container: parsed.container,
+                    dragId: parsed.dragId,
                 };
             }
-        } catch (_e) {
-            const slot = parseInt(text, 10);
-            if (Number.isInteger(slot)) return { slot, container: "inventory" };
-        }
+        } catch (_e) { /* Foreign text is not an inventory drag. */ }
         return null;
     }
 
@@ -77,12 +83,12 @@
         return { ok: true };
     }
 
-    function dragStartPlan({ slotId, containerName = "inventory", protectedKnown = false, hasItem = false } = {}) {
-        if (protectedKnown || !hasItem) return { ok: false };
+    function dragStartPlan({ slotId, containerName = "inventory", dragId = "", protectedKnown = false, hasItem = false } = {}) {
+        if (protectedKnown || !hasItem || !validSlot(slotId, containerName) || typeof dragId !== "string" || !dragId || dragId.length > 64) return { ok: false };
         return {
             ok: true,
             effectAllowed: "copyMove",
-            payload: JSON.stringify({ slot: slotId, container: containerName }),
+            payload: JSON.stringify({ slot: slotId, container: containerName, dragId }),
         };
     }
 
@@ -94,9 +100,9 @@
         };
     }
 
-    function dropPlan({ rawPayload = "", toContainerName = "inventory", toSlot = null, copyMode = false } = {}) {
+    function dropPlan({ rawPayload = "", dragId = "", toContainerName = "inventory", toSlot = null, copyMode = false } = {}) {
         const payload = parseDragPayloadRaw(rawPayload);
-        if (!payload) return { ok: false, reason: "invalid_payload" };
+        if (!payload || payload.dragId !== dragId || !validSlot(toSlot, toContainerName)) return { ok: false, reason: "invalid_payload" };
         return {
             ok: true,
             fromContainerName: payload.container || "inventory",

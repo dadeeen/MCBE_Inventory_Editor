@@ -130,8 +130,8 @@ def close_db_preserving_active_exception(db: BedrockDb | None, *, context: str) 
 class LevelDbAdapter:
     """Thin wrapper around amulet-leveldb (Mojang's custom LevelDB fork).
 
-    The amulet-leveldb package provides pre-built wheels so no C++ compiler is
-    needed at install time, and it supports encrypted Bedrock worlds as well.
+    Python 3.12 can use published wheels. Windows releases bundle wheels for
+    3.13/3.14; source builds use the project’s hash-locked Cython toolchain.
     """
 
     def __init__(self, db_path: str):

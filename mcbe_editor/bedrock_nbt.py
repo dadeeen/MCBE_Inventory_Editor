@@ -1,16 +1,13 @@
 """Bedrock NBT I/O helpers.
 
 Minecraft Bedrock LevelDB player records are little-endian NBT and their
-strings are UTF-8-ish, not Java's modified UTF-8.  Amulet's defaults target
-Java NBT, so always use the Bedrock decoder/encoder here.  Without this,
-valid Bedrock player data that contains literal NUL bytes inside string
-payloads can fail with mutf-8 UnicodeDecodeError and get misclassified as
-unreadable.
+strings use Bedrock UTF-8 with escaped invalid bytes, not Java modified UTF-8.
+Keep the explicit codec options here for all player and entity I/O.
 """
 
 from typing import Any, cast
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 
 LOAD_KWARGS: dict[str, Any] = {
     "compressed": False,
@@ -33,3 +30,14 @@ def load_player_nbt(raw_bytes: bytes) -> Any:
 def save_player_nbt(named_tag: Any) -> bytes:
     """Serialize a Bedrock player NBT NamedTag without Java MUTF-8 encoding."""
     return cast(bytes, named_tag.save_to(**SAVE_KWARGS))
+
+
+def literal_string_tag(value: str) -> Any:
+    """Create user text with literal UTF-8 bytes, retaining the codec's raw form.
+
+    Existing escaped strings keep their usual codec semantics. Explicit UTF-8
+    applies only when creating a new tag from a user's Unicode text.
+    """
+    codec: Any = nbt
+    raw = codec.NamedTag(codec.StringTag(value)).save_to(**{**SAVE_KWARGS, "string_encoder": str.encode})
+    return load_player_nbt(raw).tag

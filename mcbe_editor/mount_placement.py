@@ -19,7 +19,7 @@ from .mount_block_probe import (
     support_surface_requires_shape_data,
     support_surface_shape_is_state_dependent,
 )
-from .mounts import MIN_PLACEMENT_RADIUS, horizontal_block_offset, mount_collision_height, mount_collision_width
+from .mounts import MIN_PLACEMENT_RADIUS, horizontal_block_offset, mount_collision_height, mount_collision_width, normalize_mount_position
 
 PASSABLE_PLACEMENT_SPACE_BLOCKS = frozenset(
     {
@@ -421,6 +421,8 @@ def _candidate_with_footprint_probe(
     half_width: float = HORSE_FOOTPRINT_HALF_WIDTH_BLOCKS,
     clearance_blocks: int = 2,
 ) -> dict[str, Any]:
+    if _candidate_position(candidate) is not None:
+        candidate = {**candidate, **normalize_mount_position(candidate)}
     footprint_columns = _candidate_footprint_columns(candidate, half_width)
     if not footprint_columns:
         return candidate
@@ -728,6 +730,13 @@ def _adjust_vertical_placement_candidates(db: Any, preview: dict[str, Any]) -> d
 def refine_preview_placement(db: Any, preview: dict[str, Any]) -> dict[str, Any]:
     """Annotate, reassess, and scan mount candidates against world blocks."""
 
+    if isinstance(preview.get("candidate_positions"), list):
+        candidates = [
+            {**candidate, **normalize_mount_position(candidate)}
+            if isinstance(candidate, dict) and _candidate_position(candidate) is not None else candidate
+            for candidate in preview["candidate_positions"]
+        ]
+        preview = _sync_selected_position_from_candidates({**preview, "candidate_positions": candidates})
     annotated = annotate_preview_candidates_with_chunk_probe(db, preview)
     reassessed = _reassess_passable_placement_blocks(annotated)
     return _adjust_vertical_placement_candidates(db, reassessed)

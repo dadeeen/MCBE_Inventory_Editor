@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import math
 import re
+import struct
 from pathlib import Path
 
 import pytest
 from flask import Flask
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.bedrock_nbt import save_player_nbt
 from mcbe_editor.mount_api_routes import MountRouteDeps, _preview_from_request
@@ -22,6 +23,10 @@ from mcbe_editor.mounts import (
 from mcbe_editor.players import encode_player_key
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _float32(value):
+    return struct.unpack("<f", struct.pack("<f", value))[0]
 
 
 def _player_snapshot(pos=None, dimension_id=0, rotation=None):
@@ -95,7 +100,7 @@ def test_mount_preview_uses_player_position_as_reference_and_places_mount_at_fee
     assert preview["placement_search"]["radius_scan_min_distance"] == 2
     assert preview["placement_search"]["radius_scan_max_distance"] == 6
     assert preview["selected_candidate_id"] == "east_6"
-    assert preview["selected_position"] == {"x": 16.5, "y": 62.38, "z": -20.25}
+    assert preview["selected_position"] == {"x": 16.5, "y": _float32(62.38), "z": -20.25}
     assert preview["candidate_positions"][0]["offset"] == {"x": 6.0, "y": 0.0, "z": 0.0}
     assert [candidate["id"] for candidate in preview["candidate_positions"]] == ["east_6", "west_6", "south_6", "north_6"]
     assert preview["candidate_positions"][0]["safe_to_place"] is None
@@ -137,7 +142,7 @@ def test_mount_preview_localizes_display_payload_for_english_request() -> None:
 def test_mount_preview_matches_observed_player_to_horse_y_delta() -> None:
     preview = build_mount_preview(_player_snapshot([316.58, 68.62, 217.44]), "player-key", placement_radius=2)
 
-    assert preview["selected_position"] == {"x": 318.58, "y": 67.0, "z": 217.44}
+    assert preview["selected_position"] == {"x": _float32(318.58), "y": 67.0, "z": _float32(217.44)}
 
 
 def test_mount_preview_prefers_view_direction_when_rotation_is_available() -> None:
@@ -147,7 +152,7 @@ def test_mount_preview_prefers_view_direction_when_rotation_is_available() -> No
     assert preview["placement_search"]["candidate_count"] == 4
     assert preview["player_yaw"] == -90.0
     assert preview["selected_candidate_id"] == "blickrichtung_4"
-    assert preview["selected_position"] == {"x": 14.5, "y": 62.38, "z": -20.25}
+    assert preview["selected_position"] == {"x": 14.5, "y": _float32(62.38), "z": -20.25}
     assert preview["candidate_positions"][0]["offset"] == {"x": 4.0, "y": 0.0, "z": 0.0}
     assert [candidate["id"] for candidate in preview["candidate_positions"]] == ["blickrichtung_4", "rechts_4", "links_4", "hinter_dir_4"]
 
@@ -321,14 +326,14 @@ def test_mount_preview_uses_custom_placement_radius() -> None:
     assert preview["placement_search"]["radius"] == 3
     assert preview["placement_search"]["candidate_count"] == 4
     assert preview["selected_candidate_id"] == "east_3"
-    assert preview["selected_position"] == {"x": 13.5, "y": 62.38, "z": -20.25}
+    assert preview["selected_position"] == {"x": 13.5, "y": _float32(62.38), "z": -20.25}
 
 
 def test_mount_preview_normalizes_float_placement_radius() -> None:
     preview = build_mount_preview(_player_snapshot(), "player-key", placement_radius="7.6")
 
     assert preview["placement_search"]["radius"] == 8
-    assert preview["selected_position"] == {"x": 18.5, "y": 62.38, "z": -20.25}
+    assert preview["selected_position"] == {"x": 18.5, "y": _float32(62.38), "z": -20.25}
 
 
 def test_mount_preview_rejects_small_placement_radius() -> None:
@@ -341,7 +346,7 @@ def test_mount_preview_prefers_view_direction_for_custom_radius() -> None:
 
     assert preview["placement_search"]["prefers_view_direction"] is True
     assert [candidate["id"] for candidate in preview["candidate_positions"]] == ["blickrichtung_5", "rechts_5", "links_5", "hinter_dir_5"]
-    assert preview["selected_position"] == {"x": 10.5, "y": 62.38, "z": -25.25}
+    assert preview["selected_position"] == {"x": 10.5, "y": _float32(62.38), "z": -25.25}
 
 
 def test_mount_create_availability_exposed_to_ui() -> None:
@@ -388,7 +393,7 @@ def test_mount_preview_accepts_bounded_preferred_offset() -> None:
     )
 
     assert preview["selected_candidate_id"] == "preferred_offset"
-    assert preview["selected_position"] == {"x": -3.0, "y": 68.38, "z": 4.0}
+    assert preview["selected_position"] == {"x": -3.0, "y": _float32(68.38), "z": 4.0}
     assert preview["candidate_positions"][0]["id"] == "preferred_offset"
 
 

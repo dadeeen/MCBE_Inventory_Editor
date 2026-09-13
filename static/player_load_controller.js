@@ -104,6 +104,15 @@
         let playerLoadRequestId = 0;
         let playerListRequestId = 0;
         let worldLoadRequestId = 0;
+        let playerLoadingOverlayRequestId = null;
+
+        function invalidatePlayerLoad() {
+            playerLoadRequestId += 1;
+            if (playerLoadingOverlayRequestId !== null) {
+                playerLoadingOverlayRequestId = null;
+                hideLoading();
+            }
+        }
 
         function logLoadStatus(message, type = "") {
             logStatus(message, type, { key: PLAYER_LOAD_STATUS_KEY });
@@ -124,6 +133,7 @@
         }
 
         function resetLoadedPlayerState({ showEmptyState = true } = {}) {
+            invalidatePlayerLoad();
             const state = getState();
             // Clearing mounts may notify the dirty-state observer. Finish by
             // assigning the unloaded state so that notification cannot keep it dirty.
@@ -183,16 +193,21 @@
         }
 
         async function selectExportOnlyPlayer(player) {
+            const previousRequestId = playerLoadRequestId;
+            const requestedWorldPath = getState().worldPath;
             if (getState().isDirty) {
                 const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Fortfahren?"));
                 if (!ok) return;
             }
+            if (previousRequestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return;
             resetLoadedPlayerState({ showEmptyState: false });
+            const requestId = playerLoadRequestId;
             setState({ currentPlayerKey: player.player_key, currentPlayer: player });
             if (btnExportPlayer) btnExportPlayer.disabled = !player.exportable || exportBlocked();
             updateImportControls();
             renderPlayersList();
             await updateWorldPresence();
+            if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return;
             setWorkflowView("player", { scroll: false });
             logLoadStatus(t("{player} ausgewählt – nur Export möglich.", { player: getCurrentPlayerLabel() }), "warning");
             updateWriteControlsSafe();
@@ -224,6 +239,7 @@
                     row.addEventListener("click", () => selectExportOnlyPlayer(player));
                 } else if (player.reason) {
                     row.addEventListener("click", () => {
+                        resetLoadedPlayerState({ showEmptyState: false });
                         setState({ currentPlayer: player, currentPlayerKey: player.player_key || "" });
                         renderPlayersList();
                         copyTextToClipboard(buildPlayersDiagnosticsText(), t("Spieler-Diagnose kopiert."));
@@ -237,6 +253,7 @@
         async function loadPlayersList(selectFirst = true) {
             const requestId = ++playerListRequestId;
             const requestedWorldPath = getState().worldPath;
+            const requestedPlayerContextId = playerLoadRequestId;
             if (!requestedWorldPath) return false;
             const state = getState();
             if (state.isDirty) {
@@ -245,15 +262,19 @@
                     logLoadStatus(t("Aktualisierung der Spielerliste abgebrochen."), "warning");
                     return false;
                 }
-                if (requestId !== playerListRequestId || requestedWorldPath !== getState().worldPath) return false;
+                if (requestId !== playerListRequestId || requestedWorldPath !== getState().worldPath
+                    || requestedPlayerContextId !== playerLoadRequestId) return false;
             }
             logLoadStatus(t("Suche Spieler in der Welt..."), "running");
             resetLoadedPlayerState({ showEmptyState: false });
+            const playerContextId = playerLoadRequestId;
+            const listContextIsCurrent = () => requestId === playerListRequestId
+                && requestedWorldPath === getState().worldPath && playerContextId === playerLoadRequestId;
             if (playerManager) playerManager.style.display = "flex";
             if (playersList) playersList.innerHTML = playerListStatusHtml("loading");
             try {
                 const data = await getPlayerApi().listPlayers(requestedWorldPath);
-                if (requestId !== playerListRequestId || requestedWorldPath !== getState().worldPath) return false;
+                if (!listContextIsCurrent()) return false;
                 if (!data.success) {
                     if (playersList) playersList.innerHTML = playerListStatusHtml("loadError");
                     const msg = buildErrorMessage(data, t("Spieler konnten nicht geladen werden."));
@@ -266,10 +287,11 @@
                 renderPlayerToolOptions();
                 renderWorldAnalysis();
                 await updateWorldPresence();
-                if (requestId !== playerListRequestId || requestedWorldPath !== getState().worldPath) return false;
+                if (!listContextIsCurrent()) return false;
                 const firstEditable = (getState().players || []).find(p => p.editable);
                 if (selectFirst && firstEditable) {
-                    await loadPlayer(firstEditable.player_key);
+                    const loaded = await loadPlayer(firstEditable.player_key);
+                    if (!loaded) return false;
                     if (requestId !== playerListRequestId || requestedWorldPath !== getState().worldPath) return false;
                 } else if (!firstEditable) {
                     setWorkflowView("player", { scroll: false });
@@ -281,7 +303,7 @@
                 }
                 return true;
             } catch (e) {
-                if (requestId !== playerListRequestId || requestedWorldPath !== getState().worldPath) return false;
+                if (!listContextIsCurrent()) return false;
                 console.error("loadPlayersList:", e);
                 if (playersList) playersList.innerHTML = playerListStatusHtml("connectionError");
                 const data = { error: t("Verbindungsfehler beim Laden der Spieler."), details: e?.message || "" };
@@ -292,7 +314,8 @@
         }
 
         async function loadPlayer(playerKey, skipDirtyCheck = false, options = {}) {
-            const requestId = ++playerLoadRequestId;
+            invalidatePlayerLoad();
+            const requestId = playerLoadRequestId;
             const requestedWorldPath = getState().worldPath;
             const { showLoadingOverlay = true } = options || {};
             if (!skipDirtyCheck && getState().isDirty) {
@@ -301,13 +324,12 @@
                     logLoadStatus(t("Spielerwechsel abgebrochen."), "warning");
                     return false;
                 }
-                if (requestId !== playerLoadRequestId) return false;
+                if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
             }
             logLoadStatus(t("Lade Spieler..."), "running");
-            let loadingShown = false;
             if (showLoadingOverlay) {
                 showLoading(t("{player} wird geladen...", { player: playerLoadLabel(playerKey) }));
-                loadingShown = true;
+                playerLoadingOverlayRequestId = requestId;
             }
             try {
                 const statusRequestOrder = beginServerStatusRequest();
@@ -428,6 +450,7 @@
                 renderStatusCenter();
                 renderWorldAnalysis();
                 await updateWorldPresence();
+                if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
                 setWorkflowView(workflowViewAfterPlayerLoad(getActiveWorkflowView()), { scroll: false });
                 const analysis = getAnalysisLogic();
                 const loadProtectionMessages = analysis?.currentLoadProtectionMessages?.() || [];
@@ -440,14 +463,17 @@
                 }
                 return true;
             } catch (e) {
-                if (requestId !== playerLoadRequestId) return false;
+                if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
                 console.error("loadPlayer:", e);
                 const data = { error: t("Verbindungsfehler beim Laden des Spielers."), details: e?.message || "" };
                 logLoadStatus(buildErrorMessage(data), "error");
                 renderLoadError(data, t("Verbindungsfehler beim Laden des Spielers."));
                 return false;
             } finally {
-                if (loadingShown && requestId === playerLoadRequestId) hideLoading();
+                if (playerLoadingOverlayRequestId === requestId) {
+                    playerLoadingOverlayRequestId = null;
+                    hideLoading();
+                }
             }
         }
 
@@ -458,7 +484,7 @@
             // A world change invalidates every player response started for the
             // previously selected world, even before the new world request has
             // completed.
-            playerLoadRequestId += 1;
+            invalidatePlayerLoad();
             playerListRequestId += 1;
             clearLoadError();
             const state = getState();

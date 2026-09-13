@@ -4,9 +4,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import pytest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

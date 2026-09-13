@@ -14,7 +14,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 
 from .bedrock_nbt import load_player_nbt
 from .i18n import t

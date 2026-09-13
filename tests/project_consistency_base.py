@@ -29,20 +29,20 @@ def _read(path: str) -> str:
 
 def test_python_support_is_consistent_across_project_files():
     pyproject = _read("pyproject.toml")
-    assert 'requires-python = ">=3.12,<3.13"' in pyproject
+    assert 'requires-python = ">=3.12,<3.15"' in pyproject
 
     setup = _read("setup.bat")
     assert "Python 3.12" in setup
-    assert "Python 3.11, 3.13, and 3.14" in setup
+    assert "Python 3.12, 3.13 and 3.14 are supported." in setup
     assert "EnableDelayedExpansion" in setup
-    assert 'set "PYTHON_CMD=py -3.12"' in setup
+    assert 'for %%V in (3.14 3.13 3.12)' in setup
     assert "!PYTHON_CMD! -m venv .venv" in setup
 
     workflow = _read(".github/workflows/ci.yml")
     assert 'python-version: "3.12"' in workflow
     assert "3.11" not in workflow
-    assert "3.13" not in workflow
-    assert "3.14" not in workflow
+    assert 'python: ["3.12", "3.13", "3.14"]' in workflow
+    assert "windows-latest" in workflow
 
     readme = _read("README.md")
     security = _read("SECURITY.md")
@@ -194,7 +194,7 @@ def test_ci_uses_full_test_runner_so_core_dependency_skips_do_not_pass_release_t
     assert "python scripts/coverage_check.py -q" in workflow
 
     runner = _read("scripts/test_full.py")
-    assert '"amulet_nbt"' in runner
+    assert '"mcbe_editor.nbt"' in runner
     assert '"leveldb"' in runner
     assert "pytest" in runner
     assert "DEFAULT_BASETEMP" in runner
@@ -326,7 +326,7 @@ def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
 
     assert "pip install --upgrade pip" not in workflow
     assert "pip install --upgrade pip" not in dockerfile
-    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 7
+    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 8
     docker_bootstrap = (
         "pip install --no-cache-dir --no-index --only-binary=:all: "
         "--find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
@@ -357,6 +357,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "runtime.in",
         "runtime.lock",
         "runtime.txt",
+        "nbt-reference.in", "nbt-reference.txt", "nbt-reference.lock",
     }
     actual = {path.name for path in (ROOT / "requirements").iterdir() if path.is_file()}
 
@@ -477,8 +478,8 @@ def test_windows_entrypoints_are_portable_and_use_reproducible_setup():
 
     setup = sources["setup.bat"]
     assert "pip install --upgrade pip" not in setup
-    assert "pip install --only-binary=:all: --require-hashes -r requirements\\bootstrap.lock" in setup
-    assert "pip install --only-binary=:all: --require-hashes -r requirements\\runtime.lock" in setup
+    assert 'scripts\\windows_setup.py install' in setup
+    assert setup.index("probe-wheel") < setup.index("probe-build")
     assert "pip install -r requirements.txt" not in setup
 
     release = sources["scripts/release_windows.bat"]
@@ -532,7 +533,7 @@ def test_lockfile_compiler_uses_project_build_constraints(monkeypatch):
 
     assert compile_lockfiles.BUILD_CONSTRAINTS == ROOT / "requirements" / "build-constraints.txt"
     assert compile_lockfiles._piptools_env()["PIP_BUILD_CONSTRAINT"] == str(ROOT / "requirements" / "build-constraints.txt")
-    assert "Cython==3.0.12" in _read("requirements/build-constraints.txt")
+    assert "Cython==3.2.4" in _read("requirements/build-constraints.txt")
 
 
 def test_native_dependency_builds_are_hash_locked_and_offline_at_runtime():
@@ -541,8 +542,7 @@ def test_native_dependency_builds_are_hash_locked_and_offline_at_runtime():
     build_source = _read("requirements/build.txt")
 
     for package in (
-        "cython==3.0.12",
-        "numpy==1.26.4",
+        "cython==3.2.4",
         "packaging==26.2",
         "setuptools==83.0.0",
         "versioneer==0.29",
@@ -550,7 +550,7 @@ def test_native_dependency_builds_are_hash_locked_and_offline_at_runtime():
     ):
         assert package in build_source
     assert build_source.count("--hash=sha256:") >= 10
-    assert workflow.count("pip install --only-binary=:all: --require-hashes -r requirements/build.lock") == 7
+    assert workflow.count("pip install --only-binary=:all: --require-hashes -r requirements/build.lock") == 8
     assert workflow.count("pip install --no-build-isolation --require-hashes -r requirements/dev.lock") == 7
     assert "PIP_BUILD_CONSTRAINT" not in workflow
     assert "PIP_BUILD_CONSTRAINT" not in dockerfile
@@ -594,6 +594,7 @@ def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path, monkeypatch
     monkeypatch.setattr(compile_lockfiles, "BUILD_CONSTRAINTS", requirements_dir / "build-constraints.txt")
     monkeypatch.setattr(compile_lockfiles, "LOCK_TARGETS", [(source, target)])
     monkeypatch.setattr(compile_lockfiles, "run", fake_run)
+    monkeypatch.setattr(compile_lockfiles.sys, "version_info", (3, 12, 14))
     monkeypatch.setattr(sys, "argv", ["compile_lockfiles.py", "--check"])
 
     assert compile_lockfiles.main() == 0
@@ -647,27 +648,7 @@ def test_lockfile_check_ignores_platform_specific_piptools_annotations(tmp_path)
 
 
 def test_nbt_dependent_test_modules_are_explicitly_known():
-    expected = {
-        "tests/test_compatibility.py",
-        "tests/test_bulk_replace_nbt.py",
-        "tests/test_cross_world_provenance.py",
-        "tests/test_inventory.py",
-        "tests/test_inventory_facade.py",
-        "tests/test_integrity_and_backup_regressions.py",
-        "tests/test_item_copy_regressions.py",
-        "tests/test_mount_diagnostic_evidence.py",
-        "tests/test_mount_write.py",
-        "tests/test_mount_write_horse_profile.py",
-        "tests/test_mounts.py",
-        "tests/test_nbt_safety.py",
-        "tests/test_player_import_snapshot.py",
-        "tests/test_players.py",
-        "tests/test_root_equipment.py",
-        "tests/test_security_fixes.py",
-        "tests/test_service.py",
-        "tests/test_source_digest_opaque_values.py",
-        "tests/test_untouched_field_invariance.py",
-    }
+    expected = {"tests/test_nbt_reference.py", "tests/test_nbt_reference_write_path.py", "tests/test_nbt_reference_workflows.py"}
     found = {
         path.relative_to(ROOT).as_posix()
         for path in sorted((ROOT / "tests").glob("test_*.py"))

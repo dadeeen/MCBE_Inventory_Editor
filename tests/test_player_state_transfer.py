@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 import pytest
 
 from mcbe_editor import player_state_transfer as player_state_transfer_module

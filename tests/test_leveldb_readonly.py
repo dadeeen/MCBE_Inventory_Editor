@@ -357,7 +357,7 @@ class ServiceReadonlyIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         try:
-            import amulet_nbt  # noqa: F401
+            from mcbe_editor import nbt  # noqa: F401
         except ImportError:
             self.skipTest("amulet_nbt wird für die Fixture-Erstellung benötigt")
         self._tmp = tempfile.TemporaryDirectory()
@@ -369,7 +369,7 @@ class ServiceReadonlyIntegrationTests(unittest.TestCase):
         self._write_local_player()
 
     def _write_local_player(self):
-        import amulet_nbt as nbt
+        from mcbe_editor import nbt
 
         player = nbt.CompoundTag(
             {

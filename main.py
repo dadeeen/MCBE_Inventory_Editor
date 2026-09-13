@@ -794,6 +794,18 @@ def _setup_csrf_token() -> str:
     return token
 
 
+def _csrf_token_matches(token: object, expected: object) -> bool:
+    return (
+        isinstance(token, str)
+        and isinstance(expected, str)
+        and bool(token)
+        and len(token) == len(expected)
+        and token.isascii()
+        and expected.isascii()
+        and secrets.compare_digest(token, expected)
+    )
+
+
 def _check_setup_post_token() -> str | None:
     origin = request.headers.get("Origin", "").rstrip("/")
     same_origin = f"{request.scheme}://{request.host}".rstrip("/")
@@ -802,7 +814,7 @@ def _check_setup_post_token() -> str | None:
         return i18n.t("Ungültiger Origin-Header.")
     token = request.form.get("_setup_token", "")
     expected = session.get("setup_csrf_token", "")
-    if not token or not isinstance(expected, str) or not secrets.compare_digest(token, expected):
+    if not _csrf_token_matches(token, expected):
         LOGGER.warning("setup token_rejected remote=%s", _remote_addr())
         return i18n.t("Ungültiges Setup-Token. Bitte Seite neu laden.")
     return None
@@ -816,7 +828,7 @@ def _check_login_post_token() -> str | None:
         return i18n.t("Ungültiger Origin-Header.")
     token = request.form.get("_csrf_token", "")
     expected = session.get("csrf_token", "")
-    if not token or not isinstance(expected, str) or not secrets.compare_digest(token, expected):
+    if not _csrf_token_matches(token, expected):
         LOGGER.warning("login token_rejected remote=%s", _remote_addr())
         return i18n.t("Ungültiges Login-Token. Bitte Seite neu laden.")
     return None
@@ -857,7 +869,7 @@ def _check_origin_and_token():
         return api_error("Ungültiger Origin-Header.", 403, code="invalid_origin")
     token = request.headers.get("X-CSRF-Token", "") or request.form.get("_csrf_token", "")
     expected = get_csrf_token()
-    if not token or not secrets.compare_digest(token, expected):
+    if not _csrf_token_matches(token, expected):
         LOGGER.warning("csrf token_rejected remote=%s path=%s", _remote_addr(), request.path)
         return api_error("Ungültiges CSRF-Token.", 403, code="invalid_csrf_token")
     return None

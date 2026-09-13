@@ -320,6 +320,7 @@ function getInventoryGridController() {
                 getGridFilter: () => gridFilter,
                 setGridFilter: value => { gridFilter = value; },
                 getWorldPath: () => worldPath,
+                getCurrentPlayerKey: () => currentPlayerKey,
             },
             renderer: {
                 buildSlotTooltipLines,
@@ -523,7 +524,7 @@ function getPlayerToolsController() {
             setEnderChestState: next => {
                 enderChestInventory = next.inventory || {};
                 hasEnderChest = Boolean(next.hasEnderChest);
-                enderChestCreateRequiresConfirmation = Boolean(next.createRequiresConfirmation);
+                // Copying contents does not change the original target's tag presence.
             },
             setPlayerStats: next => { playerStats = next; },
             currentPlayerLabel,
@@ -1516,9 +1517,12 @@ const playerTransferController = window.MCBEPlayerTransferLogic.createInventoryP
         showToast,
         recordAction,
         guardWorldWriteAction,
-        refreshImportedPlayer: async playerKey => {
-            await loadPlayersList(false);
-            await loadPlayer(playerKey, true, { showLoadingOverlay: false });
+        refreshImportedPlayer: async (playerKey, contextIsCurrent = () => true) => {
+            if (!contextIsCurrent()) return false;
+            const playersLoaded = await loadPlayersList(false);
+            // The successful list refresh intentionally cleared the loaded player.
+            if (!playersLoaded || !contextIsCurrent({ playerListReset: true })) return false;
+            return await loadPlayer(playerKey, true, { showLoadingOverlay: false });
         },
     },
 });

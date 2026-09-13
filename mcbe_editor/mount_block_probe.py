@@ -553,14 +553,16 @@ def _parse_nbt_compound_payload(raw: bytes, offset: int, depth: int = 0) -> tupl
         return None
     cursor = offset
     values: dict[str, Any] = {}
+    seen_names: set[str] = set()
     while cursor < len(raw):
         tag_type = raw[cursor]
         cursor += 1
         if tag_type == TAG_END:
             return values, cursor
         name, cursor_after_name = _read_nbt_string(raw, cursor)
-        if name is None:
+        if name is None or name in seen_names:
             return None
+        seen_names.add(name)
         cursor = cursor_after_name
         if tag_type == TAG_STRING:
             value, end = _read_nbt_string(raw, cursor)
@@ -723,7 +725,9 @@ def _palette_count_candidates(raw: bytes, palette_offset: int) -> list[dict[str,
     return candidates
 
 
-def _decode_palette_entry_for_index(raw: bytes, palette_offset: int, palette_index: int) -> dict[str, Any]:
+def _decode_palette_entry_for_index(
+    raw: bytes, palette_offset: int, palette_index: int, *, implicit_singleton: bool = False
+) -> dict[str, Any]:
     """Decode the target palette entry using the most plausible count encoding.
 
     Real Bedrock subchunks may encode the palette count either as a varint or as
@@ -735,7 +739,12 @@ def _decode_palette_entry_for_index(raw: bytes, palette_offset: int, palette_ind
 
     best: dict[str, Any] | None = None
     best_score: int | None = None
-    for count_info in _palette_count_candidates(raw, palette_offset):
+    count_candidates = _palette_count_candidates(raw, palette_offset)
+    if implicit_singleton and raw[palette_offset:palette_offset + 1] == bytes([TAG_COMPOUND]):
+        # Zero-bit persistent storage writes its sole compound without a count.
+        # Retain the existing count-prefixed compatibility path otherwise.
+        count_candidates = [{"encoding": "implicit_singleton", "count": 1, "end_offset": palette_offset}]
+    for count_info in count_candidates:
         palette_count = int(count_info["count"])
         cursor = int(count_info["end_offset"])
         encoding = str(count_info["encoding"])
@@ -781,6 +790,11 @@ def _decode_palette_entry_for_index(raw: bytes, palette_offset: int, palette_ind
                 "block_name": None,
                 "palette_parse_quality": parse_quality,
             }
+
+        if parsed_count != palette_count:
+            # A readable target alone is not a complete, unambiguous palette.
+            candidate["block_name"] = None
+            candidate["palette_entry"] = {**candidate["palette_entry"], "ok": False, "reason": "incomplete_palette"}
 
         score = parsed_count * 2 + named_count * 8
         if candidate.get("block_name"):
@@ -851,6 +865,11 @@ def read_palette_index_from_subchunk(
     if layer_count is None or layer_count < 1:
         result["reason"] = "missing_block_storage_layer"
         return result
+    if layer_count != 1:
+        # Only layer zero is decoded. Other layers can contain liquid or blocks;
+        # never turn a partially read column into a confirmed-safe placement.
+        result["reason"] = "additional_block_layers_unchecked"
+        return result
 
     storage_header_offset, subchunk_y_index, offset_error = _subchunk_storage_header_offset(raw)
     result["subchunk_y_index"] = subchunk_y_index
@@ -862,6 +881,9 @@ def read_palette_index_from_subchunk(
     bits_per_block = storage_header >> 1
     result["storage_header"] = storage_header
     result["bits_per_block"] = bits_per_block
+    if storage_header & 1:
+        result["reason"] = "runtime_palette_unsupported"
+        return result
     if bits_per_block not in SUPPORTED_PALETTE_INDEX_BITS:
         result["reason"] = "unsupported_bits_per_block"
         return result
@@ -896,7 +918,7 @@ def read_palette_index_from_subchunk(
         word = int.from_bytes(raw[word_offset : word_offset + 4], "little", signed=False)
         palette_index = (word >> bit_offset) & ((1 << bits_per_block) - 1)
 
-    palette_result = _decode_palette_entry_for_index(raw, palette_offset, palette_index)
+    palette_result = _decode_palette_entry_for_index(raw, palette_offset, palette_index, implicit_singleton=bits_per_block == 0)
     result.update(
         {
             "ok": True,
@@ -970,6 +992,9 @@ def _probe_block_at(
             local["local_z"],
             block_index_func=block_index_func,
         )
+        stored_y = target_block.get("subchunk_y_index")
+        if target_block.get("version") == 9 and isinstance(stored_y, int) and stored_y != subchunk_y:
+            target_block = {**target_block, "ok": False, "reason": "subchunk_y_mismatch", "block_name": None}
         block_name = target_block.get("block_name") if isinstance(target_block, dict) else None
         result["checked_key_count"] += 1
         chunk_finalized = _chunk_finalized_state(db, base)

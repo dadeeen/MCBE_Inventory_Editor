@@ -1,5 +1,6 @@
 import subprocess
 import textwrap
+import json
 from pathlib import Path
 
 
@@ -15,6 +16,94 @@ def _run_node(source: str) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_payload() -> None:
+    from mcbe_editor import inventory, nbt
+
+    sources = [
+        nbt.CompoundTag({"Pos": nbt.StringTag("future position"), "Health": nbt.StringTag("future health"),
+                         "DimensionId": nbt.IntTag(1), "XPLevel": nbt.IntTag(9)}),
+        nbt.CompoundTag({"XPLevel": nbt.IntTag(9)}),
+        nbt.CompoundTag({"Health": nbt.FloatTag(float("nan")), "XPLevel": nbt.IntTag(9)}),
+        nbt.CompoundTag({"Pos": nbt.ListTag([nbt.FloatTag(float("nan")), nbt.FloatTag(80), nbt.FloatTag(95)]),
+                         "DimensionId": nbt.IntTag(1), "XPLevel": nbt.IntTag(9)}),
+    ]
+    responses = [{"stats": inventory.extract_player_stats(source), "protected_nbt": inventory.protected_player_nbt_flags(source)}
+                 for source in sources]
+    readable = nbt.CompoundTag({
+        "Pos": nbt.ListTag([nbt.DoubleTag(1), nbt.DoubleTag(2), nbt.DoubleTag(3)]),
+        "DimensionId": nbt.IntTag(2), "XPLevel": nbt.IntTag(9),
+        "Attributes": nbt.ListTag([nbt.CompoundTag({"Name": nbt.StringTag("minecraft:health"), "Current": nbt.FloatTag(11)})]),
+    })
+    responses.append({"stats": inventory.extract_player_stats(readable), "protected_nbt": inventory.protected_player_nbt_flags(readable),
+                      "expected_changes": {"pos": [1, 2, 3], "dimension_id": 2, "health": 11, "xp_level": 9}})
+    _run_node("const responses = " + json.dumps(responses) + r""";
+        const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
+        const context = {window: {}};
+        for (const name of ['player_view_models', 'player_tools', 'save_payload_logic', 'ability_state']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        (async () => {
+            for (const response of responses) {
+                const original = {pos: [120, 80, -95], dimension_id: 0, health: 7, xp_level: 2,
+                                  xp_progress: 0.5, food_level: 12, food_saturation: 3, gamemode: 1};
+                let stats = structuredClone(original);
+                const warnings = [];
+                const controller = context.window.MCBEPlayerTools.createPlayerToolsController({
+                    elements: {copySourcePlayerSelect: {value: 'source'}, copyStatsArea: {checked: true}},
+                    getWorldPath: () => 'world', getCurrentPlayerKey: () => 'target',
+                    getPlayers: () => [{player_key: 'source'}], getPlayerStats: () => stats,
+                    setPlayerStats: value => {stats = value}, showConfirmDialog: async () => true,
+                    api: {loadPlayerOrThrow: async () => response},
+                    showToast: (message, kind) => {if (kind === 'warning') warnings.push(message)},
+                });
+                assert.equal(await controller.copyFromSelectedPlayer(), true);
+                const expectedChanges = response.expected_changes || {xp_level: 9};
+                assert.deepEqual(JSON.parse(JSON.stringify(stats)), {...original, ...expectedChanges});
+                const logic = context.window.MCBESavePayloadLogic.createSavePayloadLogic({
+                    getCleanSnapshot: () => ({stats: original}), getPlayerStats: () => stats,
+                    removeProtectedStatsFromPayload: payload => context.window.MCBEAbilityState.removeProtectedStatsFromPayload(payload, {}),
+                });
+                assert.deepEqual(JSON.parse(JSON.stringify(logic.buildChangedStatsPayload())), expectedChanges);
+                assert.ok(warnings.length);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1});
+    """)
+
+
+def test_copy_ender_chest_keeps_target_creation_confirmation() -> None:
+    _run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
+        const context = {window: {}};
+        for (const name of ['player_view_models', 'player_tools', 'save_controller']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        (async () => {
+            for (const targetMissing of [true, false]) {
+                const state = {createRequiresConfirmation: targetMissing};
+                const controller = context.window.MCBEPlayerTools.createPlayerToolsController({
+                    elements: {copySourcePlayerSelect: {value: 'source'}, copyEnderArea: {checked: true}},
+                    getWorldPath: () => 'world', getCurrentPlayerKey: () => 'target',
+                    getPlayers: () => [{player_key: 'source'}], showConfirmDialog: async () => true,
+                    setEnderChestState: next => Object.assign(state, next),
+                    api: {loadPlayerOrThrow: async () => ({player: {has_ender_chest_tag: true},
+                        ender_chest: {0: {slot: 0, name: 'minecraft:stone', count: 1}}})},
+                });
+                assert.equal(await controller.copyFromSelectedPlayer(), true);
+                assert.equal(state.createRequiresConfirmation, targetMissing);
+                let confirmations = 0;
+                const save = context.window.MCBESaveController.createSaveController({
+                    getCreateRequiresConfirmation: () => ({enderChest: state.createRequiresConfirmation}),
+                    showConfirmDialog: async () => {confirmations++; return true},
+                });
+                const payload = {ender_chest: Object.values(state.inventory)};
+                assert.equal(await save.confirmMissingTagCreates(payload), true);
+                assert.equal(confirmations, targetMissing ? 1 : 0);
+                assert.equal(payload.allow_create_ender_chest === true, targetMissing);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1});
+    """)
 
 
 def test_frontend_player_tools_row_html_escapes_model_text() -> None:

@@ -1,10 +1,9 @@
-import pytest
 import unittest
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.backup import get_backups_dir
 from mcbe_editor.inventory import _item_source_digest

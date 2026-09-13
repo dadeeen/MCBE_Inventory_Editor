@@ -17,6 +17,69 @@ def _run_node(source: str) -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+def test_unreadable_mount_save_response_blocks_retries_including_confirmation_requests() -> None:
+    _run_node(r"""
+        const fs = require('fs');
+        const vm = require('vm');
+        const assert = require('node:assert/strict');
+        const context = {window: {}, console};
+        for (const name of ['api_client', 'save_controller']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        const api = context.window.MCBEApiClient.createApiClient();
+        async function check(bodyMode, confirmation, status = 200) {
+            let posts = 0, reloadRequired = false, disabled = false;
+            const pendingMounts = [{mountType: 'minecraft:horse', worldPath: 'world', playerKey: 'target'}];
+            const noop = () => {};
+            const controller = context.window.MCBESaveController.createSaveController({
+                getWorldPath: () => 'world', getCurrentPlayerKey: () => 'target',
+                getIsDirty: () => true, getPendingMounts: () => pendingMounts,
+                writeBlocked: () => reloadRequired, getCurrentWriteGate: () => ({}),
+                buildSavePayload: () => ({stats: {}, base_revision: 'same-player-revision'}),
+                payloadContainsUserChanges: () => false, buildChangeSummary: () => ({}),
+                validateInventoryState: () => ({errors: 0}),
+                setPrimarySaveDisabled: value => { disabled = value; },
+                setReviewConfirmDisabled: noop, showLoading: noop, hideLoading: noop,
+                logStatus: noop, showToast: noop, updateWriteControls: noop,
+                renderWriteGate: noop, showConfirmDialog: async () => true,
+                confirmPresenceConflict: async () => true,
+                markReloadRequired: () => { reloadRequired = true; },
+                postSavePayload: async () => {
+                    posts += 1;
+                    return api.parseJsonResponse({ok: status === 200, status,
+                        headers: {get: () => 'application/json'},
+                        text: async () => {
+                            if (posts === 1 && confirmation === 'server') {
+                                return JSON.stringify({success: false, write_gate: {requires_unknown_server_confirmation: true}});
+                            }
+                            if (posts === 1 && confirmation === 'presence') {
+                                return JSON.stringify({success: false, presence_conflict: true});
+                            }
+                            if (bodyMode === 'read-error') throw new Error('response body interrupted');
+                            return bodyMode;
+                        },
+                    });
+                },
+            });
+            await controller.saveCurrentPlayer({skipReview: true});
+            const confirmedRejection = bodyMode === '{"success":false,"error":"Backup failed"}';
+            assert.equal(reloadRequired, !confirmedRejection, `${bodyMode}/${confirmation}/${status}`);
+            assert.equal(disabled, !confirmedRejection);
+            assert.equal(pendingMounts.length, 1);
+            await controller.saveCurrentPlayer({skipReview: true});
+            assert.equal(posts, confirmedRejection ? 2 : (confirmation ? 2 : 1));
+        }
+        (async () => {
+            for (const status of [200, 500]) {
+                for (const body of ['read-error', '{"success":true,"mounts":[', '', '<html>Error</html>', '{}', '[]', 'null']) {
+                    for (const confirmation of ['', 'server', 'presence']) await check(body, confirmation, status);
+                }
+                await check('{"success":false,"error":"Backup failed"}', '', status);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
 def test_frontend_save_controller_preserves_save_orchestration_contract() -> None:
     _run_node(
         textwrap.dedent(

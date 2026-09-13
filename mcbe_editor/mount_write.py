@@ -15,7 +15,7 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 
 from .backup import create_backup, get_backups_dir, prune_backups, remove_backup_after_aborted_write
 from .bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
@@ -28,7 +28,7 @@ from .mount_profile import (
     horse_profile_summary,
     normalize_horse_profile,
 )
-from .mounts import MOUNT_TYPE_DEFINITIONS
+from .mounts import MOUNT_TYPE_DEFINITIONS, normalize_mount_position
 from .players import decode_player_key
 from .service_errors import denied_write_actor, denied_write_permission_hint
 from .world import ensure_valid_world_path
@@ -38,6 +38,7 @@ DIGP_PREFIX = b"digp"
 MAX_DIGP_VALUE_BYTES = 8 * 4096
 MIN_ENTITY_ACTOR_GROUP = 2
 EQUINE_TEMPLATE_IDENTIFIERS = ("minecraft:horse", "minecraft:donkey", "minecraft:mule")
+_EQUINE_TEMPLATE_BYTES = tuple(identifier.encode("utf-8") for identifier in EQUINE_TEMPLATE_IDENTIFIERS)
 CREATE_MODE_AUTO = "auto"
 CREATE_MODE_SYNTHETIC_FULL = "synthetic_full"
 CREATE_MODE_TEMPLATE_CLONE = "template_clone"
@@ -89,16 +90,6 @@ def _float_value(value: Any, field_name: str) -> float:
     if not math.isfinite(result):
         raise ValueError(f"{field_name} muss endlich sein.")
     return result
-
-
-def normalize_mount_position(value: Any) -> dict[str, float]:
-    if not isinstance(value, dict):
-        raise ValueError("selected_position muss ein Objekt mit x/y/z sein.")
-    return {
-        "x": round(_float_value(value.get("x"), "selected_position.x"), 3),
-        "y": round(_float_value(value.get("y"), "selected_position.y"), 3),
-        "z": round(_float_value(value.get("z"), "selected_position.z"), 3),
-    }
 
 
 def actor_key_suffix(actor_key: bytes) -> bytes:
@@ -261,11 +252,17 @@ def find_equine_template(db) -> EquineTemplate | None:
     for key, raw in db.iter_items():
         if not isinstance(key, bytes) or not key.startswith(ACTOR_PREFIX):
             continue
+        # Accepted identifiers use these literal ASCII bytes in Bedrock UTF-8.
+        # This only rejects impossible candidates; matches still need full NBT validation.
+        if not any(identifier in raw for identifier in _EQUINE_TEMPLATE_BYTES):
+            continue
         tag = _load_entity_tag(raw)
         if tag is None:
             continue
         identifier = _entity_identifier(tag)
         if identifier not in EQUINE_TEMPLATE_IDENTIFIERS:
+            continue
+        if not _equine_template_is_idle(tag):
             continue
         candidates.append((_template_priority(identifier, tag, raw), EquineTemplate(identifier=identifier, value=raw)))
     if not candidates:
@@ -770,6 +767,50 @@ def _storage_key_bytes(tag: nbt.CompoundTag) -> bytes | None:
     return None
 
 
+def _mount_equipment_is_empty(tag: nbt.CompoundTag) -> bool:
+    for key in ("Armor", "Mainhand", "Offhand", "ChestItems"):
+        if key not in tag:
+            continue
+        items = tag[key]
+        if not isinstance(items, nbt.ListTag):
+            return False
+        for item in items:
+            if not isinstance(item, nbt.CompoundTag):
+                return False
+            if _tag_data(item.get("Count", 0)) != 0 or _tag_data(item.get("Name", "")) not in ("", "minecraft:air"):
+                return False
+    return True
+
+
+def _mount_has_no_actor_links(tag: nbt.CompoundTag) -> bool:
+    if any(_tag_data(tag.get(key, -1)) != -1 for key in ("TargetID", "LeasherID")):
+        return False
+    links = tag.get("LinksTag")
+    return links is None or (isinstance(links, nbt.ListTag) and len(links) == 0)
+
+
+def _equine_template_is_idle(tag: nbt.CompoundTag) -> bool:
+    # Clone only unowned, unequipped templates without live rider/leash/target
+    # or breeding state. Unknown passive tags are preserved, never scrubbed.
+    if _entity_identifier(tag) not in EQUINE_TEMPLATE_IDENTIFIERS:
+        return False
+    age_flag = tag.get("IsBaby")
+    if age_flag is not None and (not isinstance(age_flag, nbt.ByteTag) or age_flag.py_data not in (0, 1)):
+        return False
+    if _tag_data(tag.get("OwnerNew", -1)) != -1 or not _mount_has_no_actor_links(tag):
+        return False
+    if any(_tag_data(tag.get(key, 0)) != 0 for key in ("IsTamed", "Saddled", "Chested", "InLove", "LoveCause", "IsPregnant", "Dead", "DeathTime")):
+        return False
+    definitions = tag.get("definitions", nbt.ListTag())
+    if not isinstance(definitions, nbt.ListTag):
+        return False
+    for definition in definitions:
+        value = str(_tag_data(definition))
+        if value.startswith("+") and any(part in value for part in ("_tamed", "_saddled", "_chested")):
+            return False
+    return _mount_equipment_is_empty(tag)
+
+
 def _apply_horse_identity(
     tag: nbt.CompoundTag, position: dict[str, float], unique_id: int, actor_suffix: bytes | None, horse_profile: Any = None
 ) -> nbt.CompoundTag:
@@ -782,6 +823,9 @@ def _apply_horse_identity(
     tag["internalComponents"] = _storage_key_component(actor_suffix)
     tag["Variant"] = nbt.IntTag(0)
     tag["IsBaby"] = nbt.ByteTag(0)
+    tag["IsTamed"] = nbt.ByteTag(0)
+    tag["Saddled"] = nbt.ByteTag(0)
+    tag["Chested"] = nbt.ByteTag(0)
     # Wie beim synthetischen Writer: echte behaltene Records tragen
     # Persistent=1 und NaturalSpawn=0; ohne Persistent droht Despawn.
     tag["NaturalSpawn"] = nbt.ByteTag(0)
@@ -810,6 +854,8 @@ def build_horse_actor_nbt_from_template(
     tag = _load_entity_tag(template_value)
     if tag is None:
         raise ValueError("Equine-Template konnte nicht gelesen werden.")
+    if not _equine_template_is_idle(tag):
+        raise ValueError(t("Equine-Template enthält ungeeignete Zustandsdaten, Beziehungen oder Ausrüstung und kann nicht sicher geklont werden."))
     return nbt.NamedTag(_apply_horse_identity(tag, position, unique_id, actor_suffix, horse_profile)).save_to(**SAVE_KWARGS)
 
 
@@ -927,7 +973,7 @@ def build_horse_mount_record(
         raise ValueError("Template-Clone ist nur für Pferde implementiert; dieser Mount-Typ nutzt den synthetischen Writer.")
     template = None if (create_mode == CREATE_MODE_SYNTHETIC_FULL or not is_horse) else find_equine_template(db)
     if create_mode == CREATE_MODE_TEMPLATE_CLONE and template is None:
-        raise ValueError("Template-Clone wurde angefordert, aber in der Welt wurde kein Horse/Donkey/Mule-Template gefunden.")
+        raise ValueError(t("Template-Clone wurde angefordert, aber kein geeignetes ungebundenes und unausgerüstetes Horse/Donkey/Mule-Template gefunden."))
     if template is not None:
         actor_value = build_horse_actor_nbt_from_template(template.value, normalized_position, unique_id, actor_suffix, profile)
         effective_mode = CREATE_MODE_TEMPLATE_CLONE
@@ -1050,12 +1096,32 @@ def validate_horse_mount_write(db, record: HorseMountRecord, *, expected_digp_va
             }
         )
         record_mount_type = getattr(record, "mount_type", "minecraft:horse") or "minecraft:horse"
+        pos_tag = tag.get("Pos")
+        stored_position = None
+        if isinstance(pos_tag, nbt.ListTag) and len(pos_tag) == 3 and all(isinstance(value, nbt.FloatTag) for value in pos_tag):
+            values = [float(value.py_data) for value in pos_tag]
+            if all(math.isfinite(value) for value in values):
+                stored_position = dict(zip(("x", "y", "z"), values, strict=True))
+        checks["stored_position_matches_plan"] = stored_position == record.position
+        try:
+            checks["digp_key_matches_stored_position"] = stored_position is not None and record.digp_key == digp_key_for_position(stored_position)
+        except ValueError:
+            checks["digp_key_matches_stored_position"] = False
+        details["stored_position"] = stored_position
+        expected_tamed = 1 if record.tamed else int(_mount_bool_tags(record_mount_type)["IsTamed"].py_data)
+        expected_owner = record.owner_unique_id if record.tamed and record.owner_unique_id is not None else -1
+        checks["tame_state_matches_plan"] = isinstance(tag.get("IsTamed"), nbt.ByteTag) and _tag_data(tag["IsTamed"]) == expected_tamed
+        checks["owner_matches_plan"] = isinstance(tag.get("OwnerNew"), nbt.LongTag) and _tag_data(tag["OwnerNew"]) == expected_owner
+        checks["no_active_actor_links"] = _mount_has_no_actor_links(tag)
+        checks["no_inherited_equipment"] = (
+            _tag_data(tag.get("Saddled", 0)) == 0 and _tag_data(tag.get("Chested", 0)) == 0 and _mount_equipment_is_empty(tag)
+        )
         checks["identifier_matches_mount_type"] = identifier == record_mount_type
         checks["unique_id_matches_actor_key"] = unique_id == record.unique_id
         checks["storage_key_matches_actor_suffix"] = storage_key == actor_suffix
         expected_definitions = expected_mount_definition_strings(record_mount_type, record.horse_profile, tamed=getattr(record, "tamed", False))
         details["expected_definitions"] = expected_definitions
-        checks["definitions_complete"] = all(value in definitions for value in expected_definitions)
+        checks["definitions_complete"] = definitions == expected_definitions
         checks["attributes_complete"] = attribute_count >= expected_mount_attribute_count(record_mount_type)
         checks["equipment_lists_present"] = all(isinstance(tag.get(key), nbt.ListTag) for key in ("Armor", "Mainhand", "Offhand"))
         checks["no_top_level_health"] = "Health" not in tag
@@ -1063,6 +1129,12 @@ def validate_horse_mount_write(db, record: HorseMountRecord, *, expected_digp_va
         checks["tag_count_plausible"] = tag_count >= MIN_PLAUSIBLE_HORSE_TAG_COUNT
 
         for key, message in {
+            "stored_position_matches_plan": t("Gespeicherte Pos stimmt nicht mit der geplanten Mount-Position überein"),
+            "digp_key_matches_stored_position": t("digp-Key passt nicht zum Chunk der gespeicherten Pos"),
+            "tame_state_matches_plan": t("IsTamed passt nicht zum geplanten Mount-Zustand"),
+            "owner_matches_plan": t("OwnerNew passt nicht zum geplanten Besitzer"),
+            "no_active_actor_links": t("Neuer Mount enthält aktive Actor-Verknüpfungen"),
+            "no_inherited_equipment": t("Neuer Mount enthält übernommene Ausrüstung"),
             "identifier_matches_mount_type": f"identifier ist nicht {record_mount_type}",
             "unique_id_matches_actor_key": "UniqueID passt nicht zum actorprefix-Key",
             "storage_key_matches_actor_suffix": "StorageKey passt nicht zum Actor-Suffix",
@@ -1162,7 +1234,7 @@ def create_horse_mount_with_service(
         backup_file = None
         write_attempted = False
         try:
-            db = service._open_db(world_path)
+            db = service._open_db_readonly(world_path)
             player_info = service._get_player_info(db, player_key)
             if not player_info["editable"]:
                 raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")

@@ -2,7 +2,6 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -178,7 +177,7 @@ def test_dedicated_item_paste_uses_real_clipboard_controller() -> None:
 
 
 def test_same_item_copy_prefers_source_nbt_over_existing_target() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     source = nbt.CompoundTag(

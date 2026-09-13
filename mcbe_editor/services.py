@@ -3,8 +3,7 @@ import hashlib
 import logging
 import os
 
-import amulet_nbt as nbt
-
+from mcbe_editor import nbt
 from mcbe_editor.item_availability import item_availability_client_payload
 from mcbe_editor.item_data import (
     ADDABLE_ITEM_IDS,
@@ -867,6 +866,19 @@ class BedrockEditorService:
             finally:
                 close_db_preserving_active_exception(db, context="Spielermigration prüfen")
 
+    def _restore_player_record(self, db, target_key, target_before_raw, written_raw):
+        """Recheck and restore using the same exclusive native write handle."""
+        current = self._read_optional_player(db, target_key)
+        if current == target_before_raw:
+            return False
+        if current != written_raw:
+            raise ValueError(t("Automatischer Rollback würde neuere Zieldaten überschreiben."))
+        if target_before_raw is None:
+            db.put_batch({target_key: None})
+        else:
+            db.put(target_key, target_before_raw)
+        return True
+
     def _rollback_player_state_transfer(self, world_path, target_key, target_before_raw, transferred_raw):
         failures = []
         db = None
@@ -899,9 +911,10 @@ class BedrockEditorService:
                     ],
                     False,
                 )
+            rollback_required = False
             try:
                 db = self._open_db(world_path)
-                db.put(target_key, target_before_raw)
+                rollback_required = self._restore_player_record(db, target_key, target_before_raw, transferred_raw)
             except Exception as exc:
                 failures.append((t("Vorheriger Zielzustand konnte nicht zurückgeschrieben werden"), exc))
             finally:
@@ -1132,12 +1145,10 @@ class BedrockEditorService:
                     ],
                     False,
                 )
+            rollback_required = False
             try:
                 db = self._open_db(world_path)
-                if target_before_raw is None:
-                    db.put_batch({target_key: None})
-                else:
-                    db.put(target_key, target_before_raw)
+                rollback_required = self._restore_player_record(db, target_key, target_before_raw, imported_raw)
             except Exception as exc:
                 action = (
                     t("Neu angelegter Spieler-Key konnte nicht entfernt werden")

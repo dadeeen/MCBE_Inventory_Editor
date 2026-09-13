@@ -1,6 +1,6 @@
 import pytest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.compatibility import analyze_player_compatibility, analyze_world_structure, assert_serialized_player_roundtrip
 from mcbe_editor.item_data import ITEMS, ENCHANTMENTS

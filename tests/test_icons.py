@@ -740,6 +740,7 @@ def test_icon_source_add_audits_partial_when_rescan_fails_after_settings_change(
     monkeypatch.setattr(icon_api_routes, "_scan_and_store_icons", lambda *_args, **_kwargs: (_ for _ in ()).throw(scan_error))
     deps = SimpleNamespace(
         settings_path=str(tmp_path / "icon_sources.json"),
+        get_icon_index=lambda: {},
         json_string=lambda data, key: data[key],
         audit_event=lambda *args, **kwargs: audit_events.append((args, kwargs)),
         jsonify=lambda value: value,

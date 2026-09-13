@@ -31,21 +31,27 @@ def test_frontend_slot_interaction_drag_payload_and_plans() -> None:
             const logic = context.window.MCBESlotInteractionLogic;
             const plain = value => JSON.parse(JSON.stringify(value));
             assert.deepStrictEqual(
-                plain(logic.parseDragPayloadRaw(JSON.stringify({ slot: 5, container: "ender_chest" }))),
-                { slot: 5, container: "ender_chest" },
+                plain(logic.parseDragPayloadRaw(JSON.stringify({ slot: 5, container: "ender_chest", dragId: "drag-1" }))),
+                { slot: 5, container: "ender_chest", dragId: "drag-1" },
             );
             assert.strictEqual(logic.parseDragPayloadRaw("12"), null);
-            assert.deepStrictEqual(plain(logic.parseDragPayloadRaw("12x")), { slot: 12, container: "inventory" });
+            for (const raw of ["12x", "0 not-an-inventory-drag", '{"slot":0}',
+                '{"slot":0,"container":"other","dragId":"drag-1"}',
+                '{"slot":27,"container":"ender_chest","dragId":"drag-1"}',
+                '{"slot":0,"container":"inventory","dragId":"drag-1","extra":true}']) {
+                assert.strictEqual(logic.parseDragPayloadRaw(raw), null);
+            }
 
             assert.deepStrictEqual(plain(logic.dragStartPlan({
                 slotId: 7,
                 containerName: "inventory",
+                dragId: "drag-1",
                 protectedKnown: false,
                 hasItem: true,
             })), {
                 ok: true,
                 effectAllowed: "copyMove",
-                payload: JSON.stringify({ slot: 7, container: "inventory" }),
+                payload: JSON.stringify({ slot: 7, container: "inventory", dragId: "drag-1" }),
             });
             assert.deepStrictEqual(plain(logic.dragStartPlan({ protectedKnown: true, hasItem: true })), { ok: false });
             assert.deepStrictEqual(plain(logic.dragOverPlan({ protectedKnown: false, copyMode: true })), {
@@ -54,7 +60,8 @@ def test_frontend_slot_interaction_drag_payload_and_plans() -> None:
             });
             assert.deepStrictEqual(plain(logic.dragOverPlan({ protectedKnown: true })), { ok: false });
             assert.deepStrictEqual(plain(logic.dropPlan({
-                rawPayload: JSON.stringify({ slot: 1, container: "inventory" }),
+                rawPayload: JSON.stringify({ slot: 1, container: "inventory", dragId: "drag-1" }),
+                dragId: "drag-1",
                 toContainerName: "ender_chest",
                 toSlot: 2,
                 copyMode: true,

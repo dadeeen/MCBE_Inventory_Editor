@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor import inventory  # noqa: E402
 from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt  # noqa: E402
@@ -78,6 +78,84 @@ def test_custom_name_keeps_leading_and_trailing_spaces() -> None:
 
     assert str(by_slot[1]["tag"]["display"]["Name"].py_data) == padded
     assert int(by_slot[0]["Count"].py_data) == 5
+
+
+@pytest.mark.parametrize("edited_slot", [0, 1])
+def test_existing_lore_line_breaks_survive_unrelated_item_or_count_edits(edited_slot) -> None:
+    lore = "first\nsecond\rthird\r\nfourth"
+    decorated = _item(1, "minecraft:stone", display=nbt.CompoundTag({"Lore": nbt.ListTag([nbt.StringTag(lore)])}))
+    original_display = decorated["tag"]["display"].save_to()
+    _, _, saved = _save([_item(0, "minecraft:stone"), decorated], edit_slot=edited_slot, count=2)
+    assert saved[1]["tag"]["display"].save_to() == original_display
+    assert saved[edited_slot]["Count"].py_data == 2
+
+
+@pytest.mark.parametrize("edit", [{"count": 1}, {"damage": 1}, {"lore": ["\u241bx41", "new\nline"]}])
+def test_unchanged_display_strings_keep_literal_escape_bytes_after_edits(edit) -> None:
+    literal = "\u241bx41"
+    original = nbt.CompoundTag({"Inventory": nbt.ListTag([
+        _item(0, "minecraft:bow", display=nbt.CompoundTag({
+            "Name": nbt.StringTag(literal),
+            "Lore": nbt.ListTag([nbt.StringTag(literal), nbt.StringTag("old\nline")]),
+        })),
+    ])}).save_to(string_encoder=lambda value: value.encode("utf-8"))
+    player = load_player_nbt(original).tag
+    original_display = player["Inventory"][0]["tag"]["display"].save_to()
+    parsed, _ = inventory.nbt_to_json(player)
+    # The bow's pre-existing overstack is valid to keep, but do not create one.
+    if "count" in edit:
+        player["Inventory"][0]["Count"] = nbt.ByteTag(3)
+        parsed, _ = inventory.nbt_to_json(player)
+    payload = [_echo(parsed[0], **edit)]
+    player["Inventory"] = inventory.build_inventory_nbt(player, payload, ENCHANTMENTS)
+    saved = load_player_nbt(save_player_nbt(nbt.NamedTag(player))).tag["Inventory"][0]
+    display = saved["tag"]["display"]
+    assert display["Name"].py_data == literal
+    assert display["Lore"][0].py_data == literal
+    if "lore" in edit:
+        assert display["Lore"][1].py_data == "new line"
+    else:
+        assert display.save_to() == original_display
+
+
+def test_editing_a_lore_line_normalizes_only_changed_lines() -> None:
+    lore = ["kept\r\nline", "old"]
+    item = _item(0, display=nbt.CompoundTag({"Lore": nbt.ListTag([nbt.StringTag(line) for line in lore])}))
+    _, _, saved = _save([item], edit_slot=0, lore=[lore[0], "new\nline"])
+    assert [entry.py_data for entry in saved[0]["tag"]["display"]["Lore"]] == [lore[0], "new line"]
+
+
+@pytest.mark.parametrize("field", ["display_name", "lore"])
+def test_new_literal_escape_markers_survive_metadata_save(field) -> None:
+    literal = "literal \u241bx41 and \u241bxff"
+    item = _item(0)
+    changes = {field: [literal] if field == "lore" else literal}
+    _, _, saved = _save([item], edit_slot=0, **changes)
+    display = saved[0]["tag"]["display"]
+    actual = display["Lore"][0] if field == "lore" else display["Name"]
+    assert actual.py_data == literal
+    assert actual.save_to() == nbt.NamedTag(nbt.StringTag(literal)).save_to(string_encoder=str.encode)
+
+
+@pytest.mark.parametrize("value", [0.999999999, -1e-50])
+def test_xp_validation_checks_input_and_stored_float32_before_mutation(value) -> None:
+    player = nbt.CompoundTag({"XPProgress": nbt.FloatTag(0.25), "Attributes": nbt.ListTag([
+        nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.DoubleTag(0.25)}),
+    ])})
+    before = player.save_to()
+    with pytest.raises(ValueError, match="XP-Fortschritt"):
+        inventory.apply_player_stats(player, {"xp_progress": value})
+    assert player.save_to() == before
+
+
+def test_xp_float32_value_and_attribute_are_synchronized() -> None:
+    player = nbt.CompoundTag({"XPProgress": nbt.FloatTag(0.25), "Attributes": nbt.ListTag([
+        nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.DoubleTag(0.25)}),
+    ])})
+    inventory.apply_player_stats(player, {"xp_progress": 0.99999})
+    saved = load_player_nbt(player.save_to()).tag
+    assert 0 <= saved["XPProgress"].py_data < 1
+    assert saved["Attributes"][0]["Current"].py_data == saved["XPProgress"].py_data
 
 
 def test_editing_one_slot_keeps_an_unknown_enchantment_in_place() -> None:

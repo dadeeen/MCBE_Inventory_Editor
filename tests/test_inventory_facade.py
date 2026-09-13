@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
-pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt  # noqa: F401
 
 from mcbe_editor import _inventory_core, inventory
 

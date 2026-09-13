@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
 from mcbe_editor.players import create_player_export, encode_player_key
@@ -46,6 +46,52 @@ def _service():
         db_factory=PathFakeDb,
         readonly_db_factory=PathFakeDb,
     )
+
+
+@pytest.mark.parametrize("operation, existed", [("transfer", True), ("import", True), ("import", False)])
+@pytest.mark.parametrize("concurrent_state", ["newer", "restored"])
+def test_rollback_rechecks_target_on_native_write_connection(tmp_path, monkeypatch, operation, existed, concurrent_state):
+    from mcbe_editor.db import LevelDbAdapter
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
+    before = _player_raw("minecraft:stone") if existed else None
+    installed = _player_raw("minecraft:diamond")
+    newer = _player_raw("minecraft:apple")
+    concurrent = newer if concurrent_state == "newer" else before
+    db = LevelDbAdapter(str(world / "db"))
+    try:
+        db.put(LOCAL_PLAYER_KEY, installed)
+    finally:
+        db.close()
+    service = BedrockEditorService(ITEMS, ENCHANTMENTS)
+    open_writer = service._open_db
+
+    def change_between_connections(path):
+        # A separate native writer commits after the readonly snapshot closes,
+        # before the rollback obtains its own exclusive database handle.
+        writer = open_writer(path)
+        try:
+            writer.put_batch({LOCAL_PLAYER_KEY: concurrent})
+        finally:
+            writer.close()
+        return open_writer(path)
+
+    monkeypatch.setattr(service, "_open_db", change_between_connections)
+    rollback = service._rollback_player_state_transfer if operation == "transfer" else service._rollback_player_import
+    failures, rolled_back = rollback(str(world), LOCAL_PLAYER_KEY, before, installed)
+    reader = service._open_db_readonly(str(world))
+    try:
+        assert service._read_optional_player(reader, LOCAL_PLAYER_KEY) == concurrent
+    finally:
+        reader.close()
+    assert rolled_back is False
+    if concurrent_state == "newer":
+        assert failures
+        assert any("neuere Zieldaten" in str(error) for _action, error in failures)
+    else:
+        assert failures == []
 
 
 def test_import_rejects_export_replaced_after_preview(tmp_path: Path) -> None:

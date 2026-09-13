@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 
 from .api_errors import add_exception_cleanup_details, error_payload
 from .bedrock_nbt import load_player_nbt

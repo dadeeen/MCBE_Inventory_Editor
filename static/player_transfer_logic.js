@@ -558,6 +558,8 @@
 
         async function importPlayer() {
             if (guardWorldWriteAction()) return false;
+            const originalPlayerKey = getCurrentPlayerKey();
+            const originalRevision = getCurrentPlayerRevision();
             const exportPath = String(importPathInput?.value || "").trim();
             const importAsExported = importAsExportedCheckbox && importAsExportedCheckbox.checked;
             const currentPlayer = getCurrentPlayer();
@@ -580,8 +582,50 @@
                 return;
             }
 
+            const importSelectionIsCurrent = () => cleanPath(getWorldPath()) === plan.worldPath
+                && !getIsDirty()
+                && cleanPath(importPathInput?.value) === plan.exportPath
+                && Boolean(importAsExportedCheckbox?.checked) === Boolean(importAsExported);
+            const importContextIsCurrent = ({ playerListReset = false } = {}) => importSelectionIsCurrent()
+                && getCurrentPlayerKey() === (playerListReset ? "" : originalPlayerKey)
+                && getCurrentPlayerRevision() === (playerListReset ? "" : originalRevision);
+            const refreshedContextIsCurrent = () => importSelectionIsCurrent()
+                && (getCurrentPlayerKey() === plan.targetPlayerKey || (
+                    getCurrentPlayerKey() === originalPlayerKey && getCurrentPlayerRevision() === originalRevision
+                ) || (
+                    // A failed reload may leave our own reset in place. Surface
+                    // that failure instead of claiming the user changed views.
+                    getCurrentPlayerKey() === "" && getCurrentPlayerRevision() === ""
+                ));
+            const reportContextChange = (data) => {
+                if (data?.success === false) {
+                    const outcome = importOutcome(data);
+                    const message = t("Import für den ursprünglichen Zielspieler: {result} Die aktuelle Ansicht bleibt unverändert.", { result: outcome.statusMessage });
+                    logTransferStatus(PLAYER_IMPORT_STATUS_KEY, message, outcome.statusType);
+                    showToast(message, outcome.statusType, outcome.toast.ms);
+                    return;
+                }
+                const message = data === undefined
+                    ? t("Import abgebrochen: Ziel oder Editorzustand wurde während der Bestätigung geändert. Bitte erneut prüfen.")
+                    : data.success === true
+                        ? t("Import wurde für das ursprüngliche Ziel gespeichert. Die inzwischen geänderte Ansicht bleibt unverändert. Lade den Zielspieler vor weiteren Änderungen neu.")
+                        : t("Import-Antwort gehört zu einem inzwischen geänderten Editorzustand. Die aktuelle Ansicht bleibt unverändert. Prüfe den ursprünglichen Zielspieler erneut.");
+                logTransferStatus(PLAYER_IMPORT_STATUS_KEY, message, "warning");
+                showToast(message, "warning", 8000);
+            };
+            const refreshTarget = async () => {
+                const loaded = await refreshImportedPlayer(plan.targetPlayerKey, importContextIsCurrent);
+                if (loaded === false) throw new Error(t("Spieleransicht konnte nicht neu geladen werden."));
+            };
+
             const confirmed = await showConfirmDialog(plan.confirmationText);
             if (!confirmed) return;
+            // Keep the confirmed request bound to its original target. A later
+            // response may only refresh the still-matching editor context.
+            if (getIsDirty()) {
+                reportContextChange();
+                return false;
+            }
             if (guardWorldWriteAction()) return false;
 
             showLoading(plan.loadingText);
@@ -604,6 +648,10 @@
                     body: JSON.stringify(request()),
                 });
                 let data = await parseJsonResponse(res);
+                if (!importContextIsCurrent()) {
+                    reportContextChange(data);
+                    return false;
+                }
                 if (!data.success && data.presence_conflict) {
                     hideLoading();
                     const retryPlan = presenceConflictRetryPlan();
@@ -616,6 +664,10 @@
                         );
                         return;
                     }
+                    if (!importContextIsCurrent()) {
+                        reportContextChange();
+                        return false;
+                    }
                     if (guardWorldWriteAction()) return false;
                     showLoading(retryPlan.retryLoadingText);
                     statusRequestOrder = beginServerStatusRequest();
@@ -625,6 +677,10 @@
                         body: JSON.stringify(request(true)),
                     });
                     data = await parseJsonResponse(retry);
+                    if (!importContextIsCurrent()) {
+                        reportContextChange(data);
+                        return false;
+                    }
                 }
 
                 const outcome = importOutcome(data);
@@ -637,11 +693,15 @@
                 if (outcome.ok) {
                     let refreshWarning = "";
                     try {
-                        await refreshImportedPlayer(plan.targetPlayerKey);
+                        await refreshTarget();
                     } catch (refreshError) {
                         refreshWarning = refreshError?.message
                             ? t("Import wurde gespeichert, aber die Spieleransicht konnte nicht aktualisiert werden: {error}", { error: refreshError.message })
                             : t("Import wurde gespeichert, aber die Spieleransicht konnte nicht aktualisiert werden. Lade die Spieler erneut.");
+                    }
+                    if (!refreshedContextIsCurrent()) {
+                        reportContextChange(data);
+                        return false;
                     }
                     showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
                     logTransferStatus(PLAYER_IMPORT_STATUS_KEY, outcome.statusMessage, outcome.statusType);
@@ -656,11 +716,15 @@
                     if (data.write_committed === true) {
                         let refreshWarning = "";
                         try {
-                            await refreshImportedPlayer(plan.targetPlayerKey);
+                            await refreshTarget();
                         } catch (refreshError) {
                             refreshWarning = refreshError?.message
                                 ? t("Der Zielzustand ist nach dem fehlgeschlagenen Import-Rollback unsicher und konnte nicht neu geladen werden: {error}", { error: refreshError.message })
                                 : t("Der Zielzustand ist nach dem fehlgeschlagenen Import-Rollback unsicher und konnte nicht neu geladen werden. Lade die Spieler erneut.");
+                        }
+                        if (!refreshedContextIsCurrent()) {
+                            reportContextChange(data);
+                            return false;
                         }
                         if (refreshWarning) {
                             showToast(refreshWarning, "warning", 8000);
@@ -670,11 +734,15 @@
                     if (data.target_revision_stale === true) {
                         let refreshWarning = "";
                         try {
-                            await refreshImportedPlayer(plan.targetPlayerKey);
+                            await refreshTarget();
                         } catch (refreshError) {
                             refreshWarning = refreshError?.message
                                 ? t("Der geänderte Zielspieler konnte nicht neu geladen werden: {error}", { error: refreshError.message })
                                 : t("Der geänderte Zielspieler konnte nicht neu geladen werden. Lade die Spieler erneut.");
+                        }
+                        if (!refreshedContextIsCurrent()) {
+                            reportContextChange(data);
+                            return false;
                         }
                         if (refreshWarning) {
                             showToast(refreshWarning, "warning", 6500);
@@ -687,6 +755,10 @@
                 }
             } catch (e) {
                 console.error("btnImportPlayer:", e);
+                if (!importContextIsCurrent()) {
+                    reportContextChange({});
+                    return false;
+                }
                 logTransferStatus(PLAYER_IMPORT_STATUS_KEY, t("Verbindungsfehler beim Import."), "error");
                 showToast(t("Verbindungsfehler beim Import."), "error", 5000);
             } finally {

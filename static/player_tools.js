@@ -391,12 +391,36 @@
                     setEnderChestState({
                         inventory: nextEnderChest,
                         hasEnderChest: Boolean(data.has_ender_chest || Object.keys(nextEnderChest).length),
-                        createRequiresConfirmation: !Boolean(data.player?.has_ender_chest_tag),
                     });
                 }
                 if (useStats) {
-                    setPlayerStats(JSON.parse(JSON.stringify(data.stats || getPlayerStats())));
+                    const sourceStats = data.stats || {};
+                    const protection = data.protected_nbt || {};
+                    const nextStats = JSON.parse(JSON.stringify(getPlayerStats()));
+                    let skipped = 0;
+                    for (const field of ["health", "xp_level", "xp_progress", "food_level", "food_saturation"]) {
+                        if (Object.prototype.hasOwnProperty.call(protection.stat_fields_opaque || {}, field)
+                            || (protection.stat_fields_unreadable || []).includes(field)
+                            || !Number.isFinite(sourceStats[field])) {
+                            skipped += 1;
+                        } else {
+                            nextStats[field] = sourceStats[field];
+                        }
+                    }
+                    // Coordinates belong to their source dimension; defaults are
+                    // display values and must never become a copied destination.
+                    if (!protection.pos_opaque && !protection.pos_missing
+                        && !protection.dimension_id_opaque && !protection.dimension_id_missing
+                        && Array.isArray(sourceStats.pos) && sourceStats.pos.length === 3
+                        && sourceStats.pos.every(Number.isFinite) && [0, 1, 2].includes(sourceStats.dimension_id)) {
+                        nextStats.pos = [...sourceStats.pos];
+                        nextStats.dimension_id = sourceStats.dimension_id;
+                    } else {
+                        skipped += 2;
+                    }
+                    setPlayerStats(nextStats);
                     renderStatsForm();
+                    if (skipped) showToast(t("{count} Statistikfeld(er) der Quelle sind nicht zuverlässig lesbar und wurden nicht übernommen. Die bisherigen Zielwerte bleiben erhalten.", { count: skipped }), "warning", 6500);
                 }
                 clearSelection();
                 buildGrids();

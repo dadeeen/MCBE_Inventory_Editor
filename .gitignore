@@ -71,6 +71,7 @@ player_raw_export_index.json
 
 # Build and release artifacts
 dist/
+/wheels/
 RELEASE_MANIFEST.json
 *.zip
 !tests/fixtures/public_scanner_world.zip

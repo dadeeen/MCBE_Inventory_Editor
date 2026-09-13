@@ -16,7 +16,7 @@ def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
 
     assert "pip install --upgrade pip" not in workflow
     assert "pip install --upgrade pip" not in dockerfile
-    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 7
+    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 8
     docker_bootstrap = (
         "pip install --no-cache-dir --no-index --only-binary=:all: "
         "--find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
@@ -49,6 +49,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "runtime.in",
         "runtime.lock",
         "runtime.txt",
+        "nbt-reference.in", "nbt-reference.txt", "nbt-reference.lock",
     }
     actual = {path.name for path in (_base.ROOT / "requirements").iterdir() if path.is_file()}
 
@@ -65,7 +66,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
     ]
     assert runtime_dependencies == project_dependencies
 
-    for name in ("bootstrap", "build", "runtime", "docker", "dev"):
+    for name in ("bootstrap", "build", "runtime", "docker", "dev", "nbt-reference"):
         assert _base._read(f"requirements/{name}.lock") == f"-r {name}.txt\n"
 
     # Dependabot cannot run pip-compile, so it can only widen version ceilings
@@ -100,6 +101,7 @@ def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path: Path, monke
     monkeypatch.setattr(compile_lockfiles, "BUILD_CONSTRAINTS", requirements_dir / "build-constraints.txt")
     monkeypatch.setattr(compile_lockfiles, "LOCK_TARGETS", [(source, target)])
     monkeypatch.setattr(compile_lockfiles, "run", fake_run)
+    monkeypatch.setattr(compile_lockfiles.sys, "version_info", (3, 12, 14))
     monkeypatch.setattr(sys, "argv", ["compile_lockfiles.py", "--check"])
 
     assert compile_lockfiles.main() == 0

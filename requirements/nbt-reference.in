@@ -1,0 +1,3 @@
+# Independent legacy NBT oracle, only for codec validation on Python 3.12.
+# Never install this into application/runtime environments.
+amulet-nbt==2.1.8

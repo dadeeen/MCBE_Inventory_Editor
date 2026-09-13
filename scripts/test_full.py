@@ -14,8 +14,10 @@ if __package__ in {None, ""}:
 else:
     from .test_artifacts import prune_stale_test_artifacts, test_artifact_root, unique_test_artifact_path
 
-CORE_TEST_DEPENDENCIES = ("amulet_nbt", "leveldb")
+CORE_TEST_DEPENDENCIES = ("mcbe_editor.nbt", "leveldb")
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 DEFAULT_BASETEMP = test_artifact_root() / "full-suite-basetemp"
 DEFAULT_FAULTHANDLER_TIMEOUT_SECONDS = 120
 
@@ -74,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(
-            "Use Python 3.12 and install the locked build and dev requirements before running release/CI tests.",
+            "Use Python 3.12–3.14 and install the locked build and dev requirements before running release/CI tests.",
             file=sys.stderr,
         )
         return 2

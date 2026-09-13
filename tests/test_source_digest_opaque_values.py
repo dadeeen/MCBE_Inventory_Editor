@@ -1,6 +1,70 @@
 import pytest
 
 
+def _assert_stale_copy_rejected(original, changed):
+    from mcbe_editor import inventory, nbt
+
+    source = nbt.CompoundTag({"Inventory": nbt.ListTag([original])})
+    parsed, _ = inventory.nbt_to_json(source)
+    payload = {**parsed[5], "slot": 6, "source_slot": 5,
+               "source_player_key": "source", "source_container": "inventory"}
+    target = nbt.CompoundTag({"Inventory": nbt.ListTag([])})
+    # The same copy remains valid while the source is unchanged.
+    result = inventory.build_inventory_nbt(
+        target, [payload], inventory.ENCHANTMENTS,
+        source_item_maps={("source", "inventory"): {5: original}}, target_player_key="target",
+    )
+    assert result[0]["Slot"].py_data == 6
+    assert inventory._item_source_digest(original) != inventory._item_source_digest(changed)
+    with pytest.raises(ValueError, match="Originalquelle"):
+        inventory.build_inventory_nbt(
+            target, [payload], inventory.ENCHANTMENTS,
+            source_item_maps={("source", "inventory"): {5: changed}}, target_player_key="target",
+        )
+
+
+@pytest.mark.parametrize("location", ["root", "nested", "ench", "enchantments", "lore"])
+def test_empty_list_element_type_change_rejects_stale_cross_player_copy(location) -> None:
+    from mcbe_editor import nbt
+
+    def item(element_type):
+        value = nbt.ListTag([], element_type)
+        fields = _base_item(nbt)
+        if location == "root":
+            fields["Future"] = value
+        elif location == "nested":
+            fields["tag"] = nbt.CompoundTag({"Future": nbt.CompoundTag({"values": value})})
+        elif location == "lore":
+            fields["tag"] = nbt.CompoundTag({"display": nbt.CompoundTag({"Lore": value})})
+        else:
+            fields["tag"] = nbt.CompoundTag({location: value})
+        return nbt.CompoundTag(fields)
+
+    _assert_stale_copy_rejected(item(3), item(10))
+
+
+@pytest.mark.parametrize("difference", ["string_bytes", "name_bytes", "nan_bits", "negative_zero"])
+def test_opaque_wire_changes_reject_stale_cross_player_copy(difference) -> None:
+    import struct
+    from mcbe_editor import nbt
+
+    def string(raw):
+        return nbt.load(b"\x08\x00\x00" + struct.pack("<H", len(raw)) + raw).tag
+
+    if difference == "string_bytes":
+        values = [string(b"\xff"), string("\u241bxff".encode("utf-8"))]
+        assert values[0].py_data == values[1].py_data
+    elif difference == "name_bytes":
+        values = [nbt.load(b"\x0a\x00\x00\x01" + struct.pack("<H", len(raw)) + raw + b"\x01\x00").tag
+                  for raw in (b"\xff", "\u241bxff".encode("utf-8"))]
+        assert list(values[0]) == list(values[1])
+    else:
+        bits = (0x7FC00001, 0x7FC00002) if difference == "nan_bits" else (0, 0x80000000)
+        values = [nbt.load(b"\x05\x00\x00" + struct.pack("<I", value)).tag for value in bits]
+    items = [nbt.CompoundTag({**_base_item(nbt), "Future": value}) for value in values]
+    _assert_stale_copy_rejected(*items)
+
+
 def _base_item(nbt):
     return {
         "Slot": nbt.ByteTag(5),
@@ -11,7 +75,7 @@ def _base_item(nbt):
 
 
 def test_zero_valued_opaque_item_tag_affects_source_digest() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     absent = nbt.CompoundTag(_base_item(nbt))
@@ -23,7 +87,7 @@ def test_zero_valued_opaque_item_tag_affects_source_digest() -> None:
 
 
 def test_zero_valued_opaque_enchantment_shape_affects_source_digest() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     zero_ench = nbt.CompoundTag({**_base_item(nbt), "tag": nbt.CompoundTag({"ench": nbt.ByteTag(0)})})
@@ -33,7 +97,7 @@ def test_zero_valued_opaque_enchantment_shape_affects_source_digest() -> None:
 
 
 def test_non_damageable_item_tag_damage_is_preservation_relevant() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     first = nbt.CompoundTag({**_base_item(nbt), "tag": nbt.CompoundTag({"Damage": nbt.IntTag(1)})})
@@ -44,7 +108,7 @@ def test_non_damageable_item_tag_damage_is_preservation_relevant() -> None:
 
 
 def test_damageable_item_tag_damage_ignores_value_but_tracks_numeric_type() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     base = {
@@ -63,7 +127,7 @@ def test_damageable_item_tag_damage_ignores_value_but_tracks_numeric_type() -> N
 
 @pytest.mark.parametrize("field", ["Slot", "Count", "Damage"])
 def test_editable_root_numeric_fields_ignore_value_but_track_numeric_type(field: str) -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     first_fields = _base_item(nbt)
@@ -82,7 +146,7 @@ def test_editable_root_numeric_fields_ignore_value_but_track_numeric_type(field:
 
 
 def test_damageable_root_damage_is_preserved_when_tag_damage_is_active() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     base = {
@@ -106,7 +170,7 @@ def test_damageable_root_damage_is_preserved_when_tag_damage_is_active() -> None
 
 
 def test_known_enchantment_structure_affects_source_digest_but_level_does_not() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     def item_with_enchantment(list_name: str, level_tag):
@@ -129,7 +193,7 @@ def test_known_enchantment_structure_affects_source_digest_but_level_does_not() 
 
 
 def test_display_digest_ignores_editable_strings_but_tracks_opaque_shapes() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     editable_first = nbt.CompoundTag(
@@ -167,3 +231,17 @@ def test_display_digest_ignores_editable_strings_but_tracks_opaque_shapes() -> N
 
     assert inventory._item_source_digest(editable_first) == inventory._item_source_digest(editable_changed)
     assert inventory._item_source_digest(opaque_first) != inventory._item_source_digest(opaque_changed)
+
+
+@pytest.mark.parametrize("empty_type", [0, 8])
+def test_editable_lore_digest_ignores_adding_the_first_line(empty_type) -> None:
+    from mcbe_editor import inventory, nbt
+
+    def item(lore):
+        return nbt.CompoundTag({**_base_item(nbt), "tag": nbt.CompoundTag({
+            "display": nbt.CompoundTag({"Lore": lore}),
+        })})
+
+    empty = item(nbt.ListTag([], empty_type))
+    edited = item(nbt.ListTag([nbt.StringTag("First line")]))
+    assert inventory._item_source_digest(empty) == inventory._item_source_digest(edited)

@@ -130,9 +130,10 @@ def test_update_runner_falls_back_to_german_for_an_unknown_locale(tmp_path, monk
 def test_update_scripts_support_isolated_direct_execution(script_name):
     root = Path(__file__).resolve().parents[1]
     proc = subprocess.run(
-        [sys.executable, "-I", str(root / "scripts" / script_name), "--help"],
+        [sys.executable, "-I", "-X", "utf8", str(root / "scripts" / script_name), "--help"],
         cwd=root,
         text=True,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         timeout=30,

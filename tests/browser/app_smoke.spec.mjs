@@ -126,6 +126,150 @@ test("app starts without JavaScript bootstrap errors and renders discovered worl
   expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
+test("copy keeps target stats and asks to create the target ender chest", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  // Icon rescanning is unrelated to copying and shares a server-wide rate limit.
+  await page.route("**/api/icons/scan", route => route.fulfill({ json: { success: true, count: 0 } }));
+  const players = [
+    { player_key: "target", label: "Zielspieler", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: false },
+    { player_key: "source", label: "Quellspieler", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: true },
+  ];
+  await page.route("**/api/players", route => route.fulfill({ json: { success: true, world_name: "Smoke Test World", players } }));
+  await page.route("**/api/player/load", route => {
+    const source = route.request().postDataJSON().player_key === "source";
+    return route.fulfill({ json: {
+      success: true, player: players[source ? 1 : 0], player_revision: source ? "source-revision" : "target-revision",
+      inventory: {}, ender_chest: source ? { 0: { slot: 0, name: "minecraft:stone", count: 1, damage: 0 } } : {},
+      has_ender_chest: source,
+      stats: { pos: source ? [0, 70, 0] : [120, 80, -95], dimension_id: source ? 1 : 0,
+        health: source ? 20 : 7, xp_level: source ? 9 : 2, xp_progress: 0.5, food_level: 12, food_saturation: 3, gamemode: 0 },
+      protected_nbt: { has_inventory_tag: true, has_ender_chest_tag: source,
+        ...(source ? { pos_opaque: true, stat_fields_opaque: { health: "Health" } } : {}) },
+      hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
+      items_db: { "minecraft:stone": ["Stein", "Stone"] }, ench_db: {},
+      stack_limits: { __default__: 64 }, max_damage: { __default__: 0 },
+    } });
+  });
+  let savedPayload;
+  await page.route("**/api/player/save", route => {
+    savedPayload = route.request().postDataJSON();
+    return route.fulfill({ json: { success: true, player_revision: "saved-revision", backup_file: "synthetic-backup.zip" } });
+  });
+  await openAppWithSmokeWorldScan(page);
+  await page.locator(".world-card").click();
+  await page.locator("#btnLoad").click();
+  await expect(page.locator("#inventoryContainer")).toBeVisible();
+  await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
+  await page.locator('.tab-btn-dash[data-tab-dash="dashPlayerTools"]').click();
+  await page.locator("#copySourcePlayerSelect").selectOption("source");
+  await page.locator("#copyInventoryArea").uncheck();
+  await page.locator("#copyEnderArea").check();
+  await page.locator("#copyStatsArea").check();
+  await page.locator("#btnCopyFromPlayer").click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await page.locator("#confirmOk").click();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  for (const [id, value] of [["statHealth", 7], ["statPosX", 120], ["statPosY", 80], ["statPosZ", -95]]) {
+    await expect.poll(async () => Number(await page.locator(`#${id}`).inputValue())).toBe(value);
+  }
+  await page.locator('.app-section-nav button[data-workflow-view="save"]').click();
+  await page.locator("#btnSaveWorkflowRun").click();
+  await expect(page.locator("#confirmMessage")).toContainText("keinen EnderChestInventory-Tag");
+  expect(savedPayload).toBeUndefined();
+  await page.locator("#confirmOk").click();
+  await expect.poll(() => savedPayload).toBeTruthy();
+  expect(savedPayload.player_key).toBe("target");
+  expect(savedPayload.allow_create_ender_chest).toBe(true);
+  expect(savedPayload.stats).toEqual({ xp_level: 9 });
+  expect(savedPayload.ender_chest).toHaveLength(1);
+  expect(browserErrors).toEqual([]);
+});
+
+async function openDragFixture(page) {
+  const player = { player_key: "drag-player", label: "Drag Test", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: true };
+  await page.route("**/api/icons/scan", route => route.fulfill({ json: { success: true, icons: {}, count: 0 } }));
+  await page.route("**/api/heartbeat", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await page.route("**/api/players", route => route.fulfill({ json: { success: true, world_name: "Drag Test World", players: [player] } }));
+  await page.route("**/api/player/load", route => route.fulfill({ json: {
+    success: true, player, player_revision: "drag-revision",
+    inventory: {
+      0: { slot: 0, name: "minecraft:stone", count: 1, damage: 0 },
+      2: { slot: 2, name: "minecraft:carrot", count: 1, damage: 0 },
+      3: { slot: 3, name: "minecraft:iron_helmet", count: 1, damage: 0 },
+    }, ender_chest: {}, has_ender_chest: true,
+    stats: { pos: [0, 64, 0], dimension_id: 0, health: 20, xp_level: 0, xp_progress: 0, food_level: 20, food_saturation: 5, gamemode: 0 },
+    protected_nbt: { has_inventory_tag: true, has_ender_chest_tag: true },
+    hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
+    items_db: { "minecraft:stone": ["Stein", "Stone"], "minecraft:carrot": ["Karotte", "Carrot"], "minecraft:iron_helmet": ["Eisenhelm", "Iron Helmet"] },
+    ench_db: {}, stack_limits: { __default__: 64 }, max_damage: { __default__: 0 },
+  } }));
+  await openAppWithSmokeWorldScan(page);
+  await page.locator(".world-card").click();
+  await page.locator("#btnLoad").click();
+  await expect(page.locator("#inventoryContainer")).toBeVisible();
+}
+
+for (const scenario of ["foreign_text", "foreign_internal", "drag_ended", "previous_drag", "world_changed", "player_changed", "source_replaced"]) {
+  test(`inventory drag rejects ${scenario}`, async ({ page }) => {
+    const browserErrors = collectBrowserErrors(page);
+    await openDragFixture(page);
+    const state = await page.evaluate(scenario => {
+      const before = JSON.stringify(inventory);
+      const source = document.querySelector('[data-slot="0"]');
+      const target = document.querySelector('[data-slot="1"]');
+      const transfer = new DataTransfer();
+      if (scenario === "foreign_text") transfer.setData("text/plain", "0 not-an-inventory-drag");
+      else if (scenario === "foreign_internal") transfer.setData("application/x-mcbe-slot", JSON.stringify({ slot: 0, container: "inventory", dragId: "foreign" }));
+      else {
+        source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+        if (scenario === "drag_ended") source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+        if (scenario === "previous_drag") {
+          source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+          source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+        }
+        if (scenario === "world_changed") worldPath += "/different-world";
+        if (scenario === "player_changed") currentPlayerKey = "different-player";
+        if (scenario === "source_replaced") inventory[0] = { ...inventory[0] };
+      }
+      target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      return { before, after: JSON.stringify(inventory), dirty: isDirty };
+    }, scenario);
+    expect(state.after).toBe(state.before);
+    expect(state.dirty).toBe(false);
+    expect(browserErrors).toEqual([]);
+  });
+}
+
+test("inventory drag supports moving copying equipment and undo redo", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  // Plain HTTP on a LAN has getRandomValues, but no secure-context randomUUID.
+  await page.addInitScript(() => Object.defineProperty(window.crypto, "randomUUID", { value: undefined }));
+  await openDragFixture(page);
+  await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
+  expect(await page.evaluate(() => inventory[1]?.name)).toBe("minecraft:stone");
+  await page.keyboard.press("Control+z");
+  expect(await page.evaluate(() => inventory[0]?.name)).toBe("minecraft:stone");
+  await page.keyboard.press("Control+y");
+  expect(await page.evaluate(() => inventory[1]?.name)).toBe("minecraft:stone");
+  const state = await page.evaluate(() => {
+    function drag(source, target, copyMode = false) {
+      const transfer = new DataTransfer();
+      source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, ctrlKey: copyMode, dataTransfer: transfer }));
+      source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+    }
+    drag(document.querySelector('[data-slot="1"]'), document.querySelector('[data-ender-slot="0"]'), true);
+    drag(document.querySelector('[data-slot="3"]'), document.querySelector('[data-slot="103"]'));
+    return { source: inventory[1]?.name, copied: enderChestInventory[0]?.name, helmet: inventory[103]?.name, oldHelmetSlot: inventory[3], dirty: isDirty };
+  });
+  expect(state.source).toBe("minecraft:stone");
+  expect(state.copied).toBe("minecraft:stone");
+  expect(state.helmet).toBe("minecraft:iron_helmet");
+  expect(state.oldHelmetSlot).toBeFalsy();
+  expect(state.dirty).toBe(true);
+  expect(browserErrors).toEqual([]);
+});
+
 test("German item search accepts German and English names", async ({ page }) => {
   await openAppWithEmptyWorldScan(page);
   const localizedItems = await page.evaluate(() => {

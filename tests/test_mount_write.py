@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-nbt = pytest.importorskip("amulet_nbt")
+from mcbe_editor import nbt
 
 from mcbe_editor.bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
 from mcbe_editor.mount_profile import (
@@ -40,6 +40,39 @@ from mcbe_editor.mount_write import (
 )
 
 
+def test_template_prefilter_skips_unrelated_records_and_validates_possible_matches(monkeypatch):
+    import mcbe_editor.mount_write as writer
+
+    horse = nbt.CompoundTag({"identifier": nbt.StringTag("minecraft:horse")}).save_to()
+    cow = nbt.CompoundTag({"identifier": nbt.StringTag("minecraft:cow")}).save_to()
+    false_positive = nbt.CompoundTag({"identifier": nbt.StringTag("minecraft:cow"),
+                                    "CustomName": nbt.StringTag("minecraft:horse")}).save_to()
+    invalid = b"invalid minecraft:horse NBT"
+    records = [(ACTOR_PREFIX + bytes([index]), raw) for index, raw in enumerate([cow, false_positive, invalid, horse])]
+    records.append((b"unrelated", horse))
+    calls = []
+    original = writer._load_entity_tag
+
+    def load(raw):
+        calls.append(raw)
+        return original(raw)
+
+    monkeypatch.setattr(writer, "_load_entity_tag", load)
+    found = writer.find_equine_template(SimpleNamespace(iter_items=lambda: iter(records)))
+    assert found.value == horse
+    assert calls == [false_positive, invalid, horse]
+
+
+def test_template_prefilter_preserves_supported_identifiers_and_aliases():
+    import mcbe_editor.mount_write as writer
+
+    for identifier in writer.EQUINE_TEMPLATE_IDENTIFIERS:
+        for key in ("identifier", "Identifier", "id", "Id", "EntityIdentifier"):
+            raw = nbt.CompoundTag({key: nbt.StringTag(identifier)}).save_to()
+            db = SimpleNamespace(iter_items=lambda raw=raw: iter([(ACTOR_PREFIX + b"12345678", raw)]))
+            assert writer.find_equine_template(db).identifier == identifier
+
+
 def test_direct_mount_create_uses_one_atomic_batch(monkeypatch, tmp_path) -> None:
     class WriteDb:
         def __init__(self):
@@ -54,6 +87,7 @@ def test_direct_mount_create_uses_one_atomic_batch(monkeypatch, tmp_path) -> Non
     db = WriteDb()
     service = SimpleNamespace(
         _locked_world=lambda _path: nullcontext(),
+        _open_db_readonly=lambda _path: db,
         _open_db=lambda _path: db,
         _get_player_info=lambda _db, _key: {"editable": True},
         _read_player=lambda _db, _key: b"player",
@@ -93,6 +127,49 @@ def test_direct_mount_create_uses_one_atomic_batch(monkeypatch, tmp_path) -> Non
     assert db.batches == [{record.actor_key: record.actor_value, record.digp_key: record.digp_value}]
 
 
+def test_direct_mount_backup_failure_leaves_native_world_files_identical(monkeypatch, tmp_path) -> None:
+    import hashlib
+
+    leveldb = pytest.importorskip("leveldb")
+    from mcbe_editor.players import encode_player_key
+    from mcbe_editor.services import BedrockEditorService
+
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "levelname.txt").write_text("Synthetic backup test", encoding="utf-8")
+    player = nbt.CompoundTag({
+        "Inventory": nbt.ListTag([]), "Health": nbt.FloatTag(20),
+        "PlayerGameType": nbt.IntTag(0), "DimensionId": nbt.IntTag(0),
+        "Pos": nbt.ListTag([nbt.FloatTag(0), nbt.FloatTag(64), nbt.FloatTag(0)]),
+    })
+    db = leveldb.LevelDB(str(world / "db"), True)
+    try:
+        db.put(b"~local_player", player.save_to())
+    finally:
+        db.close()
+    service = BedrockEditorService({}, {})
+    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
+    backup_attempts = []
+
+    def fail_backup(*args, **_kwargs):
+        backup_attempts.append(args)
+        raise PermissionError("synthetic backup failure")
+
+    def snapshot():
+        return {path.relative_to(world).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in world.rglob("*") if path.is_file()}
+
+    monkeypatch.setattr("mcbe_editor.mount_write.create_backup", fail_backup)
+    before = snapshot()
+    with pytest.raises(ValueError, match="Backups"):
+        create_horse_mount_with_service(
+            service, str(world), encode_player_key(b"~local_player"),
+            {"mount_type": "minecraft:horse", "selected_position": {"x": 2, "y": 64, "z": 2}},
+        )
+    assert len(backup_attempts) == 1
+    assert snapshot() == before
+
+
 def test_direct_mount_create_reports_committed_validation_failure(monkeypatch, tmp_path) -> None:
     class WriteDb:
         def close(self):
@@ -104,6 +181,7 @@ def test_direct_mount_create_reports_committed_validation_failure(monkeypatch, t
     db = WriteDb()
     service = SimpleNamespace(
         _locked_world=lambda _path: nullcontext(),
+        _open_db_readonly=lambda _path: db,
         _open_db=lambda _path: db,
         _get_player_info=lambda _db, _key: {"editable": True},
         _read_player=lambda _db, _key: b"player",
@@ -180,6 +258,7 @@ def test_direct_mount_create_treats_post_write_close_failure_as_committed(monkey
     db = WriteDb()
     service = SimpleNamespace(
         _locked_world=lambda _path: nullcontext(),
+        _open_db_readonly=lambda _path: db,
         _open_db=lambda _path: db,
         _get_player_info=lambda _db, _key: {"editable": True},
         _read_player=lambda _db, _key: b"player",
@@ -231,10 +310,10 @@ def test_direct_mount_create_preserves_pre_write_error_when_close_also_fails(mon
         def close(self):
             raise OSError("close masked original")
 
-    databases = iter([InitialDb(), FailingCleanupDb()])
     service = SimpleNamespace(
         _locked_world=lambda _path: nullcontext(),
-        _open_db=lambda _path: next(databases),
+        _open_db_readonly=lambda _path: InitialDb(),
+        _open_db=lambda _path: FailingCleanupDb(),
         _get_player_info=lambda _db, _key: {"editable": True},
         _read_player=lambda _db, _key: b"player",
     )

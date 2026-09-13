@@ -11,7 +11,7 @@ echo Transparency notes:
 echo - The installation happens exclusively in the project folder .\.venv.
 echo - No global Python packages are installed or updated.
 echo - Dependencies are installed from the hash-checked lockfile.
-echo - Only prebuilt wheels are accepted; source builds fail closed.
+echo - Compatible verified wheels are preferred; C++ builds require a compiler and SDK.
 echo - Pip may store downloads in the user cache under AppData.
 echo   That is only a download cache, not a global package installation.
 echo.
@@ -25,16 +25,18 @@ echo.
 if not exist ".venv\Scripts\python.exe" (
     where py >nul 2>nul
     if not errorlevel 1 (
-        py -3.12 -c "import sys; raise SystemExit(0 if (3, 12) <= sys.version_info[:2] < (3, 13) else 1)" >nul 2>nul
-        if not errorlevel 1 (
-            set "PYTHON_CMD=py -3.12"
+        for %%V in (3.14 3.13 3.12) do (
+            if not defined PYTHON_CMD (
+                py -%%V scripts\windows_setup.py probe-wheel >nul 2>nul
+                if not errorlevel 1 set "PYTHON_CMD=py -%%V"
+            )
         )
     )
 
     if not defined PYTHON_CMD (
         where python >nul 2>nul
         if not errorlevel 1 (
-            python -c "import sys; raise SystemExit(0 if (3, 12) <= sys.version_info[:2] < (3, 13) else 1)" >nul 2>nul
+            python scripts\windows_setup.py probe-wheel >nul 2>nul
             if not errorlevel 1 (
                 set "PYTHON_CMD=python"
             )
@@ -42,9 +44,23 @@ if not exist ".venv\Scripts\python.exe" (
     )
 
     if not defined PYTHON_CMD (
-        echo Python 3.12 was not found.
-        echo Please install Python 3.12 from https://www.python.org/downloads/
-        echo If multiple Python versions are installed, Python 3.12 may only be available via the Python launcher ^(py -3.12^).
+        for %%V in (3.14 3.13 3.12) do (
+            if not defined PYTHON_CMD (
+                py -%%V scripts\windows_setup.py probe-build >nul 2>nul
+                if not errorlevel 1 set "PYTHON_CMD=py -%%V"
+            )
+        )
+        if not defined PYTHON_CMD (
+            python scripts\windows_setup.py probe-build >nul 2>nul
+            if not errorlevel 1 set "PYTHON_CMD=python"
+        )
+    )
+
+    if not defined PYTHON_CMD (
+        echo No usable Python 3.12, 3.13 or 3.14 installation was found.
+        echo Use the runtime release ZIP with bundled wheels for Python 3.13/3.14 on Windows x64.
+        echo A source checkout needs Python 3.12 or Microsoft C++ Build Tools with the Windows SDK.
+        echo Install a supported Python from https://www.python.org/downloads/windows/
         echo Important: enable "Add Python to PATH" or the Python launcher during installation!
         pause
         exit /b 1
@@ -62,11 +78,11 @@ if not exist ".venv\Scripts\python.exe" (
     )
 )
 
-".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if (3, 12) <= sys.version_info[:2] < (3, 13) else 1)" >nul 2>nul
+".venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if (3, 12) <= sys.version_info[:2] < (3, 15) else 1)" >nul 2>nul
 if errorlevel 1 (
     echo The existing virtual environment does not use a supported Python version.
     echo Please delete the .venv folder and run setup.bat again.
-    echo Python 3.12 is supported.
+    echo Python 3.12, 3.13 and 3.14 are supported.
     pause
     exit /b 1
 )
@@ -85,35 +101,10 @@ if not exist "requirements\runtime.lock" (
     exit /b 1
 )
 
-echo Checking the local pip installation...
-".venv\Scripts\python.exe" -m pip --version >nul
+echo Checking prerequisites and installing hash-checked dependencies into .\.venv only ...
+".venv\Scripts\python.exe" scripts\windows_setup.py install
 if errorlevel 1 (
-    echo Pip is not available in the virtual environment.
-    pause
-    exit /b 1
-)
-
-echo Installing the hash-checked pip bootstrap from requirements\bootstrap.lock ...
-".venv\Scripts\python.exe" -m pip install --only-binary=:all: --require-hashes -r requirements\bootstrap.lock
-if errorlevel 1 (
-    echo Failed to install the locked pip version.
-    pause
-    exit /b 1
-)
-
-echo Installing hash-checked prebuilt dependencies from requirements\runtime.lock into .\.venv only ...
-".venv\Scripts\python.exe" -m pip install --only-binary=:all: --require-hashes -r requirements\runtime.lock
-if errorlevel 1 (
-    echo Failed to install the dependencies.
-    echo No compatible prebuilt wheel was available; source builds are intentionally disabled.
-    echo Note: Python 3.11, 3.13, and 3.14 are currently not approved for these dependencies; please use Python 3.12.
-    pause
-    exit /b 1
-)
-
-".venv\Scripts\python.exe" -m pip check
-if errorlevel 1 (
-    echo pip check reports errors.
+    echo Setup failed. See the prerequisite or installation error above.
     pause
     exit /b 1
 )

@@ -481,7 +481,7 @@ def _parts_look_like_display_asset(parts: Iterable[str], suffix: str) -> bool:
 
 
 def _looks_like_icon(path: Path) -> bool:
-    if not _parts_look_like_icon(path.parts, path.suffix):
+    if not (_parts_look_like_icon(path.parts, path.suffix) or _parts_look_like_display_asset(path.parts, path.suffix)):
         return False
     st = _safe_stat(path)
     return bool(st and 0 < st.st_size <= _MAX_FILE_BYTES)
@@ -491,7 +491,7 @@ def _archive_member_looks_like_icon(info: zipfile.ZipInfo) -> bool:
     if info.is_dir() or info.file_size <= 0 or info.file_size > _MAX_FILE_BYTES:
         return False
     pp = PurePosixPath(info.filename.replace("\\", "/"))
-    return _parts_look_like_icon(pp.parts, pp.suffix)
+    return _parts_look_like_icon(pp.parts, pp.suffix) or _parts_look_like_display_asset(pp.parts, pp.suffix)
 
 
 def _default_roots() -> list[Path]:
@@ -1183,8 +1183,12 @@ def _load_cached_result(cache_path: Path, sources_signature: str, settings_path:
     )
 
 
-def load_cached_icon_index(settings_path: str | None = None) -> dict | None:
-    """Load the last published icon index without scanning or writing files."""
+def load_cached_icon_index(settings_path: str | None = None, *, validate_sources: bool = True) -> dict | None:
+    """Load the last publication without scanning or writing files.
+
+    Source validation may be skipped only to recover metadata for a new scan,
+    never to serve stale icon references to a client.
+    """
 
     cache_path = _cache_file(settings_path)
     if not cache_path or not cache_path.exists():
@@ -1201,7 +1205,7 @@ def load_cached_icon_index(settings_path: str | None = None) -> dict | None:
         return None
     # Read-only darf den veröffentlichten Index nutzen, aber keine veralteten
     # Dateiverweise übernehmen, wenn sich eine gecachte Quelle geändert hat.
-    if _sources_signature(cached_sources) != sources_signature:
+    if validate_sources and _sources_signature(cached_sources) != sources_signature:
         return None
     return _load_cached_result(cache_path, sources_signature, settings_path)
 

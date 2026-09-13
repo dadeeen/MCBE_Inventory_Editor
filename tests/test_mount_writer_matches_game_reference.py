@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 import pytest
 
 from mcbe_editor.bedrock_nbt import LOAD_KWARGS

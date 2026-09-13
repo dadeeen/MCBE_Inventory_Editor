@@ -2,7 +2,6 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,7 +81,7 @@ def test_bulk_fill_marks_deliberate_replacement_and_save_normalization_clears_ma
 
 
 def test_bulk_replace_does_not_inherit_same_name_target_nbt() -> None:
-    nbt = pytest.importorskip("amulet_nbt")
+    from mcbe_editor import nbt
     from mcbe_editor import inventory
 
     original = nbt.CompoundTag(

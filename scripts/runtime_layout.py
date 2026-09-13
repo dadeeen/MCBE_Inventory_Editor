@@ -5,6 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path, PurePath
 
+try:
+    from scripts.windows_wheels import OPTIONAL_WHEEL_PATHS
+except ModuleNotFoundError:
+    from windows_wheels import OPTIONAL_WHEEL_PATHS
+
 RUNTIME_ROOT_FILES = frozenset(
     {
         ".dockerignore",
@@ -64,6 +69,8 @@ RUNTIME_SCRIPT_PATHS = frozenset(
         "scripts/security_check.py",
         "scripts/update_db.py",
         "scripts/update_icons.py",
+        "scripts/windows_setup.py",
+        "scripts/windows_wheels.py",
     }
 )
 
@@ -93,7 +100,7 @@ def is_runtime_relative_path(path: PurePath) -> bool:
     if parts[0] in RUNTIME_TREE_DIRS:
         return True
     relative = path.as_posix()
-    return relative in RUNTIME_DOC_PATHS or relative in RUNTIME_REQUIREMENT_PATHS or relative in RUNTIME_SCRIPT_PATHS
+    return relative in RUNTIME_EXACT_PATHS or relative in OPTIONAL_WHEEL_PATHS
 
 
 def iter_runtime_files(root: Path) -> Iterator[Path]:
@@ -106,7 +113,7 @@ def iter_runtime_files(root: Path) -> Iterator[Path]:
     """
 
     root = root.expanduser().resolve()
-    for relative in sorted(RUNTIME_EXACT_PATHS):
+    for relative in sorted(RUNTIME_EXACT_PATHS | OPTIONAL_WHEEL_PATHS):
         candidate = root / Path(relative)
         if candidate.is_file() or candidate.is_symlink():
             yield candidate

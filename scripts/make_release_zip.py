@@ -95,6 +95,12 @@ def _file_entry(path: Path) -> dict:
 
 def build_zip(output: Path) -> int:
     from mcbe_editor.distribution import build_manifest
+    from scripts.windows_wheels import WHEEL_PYTHONS, validated_wheel
+
+    # Optional binaries must come with intact provenance and notices before
+    # they can become part of the release's own content-hash manifest.
+    for abi in WHEEL_PYTHONS:
+        validated_wheel(ROOT, abi)
 
     output = output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)

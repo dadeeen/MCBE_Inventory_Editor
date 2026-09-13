@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/dadeeen/MCBE_Inventory_Editor/actions/workflows/ci.yml/badge.svg)](https://github.com/dadeeen/MCBE_Inventory_Editor/actions/workflows/ci.yml)
 [![Lizenz: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](#lokaler-windows-start)
+[![Python 3.12–3.14](https://img.shields.io/badge/Python-3.12%E2%80%933.14-blue.svg)](#lokaler-windows-start)
 
 Ein lokaler Webeditor für ausgewählte Minecraft-Bedrock-Spielerdaten: Inventar, Endertruhe, Effekte, Fähigkeiten, Spielerwerte und experimentelle Mounts.
 
@@ -28,8 +28,8 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
    - Windows: `Get-FileHash <runtime.zip> -Algorithm SHA256`
    - Linux: `sha256sum <runtime.zip>`
 4. Beende Minecraft oder den Server und kopiere den vollständigen Weltordner an einen unabhängigen Ort.
-5. Installiere bei Bedarf [Python 3.12 für Windows](https://www.python.org/downloads/windows/). Python 3.11, 3.13 und 3.14 werden nicht unterstützt. Aktiviere bei der Installation den Python Launcher oder **Add Python to PATH**.
-6. Entpacke das Runtime-ZIP, führe einmal `setup.bat` aus und starte den Editor danach mit `start.bat`.
+5. Installiere bei Bedarf [Python für Windows](https://www.python.org/downloads/windows/). Für das Runtime-ZIP auf Windows x64 empfehlen wir **Python 3.14**; 3.12 und 3.13 werden ebenfalls unterstützt. Das ZIP enthält geprüfte LevelDB-Wheels für 3.13/3.14, deshalb brauchst du dort keine C++ Build Tools. Aktiviere den Python Launcher oder **Add Python to PATH**. Bei einem Quellcode-Checkout ohne mitgelieferte Wheels bevorzugt das Setup ein vorhandenes Python 3.12 mit veröffentlichtem Wheel; erst danach kommt ein Quellbau mit bereits installierten Microsoft C++ Build Tools und Windows SDK infrage. Python 3.15 ist noch nicht freigegeben.
+6. Entpacke das Runtime-ZIP, führe einmal `setup.bat` aus und starte den Editor danach mit `start.bat`. Meldet das Setup eine fehlende C++-Laufzeit, installiere das aktuelle [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) für deine Python-Architektur und wiederhole das Setup. Diese Laufzeit ist separat vom Compiler und den Build Tools.
 7. Folge beim ersten Start dem Einrichtungsdialog und lade **Item-DB** und **Vanilla-Icons**. Du kannst den Schritt aufschieben und später über den Einrichtungshinweis oder unter **Werkzeuge** nachholen. Der Editor bringt nur einen mitgelieferten Item-Stand und keine Icons mit — ohne diesen Schritt fehlen Items neuerer Minecraft-Versionen und jeder Slot zeigt ein Ersatzsymbol.
 
 Falls noch kein Release vorhanden ist, können erfahrene Nutzer die Source-Einrichtung weiter unten verwenden.
@@ -59,7 +59,7 @@ Die App ist kein öffentlicher Hostingdienst, kein Server-Administrationspanel u
 
 ## Lokaler Windows-Start
 
-Der lokale Modus benötigt **Python 3.12**, da die nativen Amulet-Abhängigkeiten versionsgebunden sind.
+Der lokale Modus unterstützt **Python 3.12–3.14**. NBT verarbeitet der eigene Python-Codec ausschließlich mit der Standardbibliothek; NumPy und Amulet-NBT entfallen als Laufzeitabhängigkeiten. Die Bedrock-LevelDB-Engine bleibt nativ. Das Setup behält eine vorhandene unterstützte `.venv` bei und bevorzugt bei einer neuen Umgebung die neueste installierte Python-Version mit passendem Wheel. Mitgelieferte Windows-x64-Wheels werden samt Herkunftsangaben, Hashes und Lizenztexten geprüft. Ein Quellbau ist nur mit geprüftem Compiler und SDK möglich; fehlende Voraussetzungen werden vor der Paketinstallation gemeldet. Das Docker-Image bleibt auf Python 3.12.
 
 Im Source-Verzeichnis oder entpackten Runtime-Paket:
 
@@ -300,8 +300,8 @@ Fehlerberichte und Beiträge sind willkommen. Verwende synthetische Daten und be
 
 Hinweise für Mitwirkende, Tests, Fixtures und Release-Hygiene stehen in [docs/development.md auf GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md). Interne Speicherinvarianten stehen in [docs/save_contract.md](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md).
 
-Der eigene Projektcode steht unter der [MIT-Lizenz](LICENSE). Die Anwendung verwendet `amulet_nbt` und `amulet_leveldb` unter der Amulet Team License 1.0.0 (PolyForm-Shield- und Noncommercial-Bedingungen mit einer begrenzten Ausnahme für kommerzielle Nutzung ausschließlich zu Bildungszwecken). Dies ist keine klassische Open-Source-Lizenz und schränkt die zulässige Nutzung ein; maßgeblich sind die Lizenztexte der vorgelagerten Pakete. `amulet_mutf8` steht unter der MIT-Lizenz.
+Der eigene Projektcode steht unter der [MIT-Lizenz](LICENSE). Die Anwendung verwendet `amulet_leveldb` unter der Amulet Team License 1.0.0 (PolyForm-Shield- und Noncommercial-Bedingungen mit einer begrenzten Ausnahme für kommerzielle Nutzung ausschließlich zu Bildungszwecken). Dies ist keine klassische Open-Source-Lizenz und schränkt die zulässige Nutzung ein; maßgeblich sind die Lizenztexte der vorgelagerten Pakete. Amulet-NBT und seine Abhängigkeiten werden nur für die separaten Referenztests unter Python 3.12 verwendet; ihre vorgelagerten Lizenzen gelten weiterhin für diese Testumgebung.
 
 Minecraft-Inhalte fallen nicht unter die Lizenz dieses Projekts. Das Repository enthält einen aus `Mojang/bedrock-samples` und Microsoft Learn erzeugten Item-Datenstand; Vanilla-Icons werden nur auf Anforderung heruntergeladen und nicht mitgeliefert. Die Herkunft der lokal gepflegten Verzauberungs-Maximalstufen ist in [docs/development.md auf GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#bundled-item-database-and-enchantment-max-levels) dokumentiert. Minecraft und seine Inhalte gehören Mojang Studios/Microsoft und unterliegen deren Bedingungen.
 
-Wichtige vorgelagerte Projekte sind das [Amulet Team](https://github.com/Amulet-Team), [NumPy](https://numpy.org/), Flask und das Pallets-Team sowie das [Minecraft Wiki](https://minecraft.wiki/) als Referenz für manuell geprüfte Spielmechaniken.
+Wichtige vorgelagerte Projekte sind das [Amulet Team](https://github.com/Amulet-Team), Flask und das Pallets-Team sowie das [Minecraft Wiki](https://minecraft.wiki/) als Referenz für manuell geprüfte Spielmechaniken.

@@ -16,12 +16,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import amulet_nbt as nbt
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from mcbe_editor import nbt  # noqa: E402
 from mcbe_editor.bedrock_nbt import LOAD_KWARGS  # noqa: E402
 from mcbe_editor.leveldb_readonly import ReadonlyLevelDbAdapter  # noqa: E402
 from mcbe_editor.world import ensure_valid_world_path, get_world_name  # noqa: E402

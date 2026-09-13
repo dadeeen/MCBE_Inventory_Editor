@@ -72,6 +72,15 @@ def _public_icon_index(index: dict) -> dict:
     return {key: value for key, value in index.items() if key not in _INTERNAL_ICON_INDEX_FIELDS}
 
 
+def _current_world_icon_sources(deps: IconRouteDeps) -> list[dict]:
+    """Recover the latest world metadata while the caller holds _icon_operation."""
+    # Sources may have changed. Reuse only metadata for a new validated scan,
+    # preferring the shared publication over a stale worker-local index.
+    published = load_cached_icon_index(deps.settings_path, validate_sources=False)
+    previous = published if published is not None else deps.get_icon_index()
+    return [source for source in previous.get("sources", []) if isinstance(source, dict) and source.get("world")]
+
+
 def _scan_and_store_icons(
     deps: IconRouteDeps,
     *,
@@ -79,6 +88,8 @@ def _scan_and_store_icons(
     extra_sources: list[dict] | None = None,
 ) -> dict:
     with _icon_operation(deps):
+        if extra_sources is None:
+            extra_sources = _current_world_icon_sources(deps)
         index = scan_icons(
             settings_path=deps.settings_path,
             force=force,
@@ -209,8 +220,11 @@ def icons_sources_add(data: dict, deps: IconRouteDeps):
     try:
         path = deps.json_string(data, "path")
         with _icon_operation(deps):
+            # Source mutations invalidate the shared cache. Capture its world
+            # context first, under the same lock as the mutation and rescan.
+            extra_sources = _current_world_icon_sources(deps)
             source = add_icon_source(deps.settings_path, path)
-            index = _scan_and_store_icons(deps, force=True)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
         deps.audit_event("icons.source_add", "success", details={"path": source.get("path")})
         public = _public_icon_index(index)
         public["added_source"] = source
@@ -239,9 +253,10 @@ def icons_sources_remove(data: dict, deps: IconRouteDeps):
     try:
         path = deps.json_string(data, "path")
         with _icon_operation(deps):
+            extra_sources = _current_world_icon_sources(deps)
             remove_icon_source(deps.settings_path, path)
             settings_changed = True
-            index = _scan_and_store_icons(deps, force=True)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
         deps.audit_event("icons.source_remove", "success", details={"path": path})
         return deps.jsonify(_public_icon_index(index))
     except ValueError as exc:
@@ -270,9 +285,10 @@ def icons_sources_set_enabled(data: dict, deps: IconRouteDeps):
         path = deps.json_string(data, "path")
         enabled = deps.json_bool(data, "enabled", True)
         with _icon_operation(deps):
+            extra_sources = _current_world_icon_sources(deps)
             set_icon_source_enabled(deps.settings_path, path, enabled)
             settings_changed = True
-            index = _scan_and_store_icons(deps, force=True)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
         deps.audit_event("icons.source_enable" if enabled else "icons.source_disable", "success", details={"path": path})
         return deps.jsonify(_public_icon_index(index))
     except ValueError as exc:
@@ -302,9 +318,10 @@ def icons_sources_move(data: dict, deps: IconRouteDeps):
         path = deps.json_string(data, "path")
         direction = deps.json_string(data, "direction")
         with _icon_operation(deps):
+            extra_sources = _current_world_icon_sources(deps)
             move_icon_source(deps.settings_path, path, direction)
             settings_changed = True
-            index = _scan_and_store_icons(deps, force=True)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
         deps.audit_event("icons.source_move", "success", details={"path": path, "direction": direction})
         return deps.jsonify(_public_icon_index(index))
     except ValueError as exc:

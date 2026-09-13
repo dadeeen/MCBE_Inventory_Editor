@@ -51,13 +51,37 @@ def public_app_config(
     }
 
 
+def _json_with_bounded_depth(text: str) -> Any:
+    # Python 3.14's JSON decoder no longer necessarily hits Python's recursion
+    # limit. Bound nesting explicitly before parsing or returning status data.
+    depth = 0
+    quoted = escaped = False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > 128:
+                raise ValueError("Status JSON exceeds nesting limit")
+        elif char in "]}":
+            depth -= 1
+    return json.loads(text)
+
+
 def read_json_dict(path_value: str | None) -> dict[str, Any]:
     if not path_value:
         return {}
     path = Path(path_value).expanduser()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        data = _json_with_bounded_depth(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -67,8 +91,8 @@ def read_json_list(path_value: str | None) -> list[Any]:
         return []
     path = Path(path_value).expanduser()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        data = _json_with_bounded_depth(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
         return []
     return data if isinstance(data, list) else []
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import amulet_nbt as nbt
+from mcbe_editor import nbt
 
 from .i18n import t
 from .inventory import (

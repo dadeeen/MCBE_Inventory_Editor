@@ -37,9 +37,12 @@
             if (!data || typeof data !== "object") {
                 data = {
                     success: false,
+                    response_unreadable: true,
                     error: text.trim() ? text.trim().slice(0, 600) : t("HTTP {status}: Leere Serverantwort", { status: res.status || "?" }),
                 };
             }
+
+            if (typeof data.success !== "boolean") data.response_unreadable = true;
 
             if (!res.ok && data.success !== true) {
                 data.success = false;

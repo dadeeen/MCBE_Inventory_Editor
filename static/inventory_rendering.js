@@ -241,6 +241,7 @@
             getGridFilter = () => "",
             setGridFilter = () => {},
             getWorldPath = () => "",
+            getCurrentPlayerKey = () => "",
             getInventoryViewPreferences = () => null,
             buildSlotTooltipLines = () => [],
             buildSlotTooltipEntries = null,
@@ -345,26 +346,50 @@
             return true;
         }
 
+        let activeDrag = null;
+
+        function clearDragContext() {
+            if (!activeDrag) return;
+            activeDrag.element.classList.remove("dragging");
+            activeDrag = null;
+            doc.querySelectorAll(".inventory-slot").forEach(slot => slot.classList.remove("drag-over"));
+        }
+
+        function dragContextIsCurrent() {
+            return activeDrag && activeDrag.worldPath === getWorldPath()
+                && activeDrag.playerKey === getCurrentPlayerKey()
+                && activeDrag.sourceMap === getContainerMap(activeDrag.container)
+                && activeDrag.sourceItem === activeDrag.sourceMap[activeDrag.slot];
+        }
+
         function makeSlotDraggable(el, slotId, containerName = "inventory") {
             el.addEventListener("dragstart", (e) => {
+                clearDragContext();
+                if (!e.dataTransfer || guardEditingAction()) { e.preventDefault(); return; }
                 const sourceMap = getContainerMap(containerName);
+                const dragId = window.crypto.getRandomValues(new Uint32Array(4)).join("-");
                 const plan = window.MCBESlotInteractionLogic.dragStartPlan({
                     slotId,
                     containerName,
+                    dragId,
                     protectedKnown: isProtectedKnownSlot(slotId, containerName),
                     hasItem: Boolean(sourceMap[slotId]),
                 });
                 if (!plan.ok) { e.preventDefault(); return; }
+                activeDrag = { dragId, element: el, slot: slotId, container: containerName,
+                    sourceMap, sourceItem: sourceMap[slotId], worldPath: getWorldPath(), playerKey: getCurrentPlayerKey() };
                 e.dataTransfer.effectAllowed = plan.effectAllowed;
                 e.dataTransfer.setData("application/x-mcbe-slot", plan.payload);
                 e.dataTransfer.setData("text/plain", plan.payload);
                 el.classList.add("dragging");
             });
             el.addEventListener("dragend", () => {
+                clearDragContext();
                 el.classList.remove("dragging");
                 doc.querySelectorAll(".inventory-slot").forEach(s => s.classList.remove("drag-over"));
             });
             el.addEventListener("dragover", (e) => {
+                if (!dragContextIsCurrent()) { clearDragContext(); return; }
                 const plan = window.MCBESlotInteractionLogic.dragOverPlan({
                     protectedKnown: isProtectedKnownSlot(slotId, containerName),
                     copyMode: e.ctrlKey || e.metaKey,
@@ -380,14 +405,18 @@
             el.addEventListener("drop", (e) => {
                 e.preventDefault();
                 el.classList.remove("drag-over");
-                const rawPayload = e.dataTransfer.getData("application/x-mcbe-slot") || e.dataTransfer.getData("text/plain");
+                const drag = dragContextIsCurrent() ? activeDrag : null;
+                clearDragContext();
+                if (!drag) return;
+                const rawPayload = e.dataTransfer?.getData("application/x-mcbe-slot") || "";
                 const plan = window.MCBESlotInteractionLogic.dropPlan({
                     rawPayload,
+                    dragId: drag.dragId,
                     toContainerName: containerName,
                     toSlot: slotId,
                     copyMode: e.ctrlKey || e.metaKey,
                 });
-                if (!plan.ok) return;
+                if (!plan.ok || plan.fromSlot !== drag.slot || plan.fromContainerName !== drag.container) return;
                 moveOrCopySlot(plan.fromContainerName, plan.fromSlot, plan.toContainerName, plan.toSlot, plan.copyMode);
             });
         }
@@ -543,6 +572,7 @@
         }
 
         function updateGridVisuals() {
+            clearDragContext();
             updateUndoButtons();
             getInventoryViewPreferences()?.applyInventoryViewPreferences?.();
             getInventoryViewPreferences()?.applyEnderChestVisibility?.();
@@ -712,6 +742,7 @@
             getGridFilter: state.getGridFilter,
             setGridFilter: state.setGridFilter,
             getWorldPath: state.getWorldPath,
+            getCurrentPlayerKey: state.getCurrentPlayerKey,
             getInventoryViewPreferences: helpers.getInventoryViewPreferences,
             buildSlotTooltipLines: renderer.buildSlotTooltipLines,
             buildSlotTooltipEntries: renderer.buildSlotTooltipEntries,

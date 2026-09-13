@@ -211,3 +211,12 @@ def test_status_json_readers_tolerate_excessive_nesting(tmp_path):
 
     assert status_snapshots.read_json_dict(str(path)) == {}
     assert status_snapshots.read_json_list(str(path)) == []
+
+
+def test_status_json_nesting_bound_ignores_brackets_and_escaped_quotes_in_strings(tmp_path):
+    import json
+
+    path = tmp_path / "strings.json"
+    value = {"text": '[{\\"' * 200}
+    path.write_text(json.dumps(value), encoding="utf-8")
+    assert status_snapshots.read_json_dict(str(path)) == value

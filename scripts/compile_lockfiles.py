@@ -18,6 +18,7 @@ LOCK_TARGETS = [
     (REQUIREMENTS_DIR / "runtime.in", REQUIREMENTS_DIR / "runtime.txt"),
     (REQUIREMENTS_DIR / "docker.in", REQUIREMENTS_DIR / "docker.txt"),
     (REQUIREMENTS_DIR / "dev.in", REQUIREMENTS_DIR / "dev.txt"),
+    (REQUIREMENTS_DIR / "nbt-reference.in", REQUIREMENTS_DIR / "nbt-reference.txt"),
 ]
 
 
@@ -70,7 +71,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if not ((3, 12) <= sys.version_info[:2] < (3, 13)):
-        print("ERROR: This project targets Python >=3.12,<3.13. Generate lockfiles with Python 3.12.", file=sys.stderr)
+        print("ERROR: Generate the shared Python 3.12–3.14 lockfiles with the canonical Python 3.12 compiler.", file=sys.stderr)
         return 2
 
     tmp_dir = ROOT / ".lockcheck" if args.check else ROOT

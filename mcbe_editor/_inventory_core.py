@@ -3,8 +3,7 @@ import re
 from collections.abc import Mapping
 from typing import Any, TypedDict
 
-import amulet_nbt as nbt
-
+from mcbe_editor import nbt
 from mcbe_editor.item_data import (
     EFFECTS,
     ENCHANTMENTS,
@@ -16,7 +15,7 @@ from mcbe_editor.item_data import (
     is_known_item_id,
 )
 
-from .bedrock_nbt import load_player_nbt, save_player_nbt
+from .bedrock_nbt import literal_string_tag, load_player_nbt, save_player_nbt
 from .i18n import t
 
 VALID_INVENTORY_SLOTS = set(range(36)) | {-106, 100, 101, 102, 103}
@@ -457,6 +456,26 @@ def _scalar_stat_opaque_fields(player_tag):
     return opaque
 
 
+def _scalar_stat_unreadable_fields(player_tag):
+    """Identify display fallbacks without applying get_tag_value's defaults."""
+    unreadable = []
+    for field in SCALAR_STAT_TAGS:
+        tag_name = _scalar_stat_read_tag(player_tag, field)
+        attribute = _find_attribute_entry(player_tag, field) if tag_name is None else None
+        tag = player_tag[tag_name] if tag_name else attribute.get("Current") if attribute is not None else None
+        if not isinstance(tag, NUMERIC_TAG_TYPES) or not math.isfinite(tag.py_data):
+            unreadable.append(field)
+    return unreadable
+
+
+def _ability_tag_is_opaque(tag, field_name, expected_types) -> bool:
+    if not isinstance(tag, expected_types):
+        return True
+    # Form defaults cannot faithfully represent invalid or out-of-range speeds.
+    # Preserve the original bits rather than echoing a fallback on another edit.
+    return field_name in {"fly_speed", "walk_speed"} and (not math.isfinite(tag.py_data) or not 0 <= tag.py_data <= 1)
+
+
 def _ability_field_opaque_fields(player_tag):
     opaque = {}
     try:
@@ -472,7 +491,7 @@ def _ability_field_opaque_fields(player_tag):
         _canonical_name, expected_types, _aliases = spec
         for tag_name in _iter_ability_tag_names(field_name) or ():
             try:
-                if tag_name in abilities_tag and not isinstance(abilities_tag[tag_name], expected_types):
+                if tag_name in abilities_tag and _ability_tag_is_opaque(abilities_tag[tag_name], field_name, expected_types):
                     opaque[field_name] = tag_name
                     break
             except (AttributeError, TypeError):
@@ -488,7 +507,8 @@ def _is_ability_field_opaque(player_tag, field_name: str) -> bool:
     try:
         abilities_tag = player_tag.get("abilities")
         return isinstance(abilities_tag, nbt.CompoundTag) and any(
-            tag_name in abilities_tag and not isinstance(abilities_tag[tag_name], expected_types) for tag_name in _iter_ability_tag_names(field_name) or ()
+            tag_name in abilities_tag and _ability_tag_is_opaque(abilities_tag[tag_name], field_name, expected_types)
+            for tag_name in _iter_ability_tag_names(field_name) or ()
         )
     except (AttributeError, TypeError):
         return False
@@ -1758,7 +1778,9 @@ def _nbt_view_value(tag, depth: int = 0):
 
 
 def _is_editable_item_list(tag) -> bool:
-    return _is_list_tag(tag)
+    # A populated NBT list cannot mix opaque scalar entries with compounds.
+    # Empty legacy lists are safe to populate, regardless of their declared type.
+    return _is_list_tag(tag) and (not tag or tag.list_data_type == nbt.CompoundTag.tag_id)
 
 
 def _root_item_list_presence_count(player_tag, tag_name: str) -> int:
@@ -1814,9 +1836,9 @@ def protected_player_nbt_flags(player_tag):
         "has_ender_chest_tag": "EnderChestInventory" in player_tag,
         "has_active_effects_tag": "ActiveEffects" in player_tag,
         "has_abilities_tag": "abilities" in player_tag,
-        "inventory_opaque": "Inventory" in player_tag and not _is_list_tag(player_tag["Inventory"]),
-        "ender_chest_opaque": "EnderChestInventory" in player_tag and not _is_list_tag(player_tag["EnderChestInventory"]),
-        "active_effects_opaque": "ActiveEffects" in player_tag and not _is_list_tag(player_tag["ActiveEffects"]),
+        "inventory_opaque": "Inventory" in player_tag and not _is_editable_item_list(player_tag["Inventory"]),
+        "ender_chest_opaque": "EnderChestInventory" in player_tag and not _is_editable_item_list(player_tag["EnderChestInventory"]),
+        "active_effects_opaque": "ActiveEffects" in player_tag and not _is_editable_item_list(player_tag["ActiveEffects"]),
         "abilities_opaque": "abilities" in player_tag and not _is_compound_tag(player_tag["abilities"]),
         "ability_fields_opaque": _ability_field_opaque_fields(player_tag),
         "dimension_id_missing": "DimensionId" not in player_tag,
@@ -1824,6 +1846,7 @@ def protected_player_nbt_flags(player_tag):
         "pos_opaque": _position_tag_opaque(player_tag),
         "pos_missing": "Pos" not in player_tag,
         "stat_fields_opaque": _scalar_stat_opaque_fields(player_tag),
+        "stat_fields_unreadable": _scalar_stat_unreadable_fields(player_tag),
         "active_effect_entries_opaque": _active_effects_opaque_entry_count(player_tag),
         "root_item_lists_present": _root_item_list_presence_counts(player_tag),
         "root_item_lists_opaque": _root_item_list_opaque_flags(player_tag),
@@ -1856,7 +1879,7 @@ def _parse_item_slot(item) -> ParsedItemSlot:
         if _is_compound_tag(tag_compound):
             if "display" in tag_compound and _is_compound_tag(tag_compound["display"]):
                 display_comp = tag_compound["display"]
-                display_name = get_tag_value(display_comp.get("Name"), "")
+                display_name = str(get_tag_value(display_comp.get("Name"), ""))
                 lore_list = display_comp.get("Lore")
                 if _is_list_tag(lore_list):
                     lore = [str(get_tag_value(x, "")) for x in lore_list]
@@ -2341,9 +2364,10 @@ def validate_inventory_item(item_data, enchantments_db, is_ender_chest=False, *,
     lore = item_data.get("lore", [])
     if not isinstance(lore, list):
         raise ValueError(f"Lore in Slot {slot} muss eine Liste sein.")
-    # Empty lines and surrounding spaces are valid Lore formatting. Only fold
-    # embedded line breaks because each list entry represents exactly one line.
-    lore = [str(line).replace("\n", " ").replace("\r", " ") for line in lore]
+    # Compare echoed text with its original before applying new-input rules.
+    lore = [str(line) for line in lore]
+    if not defer_original_bounds:
+        lore = [line.replace("\n", " ").replace("\r", " ") for line in lore]
     if not defer_original_bounds and (len(lore) > MAX_LORE_LINES or any(len(line) > MAX_TEXT_LENGTH for line in lore)):
         raise ValueError(f"Lore in Slot {slot} ist zu lang.")
 
@@ -2491,10 +2515,12 @@ def apply_editable_item_tags(item_compound, item_data, enchantments_db=None):
         original_name_tag = disp_comp.get("Name") if hasattr(disp_comp, "get") else None
         original_name_value = str(get_tag_value(original_name_tag, ""))
         if display_name:
-            if original_name_tag is not None and not isinstance(original_name_tag, nbt.StringTag) and original_name_value == display_name:
+            if original_name_tag is not None and original_name_value == display_name:
                 pass
+            elif original_name_tag is not None and not isinstance(original_name_tag, nbt.StringTag):
+                raise ValueError(t("Item-Metadaten können nicht bearbeitet werden, weil der vorhandene Item-tag einen unbekannten NBT-Typ verwendet."))
             else:
-                disp_comp["Name"] = nbt.StringTag(display_name)
+                disp_comp["Name"] = literal_string_tag(display_name)
         elif original_name_value and "Name" in disp_comp and isinstance(disp_comp["Name"], nbt.StringTag):
             # Only a real removal cleans up. An already-empty Name stays as it was.
             del disp_comp["Name"]
@@ -2506,10 +2532,19 @@ def apply_editable_item_tags(item_compound, item_data, enchantments_db=None):
             original_lore_values = [str(get_tag_value(line, "")) for line in original_lore_tag]
             original_lore_has_opaque_entries = any(not isinstance(line, nbt.StringTag) for line in original_lore_tag)
         if lore:
-            if original_lore_has_opaque_entries and original_lore_values == lore:
+            if original_lore_values == lore:
                 pass
+            elif original_lore_tag is not None and (not _is_list_tag(original_lore_tag) or original_lore_has_opaque_entries):
+                raise ValueError(t("Item-Metadaten können nicht bearbeitet werden, weil der vorhandene Item-tag einen unbekannten NBT-Typ verwendet."))
             else:
-                disp_comp["Lore"] = nbt.ListTag([nbt.StringTag(x) for x in lore])
+                # Reuse unchanged strings so their original encoded bytes survive.
+                disp_comp["Lore"] = nbt.ListTag([
+                    original_lore_tag[index]
+                    if index < len(original_lore_values) and original_lore_values[index] == line
+                    and isinstance(original_lore_tag[index], nbt.StringTag)
+                    else literal_string_tag(line)
+                    for index, line in enumerate(lore)
+                ])
         # A non-empty original means the user really removed the lore. Opaque entries
         # stay: the editor cannot show them faithfully, so it must not delete them.
         elif original_lore_values and not original_lore_has_opaque_entries:
@@ -2967,6 +3002,12 @@ def validate_item_original_bounds(validated_item, base_item_tag, duplicate_label
         )
 
     lore = validated_item["lore"]
+    lore = [
+        line if index < len(original_lore) and original_lore[index] == line
+        else line.replace("\n", " ").replace("\r", " ")
+        for index, line in enumerate(lore)
+    ]
+    validated_item["lore"] = lore
     lore_too_long = len(lore) > MAX_LORE_LINES or any(len(line) > MAX_TEXT_LENGTH for line in lore)
     if lore_too_long and (not has_original or original_lore != lore):
         raise ValueError(
@@ -3006,7 +3047,7 @@ def _build_item_compound(base_item_tag, validated_item, duplicate_label, is_ende
     count = validated_item["count"]
     damage = validated_item["damage"]
     if base_item_tag is not None:
-        # amulet_nbt's CompoundTag.copy() is shallow. Editable nested tags must
+        # CompoundTag.copy() is shallow. Editable nested tags must
         # be detached from the loaded player snapshot before they are mutated,
         # otherwise validation/rollback code can observe an already-modified
         # "original" in memory.
@@ -3154,6 +3195,12 @@ def apply_effects(player_tag, effects_list):
         if effects_list:
             raise ValueError("ActiveEffects hat einen unbekannten NBT-Typ und kann nicht bearbeitet werden, ohne Datenverlust zu riskieren.")
         return
+    if _is_list_tag(active_effects_tag) and not _is_editable_item_list(active_effects_tag):
+        # Read-only placeholder echoes and clearing known effects keep opaque data.
+        if any(not isinstance(eff, Mapping) or eff.get("opaque") is not True or eff.get("id") != -1 for eff in effects_list):
+            raise ValueError("ActiveEffects hat einen unbekannten NBT-Typ und kann nicht bearbeitet werden, ohne Datenverlust zu riskieren.")
+        return
+
     if _is_list_tag(active_effects_tag):
         for original_effect in active_effects_tag:
             effect_id = _effect_id_from_tag(original_effect)
@@ -3266,7 +3313,7 @@ def _position_tag_opaque(player_tag) -> bool:
         # protected because normalizing them could lose precision.
         if type(entry) is not position_tag_type:
             return True
-        value = get_tag_value(entry, None)
+        value = entry.py_data
         try:
             if not math.isfinite(float(value)):
                 return True
@@ -3378,9 +3425,15 @@ def _set_ability_tag_if_changed(ab_tag, field_name: str, candidate, *, compound_
             existing = None
         if existing is None:
             continue
-        if type(existing) is type(candidate) and get_tag_value(existing) == get_tag_value(candidate):
-            # Unchanged: keep the original tag, including a legacy alias name.
-            return
+        if type(existing) is type(candidate):
+            unchanged = (
+                bool(get_tag_value(existing)) == bool(get_tag_value(candidate))
+                if isinstance(candidate, nbt.ByteTag)
+                else get_tag_value(existing) == get_tag_value(candidate)
+            )
+            if unchanged:
+                # Preserve truthy byte values and legacy aliases on an echo.
+                return
         break
     else:
         default_tag = _numeric_tag_for_type(type(candidate), ABILITY_DEFAULTS[field_name])
@@ -3470,10 +3523,11 @@ def apply_player_stats(player_tag, new_stats):
     if "xp_progress" in new_stats:
         _reject_if_stat_field_opaque(player_tag, "xp_progress")
         xp = _strict_float(new_stats["xp_progress"], "XP-Fortschritt")
-        if not (0.0 <= xp < 1.0):
+        stored_xp = float(nbt.FloatTag(xp))
+        if not (0.0 <= xp < 1.0 and 0.0 <= stored_xp < 1.0):
             raise ValueError(t("XP-Fortschritt ungültig (muss mindestens 0.0 und kleiner als 1.0 sein): {value}", value=xp))
-        _set_scalar_stat_value(player_tag, "xp_progress", nbt.FloatTag, xp)
-        _sync_attribute_stat(player_tag, "xp_progress", xp)
+        _set_scalar_stat_value(player_tag, "xp_progress", nbt.FloatTag, stored_xp)
+        _sync_attribute_stat(player_tag, "xp_progress", stored_xp)
     if "food_level" in new_stats:
         _reject_if_stat_field_opaque(player_tag, "food_level")
         fl = _strict_int(new_stats["food_level"], "Food-Level")

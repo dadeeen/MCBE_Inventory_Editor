@@ -27,12 +27,17 @@
         } = elements;
 
         async function postJson(url, body = {}) {
-            const res = await fetchImpl(url, {
-                method: "POST",
-                headers: withCsrf(),
-                body: JSON.stringify(body),
-            });
-            return await parseJsonResponse(res);
+            try {
+                const res = await fetchImpl(url, {
+                    method: "POST",
+                    headers: withCsrf(),
+                    body: JSON.stringify(body),
+                });
+                return await parseJsonResponse(res);
+            } catch (error) {
+                consoleObj.error("scanPaths.postJson:", error);
+                return { success: false, error: t("Suchbereich konnte nicht aktualisiert werden. Bitte Verbindung prüfen und erneut versuchen.") };
+            }
         }
 
         async function refreshAfterChange(message = "") {
@@ -111,13 +116,18 @@
                     const res = await fetchImpl("/api/pick_folder", { method: "POST", headers: withCsrf() });
                     const data = await parseJsonResponse(res);
                     if (data.success && data.path) {
-                        await postJson("/api/scan_paths/add", { path: data.path });
+                        const result = await postJson("/api/scan_paths/add", { path: data.path });
+                        if (!result.success) {
+                            if (status) status.textContent = t("Fehler: {error}", { error: result.error || t("Unbekannter Fehler") });
+                            return;
+                        }
                         await refreshAfterChange("");
                     } else if (data.error && status) {
                         status.textContent = t("Fehler: {error}", { error: data.error });
                     }
                 } catch (e) {
                     consoleObj.error("btnAddScanPathBrowse:", e);
+                    if (status) status.textContent = t("Fehler: {error}", { error: e.message || t("Unbekannter Fehler") });
                 }
             });
             inputButton?.addEventListener("click", () => {

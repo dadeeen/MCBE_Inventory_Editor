@@ -222,6 +222,7 @@
             // einen wiederholbaren Zustand zurückfallen – auch nicht, wenn die Verarbeitung
             // optionaler Mount-Details anschließend fehlschlägt.
             let writeCommitted = false;
+            let lastSaveResponse = null;
             const shownCleanupWarnings = new Set();
             const cleanupWarningText = () => Array.from(shownCleanupWarnings).join(" ");
             const logSaveOutcome = (message, type = "") => {
@@ -235,11 +236,16 @@
             const reportChangedSaveContext = data => {
                 let message = "";
                 let type = "warning";
-                if (data?.success || data?.write_committed === true) {
+                if (data?.success === true && data.no_op === true && !(Array.isArray(data.mounts) && data.mounts.length)) {
+                    message = t("Für den vorherigen Spieler wurde nichts geschrieben, da keine Änderungen vorlagen. Die aktuelle Ansicht wurde nicht verändert.");
+                } else if (data?.success || data?.write_committed === true) {
                     message = data.validation_failed === true
                         ? t("Vorheriger Spieler wurde geschrieben, aber die Nachvalidierung ist fehlgeschlagen. Nicht erneut speichern; Backup prüfen.")
                         : t("Vorheriger Spieler wurde gespeichert; aktuelle Ansicht wurde nicht überschrieben.");
                     type = data.validation_failed === true ? "error" : "warning";
+                } else if (data?.response_unreadable) {
+                    message = t("Der Speicherausgang für den vorherigen Spieler ist unklar. Vor weiteren Änderungen die betroffene Welt neu laden und das Backup prüfen. Die aktuelle Ansicht wurde nicht verändert.");
+                    type = "error";
                 } else if (data?.error) {
                     message = t("Speicherversuch für den vorherigen Spieler fehlgeschlagen: {error}. Die aktuelle Ansicht wurde nicht verändert.", {
                         error: data.error,
@@ -257,6 +263,20 @@
                 shownCleanupWarnings.add(warning);
                 showToast(warning, "warning", 8000);
             };
+            const postCheckedSavePayload = async () => {
+                // A retry has its own outcome; an earlier rejection says nothing
+                // about whether this new request committed before a connection loss.
+                lastSaveResponse = null;
+                const data = await postSavePayload(payload, pendingMounts);
+                // An unreadable response cannot establish whether the write committed.
+                // Use the same recovery path as a connection failure, including retries
+                // after server-status or presence confirmation.
+                if (data?.response_unreadable || typeof data?.success !== "boolean") {
+                    throw new Error(data?.error || t("Unbekannter Fehler"));
+                }
+                lastSaveResponse = data;
+                return data;
+            };
 
             showLoading(t("Speichern läuft: Backup erstellen, Änderung schreiben, Datenbankverbindung schließen..."));
             logSaveStatus(t("Backup wird erstellt, Änderung gespeichert und DB-Verbindung geschlossen..."), "running");
@@ -266,7 +286,7 @@
                         ? t("1 vorgemerkte Mount-Erzeugung wird gespeichert und validiert...")
                         : t("{count} vorgemerkte Mount-Erzeugungen werden gemeinsam gespeichert und validiert...", { count: pendingMounts.length }));
                 }
-                let data = await postSavePayload(payload, pendingMounts);
+                let data = await postCheckedSavePayload();
                 surfaceCleanupWarning(data);
                 if (!saveContextIsCurrent()) {
                     reportChangedSaveContext(data);
@@ -286,7 +306,7 @@
                     if (currentWriteActionBlocked()) return;
                     payload.confirm_unknown_server_status = true;
                     showLoading(t("Serverstatus bestätigt: Schreibprüfung wird erneut ausgeführt..."));
-                    data = await postSavePayload(payload, pendingMounts);
+                    data = await postCheckedSavePayload();
                     surfaceCleanupWarning(data);
                     if (!saveContextIsCurrent()) {
                         reportChangedSaveContext(data);
@@ -308,7 +328,7 @@
                     if (currentWriteActionBlocked()) return;
                     showLoading(t("Speichere trotz bestätigtem Bearbeitungskonflikt..."));
                     payload.confirm_presence_conflict = true;
-                    data = await postSavePayload(payload, pendingMounts);
+                    data = await postCheckedSavePayload();
                     surfaceCleanupWarning(data);
                     if (!saveContextIsCurrent()) {
                         reportChangedSaveContext(data);
@@ -333,6 +353,10 @@
                     }
                     markCleanState();
                     await updateWorldPresence();
+                    if (!saveContextIsCurrent()) {
+                        reportChangedSaveContext(data);
+                        return;
+                    }
                     loadBackupsList();
                     const message = data.error || t("Die Änderungen wurden geschrieben, aber die Nachprüfung ist fehlgeschlagen. Nicht erneut speichern; Backup prüfen.");
                     enterReloadRequiredState(message);
@@ -354,6 +378,10 @@
                         }
                         markCleanState();
                         await updateWorldPresence();
+                        if (!saveContextIsCurrent()) {
+                            reportChangedSaveContext(data);
+                            return;
+                        }
                         loadBackupsList();
                         const message = mountFinalization.reason === "count_mismatch"
                             ? t("Änderungen wurden geschrieben, aber die Mount-Antwort des Servers ist unvollständig. Nicht erneut speichern; Welt neu laden und Backup prüfen.")
@@ -370,6 +398,10 @@
                         }
                         markCleanState();
                         await updateWorldPresence();
+                        if (!saveContextIsCurrent()) {
+                            reportChangedSaveContext(data);
+                            return;
+                        }
                         const message = data.message || t("Keine Änderungen erkannt. Es wurde nichts geschrieben.");
                         logSaveOutcome(message, "warning");
                         showToast(t("Keine speicherbaren Änderungen erkannt."), "warning", 3000);
@@ -381,6 +413,10 @@
                         }
                         markCleanState();
                         await updateWorldPresence();
+                        if (!saveContextIsCurrent()) {
+                            reportChangedSaveContext(data);
+                            return;
+                        }
                         const mountText = mountResults.length ? ` · ${mountResults.length === 1 ? t("1 Mount erzeugt") : t("{count} Mounts erzeugt", { count: mountResults.length })}` : "";
                         logSaveOutcome(t("Änderungen gespeichert{mounts}. Backup: {backup}", { mounts: mountText, backup: data.backup_file || mountResults[0]?.backup_file || t("erstellt") }), "success");
                         loadBackupsList();
@@ -398,6 +434,10 @@
                 }
             } catch (e) {
                 console.error("saveCurrentPlayer:", e);
+                if (!saveContextIsCurrent()) {
+                    reportChangedSaveContext(lastSaveResponse || { write_committed: writeCommitted, response_unreadable: !writeCommitted });
+                    return;
+                }
                 if (writeCommitted) {
                     // Der Schreibvorgang ist bestätigt. Der Fehler betrifft nur die
                     // Nachbearbeitung; ein erneutes Speichern würde denselben Batch

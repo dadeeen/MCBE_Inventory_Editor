@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import struct
 from dataclasses import dataclass
 from typing import Any
 
@@ -112,7 +113,7 @@ def normalize_placement_radius(value: Any) -> int:
         raise ValueError(t("placement_radius muss eine Zahl sein."))
     try:
         radius = int(round(float(value)))
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(t("placement_radius muss eine Zahl sein.")) from exc
     if not MIN_PLACEMENT_RADIUS <= radius <= MAX_PLACEMENT_RADIUS:
         raise ValueError(
@@ -154,10 +155,29 @@ def _float_value(value: Any, field_name: str) -> float:
         raise ValueError(t("{field} muss eine Zahl sein.", field=field_name))
     try:
         result = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(t("{field} muss eine Zahl sein.", field=field_name)) from exc
     if not math.isfinite(result):
         raise ValueError(t("{field} muss endlich sein.", field=field_name))
+    return result
+
+
+def normalize_mount_position(value: Any) -> dict[str, float]:
+    """Use the exact stored Float32 coordinates before placement decisions."""
+    if not isinstance(value, dict):
+        raise ValueError(t("selected_position muss ein Objekt mit x/y/z sein."))
+    result = {}
+    for axis in ("x", "y", "z"):
+        number = round(_float_value(value.get(axis), f"selected_position.{axis}"), 3)
+        try:
+            stored = struct.unpack("<f", struct.pack("<f", number))[0]
+        except (OverflowError, struct.error) as exc:
+            raise ValueError(t("Mount-Position ist nicht als endlicher Float32-Wert speicherbar.")) from exc
+        if not math.isfinite(stored):
+            raise ValueError(t("Mount-Position ist nicht als endlicher Float32-Wert speicherbar."))
+        if axis in ("x", "z") and not -(2**35) <= stored < 2**35:
+            raise ValueError(t("Mount-Position liegt außerhalb des unterstützten Chunk-Koordinatenbereichs."))
+        result[axis] = stored
     return result
 
 
@@ -227,11 +247,11 @@ def player_reference_from_snapshot(snapshot: dict[str, Any], player_key: str) ->
 
 
 def _candidate_position(base: dict[str, float], dx: float, dy: float, dz: float) -> dict[str, float]:
-    return {
+    return normalize_mount_position({
         "x": round(base["x"] + dx, 3),
         "y": round(base["y"] + ENTITY_FOOT_Y_FROM_PLAYER_Y + dy, 3),
         "z": round(base["z"] + dz, 3),
-    }
+    })
 
 
 def _normalized_preferred_offset(value: Any) -> tuple[float, float, float] | None:
