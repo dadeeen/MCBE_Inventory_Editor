@@ -41,6 +41,10 @@ The normal suite checks preservation, malformed inputs, boundaries, copy and
 mutation semantics, native database writes/reopens, cross-process locking and
 process-exit recovery. The optional Amulet-NBT 2.1.8 reference environment is
 restricted to Python 3.12 and is installed from `requirements/nbt-reference.lock`.
+CI installs that reference in its Windows Python 3.12 job, where the pinned
+binary distributions are available; the full suite then includes the oracle
+comparisons. The application test matrix covers all three versions on both
+Windows and Linux.
 
 Reference comparisons cover:
 

@@ -20,7 +20,8 @@ Generate shared locks with Python 3.12, then validate installations on all suppo
 interpreters. See [the validation record](dependency-portability-assessment.md).
 
 For codec changes, run the standard suite on every supported interpreter and,
-from an isolated Python 3.12 reference environment:
+from an isolated Python 3.12 reference environment on Windows, where the pinned
+Amulet binary packages are available (CI uses its Windows Python 3.12 job):
 
 ```bash
 python -m pip install --only-binary=:all: --require-hashes -r requirements/nbt-reference.lock
