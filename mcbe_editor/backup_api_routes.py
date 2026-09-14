@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .api_errors import error_payload
+from .backup_settings import get_backup_settings, save_backup_settings
 from .i18n import t
 from .world import ensure_valid_world_path
 
@@ -125,6 +126,23 @@ def _remove_rejected_backup(deps: BackupRouteDeps, world_path: str, result: dict
             error=t(str(exc)),
         )
     return None
+
+
+def backup_settings(data: dict | None, deps: BackupRouteDeps):
+    try:
+        if data is None:
+            settings = get_backup_settings()
+        else:
+            settings = save_backup_settings(data.get("max_uncompressed_mib"))
+            deps.audit_event("backup.settings", "success", details={"max_uncompressed_mib": settings["max_uncompressed_mib"]})
+        return deps.jsonify({"success": True, "settings": settings})
+    except PermissionError as exc:
+        return deps.api_error(exc, 403)
+    except ValueError as exc:
+        return deps.api_error(exc)
+    except OSError as exc:
+        deps.log_api_exception("backup.settings", exc)
+        return deps.api_error(t("Backup-Einstellungen konnten nicht gelesen oder gespeichert werden."), 500)
 
 
 def list_backups(data: dict, deps: BackupRouteDeps):
@@ -319,7 +337,7 @@ def restore_backup(data: dict, deps: BackupRouteDeps):
         cleanup_warning = getattr(exc, "cleanup_warning", None)
         pre_restore_backup = getattr(exc, "pre_restore_backup", None)
         if cleanup_warning or pre_restore_backup:
-            payload = error_payload(message, code="restore_rejected")
+            payload = error_payload(exc, code="restore_rejected")
             if cleanup_warning:
                 payload["cleanup_warning"] = cleanup_warning
             if pre_restore_backup:
@@ -328,7 +346,7 @@ def restore_backup(data: dict, deps: BackupRouteDeps):
             if snapshot_path:
                 payload["source_snapshot_path"] = snapshot_path
             return deps.jsonify(payload), status
-        return deps.api_error(message, status)
+        return deps.api_error(exc, status)
     except Exception as exc:
         deps.log_api_exception("backup.restore", exc)
         deps.audit_event("backup.restore", "failure", world_path=data.get("world_path"), details={"backup_file": data.get("backup_file")}, error=str(exc))

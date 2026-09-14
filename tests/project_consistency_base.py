@@ -574,6 +574,20 @@ def test_docker_base_image_is_pinned_once_by_multiarch_digest():
     assert "FROM python:3.12-slim" not in dockerfile
 
 
+def test_docker_disables_unused_control_socket_on_read_only_root():
+    dockerfile = _read("Dockerfile")
+    command = next(line for line in dockerfile.splitlines() if line.startswith("CMD "))
+    assert "exec gunicorn --no-control-socket " in command
+    assert "read_only: true" in _read("docker-compose.example.yml")
+    workflow = _read(".github/workflows/ci.yml")
+    for job_name, next_job in (("docker-build", "docker-publish"), ("docker-publish", "release")):
+        job = workflow.split(f"  {job_name}:", 1)[1].split(f"  {next_job}:", 1)[0]
+        assert "load: true" in job
+        assert "bash scripts/docker/smoke_image.sh mcbe-inventory-editor:smoke" in job
+    publish = workflow.split("  docker-publish:", 1)[1]
+    assert publish.index("bash scripts/docker/smoke_image.sh") < publish.index("- name: Publish runtime image")
+
+
 def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path, monkeypatch):
     from scripts import compile_lockfiles
 

@@ -11,6 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 
 from . import i18n
+from .backup_settings import BackupLimitError
 
 _ERROR_CODE_RE = re.compile(r"[^a-z0-9_]+")
 _STATUS_ERROR_CODES = {
@@ -48,6 +49,8 @@ def error_payload(
     hints: Sequence[object] | None = None,
     request_id: str | None = None,
 ) -> dict[str, object]:
+    if isinstance(message_key, BackupLimitError):
+        code = "backup_limit_exceeded"
     source = str(message_key).strip() or "Unbekannter Fehler"
     clean_params = {str(key): value for key, value in (params or {}).items()}
     message = i18n.t(source, **clean_params)

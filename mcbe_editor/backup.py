@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from functools import wraps
 from pathlib import Path, PurePosixPath
 
+from .backup_settings import BackupLimitError, get_backup_settings
 from .config import load_config
 from .i18n import t
 from .runtime_data import atomic_write_private_text
@@ -47,6 +48,7 @@ BACKUP_KIND_LABELS = {
     BACKUP_KIND_LEGACY: "Legacy",
 }
 STALE_BACKUP_ARTIFACT_SECONDS = 24 * 60 * 60
+_MIN_FREE_SPACE_RESERVE = 64 * 1024 * 1024
 BACKUP_INTEGRITY_CACHE_FILENAME = ".backup_integrity_cache.json"
 BACKUP_INTEGRITY_CACHE_VERSION = 1
 RESTORE_TRANSACTION_VERSION = 1
@@ -871,6 +873,8 @@ def create_backup(world_path, *, prune_after=True, backup_kind=BACKUP_KIND_AUTOM
         restore_source=restore_source,
     )
     backups_dir_normalized = os.path.normpath(os.path.abspath(backups_dir))
+    total_bytes, entry_count = _backup_tree_stats(world_path, backups_dir)
+    _ensure_space(backups_dir, _zip_space_estimate(total_bytes, entry_count))
 
     try:
         fd, tmp_path = tempfile.mkstemp(prefix=".mcbe_backup_", suffix=".part", dir=backups_dir)
@@ -928,6 +932,8 @@ def create_backup(world_path, *, prune_after=True, backup_kind=BACKUP_KIND_AUTOM
                             "Bitte Minecraft/Server vollständig stoppen und erneut speichern."
                         ) from exc
             zipf.comment = _metadata_comment(metadata)
+            # A published recovery copy must satisfy the restore contract.
+            validate_zip_members(zipf, world_path)
 
         _verify_zip_integrity(tmp_path)
         for _attempt in range(32):
@@ -1067,6 +1073,7 @@ def snapshot_backup_for_restore(world_path, backup_path, *, expected_token=None)
     if not stat.S_ISREG(source_stat.st_mode):
         raise ValueError("Backup-Datei ist keine reguläre Datei.")
     backups_dir = os.path.abspath(ensure_safe_backup_location(world_path))
+    _preflight_restore(world_path, source_path, backups_dir)
     snapshot_dir = os.path.join(backups_dir, ".restore_sources")
     os.makedirs(snapshot_dir, exist_ok=True)
     if os.path.islink(snapshot_dir) or not _is_path_inside_or_same(snapshot_dir, backups_dir):
@@ -1124,8 +1131,85 @@ def _safe_zip_member_name(name: str) -> str:
     return str(path)
 
 
+def _check_backup_totals(total_bytes, entry_count, limit_mib):
+    if entry_count > MAX_BACKUP_MEMBERS:
+        raise ValueError(t("Backup enthält zu viele Dateien (max {limit}).", limit=MAX_BACKUP_MEMBERS))
+    if total_bytes > limit_mib * 1024 * 1024:
+        raise BackupLimitError(t(
+            "Backup überschreitet maximal {limit} MiB unkomprimiert (benötigt: {required} MiB). "
+            "Bitte das Backup-Limit unter Werkzeuge & Einstellungen → Backup-Manager anpassen.",
+            limit=limit_mib, required=(total_bytes + 1024 * 1024 - 1) // (1024 * 1024),
+        ))
+
+
+def _backup_tree_stats(world_path, backups_dir):
+    """Inspect the same nonsymlink entries as the writer before creating a ZIP."""
+    limit = get_backup_settings(default_mib=MAX_BACKUP_UNCOMPRESSED_MB)["max_uncompressed_mib"]
+    total_bytes = entry_count = 0
+    for root, dirs, files in os.walk(world_path, onerror=_raise_walk_error):
+        if _is_path_inside_or_same(root, backups_dir):
+            dirs[:] = []
+            continue
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d)) and not _is_path_inside_or_same(os.path.join(root, d), backups_dir)]
+        entry_count += len(dirs)
+        for name in files:
+            path = os.path.join(root, name)
+            if os.path.islink(path) or _is_path_inside_or_same(path, backups_dir):
+                continue
+            info = os.stat(path, follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError(t("Backup abgebrochen: Die Welt enthält eine nicht reguläre Datei: {path}", path=path))
+            total_bytes += info.st_size
+            entry_count += 1
+            _check_backup_totals(total_bytes, entry_count, limit)
+        _check_backup_totals(total_bytes, entry_count, limit)
+    return total_bytes, entry_count
+
+
+def _zip_space_estimate(total_bytes, entry_count):
+    # DEFLATE can expand incompressible input; also reserve archive metadata.
+    return total_bytes + total_bytes // 100 + entry_count * 4096 + 1024 * 1024
+
+
+def _ensure_space(path, required_bytes):
+    reserve = max(_MIN_FREE_SPACE_RESERVE, required_bytes // 20)
+    free = shutil.disk_usage(path).free
+    if free < required_bytes + reserve:
+        raise ValueError(t(
+            "Nicht genügend freier Speicherplatz für Backup/Restore: benötigt ca. {required} MiB einschließlich Reserve, verfügbar {free} MiB.",
+            required=(required_bytes + reserve + 1024 * 1024 - 1) // (1024 * 1024), free=free // (1024 * 1024),
+        ))
+
+
+def _archive_size(archive_path, world_path):
+    try:
+        with zipfile.ZipFile(archive_path) as zipf:
+            validate_zip_members(zipf, world_path)
+            return sum(member.file_size for member in zipf.infolist())
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Backup-Datei ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
+
+
+def _preflight_restore(world_path, archive_path, backups_dir):
+    """Budget staging, immutable source and pre-restore backup per filesystem."""
+    unpacked = _archive_size(archive_path, world_path)
+    current_size, current_count = _backup_tree_stats(world_path, backups_dir)
+    requirements = [
+        (os.path.dirname(os.path.abspath(world_path)), unpacked),
+        (backups_dir, os.path.getsize(archive_path) + _zip_space_estimate(current_size, current_count)),
+    ]
+    volumes = {}
+    for path, size in requirements:
+        device = os.stat(path).st_dev
+        previous = volumes.get(device, (path, 0))
+        volumes[device] = (path, previous[1] + size)
+    for path, size in volumes.values():
+        _ensure_space(path, size)
+
+
 def validate_zip_members(zipf, target_dir):
     target_dir = os.path.abspath(target_dir)
+    limit = get_backup_settings(default_mib=MAX_BACKUP_UNCOMPRESSED_MB)["max_uncompressed_mib"]
     total_uncompressed = 0
     seen_names = set()
     for i, member in enumerate(zipf.infolist()):
@@ -1142,8 +1226,7 @@ def validate_zip_members(zipf, target_dir):
             raise ValueError(f"Doppelter Eintrag im Backup: {member.filename}")
         seen_names.add(norm_name)
         total_uncompressed += member.file_size
-        if total_uncompressed > MAX_BACKUP_UNCOMPRESSED_MB * 1024 * 1024:
-            raise ValueError(t("Backup überschreitet maximal {limit} MB unkomprimiert.", limit=MAX_BACKUP_UNCOMPRESSED_MB))
+        _check_backup_totals(total_uncompressed, i + 1, limit)
 
 
 def safe_extract_zip(zipf, target_dir):
@@ -1208,6 +1291,7 @@ def preview_backup(world_path, backup_file):
     backup_zip_path = resolve_backup_path(world_path, backup_file)
     if not os.path.exists(backup_zip_path):
         raise FileNotFoundError("Backup-Datei existiert nicht.")
+    _archive_size(backup_zip_path, world_path)
 
     stat_info = os.stat(backup_zip_path, follow_symlinks=False)
     if not stat.S_ISREG(stat_info.st_mode):
@@ -1304,6 +1388,8 @@ def restore_backup(world_path, backup_file, *, resolved_backup_path=None, pre_re
         raise FileNotFoundError("Backup-Datei existiert nicht.")
 
     parent_dir = os.path.dirname(os.path.normpath(world_path))
+    unpacked = _archive_size(backup_zip_path, world_path)
+    _ensure_space(parent_dir or ".", unpacked)
     world_dir_name = os.path.basename(os.path.normpath(world_path))
     transaction_id = secrets.token_hex(8)
     temp_restore_dir = tempfile.mkdtemp(prefix=f".{world_dir_name}_restoring_", dir=parent_dir)

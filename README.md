@@ -70,6 +70,8 @@ start.bat
 
 `setup.bat` creates `.venv` inside the project folder, installs no global Python packages, verifies the dependency hashes, and accepts only prebuilt wheels. The editor listens on `127.0.0.1:5000`; app data is stored under `data/`.
 
+The local HTTP server uses Waitress with four worker threads and persistent HTTP connections. Closing the browser still triggers automatic shutdown; active operations finish first. Blocked response transfers are disconnected after a grace period. Docker continues to use Gunicorn, with its unused control socket disabled to support the read-only container filesystem.
+
 Administrator rights should not normally be needed. If a safely stopped world cannot be saved because of Windows permissions, running `start.bat` as administrator can be used as a diagnostic test. It does not make editing a running world safe.
 
 ## Docker and trusted LANs
@@ -273,6 +275,8 @@ Security essentials:
 - World writes are serialized and re-check the server status immediately before writing.
 - No-op saves write nothing and create no backup.
 - Restore creates a pre-restore backup and verifies the archive before replacement.
+- Backups and restores default to 1 GiB uncompressed per archive and allow at most 50,000 entries, including directories. Change the size limit under **Tools & Settings → Backup Manager**; it applies to all worlds and persists in `data/backup_settings.json`. The allowed range is 1 MiB–1024 GiB. An explicit `MCBE_BACKUP_MAX_UNCOMPRESSED_MIB` value (for example `3072` for 3 GiB) overrides the saved setting and makes the field read-only. Backup retention is independent of this size limit.
+- Backup/restore checks sizes and available disk space before creating its temporary copies. Space estimates include ZIP overhead and a reserve of at least 64 MiB or 5% of the estimated additional space, whichever is larger. Restore accounts for the extracted world, archive snapshot and pre-restore backup on their respective filesystems. Space can still change during the operation; an I/O failure aborts before replacing the world if extraction has not completed.
 - Audit logs, diagnostic reports, backups, worlds, and player exports may contain private or identifying information. Do not publish them without careful sanitization.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting and the supported security boundary.

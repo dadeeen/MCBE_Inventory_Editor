@@ -2,8 +2,11 @@
 
 import hashlib
 import os
+import shutil
 import struct
 import unittest
+
+import pytest
 
 from mcbe_editor.leveldb_readonly import (
     CorruptDatabaseError,
@@ -119,6 +122,126 @@ def test_prev_log_number_is_replayed(tmp_path):
             reader.get(b"ignored")
     finally:
         reader.close()
+
+
+def _physical_log_offsets(data):
+    offsets = []
+    for block_start in range(0, len(data), 32768):
+        pos = block_start
+        block_end = min(block_start + 32768, len(data))
+        while pos + 7 <= block_end:
+            _crc, size, kind = struct.unpack_from("<IHB", data, pos)
+            if kind == 0 and size == 0:
+                break
+            assert pos + 7 + size <= block_end
+            offsets.append(pos)
+            pos += 7 + size
+    return offsets
+
+
+@pytest.mark.skipif(not HAS_LEVELDB, reason="Native LevelDB is required for the recovery comparison")
+@pytest.mark.parametrize("value_size", [32, 70_000])
+@pytest.mark.parametrize("damage", ["payload", "header", "crc", "missing_fragment"])
+def test_wal_tail_recovery_matches_native_engine_without_world_writes(tmp_path, caplog, value_size, damage):
+    from mcbe_editor import nbt
+    from mcbe_editor.players import encode_player_key
+    from mcbe_editor.services import BedrockEditorService
+    from tests.conftest import make_minimal_player_tag
+
+    world = tmp_path / "world"
+    world.mkdir()
+    db_path = world / "db"
+    player = make_minimal_player_tag()
+    raw = nbt.NamedTag(player).save_to(compressed=False, little_endian=True)
+    expected = {b"~local_player": raw, **{f"k{i:02d}".encode(): b"saved" for i in range(39)}}
+    db = leveldb.LevelDB(str(db_path), True)
+    try:
+        for key, value in expected.items():
+            db.put(key, value)
+        player["Health"] = nbt.FloatTag(1.0)
+        db.putBatch({
+            b"k00": b"x" * value_size,
+            b"k01": None,
+            b"uncommitted": b"new",
+            b"~local_player": nbt.NamedTag(player).save_to(compressed=False, little_endian=True),
+        })
+    finally:
+        db.close()
+
+    wal = max(db_path.glob("*.log"), key=lambda path: int(path.stem))
+    data = wal.read_bytes()
+    last = _physical_log_offsets(data)[-1]
+    if damage == "payload":
+        data = data[:-5]
+    elif damage == "header":
+        data = data[:last + 4]
+    elif damage == "crc":
+        data = data[:-1] + bytes([data[-1] ^ 1])
+    else:
+        # For a small batch, leave only its header; for a large batch, leave
+        # intact FIRST/MIDDLE fragments without the final fragment.
+        data = data[:last] if value_size > 32768 else data[:last + 7]
+    wal.write_bytes(data)
+    before = {path.name: path.read_bytes() for path in db_path.iterdir()}
+    before_stat = _snapshot_dir(str(db_path))
+
+    engine_path = tmp_path / "engine-copy"
+    shutil.copytree(db_path, engine_path)
+    native = leveldb.LevelDB(str(engine_path))
+    try:
+        assert dict(native.items()) == expected
+    finally:
+        native.close()
+
+    reader = ReadonlyLevelDbAdapter(str(db_path))
+    try:
+        assert dict(reader.iter_items()) == expected
+        for key, value in expected.items():
+            assert reader.get(key) == value
+    finally:
+        reader.close()
+
+    def write_tripwire(_path):
+        pytest.fail("Read paths must not open the mutating engine")
+
+    service = BedrockEditorService({}, {}, db_factory=write_tripwire, readonly_db_factory=ReadonlyLevelDbAdapter)
+    listed = service.list_players(str(world))
+    assert listed["success"] and len(listed["players"]) == 1
+    loaded = service.load_player(str(world), encode_player_key(b"~local_player"))
+    assert loaded["success"]
+    assert loaded["player_revision"] == hashlib.sha256(raw).hexdigest()
+    assert "WAL" in caplog.text and "verworfen" in caplog.text
+    assert {path.name: path.read_bytes() for path in db_path.iterdir()} == before
+    assert _snapshot_dir(str(db_path)) == before_stat
+
+
+@pytest.mark.parametrize("case", ["same_block", "later_block", "older_wal", "manifest", "impossible_length"])
+def test_wal_tail_recovery_does_not_hide_other_corruption(tmp_path, case):
+    db_path = tmp_path / "db"
+    db_path.mkdir()
+    (db_path / "CURRENT").write_bytes(b"MANIFEST-000001\n")
+    manifest = _log_record(_varint(_TAG_LOG_NUMBER) + _varint(2))
+    good = _log_record(_write_batch(1, [(b"a", b"saved")]))
+    bad = bytearray(_log_record(_write_batch(2, [(b"a", b"corrupt")])))
+    bad[0] ^= 1
+    wal = good + bytes(bad)
+    if case == "same_block":
+        wal += good
+    elif case == "later_block":
+        wal = wal.ljust(32768, b"\0") + good
+    elif case == "older_wal":
+        (db_path / "000003.log").write_bytes(good)
+    elif case == "manifest":
+        manifest = manifest[:-1] + bytes([manifest[-1] ^ 1])
+        wal = good
+    else:
+        wal = good + struct.pack("<IHB", 0, 32768, _RECORD_FULL) + b"short"
+    (db_path / "MANIFEST-000001").write_bytes(manifest)
+    (db_path / "000002.log").write_bytes(wal)
+    before = {path.name: path.read_bytes() for path in db_path.iterdir()}
+    with pytest.raises(CorruptDatabaseError):
+        ReadonlyLevelDbAdapter(str(db_path))
+    assert {path.name: path.read_bytes() for path in db_path.iterdir()} == before
 
 
 def test_service_readonly_open_does_not_fallback_to_mutating_adapter(monkeypatch, tmp_path):

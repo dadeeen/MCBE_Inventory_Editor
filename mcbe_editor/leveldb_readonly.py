@@ -12,6 +12,8 @@ Supported on-disk features:
 * Write-ahead log replay (in memory only) so unflushed saves are visible
 * SST/.ldb table files with block index and restart points
 * WAL/MANIFEST and SST block CRC32C validation
+* Incomplete or CRC-damaged final records in the newest WAL are discarded
+  with a warning; MANIFEST, SST and non-tail corruption remain errors
 * Mojang compression IDs: 0 (none), 2 (zlib) and 4 (raw zlib);
   Snappy (1) is rejected with a clear error because Bedrock never writes it
 
@@ -27,10 +29,13 @@ Limitations (by design):
 from __future__ import annotations
 
 import heapq
+import logging
 import os
 import re
 import struct
 import zlib
+
+LOGGER = logging.getLogger(__name__)
 
 _TABLE_MAGIC = 0xDB4775248B80FB57
 _LOG_BLOCK_SIZE = 32768
@@ -123,10 +128,15 @@ def _split_internal_key(internal_key: bytes) -> tuple[bytes, int, int]:
     return user_key, tail >> 8, tail & 0xFF
 
 
-def _iter_log_records(data: bytes):
-    """Yield full log record payloads, joining FIRST/MIDDLE/LAST fragments."""
+def _iter_log_records(data: bytes, *, recover_tail: bool = False):
+    """Join log fragments; optionally discard a damaged final WAL record.
+
+    Unlike native non-paranoid recovery, do not skip damaged blocks to look
+    for later records. Only the newest WAL opts in; MANIFEST stays strict.
+    """
 
     fragments: list[bytes] = []
+    fragment_start = 0
     offset = 0
     length = len(data)
     while offset < length:
@@ -138,11 +148,22 @@ def _iter_log_records(data: bytes):
             payload_end = payload_start + rec_len
             if rec_type == 0 and rec_len == 0:
                 break  # trailer padding
+            recoverable_type = rec_type in (_RECORD_FULL, _RECORD_FIRST) or (
+                bool(fragments) and rec_type in (_RECORD_MIDDLE, _RECORD_LAST)
+            )
             if payload_end > block_end:
+                # A partial write can end inside a physical record, but a
+                # record can never legitimately cross a 32 KiB block boundary.
+                if recover_tail and recoverable_type and block_end == length and payload_end <= offset + _LOG_BLOCK_SIZE:
+                    LOGGER.warning("Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.", fragment_start if fragments else pos)
+                    return
                 raise CorruptDatabaseError("Log-Record ragt über die Blockgrenze hinaus.")
             payload = data[payload_start:payload_end]
             actual_crc = _mask_crc32c(_crc32c(bytes((rec_type,)) + payload))
             if expected_crc != actual_crc:
+                if recover_tail and recoverable_type and payload_end == length:
+                    LOGGER.warning("CRC-fehlerhafter WAL-Schlussrecord ab Byte %d verworfen.", fragment_start if fragments else pos)
+                    return
                 raise CorruptDatabaseError("Log-Record-CRC ist ungültig.")
             if rec_type == _RECORD_FULL:
                 # A FULL record starts a new logical record.  Never combine it
@@ -152,6 +173,7 @@ def _iter_log_records(data: bytes):
                 yield payload
             elif rec_type == _RECORD_FIRST:
                 fragments = [payload]
+                fragment_start = pos
             elif rec_type == _RECORD_MIDDLE:
                 if not fragments:
                     raise CorruptDatabaseError("Fragmentierter Log-Record enthält MIDDLE ohne FIRST.")
@@ -165,7 +187,12 @@ def _iter_log_records(data: bytes):
             else:
                 raise CorruptDatabaseError(f"Unbekannter Log-Record-Typ: {rec_type}")
             pos = payload_end
+        if recover_tail and block_end == length and 0 < block_end - pos < 7 and any(data[pos:block_end]):
+            LOGGER.warning("Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.", fragment_start if fragments else pos)
+            return
         offset += _LOG_BLOCK_SIZE
+    if recover_tail and fragments:
+        LOGGER.warning("Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.", fragment_start)
 
 
 def _parse_manifest(data: bytes) -> tuple[dict[int, dict[int, tuple[bytes, bytes]]], int, int | None]:
@@ -351,8 +378,8 @@ class _Table:
         return best
 
 
-def _replay_wal(data: bytes, memtable: dict[bytes, tuple[int, int, bytes]]) -> None:
-    for record in _iter_log_records(data):
+def _replay_wal(data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, recover_tail: bool = False) -> None:
+    for record in _iter_log_records(data, recover_tail=recover_tail):
         if len(record) < 12:
             raise CorruptDatabaseError("WAL-Batch ist zu kurz.")
         sequence, count = struct.unpack_from("<QI", record, 0)
@@ -400,14 +427,20 @@ class ReadonlyLevelDbAdapter:
         self._files, log_number, prev_log_number = _parse_manifest(self._read_metadata(os.path.join(db_path, manifest_name)))
 
         self._memtable: dict[bytes, tuple[int, int, bytes]] = {}
-        for filename in sorted(os.listdir(db_path)):
+        wal_files = []
+        for filename in os.listdir(db_path):
             match = re.fullmatch(r"(\d{6,})\.log", filename)
             if not match:
                 continue
             file_number = int(match.group(1))
             if file_number < log_number and file_number != prev_log_number:
                 continue
-            _replay_wal(self._read_metadata(os.path.join(db_path, filename)), self._memtable)
+            wal_files.append((file_number, filename))
+        for index, (_file_number, filename) in enumerate(sorted(wal_files)):
+            _replay_wal(
+                self._read_metadata(os.path.join(db_path, filename)), self._memtable,
+                recover_tail=index == len(wal_files) - 1,
+            )
 
     def _read_metadata(self, path: str) -> bytes:
         with open(path, "rb") as handle:

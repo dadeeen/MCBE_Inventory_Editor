@@ -150,7 +150,7 @@
         overlay.style.display = "none";
     }
 
-    function showToast(msg, type = "success", duration = 3000) {
+    function showToast(msg, type = "success", duration = 3000, action = null) {
         let container = document.querySelector(".toast-container");
         if (!container) {
             container = document.createElement("div");
@@ -162,6 +162,14 @@
         // Anzeige-Grenze: Auch Server-Meldungen laufen durch t(); unbekannte
         // Texte bleiben unverändert (deutsche Quelle als Fallback).
         toast.textContent = t(msg);
+        if (action?.label && typeof action.onClick === "function") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn btn-secondary btn-sm";
+            button.textContent = action.label;
+            button.addEventListener("click", () => { action.onClick(); toast.remove(); });
+            toast.appendChild(button);
+        }
         container.appendChild(toast);
         setTimeout(() => {
             toast.classList.add("toast-fade");

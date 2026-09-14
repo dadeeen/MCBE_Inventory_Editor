@@ -353,7 +353,7 @@ def create_mount(data: dict, deps: MountRouteDeps):
     except ValueError as exc:
         deps.audit_event("mount.create", "failure", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
         if getattr(exc, "cleanup_warning", None):
-            return deps.jsonify(add_exception_cleanup_details(error_payload(str(exc), code="mount_create_failed"), exc)), 400
+            return deps.jsonify(add_exception_cleanup_details(error_payload(exc, code="mount_create_failed"), exc)), 400
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("mount.create", exc)
@@ -614,7 +614,7 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
             error=str(exc),
         )
         if getattr(exc, "cleanup_warning", None):
-            return deps.jsonify(add_exception_cleanup_details(error_payload(str(exc), code="workspace_save_failed"), exc)), 400
+            return deps.jsonify(add_exception_cleanup_details(error_payload(exc, code="workspace_save_failed"), exc)), 400
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("workspace.save", exc)

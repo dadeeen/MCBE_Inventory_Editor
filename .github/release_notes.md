@@ -1,13 +1,14 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.5.21
+## What changed in v0.5.22
 
-- Python 3.12, 3.13 and 3.14 are supported. Windows x64 runtime packages include validated LevelDB wheels for 3.13/3.14, allowing setup without C++ Build Tools. Existing supported environments are retained.
-- The editor uses a standard-library NBT codec, removing Amulet-NBT, NumPy and Amulet-MUTF8 from runtime requirements. The native Bedrock LevelDB engine remains in use. Preservation tests and an independent legacy-codec comparison cover player saves, mounts, transfers and export/import.
-- Mount placement uses the actual stored Float32 coordinates consistently for terrain checks and chunk references. Template creation rejects unsuitable active or malformed state, and post-write checks verify position, ownership, links and equipment.
-- The read-only database reader verifies SST checksums and rejects overflowing file references, varints and excessive decompression sizes. Terrain decoding and icon-context handling include additional format and consistency fixes.
-- Save, import, restore and player-switch responses retain their original world/player context. Late responses and uncertain save results no longer incorrectly clear or overwrite a different editor view. Rollback rechecks the target before restoring it.
-- Unknown inventory/effect data, legacy ability values, existing text and empty list types are preserved when unrelated fields are edited. Unicode CSRF tokens are rejected normally; foreign and stale drag payloads cannot rearrange inventory items.
+- The Backup Manager now offers an installation-wide limit for the uncompressed contents of each backup. The default remains 1 GiB; operators can override it with `MCBE_BACKUP_MAX_UNCOMPRESSED_MIB`. Backup retention is unchanged.
+- Backup creation and restore use the same size limits and check estimated free disk space before creating ZIPs, restore snapshots or staging directories. Limit errors link directly to the backup settings.
+- The read-only LevelDB reader can recover intact records before an incomplete or CRC-damaged final record in the newest WAL. Discarded tail data is logged; other database corruption remains an error.
+- The local Windows launcher uses Waitress with persistent HTTP connections and four worker threads. Shutdown waits for active application work and releases blocked response transfers. Request limits preserve valid uploads at the boundary.
+- Docker disables Gunicorn's unused control socket, avoiding attempts to create `/app/.gunicorn` on the read-only filesystem. CI verifies startup, HTTP health and graceful shutdown in a container with a read-only root before publication.
+
+**Updating an existing local installation:** run `setup.bat` once before `start.bat` to install the new hash-pinned Waitress dependency. Flask and Werkzeug remain required. Python 3.12–3.14 remain supported.
 
 > **If upgrading directly from v0.5.18 or earlier:** open **Tools & settings → Icons** and select **Load Vanilla icons** (**Werkzeuge & Einstellungen → Icons → Vanilla-Icons laden**) to rebuild existing PNGs with the resolver corrected in v0.5.19. Rescanning sources alone does not regenerate cached images.
 

@@ -45,6 +45,7 @@ BLOCKED_RELEASE_FILE_NAMES = frozenset(
         "item_db.py",
         "player_raw_export_index.json",
         "settings.json",
+        "backup_settings.json",
         "setup.json",
         "source_version.json",
         "source_version_history.json",

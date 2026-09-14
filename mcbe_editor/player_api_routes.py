@@ -363,7 +363,7 @@ def transfer_player_state(data: dict, deps: PlayerRouteDeps):
         )
         cleanup_warning = getattr(exc, "cleanup_warning", None)
         if cleanup_warning:
-            payload = add_exception_cleanup_details(error_payload(str(exc), code="player_state_transfer_invalid"), exc)
+            payload = add_exception_cleanup_details(error_payload(exc, code="player_state_transfer_invalid"), exc)
             return deps.jsonify(payload), 400
         return deps.api_error(exc)
     except Exception as exc:
@@ -485,8 +485,8 @@ def save_player(data: dict, deps: PlayerRouteDeps):
         status = 409 if message.startswith("Speichern abgelehnt:") else 400
         deps.audit_event("player.save", "failure", world_path=data.get("world_path"), player_key=data.get("player_key"), error=message)
         if getattr(exc, "cleanup_warning", None):
-            return deps.jsonify(add_exception_cleanup_details(error_payload(message, code="player_save_failed"), exc)), status
-        return deps.api_error(message, status)
+            return deps.jsonify(add_exception_cleanup_details(error_payload(exc, code="player_save_failed"), exc)), status
+        return deps.api_error(exc, status)
     except Exception as exc:
         deps.log_api_exception("player.save", exc)
         deps.audit_event("player.save", "failure", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
@@ -707,7 +707,7 @@ def import_player(data: dict, deps: PlayerRouteDeps):
         deps.audit_event("player.import", "failure", world_path=data.get("world_path"), player_key=data.get("target_player_key"), error=str(exc))
         cleanup_warning = getattr(exc, "cleanup_warning", None)
         if cleanup_warning:
-            payload = add_exception_cleanup_details(error_payload(str(exc), code="player_import_invalid"), exc)
+            payload = add_exception_cleanup_details(error_payload(exc, code="player_import_invalid"), exc)
             return deps.jsonify(payload), 400
         return deps.api_error(exc)
     except Exception as exc:

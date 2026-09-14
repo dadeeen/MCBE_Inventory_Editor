@@ -55,6 +55,7 @@ node_modules/
 /data/
 /setup.json
 /settings.json
+/backup_settings.json
 /cache/item_update/
 /.cache_item_update/
 

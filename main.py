@@ -940,7 +940,7 @@ def check_heartbeat():
                 if _SAVING_COUNTER > 0:
                     LAST_HEARTBEAT = _heartbeat_now()
                     continue
-            LOGGER.info("heartbeat timeout reached; shutting down local development server")
+            LOGGER.info("heartbeat timeout reached; shutting down local server")
             if _SERVER:
                 _SERVER.shutdown()
             break
@@ -2017,6 +2017,20 @@ def list_backups():
     return backup_api_routes.list_backups(request_json_object(), backup_route_deps())
 
 
+@app.route("/api/backup/settings", methods=["GET"])
+@rate_limit("read")
+def get_backup_settings_route():
+    return backup_api_routes.backup_settings(None, backup_route_deps())
+
+
+@app.route("/api/backup/settings", methods=["POST"])
+@rate_limit("mutate")
+@require_csrf
+@block_when_read_only("app_write")
+def save_backup_settings_route():
+    return backup_api_routes.backup_settings(request_json_object(), backup_route_deps())
+
+
 @app.route("/api/backup/create", methods=["POST"])
 @rate_limit("mutate")
 @require_csrf
@@ -2108,7 +2122,7 @@ if __name__ != "__main__":
 if __name__ == "__main__":
     import webbrowser
 
-    from werkzeug.serving import make_server
+    from mcbe_editor.local_server import LocalServer
 
     parser = argparse.ArgumentParser(description="MCBE Inventory Editor")
     parser.add_argument("--host", default=APP_CONFIG.host, help=f"Host (default: {APP_CONFIG.host})")
@@ -2138,20 +2152,15 @@ if __name__ == "__main__":
     try:
         app.debug = bool(args.debug)
         if args.debug:
-            LOGGER.warning("debug mode enabled without Werkzeug debugger/reloader because the embedded server uses make_server")
-        _SERVER = make_server(
-            HOST,
-            PORT,
-            app,
-            threaded=True,
-        )
+            LOGGER.warning("Flask debug mode enabled; Waitress does not run an interactive debugger or reloader")
+        _SERVER = LocalServer(app, HOST, PORT)
     except OSError as e:
         LOGGER.error("Port %s is already in use: %s", PORT, e.strerror)
         print(f"  Error: port {PORT} is already in use ({e.strerror}).")
         print(f"  Use another port: python main.py --port {PORT + 1}")
         sys.exit(1)
 
-    LOGGER.info("local server ready url=http://%s:%s", HOST, PORT)
+    LOGGER.info("local server ready server=waitress url=http://%s:%s", HOST, PORT)
     print(f"  MCBE Inventory Editor — http://{HOST}:{PORT}")
     print("  Press Ctrl+C to stop")
     print()

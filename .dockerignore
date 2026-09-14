@@ -66,6 +66,7 @@ requirements/README.md
 data/
 setup.json
 settings.json
+backup_settings.json
 source_version.json
 source_version_history.json
 cache/item_update/

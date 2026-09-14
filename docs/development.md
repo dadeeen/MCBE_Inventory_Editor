@@ -2,6 +2,34 @@
 
 This repository-only document is aimed at contributors and maintainers working in the full Git source tree. The public getting-started documentation is in the [README](../README.md). The project shape and dependency direction are summarized in the [architecture overview](architecture.md). Durable engineering contracts are documented in the [save contract](save_contract.md) and the [experimental mount specification](experimental_mount_creation_status.md).
 
+## HTTP servers
+
+`python main.py` uses Waitress (four worker threads), including `--debug`; debug
+mode does not enable an interactive debugger or reloader. The local server binds
+to loopback by default. `mcbe_editor.local_server` integrates the pinned Waitress
+dispatcher and socket loop with heartbeat shutdown. It stops accepting new work,
+keeps I/O running until active handlers finish, then allows up to five seconds to
+flush buffered response bytes. During shutdown, a response whose full buffer
+blocks a worker is disconnected after five seconds; application work such as a
+save is still awaited. A stuck application handler can therefore delay shutdown;
+a second Ctrl+C interrupts the wait. Recheck this integration when upgrading
+Waitress. HTTP tests in `tests/test_local_server_cli.py` cover keep-alive,
+concurrent requests, shutdown, port conflicts, upload limits and proxy policy.
+
+Flask enforces the exact 10 MiB decoded request-body limit. Waitress limits the
+buffered transfer to that limit plus 64 KiB for chunk framing and its exclusive
+upper bound. Requests exceeding the transport limit receive Waitress's HTTP 413
+response before reaching Flask's JSON error handler. Proxy header trust remains
+controlled by the existing application
+configuration and ProxyFix. Docker keeps Gunicorn with `--no-control-socket`:
+the app does not use its management socket and the container root stays read-only.
+
+Docker CI loads the runtime image and runs `scripts/docker/smoke_image.sh` before
+publication. The probe uses a read-only root, temporary data/world mounts and no
+external network or host ports. It checks HTTP readiness, absence of the unused
+Gunicorn control socket, and graceful termination; its own container is removed
+on exit. This check also runs on ordinary Docker build jobs.
+
 ## Python portability
 
 Python 3.12, 3.13 and 3.14 are supported. CI runs the complete application suite on
@@ -165,6 +193,8 @@ Both Docker stages use the same multi-architecture digest for `python:3.12-slim`
 The frontend logic under `static/` is primarily tested without an npm build step: the `tests/test_frontend_*.py` files execute the browser modules directly via `node -e`, and `tests/test_frontend_syntax.py` syntax-checks every JS file with `node --check` (pure parsing, no execution).
 
 In addition, there are Playwright browser smoke tests under `tests/browser/`. These use `package.json` and `package-lock.json`; locally, the dependencies are installed on demand with `npm ci --ignore-scripts`. The command `npm run test:browser` automatically re-launches through the repository's `.venv` when present, starts two local Flask test servers, runs Playwright, and shuts the servers down again afterwards. `node_modules/` is a local working artifact and is not committed.
+
+On Windows, `playwright.config.mjs` disables `TcpPortRandomizationWin` only in the test browser. Chromium 143 can encounter outgoing loopback port collisions (`WSAEADDRINUSE`, Windows error 10048) during repeated page loads, causing scripts to fail to load. The workaround preserves Playwright's other default Chromium flags and does not add retries or change application/OS networking settings. It reads the pinned Playwright runtime's internal switch list; review this integration and whether the workaround is still needed when upgrading Playwright/Chromium. Other platforms use the default launch options.
 
 The authoritative Python, coverage, and managed browser runners keep per-run data under the operating system's temporary directory (`mcbe-inventory-editor-tests`) instead of the checkout. Set `MCBE_TEST_ARTIFACT_ROOT` to another external directory when required. Successful runs remove their unique runtime directories immediately; failed runs retain them for diagnosis and print their location. At runner startup, expired directories with a recognized project-generated name are removed after seven days, except when their owning process is still active. Unknown entries, links, junctions, and the current run directory are never pruned.
 

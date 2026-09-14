@@ -350,6 +350,7 @@ BLOCKED_CATEGORIES = {"world_write", "app_write", "local_file"}
 ROUTE_READONLY_POLICY = {
     "/api/backup/create": "app_write",
     "/api/backup/delete": "app_write",
+    "/api/backup/settings": "app_write",
     "/api/backup/restore_preview": "read",
     "/api/backups": "read",
     "/api/heartbeat": "presence",

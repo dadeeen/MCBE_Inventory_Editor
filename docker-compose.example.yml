@@ -46,6 +46,9 @@ services:
       # MCBE_MAX_BACKUPS_PER_WORLD: "20"
       # Pre-restore backups per world (default 5):
       # MCBE_MAX_PRE_RESTORE_BACKUPS_PER_WORLD: "5"
+      # Optional uncompressed limit per backup/restore in MiB (default 1024).
+      # An explicit value takes precedence over the Backup Manager setting:
+      # MCBE_BACKUP_MAX_UNCOMPRESSED_MIB: "3072"
 
     security_opt:
       - no-new-privileges:true

@@ -96,4 +96,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import os, urllib.request; port = int(os.environ.get('MCBE_EDITOR_PORT', '8080')); urllib.request.urlopen(f'http://127.0.0.1:{port}/healthz', timeout=2).read()" || exit 1
 
-CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${MCBE_EDITOR_PORT:-8080} --workers 1 --threads 4 --log-level info --error-logfile - main:app"]
+CMD ["sh", "-c", "exec gunicorn --no-control-socket --bind 0.0.0.0:${MCBE_EDITOR_PORT:-8080} --workers 1 --threads 4 --log-level info --error-logfile - main:app"]

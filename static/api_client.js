@@ -51,6 +51,9 @@
                 data.error = localizedErrorMessage(data, fallback);
                 data.message = data.error;
             }
+            if (data.success === false && data.code === "backup_limit_exceeded" && window.CustomEvent) {
+                window.dispatchEvent?.(new window.CustomEvent("mcbe-backup-limit"));
+            }
             return data;
         }
 

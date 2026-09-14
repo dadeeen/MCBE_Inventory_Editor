@@ -208,7 +208,89 @@
             openFolderButton = null,
             copyFolderButton = null,
             createButton = null,
+            settingsInput = null,
+            settingsSaveButton = null,
+            settingsStatus = null,
+            settingsPanel = null,
+            toolsDetails = null,
+            toolsNavButton = null,
+            backupTabButton = null,
         } = elements;
+        let settingsEditable = false;
+        let settingsBusy = false;
+        let settingsLoaded = false;
+        let settingsLoading = false;
+
+        function applySettings(settings) {
+            settingsLoaded = true;
+            settingsEditable = settings?.editable === true && appConfig.read_only !== true;
+            if (settingsInput) {
+                settingsInput.value = String(settings.max_uncompressed_mib / 1024);
+                settingsInput.disabled = !settingsEditable;
+            }
+            if (settingsSaveButton) settingsSaveButton.disabled = !settingsEditable;
+            if (settingsStatus) settingsStatus.textContent = settings.source === "environment"
+                ? t("Vom Betreiber über MCBE_BACKUP_MAX_UNCOMPRESSED_MIB vorgegeben.")
+                : appConfig.read_only === true
+                    ? t("Read-Only-Modus: Backup-Einstellungen können nicht geändert werden.")
+                    : t("Die Einstellung wird dauerhaft für diese Installation gespeichert.");
+        }
+
+        async function loadSettings() {
+            if (!settingsInput || !settingsSaveButton || settingsLoading || settingsBusy) return;
+            settingsLoading = true;
+            try {
+                const data = await parseJsonResponse(await fetch("/api/backup/settings"));
+                if (!data.success || !Number.isInteger(data.settings?.max_uncompressed_mib)) {
+                    throw new Error(buildErrorMessage(data, t("Backup-Einstellungen konnten nicht geladen werden.")));
+                }
+                applySettings(data.settings);
+            } catch (error) {
+                if (settingsStatus) settingsStatus.textContent = error.message;
+                // Explicit saving can replace a malformed local settings file.
+                settingsEditable = appConfig.read_only !== true;
+                settingsInput.disabled = !settingsEditable;
+                settingsSaveButton.disabled = !settingsEditable;
+            } finally {
+                settingsLoading = false;
+            }
+        }
+
+        async function saveSettings() {
+            if (!settingsEditable || settingsBusy || !settingsInput) return false;
+            const limit = Math.ceil(Number(settingsInput.value) * 1024);
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1048576) {
+                if (settingsStatus) settingsStatus.textContent = t("Bitte ein Backup-Limit zwischen 1 MiB und 1024 GiB eingeben.");
+                return false;
+            }
+            settingsBusy = true;
+            settingsInput.disabled = true;
+            settingsSaveButton.disabled = true;
+            try {
+                const data = await parseJsonResponse(await fetch("/api/backup/settings", {
+                    method: "POST", headers: withCsrf(), body: JSON.stringify({ max_uncompressed_mib: limit }),
+                }));
+                if (!data.success) throw new Error(buildErrorMessage(data, t("Backup-Einstellungen konnten nicht gespeichert werden.")));
+                applySettings(data.settings);
+                if (settingsStatus) settingsStatus.textContent = t("Backup-Einstellungen gespeichert.");
+                return true;
+            } catch (error) {
+                if (settingsStatus) settingsStatus.textContent = error.message;
+                return false;
+            } finally {
+                settingsBusy = false;
+                settingsInput.disabled = !settingsEditable;
+                settingsSaveButton.disabled = !settingsEditable;
+            }
+        }
+
+        function openSettings() {
+            toolsNavButton?.click();
+            if (toolsDetails) toolsDetails.open = true;
+            backupTabButton?.click();
+            settingsPanel?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+            settingsPanel?.focus?.({ preventScroll: true });
+        }
         let lastBackupDir = "";
         let backupsLoadRequestId = 0;
         const backupDeletesInFlight = new Set();
@@ -363,6 +445,7 @@
         }
 
         async function loadBackupsList() {
+            if (!settingsLoaded) loadSettings();
             if (!container) return;
             const requestId = ++backupsLoadRequestId;
             const requestedWorldPath = getWorldPath();
@@ -438,6 +521,12 @@
 
         function wire() {
             applyInitialState();
+            settingsSaveButton?.addEventListener("click", saveSettings);
+            window.addEventListener?.("mcbe-backup-limit", () => {
+                showToast(t("Das Backup-Limit wurde überschritten."), "warning", 10000, {
+                    label: t("Backup-Einstellungen öffnen"), onClick: openSettings,
+                });
+            });
             refreshButton?.addEventListener("click", loadBackupsList);
             openFolderButton?.addEventListener("click", openBackupFolder);
             copyFolderButton?.addEventListener("click", () => {
@@ -448,6 +537,8 @@
         }
 
         return {
+            loadSettings,
+            saveSettings,
             createBackup,
             deleteBackup,
             loadBackupsList,
@@ -463,6 +554,13 @@
             openFolderButton: doc.getElementById("btnOpenBackupFolder"),
             copyFolderButton: doc.getElementById("btnCopyBackupDir"),
             createButton: doc.getElementById("btnCreateBackup"),
+            settingsInput: doc.getElementById("backupMaxSizeGib"),
+            settingsSaveButton: doc.getElementById("btnSaveBackupSettings"),
+            settingsStatus: doc.getElementById("backupSettingsStatus"),
+            settingsPanel: doc.getElementById("backupSettingsPanel"),
+            toolsDetails: doc.getElementById("toolsSettingsDetails"),
+            toolsNavButton: doc.querySelector?.('.app-section-nav [data-workflow-view="tools"]'),
+            backupTabButton: doc.querySelector?.('[data-tab-dash="dashBackups"]'),
         };
     }
 

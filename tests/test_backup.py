@@ -189,6 +189,54 @@ class TestCreateBackupConsistency(unittest.TestCase):
             self.assertTrue(shutil_target.is_dir())
 
 
+@pytest.mark.parametrize("limit", ["bytes", "members"])
+def test_create_backup_rejects_unrestorable_archive_without_pruning(tmp_path, monkeypatch, limit):
+    from mcbe_editor import backup
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    (world / "db" / "CURRENT").write_bytes(b"manifest")
+    (world / "db" / "payload").write_bytes(b"x" * 32)
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+    existing = Path(backup.create_backup(str(world), prune_after=False))
+    before = {path.name: path.read_bytes() for path in existing.parent.iterdir()}
+    world_before = {path.name: path.read_bytes() for path in (world / "db").iterdir()}
+    if limit == "bytes":
+        monkeypatch.setattr(backup, "MAX_BACKUP_UNCOMPRESSED_MB", 39 / (1024 * 1024))
+        message = "unkomprimiert"
+    else:
+        monkeypatch.setattr(backup, "MAX_BACKUP_MEMBERS", 2)
+        message = "zu viele Dateien"
+
+    def prune_tripwire(*_args, **_kwargs):
+        pytest.fail("A failed backup must not prune existing recovery copies")
+
+    monkeypatch.setattr(backup, "prune_backups", prune_tripwire)
+    with pytest.raises(ValueError, match=message):
+        backup.create_backup(str(world))
+    assert {path.name: path.read_bytes() for path in existing.parent.iterdir()} == before
+    assert {path.name: path.read_bytes() for path in (world / "db").iterdir()} == world_before
+
+
+def test_backup_at_restore_limits_can_be_created_and_restored(tmp_path, monkeypatch):
+    from mcbe_editor import backup
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    (world / "db" / "CURRENT").write_bytes(b"manifest")
+    payload = world / "db" / "payload"
+    payload.write_bytes(b"x" * 32)
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+    monkeypatch.setattr(backup, "MAX_BACKUP_UNCOMPRESSED_MB", 40 / (1024 * 1024))
+    monkeypatch.setattr(backup, "MAX_BACKUP_MEMBERS", 3)
+
+    created = Path(backup.create_backup(str(world)))
+    payload.write_bytes(b"y" * 32)
+    backup.restore_backup(str(world), created.name)
+    assert payload.read_bytes() == b"x" * 32
+    assert (world / "db" / "CURRENT").read_bytes() == b"manifest"
+
+
 class TestValidateZipMembers(unittest.TestCase):
     def test_accepts_valid_members(self):
         data = io.BytesIO()

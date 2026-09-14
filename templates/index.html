@@ -682,6 +682,16 @@
                                 <button id="btnRefreshBackups" class="btn-text">{{ t("Aktualisieren") }}</button>
                             </div>
                         </div>
+                        <section class="backup-summary" id="backupSettingsPanel" tabindex="-1" aria-labelledby="backupSettingsTitle">
+                            <h4 id="backupSettingsTitle">{{ t("Backup-Einstellungen") }}</h4>
+                            <div class="inline-actions">
+                                <label for="backupMaxSizeGib">{{ t("Maximaler unkomprimierter Inhalt pro Backup (GiB)") }}</label>
+                                <input id="backupMaxSizeGib" type="number" min="0.0009765625" max="1024" step="any" value="1" disabled aria-describedby="backupSettingsHint backupSettingsStatus">
+                                <button id="btnSaveBackupSettings" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Einstellung speichern") }}</button>
+                            </div>
+                            <p class="hint-text" id="backupSettingsHint">{{ t("Gilt für das Erstellen und Wiederherstellen einzelner Backups aller Welten dieser Installation. Die Anzahl aufbewahrter Backups bleibt unverändert.") }}</p>
+                            <p id="backupSettingsStatus" role="status">{{ t("Backup-Einstellungen werden geladen...") }}</p>
+                        </section>
                         <div class="backups-list-wrapper">
                             <div class="backups-list" id="backupsContainer">
                                 <!-- JS will list backups -->

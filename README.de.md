@@ -70,6 +70,8 @@ start.bat
 
 `setup.bat` erstellt `.venv` im Projektordner, installiert keine globalen Python-Pakete, prüft die Abhängigkeitshashes und akzeptiert ausschließlich vorgefertigte Wheels. Der Editor läuft auf `127.0.0.1:5000`; App-Daten liegen unter `data/`.
 
+Der lokale HTTP-Server verwendet Waitress mit vier Arbeitsthreads und wiederverwendbaren HTTP-Verbindungen. Nach dem Schließen des Browsers beendet sich der Editor weiterhin automatisch; laufende Arbeiten werden zuvor abgeschlossen. Blockierte Antwortübertragungen werden nach einer Wartefrist getrennt. Docker verwendet weiterhin Gunicorn, dessen ungenutzter Control-Socket für das schreibgeschützte Container-Dateisystem deaktiviert ist.
+
 Administratorrechte sollten normalerweise nicht erforderlich sein. Falls eine sicher beendete Welt wegen Windows-Dateirechten nicht gespeichert werden kann, kann der Start als Administrator als Diagnosetest dienen. Eine laufende Welt wird dadurch nicht sicher bearbeitbar.
 
 ## Docker und vertrauenswürdiges LAN
@@ -273,6 +275,8 @@ Wesentliche Schutzmaßnahmen:
 - Weltzugriffe werden serialisiert und prüfen den Serverstatus unmittelbar vor dem Schreiben erneut.
 - No-op-Speichervorgänge schreiben nichts und erzeugen kein Backup.
 - Restore erstellt ein Pre-Restore-Backup und prüft das Archiv vor dem Austausch.
+- Backups und Restore sind standardmäßig auf 1 GiB unkomprimiert pro Archiv und höchstens 50.000 Einträge einschließlich Ordnern begrenzt. Das Größenlimit lässt sich unter **Werkzeuge & Einstellungen → Backup-Manager** ändern; es gilt für alle Welten und bleibt in `data/backup_settings.json` gespeichert. Zulässig sind 1 MiB–1024 GiB. Eine ausdrückliche Vorgabe über `MCBE_BACKUP_MAX_UNCOMPRESSED_MIB` (beispielsweise `3072` für 3 GiB) hat Vorrang vor dem gespeicherten Wert und sperrt das Feld. Die Backup-Aufbewahrung ist von diesem Größenlimit unabhängig.
+- Backup/Restore prüft Größen und freien Speicherplatz vor dem Erstellen temporärer Kopien. Die Platzschätzung berücksichtigt ZIP-Zusatzdaten und eine Reserve von mindestens 64 MiB oder 5 % des geschätzten zusätzlichen Bedarfs, je nachdem, welcher Wert größer ist. Beim Restore zählen entpackte Welt, Archivkopie und Pre-Restore-Backup auf den jeweiligen Laufwerken dazu. Der freie Platz kann sich währenddessen ändern; scheitert das Entpacken an einem E/A-Fehler, wird die Welt nicht ersetzt.
 - Audit-Logs, Diagnoseberichte, Backups, Welten und Spielerexporte können private oder identifizierende Informationen enthalten. Veröffentliche sie nicht ohne sorgfältige Bereinigung.
 
 Hinweise zum Melden von Sicherheitslücken und zur unterstützten Sicherheitsgrenze stehen in [SECURITY.de.md](SECURITY.de.md).

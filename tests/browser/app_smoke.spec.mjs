@@ -209,6 +209,68 @@ async function openDragFixture(page) {
   await expect(page.locator("#inventoryContainer")).toBeVisible();
 }
 
+async function openBackupSettings(page) {
+  await page.locator('.app-section-nav [data-workflow-view="tools"]').click();
+  await page.locator('[data-tab-dash="dashBackups"]').click();
+  await expect(page.locator("#backupSettingsPanel")).toBeVisible();
+}
+
+async function openBackupSettingsApp(page) {
+  // These settings tests do not exercise server probing. Keep those background
+  // polls out of the shared rate-limit bucket used by the world workflow tests.
+  await page.route("**/api/server_status", route => route.fulfill({ json: {
+    success: true, status: "offline", write_gate: { allowed: true, read_allowed: true },
+  } }));
+  await openAppWithEmptyWorldScan(page);
+}
+
+test("backup size setting persists through reload without selecting a world", async ({ page }, testInfo) => {
+  const errors = collectBrowserErrors(page);
+  await openBackupSettingsApp(page);
+  await openBackupSettings(page);
+  const input = page.locator("#backupMaxSizeGib");
+  await expect(input).toBeEnabled();
+  const original = await input.inputValue();
+  await input.fill("2.5");
+  const savedResponse = page.waitForResponse(response => response.url().endsWith("/api/backup/settings") && response.request().method() === "POST");
+  await page.locator("#btnSaveBackupSettings").click();
+  expect((await (await savedResponse).json()).settings.max_uncompressed_mib).toBe(2560);
+  await page.reload();
+  await openBackupSettings(page);
+  await expect(input).toHaveValue("2.5");
+  await page.locator("#backupSettingsPanel").screenshot({ path: testInfo.outputPath("backup-settings.png") });
+  await input.fill(original);
+  const resetResponse = page.waitForResponse(response => response.url().endsWith("/api/backup/settings") && response.request().method() === "POST");
+  await page.locator("#btnSaveBackupSettings").click();
+  expect((await resetResponse).ok()).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("operator backup limit is visible but cannot be edited", async ({ page }) => {
+  await page.route("**/api/backup/settings", route => route.fulfill({ json: {
+    success: true, settings: { max_uncompressed_mib: 4096, source: "environment", editable: false },
+  } }));
+  await openBackupSettingsApp(page);
+  await openBackupSettings(page);
+  await expect(page.locator("#backupMaxSizeGib")).toHaveValue("4");
+  await expect(page.locator("#backupMaxSizeGib")).toBeDisabled();
+  await expect(page.locator("#btnSaveBackupSettings")).toBeDisabled();
+  await expect(page.locator("#backupSettingsStatus")).toContainText("MCBE_BACKUP_MAX_UNCOMPRESSED_MIB");
+});
+
+test("backup limit error offers a direct link to its settings", async ({ page }) => {
+  await openBackupSettingsApp(page);
+  await page.evaluate(async () => {
+    const response = new Response(JSON.stringify({ success: false, code: "backup_limit_exceeded", error: "limit" }), {
+      status: 400, headers: { "Content-Type": "application/json" },
+    });
+    await window.MCBEApiClient.createApiClient().parseJsonResponse(response);
+  });
+  await page.locator(".toast-container .toast button").click();
+  await expect(page.locator("#backupSettingsPanel")).toBeVisible();
+  await expect(page.locator("#backupSettingsPanel")).toBeFocused();
+});
+
 for (const scenario of ["foreign_text", "foreign_internal", "drag_ended", "previous_drag", "world_changed", "player_changed", "source_replaced"]) {
   test(`inventory drag rejects ${scenario}`, async ({ page }) => {
     const browserErrors = collectBrowserErrors(page);
