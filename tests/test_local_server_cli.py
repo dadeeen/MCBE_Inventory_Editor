@@ -169,11 +169,13 @@ def test_local_server_preserves_app_proxy_policy(trust_proxy):
     app = server_app()
     if trust_proxy:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
-    app.add_url_rule("/", view_func=lambda: f"{request.remote_addr} {request.scheme}")
+    app.add_url_rule("/", view_func=lambda: Response(f"{request.remote_addr} {request.scheme}", mimetype="text/plain"))
     with running_server(app) as (_server, port, _thread), closing(HTTPConnection("127.0.0.1", port, timeout=5)) as connection:
         connection.request("GET", "/", headers={"X-Forwarded-For": "192.0.2.1", "X-Forwarded-Proto": "https"})
         expected = b"192.0.2.1 https" if trust_proxy else b"127.0.0.1 http"
-        assert connection.getresponse().read() == expected
+        response = connection.getresponse()
+        assert response.getheader("Content-Type") == "text/plain; charset=utf-8"
+        assert response.read() == expected
 
 
 def test_local_server_rejects_oversized_upload_before_app():
@@ -240,7 +242,7 @@ def test_interrupted_upload_does_not_run_handler_or_block_shutdown():
 
 def test_pipelined_requests_do_not_mix_responses():
     app = server_app()
-    app.add_url_rule("/<value>", view_func=lambda value: value)
+    app.add_url_rule("/<value>", view_func=lambda value: Response(value, mimetype="text/plain"))
     with running_server(app) as (_server, port, _thread), socket.create_connection(("127.0.0.1", port), timeout=5) as client:
         client.sendall(
             b"GET /first HTTP/1.1\r\nHost: localhost\r\n\r\n"
@@ -251,6 +253,7 @@ def test_pipelined_requests_do_not_mix_responses():
             chunks.append(chunk)
         response = b"".join(chunks)
         assert response.count(b"HTTP/1.1 200 OK\r\n") == 2
+        assert response.count(b"Content-Type: text/plain; charset=utf-8\r\n") == 2
         assert b"\r\n\r\nfirstHTTP/1.1 200 OK\r\n" in response
         assert response.endswith(b"\r\n\r\nsecond")
 
