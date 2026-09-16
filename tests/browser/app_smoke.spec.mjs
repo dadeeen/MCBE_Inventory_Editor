@@ -20,7 +20,10 @@ function collectBrowserErrors(page) {
   page.on("pageerror", error => browserErrors.push(error.message));
   page.on("console", message => {
     const text = message.text();
-    if (message.type() === "error" && !isExpectedHttpConsoleNoise(text)) browserErrors.push(text);
+    if (message.type() === "error" && !isExpectedHttpConsoleNoise(text)) {
+      const source = message.location().url;
+      browserErrors.push(source ? `${text} (${source})` : text);
+    }
   });
   return browserErrors;
 }
@@ -1874,6 +1877,12 @@ test("regular tools update refreshes the dismissed setup banner and resolves rel
   // and must not consume the shared read budget of the smoke-test process.
   await page.route("**/api/server_status", route => route.fulfill({ json: {
     success: true, status: "offline", write_gate: { allowed: true, read_allowed: true },
+  } }));
+  // Opening Tools also refreshes the diagnostic panel, which is outside this
+  // asset-update flow and must not depend on earlier tests' shared read budget.
+  await page.route("**/api/diagnostics/status", route => route.fulfill({ json: {
+    success: true, mode: "local", data_root: { writable: true },
+    write_gate: { allowed: true, read_allowed: true },
   } }));
   let updateRequest = null;
   await page.route("**/api/item-db/status", route => route.fulfill({
