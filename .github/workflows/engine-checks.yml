@@ -14,9 +14,9 @@ on:
       suite:
         description: Selected engine check suite
         required: true
-        default: items
+        default: all
         type: choice
-        options: [items, catalog]
+        options: [all, extended, service, addons, items, catalog]
 
 permissions:
   contents: read

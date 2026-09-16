@@ -10,7 +10,8 @@ accepted by the runner. The local tool does not download or redistribute BDS.
 ## Execution and provenance
 
 `python -m scripts.engine_checks` runs an explicitly supplied **official Linux
-Bedrock Dedicated Server** in Docker with no network, no published ports, dropped
+Bedrock Dedicated Server** in Docker. Automated profiles have no network and no
+published ports. Every profile uses dropped
 Linux capabilities, a read-only container root and one writable mount containing
 a fresh disposable server. A timeout bounds each phase; only its own container
 is removed. Docker must already be running. Host firewall settings and existing
@@ -21,7 +22,9 @@ found after a lost CLI response. Cleanup failures retain the original error and
 identify the owned container instead of silently disappearing.
 The generated server uses offline mode and RakNet solely to start its script
 runtime without network services. Some BDS builds print a RakNet transport error;
-client connections are outside this profile and impossible with `--network none`.
+client connections are impossible with `--network none`. Only the separately
+selected `client` profile enables a bridge network with IPv4-loopback TCP and UDP
+publications; it is described below and is never selected by CI or `--suite all`.
 Neither these server settings nor the disposable world are deployment examples.
 
 The exact four-part version must match BDS's own startup log. The report records
@@ -31,7 +34,7 @@ Changed probe or editor sources at completion fail the run; rerun after edits
 have finished. Hashes identify inputs; they do not attest a user-supplied binary's authenticity. Obtain
 the archive directly from [Mojang](https://www.minecraft.net/en-us/download/server/bedrock).
 
-The script-only behavior pack does not redefine items or entities. It uses the
+The Vanilla script-only behavior pack does not redefine items or entities. It uses the
 stable `@minecraft/server` 2.9.0 API (Bedrock 26.50 or compatible newer builds),
 without GameTest/Beta experiments. The item suite waits for
 [TickingAreaManager](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/tickingareamanager?view=minecraft-bedrock-stable)
@@ -48,10 +51,13 @@ to load its chunks and actors even without a connected player. References:
   fail. Missing catalog limits produce review candidates and a partial result,
   never automatic catalog changes or a passing result. Values above the editor's
   Count range also fail.
+- Compare recorded durability with `ItemDurabilityComponent.maxDurability`,
+  including disappeared components. New durable items require review and produce
+  a partial result; conflicting known values fail before any offline edits.
 - Failed item construction remains unverified. No implicit 1 or 64 is invented.
   Partial coverage returns exit code 2, not a green result.
 
-## Item suite (default)
+## Item suite
 
 The engine creates named chest minecarts as test carriers. Each contains an
 untouched control item and assigned cases: new amount-1 items for every measurable
@@ -73,11 +79,106 @@ extra items, missing observations and incorrectly typed values fail. Constructor
 clamping is checked during seeding too. Negative cases require the production
 builder to reject new amounts -1, 0, maximum + 1 and 128 for every tested ID.
 
-This does **not** exercise the complete player service, player login, singleplayer
-`~local_player`, Ender Chest storage, UI, mount creation, gameplay interactions,
-arbitrary add-ons, Education-only behavior, version migration or every metadata
-combination. Every report lists these gaps. Item-type maxima do not prove that
-two customized stacks can merge. Unknown changes are not silently accepted.
+The item suite alone does **not** exercise the player service, client persistence
+or gameplay. The additional profiles below extend those domains independently.
+Every report records its own remaining gaps.
+
+## Extended suite
+
+`--suite extended` includes the item suite and measures the runtime enchantment
+and potion registries. Missing/unknown domains fail instead of silently shrinking
+coverage. It tests:
+
+- Every registered item against all 42 reviewed enchantments, then every pair of
+  applicable enchantments in both insertion orders. Known API incompatibility
+  exceptions are recorded as rejected observations; unexpected errors fail.
+- Every accepted item/enchantment at every legal level; accepted pairs at their
+  maximum levels; and engine-created enchanted originals preserved byte for byte.
+  Plain `book` permits engine enchantments but is intentionally preservation-only
+  in the editor; new enchanted books use `enchanted_book`.
+- Durability boundaries 0, 1, half and maximum minus one for every durable item.
+- All reviewed data values for beds, banners, goat horns, ominous bottles,
+  suspicious stews and empty maps, created by both engine commands and the editor.
+- All 47 potion effects across all three runtime delivery types. Engine-created
+  potion references are preserved or renamed, with raw NBT data values checked
+  against an independent reviewed table.
+- Real `isStackableWith` checks in both directions and `Container.addItem` calls
+  for all item types, plus equal/different names, lore and durability. Engine-built
+  references provide the comparison. Quantity conservation, stack boundaries,
+  full-container remainders and unchanged sources are checked explicitly.
+- Hopper transfers and dropped-item collection for a named item, an enchanted
+  item and a potion. The item metadata must survive without duplication.
+
+This is a finite domain, **not every possible combination**. In particular,
+arbitrary three-or-more-enchantment products, every enchantment-level product,
+all metadata combinations, combat, equipping, consumption, brewing and crafting
+are not covered. The editor intentionally permits some NBT enchantment pairs
+that normal Vanilla application rules reject; measured rejection is not a new
+restriction on preserved/editable NBT.
+
+## Full player-service suite
+
+`--suite service` places engine-generated references into two explicitly synthetic
+player envelopes (`~local_player` and a synthetic server player). The real
+`BedrockEditorService.load_player/save_player` performs creation, editing,
+cross-container moves and deletion/recreation in Inventory and
+EnderChestInventory, including their last slots, names/lore, damage, enchantments
+and a healing potion. It checks backed-up saves, no-op saves without writes or
+backups, stale revision rejection, untouched typed player fields and every
+unrelated LevelDB record. Both results are independently checked; items then
+return to engine carriers for two real save/reload cycles.
+
+These player envelopes are **not evidence of client login or engine player
+persistence**. A simulated-player experiment on BDS 1.26.50.5 did not produce
+persistent player records, so simulated players are not used to claim that
+coverage. The real-client profile provides that separate evidence.
+
+## Controlled add-on suite
+
+`--suite addons` installs an owned conformance pack with two new namespaced items:
+a stackable item with maximum 32 and a durable item with maximum 9000. No Vanilla
+definition is overridden. With the editor catalog kept Vanilla, the test preserves
+and decorates engine-created custom items, including damage beyond ordinary
+Vanilla limits, through two engine reloads. New custom items without originals
+must still be rejected. This is **not certification of arbitrary third-party
+packs**, pack combinations, overrides or migrations.
+
+## Real-client Inventory/Ender Chest suite
+
+`--suite client --client-port 19134 --timeout 900` requires three real client
+connections to **127.0.0.1:19134**, using the same account each time. The runner
+always creates a fresh disposable world. The server stops after each observation,
+so disconnects are expected. Wait for `client-status.json` to say
+`waiting_for_client` before each join; do not change items while connected.
+
+The first connection seeds both actual player containers. After a clean server
+stop, the offline worker discovers exactly one persisted player, checks the seed
+NBT, and performs the same production-service operations described above. Two
+more joins after server restarts observe the stored items without reconstructing
+them. Independent disk checks follow each save, including untouched controls and
+the exact occupied slot set. A timeout, missing connection or partial cycle is a
+failure, never a green result.
+
+This profile explicitly enables the Beta APIs experiment and
+`@minecraft/server` **2.11.0-beta**, because the
+[Ender Chest component](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/entityenderinventorycomponent?view=minecraft-bedrock-experimental)
+is experimental. It uses no simulated player. The report records this different
+API/experiment/network profile. Current clients require NetherNet: local
+HTTP/TCP signaling on the selected port plus UDP gameplay on that same port.
+The generated `server-udp-ports` explicitly advertises the loopback mapping;
+Docker publishes both protocols **only on IPv4 loopback**. See the official BDS
+archive's `bedrock_server_how_to.html`, Transport and UDP port configuration.
+No LAN
+binding, public tunnel, firewall change or online-mode server is created. The
+bridge profile does not provide the automated profiles' outbound network isolation.
+
+Player record keys, account names/XUIDs in BDS logs, backups and the generated
+world stay private in the ignored run directory. Never share raw client logs or
+`private-player-key.json`; only the allowlisted summary is suitable for deliberate
+publication. Real-client results cover dedicated-server Inventory/Ender Chest
+persistence, not actual singleplayer `~local_player` saves, online authentication
+or UI editing flows. A Windows client may require its documented local-loopback
+access; the runner does not change system networking permissions.
 
 ## First verified build
 
@@ -89,6 +190,25 @@ The bundled catalog now contains that exact tested snapshot. The measured
 values and archive/catalog hashes are documented in [item-stack-limits.md](item-stack-limits.md).
 This was a local Docker run; the manual GitHub workflow has not yet been run.
 The scope exclusions above still apply.
+
+The expanded automated profiles subsequently passed on **BDS 1.26.51.1** on the
+same date, with the reviewed bundled durability corrections:
+
+| Profile | Completed checks |
+| --- | --- |
+| Extended | 1,623 IDs; 13,037 item cases; 2 engine save/reload cycles; 6,492 invalid creation amounts rejected |
+| Enchantments | 68,166 applicability checks; 9,102 ordered pair checks, including 652 engine rejections; 2,028 level cases, 3,386 accepted pair cases and 795 preserved references |
+| Variants/boundaries | 120 data-variant cases, 282 potion cases and 336 durability boundaries |
+| Stack/gameplay | 1,648 merge pairs including full-container remainders; 6 hopper/drop cases |
+| Player service | 37 item cases; 2 synthetic player formats; 10 backed-up writes, 4 cross-container moves, 2 no-op checks and 2 stale revision rejections; 2 engine reloads |
+| Controlled add-on | 12 cases including 2 custom item types and Vanilla controls; 2 engine reloads; 2 unregistered creation attempts rejected |
+
+The official Linux archive SHA-256 was
+`ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`,
+and the raw catalog snapshot SHA-256 was
+`f7cdb1d9da1348e856920f7b66539339e3c7792c15b769b5267179f518003ad9`.
+Raw file hashes are line-ending sensitive. These automated results do not imply
+a successful real-client run; that profile needs its own passing report.
 
 ## Local use
 
@@ -104,13 +224,17 @@ SHA-256 and pass the actual server version (which may differ from the client
 version or `bedrock-samples` release):
 
 ```powershell
-$archive = '.engine-tests/downloads/bedrock-server-1.26.50.5.zip'
+$archive = '.engine-tests/downloads/bedrock-server-1.26.51.1.zip'
 $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
-.venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.50.5
+.venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.51.1
 ```
 
-`--suite catalog` measures only the registry/components. Default `items` adds NBT
-persistence. `--timeout 300` bounds each engine phase; shutdown has a shorter
+The default `--suite all` sequentially runs `extended`, `service` and `addons`,
+each in a separate fresh world and with its own report. A failure/partial result
+in any suite stays failed/partial in the aggregate process exit code. Use
+`--suite items` for the smaller base NBT suite or `--suite catalog` for registry
+and component measurements only. `--suite client` is a separate, interactive
+opt-in. `--timeout 300` bounds each engine phase; shutdown has a shorter
 deadline. Missing Docker/BDS is an error, never a substituted mock engine.
 
 To review changed limits, copy the bundled item database into an ignored
@@ -137,14 +261,15 @@ tools must preserve failed/partial status. Limit candidates require review.
 
 ## Updates and releases
 
-Run the item suite for each supported new Bedrock build and after inventory
+Run the default automated suites for each supported new Bedrock build and after inventory
 serialization/write changes. Compare reports, retain the exact engine archive
 locally, then promote reviewed item facts with their provenance. Results are
 specific to a build and profile, never proof for arbitrary worlds or versions.
 The optional manually dispatched `Engine checks` workflow runs the same suite
 and uploads only the allowlisted summary. It publishes no application release.
 
-Further suites can cover enchantment combinations, variants, player login and
-persistence, mount gameplay and migrations. Before using a suite as a release
-gate, demonstrate that its observer catches deliberately injected data loss and
-clamping. Finite passing tests provide scoped evidence, not universal proof.
+Also run the real-client profile when testing actual player persistence. Mount
+gameplay, singleplayer persistence and version migrations remain future domains.
+Regression tests deliberately inject lost metadata, wrong counts/variants,
+duplicate/missing slots and observations to verify that observers reject them.
+Finite passing tests provide scoped evidence, not universal proof.

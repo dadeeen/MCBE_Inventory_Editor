@@ -14,6 +14,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from .cases import CARRIER_PREFIX, CONTROL_NAME, expected_snapshot
+from .extended import ENCHANTMENT_IDS, ENCHANTMENT_NAMES
 from .protocol import ProbeError
 from .runner import WORLD_NAME, sha256
 
@@ -139,7 +140,8 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
                 continue
             payloads[slot] = {
                 **(existing or {}), "slot": slot, "name": case["id"], "count": case["amount"],
-                "damage": case["damage"], "display_name": case["name"], "lore": case["lore"], "enchantments": [],
+                "damage": case["damage"], "display_name": case["name"], "lore": case["lore"],
+                "enchantments": [{"id": ENCHANTMENT_IDS[entry["id"]], "lvl": entry["level"]} for entry in case["enchantments"]],
             }
         result = build_inventory_nbt(wrapper, list(payloads.values()), ENCHANTMENTS)
         after = indexed_items(result)
@@ -176,20 +178,36 @@ def disk_snapshot(item, case: dict) -> dict:
     lore = display.get("Lore", nbt.ListTag([]))
     if not isinstance(name, nbt.StringTag) or not isinstance(lore, nbt.ListTag) or any(not isinstance(line, nbt.StringTag) for line in lore):
         raise ProbeError("Saved NBT has invalid display text")
-    # No enchanted cases are generated yet. Do not silently discard unknown
-    # enchantment entries as a permissive application reader might do.
+    enchantments = []
+    seen = set()
     for field in ("ench", "enchantments"):
         entries = tag.get(field, nbt.ListTag([]))
-        if not isinstance(entries, nbt.ListTag) or entries:
-            raise ProbeError("Saved NBT contains unexpected enchantments")
+        if not isinstance(entries, nbt.ListTag):
+            raise ProbeError("Saved NBT has an invalid enchantment list")
+        for entry in entries:
+            if (not isinstance(entry, nbt.CompoundTag) or not isinstance(entry.get("id"), nbt.ShortTag)
+                    or not isinstance(entry.get("lvl"), nbt.ShortTag)):
+                raise ProbeError("Saved NBT has an invalid enchantment encoding")
+            enchantment_id = value(entry, "id")
+            if not 0 <= enchantment_id < len(ENCHANTMENT_NAMES) or enchantment_id in seen:
+                raise ProbeError("Saved NBT has unknown or duplicate enchantments")
+            seen.add(enchantment_id)
+            enchantments.append({"id": ENCHANTMENT_NAMES[enchantment_id], "level": value(entry, "lvl")})
     damage = 0
     if case.get("durable"):
         damage_tag = tag.get("Damage", nbt.IntTag(0))
         if not isinstance(damage_tag, nbt.IntTag):
             raise ProbeError("Saved NBT has invalid durability")
         damage = damage_tag.py_data
-    return {"id": value(item, "Name"), "amount": value(item, "Count"), "name": name.py_data,
-            "lore": [line.py_data for line in lore], "damage": damage, "enchantments": []}
+    if "data_value" in case and (not isinstance(item.get("Damage"), nbt.ShortTag) or value(item, "Damage") != case["data_value"]):
+        raise ProbeError(f"Saved NBT changed the variant in {case['case_id']}")
+    result = {"id": value(item, "Name"), "amount": value(item, "Count"), "name": name.py_data,
+              "lore": [line.py_data for line in lore], "damage": damage, "enchantments": sorted(enchantments, key=lambda entry: entry["id"])}
+    if "potion" in case:
+        # The independently reviewed data-value table and delivery-specific item
+        # ID are checked above; no application parser supplies these expected values.
+        result["potion"] = case["potion"]
+    return result
 
 
 def empty_saved_slot(item) -> bool:
@@ -242,6 +260,23 @@ def verify_rejected_counts(cases: list[dict]) -> int:
     return checked
 
 
+def verify_unknown_creations(cases: list[dict]) -> int:
+    from mcbe_editor import nbt
+    from mcbe_editor.inventory import build_inventory_nbt
+    from mcbe_editor.item_data import ADDABLE_ITEM_IDS, ENCHANTMENTS
+
+    checked = 0
+    for item_id in sorted({case["id"] for case in cases} - ADDABLE_ITEM_IDS):
+        empty = nbt.CompoundTag({"Inventory": nbt.ListTag([])})
+        try:
+            build_inventory_nbt(empty, [{"slot": 0, "name": item_id, "count": 1, "damage": 0}], ENCHANTMENTS)
+        except ValueError:
+            checked += 1
+        else:
+            raise ProbeError("Editor created an unregistered add-on item without an original")
+    return checked
+
+
 def run(run_dir: Path, action: str) -> dict:
     from mcbe_editor.backup import create_backup
     from mcbe_editor.db import LevelDbAdapter
@@ -264,10 +299,18 @@ def run(run_dir: Path, action: str) -> dict:
            for path in (world, world / "db")):
         raise ProbeError("World escaped the disposable run directory")
     before = read_records(world)
+    if report.get("suite") == "client":
+        from .client_profile import client_worker
+        return client_worker(run_dir, world, before, cases, action)
     if action == "verify":
         return verify_saved_items(before, cases)
+    if report.get("suite") == "service":
+        from .service_profile import edit_through_service
+        service_result = edit_through_service(world, before, cases)
+        return {**verify_saved_items(read_records(world), cases), "player_service": service_result}
     writes = build_item_writes(before, cases)
     rejected_counts = verify_rejected_counts(cases)
+    rejected_unknown = verify_unknown_creations(cases)
     backup = create_backup(str(world), prune_after=False)
     if not Path(backup).is_file():
         raise ProbeError("Pre-write backup missing")
@@ -284,7 +327,8 @@ def run(run_dir: Path, action: str) -> dict:
     if before.keys() != after.keys() or any(after[key] != writes.get(key, raw) for key, raw in before.items()):
         raise ProbeError("Editor write changed unrelated database records or failed its reread")
     return {**verify_saved_items(after, cases), "changed_records": len(writes), "backup_created": True,
-            "untouched_records_verified": len(before) - len(writes), "rejected_count_cases": rejected_counts}
+            "untouched_records_verified": len(before) - len(writes), "rejected_count_cases": rejected_counts,
+            "rejected_unregistered_creations": rejected_unknown}
 
 
 if __name__ == "__main__":

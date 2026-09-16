@@ -1,5 +1,9 @@
 import { ItemStack, ItemTypes, system, world } from "@minecraft/server";
 import { config } from "./config.js";
+import { referenceItem, snapshot } from "./items.js";
+import { measureMatrix } from "./matrix.js";
+import { runBehaviors } from "./behavior.js";
+import { clientRoundtrip } from "./client.js";
 
 let sequence = 0;
 const totals = { items: 0, cases: 0, errors: 0 };
@@ -12,20 +16,11 @@ function emit(kind, fields = {}) {
     const json = JSON.stringify({ run_id: config.run_id, phase: config.phase, seq: sequence++, kind, ...fields });
     console.warn("[MCBE_ENGINE] " + json.replace(/[\u007f-\uffff]/g, ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0")));
 }
-function snapshot(item) {
-    if (!item) return null;
-    const durability = item.getComponent("minecraft:durability");
-    const enchantable = item.getComponent("minecraft:enchantable");
-    return {
-        id: item.typeId, amount: item.amount, name: item.nameTag ?? "", lore: item.getLore(),
-        damage: durability?.damage ?? 0,
-        enchantments: (enchantable?.getEnchantments() ?? []).map(e => ({ id: e.type.id, level: e.level })).sort((a, b) => a.id.localeCompare(b.id)),
-    };
-}
 function* catalog() {
-    const ids = ItemTypes.getAll().map(type => type.id).sort();
+    const addon = config.phase === "addon_catalog";
+    const ids = ItemTypes.getAll().map(type => type.id).filter(id => !addon || id.startsWith("mcbe_probe:")).sort();
     emit("registry", { ids });
-    for (const id of [...new Set([...ids, ...config.expected_ids])].sort()) {
+    for (const id of [...new Set([...ids, ...(addon ? config.addon_ids : config.expected_ids)])].sort()) {
         try {
             const item = new ItemStack(id, 1);
             if (item.typeId !== id) throw new Error("Item resolved to a different type: " + item.typeId);
@@ -72,6 +67,10 @@ function* roundtrip() {
         }
     }
     if (carriers.size !== names.length) throw new Error(`Missing carriers: ${carriers.size}/${names.length}`);
+    if (config.phase === "behavior") {
+        yield* runBehaviors(config, dimension, carriers, emit);
+        return;
+    }
     for (const [name, container] of carriers) {
         const control = container.getItem(26);
         if (!control || control.typeId !== "minecraft:stone" || control.amount !== 1 || control.nameTag !== "MCBE untouched control") {
@@ -81,12 +80,11 @@ function* roundtrip() {
     for (const test of config.cases) {
         const container = carriers.get(test.carrier);
         if (config.phase === "seed" && test.mode !== "create") {
-            const item = new ItemStack(test.id, test.amount);
-            // Constructor clamping must be detected during reference creation too.
-            if (item.amount !== test.amount) throw new Error("Reference amount was clamped: " + test.case_id);
-            container.setItem(test.slot, item);
+            if (test.data_value !== undefined && !test.potion) {
+                dimension.runCommand(`replaceitem entity @e[type=minecraft:chest_minecart,name="${test.carrier}"] slot.inventory ${test.slot} ${test.id} ${test.amount} ${test.data_value}`);
+            } else container.setItem(test.slot, referenceItem(test, true));
         }
-        emit("case", { case_id: test.case_id, snapshot: snapshot(container.getItem(test.slot)) });
+        emit("case", { case_id: test.case_id, snapshot: snapshot(container.getItem(test.slot), test) });
         yield;
     }
 }
@@ -95,7 +93,8 @@ world.afterEvents.worldLoad.subscribe(() => {
     if (started) return;
     started = true;
     emit("begin");
-    const task = config.phase === "catalog" ? catalog() : roundtrip();
+    const task = config.phase === "catalog" || config.phase === "addon_catalog" ? catalog() : config.phase === "matrix" ? measureMatrix(config, emit) :
+        config.client_profile ? clientRoundtrip(config, emit) : roundtrip();
     function advance() {
         try {
             for (let budget = 0; budget < 25; budget++) {
@@ -110,7 +109,7 @@ world.afterEvents.worldLoad.subscribe(() => {
         }
     }
     system.run(() => {
-        if (config.phase === "catalog") { advance(); return; }
+        if (config.client_profile || ["catalog", "addon_catalog", "matrix"].includes(config.phase)) { advance(); return; }
         const count = new Set(config.cases.map(test => test.carrier)).size;
         world.tickingAreaManager.createTickingArea("engine_probe", {
             dimension: world.getDimension("overworld"),

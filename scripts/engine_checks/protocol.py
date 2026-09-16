@@ -6,7 +6,7 @@ import json
 import re
 
 PREFIX = "[MCBE_ENGINE] "
-ITEM_ID = re.compile(r"minecraft:[a-z0-9_]+\Z")
+ITEM_ID = re.compile(r"[a-z0-9_.-]+:[a-z0-9_.-]+\Z")
 VERSION = re.compile(r"\bVersion:\s*(\d+\.\d+\.\d+\.\d+)\b")
 
 
@@ -47,7 +47,7 @@ class Transcript:
             raise ProbeError("Missing probe begin event")
         if self.events and kind == "begin":
             raise ProbeError("Duplicate probe begin event")
-        if kind not in {"begin", "registry", "item", "case", "error", "done"}:
+        if kind not in {"begin", "registry", "item", "case", "error", "done", "matrix_registry", "enchantability", "potion", "behavior", "checkpoint"}:
             raise ProbeError("Unknown probe event")
         self.events.append(event)
         self.done = kind == "done"
@@ -66,7 +66,8 @@ class Transcript:
         return self.events
 
 
-def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits: dict[str, int]) -> dict:
+def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits: dict[str, int],
+                   recorded_durability: dict[str, int] | None = None) -> dict:
     if any(type(limit) is not int or not 1 <= limit <= 127 for limit in recorded_limits.values()):
         raise ProbeError("Invalid recorded catalog stack limit")
     registries = [event for event in events if event["kind"] == "registry"]
@@ -108,12 +109,26 @@ def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits:
     registry_missing = sorted(set(expected_ids) - set(registered))
     registry_extra = sorted(set(registered) - set(expected_ids))
     candidates = {item: observed[item]["max_amount"] for item in sorted(observed) if item not in recorded_limits}
+    durability_mismatches, durability_candidates = {}, {}
+    if recorded_durability is not None:
+        if any(type(limit) is not int or limit < 1 for limit in recorded_durability.values()):
+            raise ProbeError("Invalid recorded catalog durability")
+        durability_mismatches = {
+            item: {"catalog": recorded_durability[item], "engine": observed[item]["max_durability"]}
+            for item in expected_ids if item in observed and item in recorded_durability
+            and recorded_durability[item] != observed[item]["max_durability"]
+        }
+        durability_candidates = {item: entry["max_durability"] for item, entry in observed.items()
+                                 if item not in recorded_durability and entry["max_durability"] is not None}
     return {
-        "status": "fail" if mismatches or unsupported else "partial" if missing or errors or registry_missing or registry_extra or candidates else "pass",
+        "status": "fail" if mismatches or durability_mismatches or unsupported else "partial" if (
+            missing or errors or registry_missing or registry_extra or candidates or durability_candidates
+        ) else "pass",
         "expected_count": len(expected_ids), "observed_count": len(set(expected_ids) & observed.keys()),
         "missing": missing, "mismatches": mismatches, "outside_editor_count_range": unsupported,
         "registry_missing": registry_missing,
         "registry_extra": registry_extra,
         "observations": dict(sorted(observed.items())), "errors": dict(sorted(errors.items())),
         "new_limit_candidates": candidates,
+        "durability_mismatches": durability_mismatches, "new_durability_candidates": durability_candidates,
     }
