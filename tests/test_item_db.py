@@ -82,6 +82,9 @@ class TestGetMaxStack(unittest.TestCase):
     def test_returns_curated_engine_limits_for_damageable_items_missing_from_behavior_json(self):
         expected_durability = {
             "minecraft:brush": 64,
+            "minecraft:carrot_on_a_stick": 26,
+            "minecraft:chainmail_helmet": 165,
+            "minecraft:fishing_rod": 384,
             "minecraft:copper_axe": 190,
             "minecraft:copper_boots": 143,
             "minecraft:copper_chestplate": 176,
@@ -152,6 +155,16 @@ class TestGetMaxStack(unittest.TestCase):
 
 
 class TestEnchantmentCompatibility(unittest.TestCase):
+    def test_engine_confirmed_enchantments_use_the_production_builder(self):
+        from mcbe_editor import nbt
+        from mcbe_editor.inventory import build_inventory_nbt
+
+        for item, enchantment in (("minecraft:lodestone_compass", 28), ("minecraft:mace", 10), ("minecraft:mace", 11)):
+            result = build_inventory_nbt(nbt.CompoundTag({"Inventory": nbt.ListTag([])}),
+                                         [{"slot": 0, "name": item, "count": 1, "damage": 0,
+                                           "enchantments": [{"id": enchantment, "lvl": 1}]}], ENCHANTMENTS)
+            self.assertEqual(result[0]["tag"]["ench"][0]["id"].py_data, enchantment)
+
     def test_compatibility_data_is_loaded_from_tracked_json(self):
         self.assertEqual(ENCHANTMENT_COMPATIBILITY["schema_version"], 1)
         self.assertIn("17", ENCHANTMENT_COMPATIBILITY["compatible_slots"])

@@ -12,6 +12,24 @@ The editor distinguishes a recorded Vanilla limit from a conservative creation b
 
 ## Updating and validation
 
+The extended engine review also found three durability discrepancies:
+`fishing_rod` 64 → **384**, `carrot_on_a_stick` 25 → **26**, and
+`chainmail_helmet` 195 → **165**. These are engine durability units, not a count
+of successful gameplay uses. The catalog checker now compares every recorded
+durability as well as stack size, and the updater retains reviewed bundled
+durability values when refreshing an older persistent database. Current explicit
+Mojang components still take precedence. The extended suite tests 0, 1, half and
+maximum-minus-one damage through engine reloads; it does not simulate every way
+an item can lose durability.
+
+All 1,623 stack limits and all 84 durability components subsequently matched
+**BDS 1.26.51.1**. The [expanded engine run](engine-checks.md) completed 13,037
+item cases with two reloads, including the corrected durability boundaries.
+Its archive SHA-256 is `ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`;
+the raw catalog snapshot SHA-256 is
+`f7cdb1d9da1348e856920f7b66539339e3c7792c15b769b5267179f518003ad9`
+(line-ending sensitive).
+
 The updater retains reviewed engine values from the bundled snapshot, removes values supplied by previous behavior components, then applies the current release's explicit components. New source values take precedence. Both the integer and object forms of [`minecraft:max_stack_size`](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/itemreference/examples/itemcomponents/minecraft_max_stack_size?view=minecraft-bedrock-stable) are supported. An explicitly present empty object has the documented default `value = 64`; an absent component provides no evidence. Invalid types, values outside the editor's signed Count range of 1–127, unknown object fields, and conflicting definitions abort the update instead of falling back.
 
 The updater reports unresolved limits. Future engine-defined items require an additional reviewed fact before larger new stacks are enabled. A way to collect that fact is [`ItemStack.maxAmount`](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/itemstack?view=minecraft-bedrock-stable) in a disposable Vanilla world for the matching Bedrock release. No game/server process or real world is automatically started or modified to obtain it. Add-ons may override Vanilla behavior; the catalog does not attest an arbitrary world's pack configuration.

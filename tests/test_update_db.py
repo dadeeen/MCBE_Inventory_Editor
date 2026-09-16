@@ -525,6 +525,12 @@ class TestMicrosoftItemListings(unittest.TestCase):
         self.assertEqual(update_db.CURATED_ENGINE_DURABILITY["minecraft:turtle_helmet"], 275)
         self.assertEqual(update_db.CURATED_ENGINE_DURABILITY["minecraft:wolf_armor"], 64)
         self.assertEqual(update_db.CURATED_ENGINE_DURABILITY["minecraft:crossbow"], 464)
+        # Updating a pre-engine-check catalog must not resurrect Java/old values.
+        _, reviewed = update_db.merge_item_limits({}, {
+            "minecraft:fishing_rod": 64, "minecraft:carrot_on_a_stick": 25, "minecraft:chainmail_helmet": 195,
+        }, {}, {})
+        self.assertEqual({name: reviewed[name] for name in ("minecraft:fishing_rod", "minecraft:carrot_on_a_stick", "minecraft:chainmail_helmet")},
+                         {"minecraft:fishing_rod": 384, "minecraft:carrot_on_a_stick": 26, "minecraft:chainmail_helmet": 165})
         stack_limits, durability = update_db.merge_item_limits(
             {"minecraft:legacy": 16},
             {"minecraft:legacy": 12},

@@ -96,6 +96,7 @@ CURATED_ENGINE_STACK_LIMITS = {
     "minecraft:turtle_helmet": 1,
     "minecraft:wolf_armor": 1,
 }
+
 CURATED_ENGINE_DURABILITY = {
     "minecraft:brush": 64,
     "minecraft:copper_axe": 190,
@@ -125,6 +126,15 @@ CURATED_ENGINE_STACK_LIMITS = {
         for item_id, limit in _bundled_limits.get("stack_limits", {}).items()
         if item_id not in _bundled_component_ids
     },
+}
+
+# The engine suite also verifies every durability component. Keep those reviewed
+# facts when updating an older persistent database; current explicit components
+# still take precedence in merge_item_limits.
+_bundled_durability_ids = set(_bundled_limits.get("behavior_item_source", {}).get("durability_items", []))
+CURATED_ENGINE_DURABILITY = {
+    **CURATED_ENGINE_DURABILITY,
+    **{item_id: limit for item_id, limit in _bundled_limits.get("durability", {}).items() if item_id not in _bundled_durability_ids},
 }
 
 # Nur Komponenten, die im Editor tatsächlich eine Entscheidung treffen:

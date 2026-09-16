@@ -4,7 +4,8 @@
     "Mojang bedrock-samples metadata/vanilladata_modules/mojang-enchantments.json",
     "Mojang bedrock-samples metadata/json_schemas/server/item_components/1.20.50/Enchantable.json",
     "Minecraft Wiki Enchantment table snapshot; see source_version.json for revision/hash",
-    "PocketMine-MP AvailableEnchantmentRegistry used as a non-authoritative sanity check"
+    "PocketMine-MP AvailableEnchantmentRegistry used as a non-authoritative sanity check",
+    "Official BDS 1.26.50.5 runtime applicability and NBT roundtrip; see docs/engine-checks.md"
   ],
   "exclusive_groups": [
     [0, 1, 3, 4],
@@ -27,8 +28,8 @@
     "7": ["armor_feet"],
     "8": ["armor_head"],
     "9": ["sword", "axe", "melee_spear"],
-    "10": ["sword", "axe", "melee_spear"],
-    "11": ["sword", "axe", "melee_spear"],
+    "10": ["sword", "axe", "mace", "melee_spear"],
+    "11": ["sword", "axe", "mace", "melee_spear"],
     "12": ["sword", "melee_spear"],
     "13": ["sword", "mace", "melee_spear"],
     "14": ["sword", "melee_spear"],
@@ -80,6 +81,7 @@
     "minecraft:carrot_on_a_stick": ["carrot_stick"],
     "minecraft:warped_fungus_on_a_stick": ["carrot_stick"],
     "minecraft:compass": ["compass"],
+    "minecraft:lodestone_compass": ["compass"],
     "minecraft:recovery_compass": ["compass"],
     "minecraft:mace": ["mace"],
     "minecraft:carved_pumpkin": ["cosmetic_head"],
