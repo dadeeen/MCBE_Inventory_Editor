@@ -598,3 +598,40 @@ def test_offline_worker_rejects_a_database_junction_before_opening_it(tmp_path, 
             nbt_roundtrip.run(run_dir, "edit")
     finally:
         (world / "db").rmdir()  # Remove only this junction, never its target.
+
+
+def test_interrupted_report_write_keeps_the_last_complete_json(tmp_path, monkeypatch):
+    from scripts.engine_checks.runner import write_json
+
+    path = tmp_path / "client-status.json"
+    previous = {"phase": "seed", "status": "saving"}
+    write_json(path, previous)
+    real_open = io.open
+
+    class InterruptedWriter:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+        def write(self, text):
+            self.handle.write(text[:len(text) // 2])
+            self.handle.flush()
+            raise OSError("synthetic interrupted JSON write")
+
+    def interrupted_open(file, mode="r", *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        return InterruptedWriter(handle) if "w" in mode else handle
+
+    monkeypatch.setattr(io, "open", interrupted_open)
+    with pytest.raises(OSError, match="interrupted JSON"):
+        write_json(path, {"phase": "reload1", "status": "waiting_for_client"})
+    assert json.loads(path.read_text(encoding="utf-8")) == previous
+    assert list(tmp_path.iterdir()) == [path]

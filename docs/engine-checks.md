@@ -107,7 +107,10 @@ coverage. It tests:
   references provide the comparison. Quantity conservation, stack boundaries,
   full-container remainders and unchanged sources are checked explicitly.
 - Hopper transfers and dropped-item collection for a named item, an enchanted
-  item and a potion. The item metadata must survive without duplication.
+  item and a potion. The item metadata must survive without duplication. Drop
+  fixtures use [Entity.clearVelocity](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/entity?view=minecraft-bedrock-stable#clearvelocity)
+  immediately after spawning: uncontrolled initial motion otherwise lets items
+  miss the hopper, producing intermittent fixture failures.
 
 This is a finite domain, **not every possible combination**. In particular,
 arbitrary three-or-more-enchantment products, every enchantment-level product,
@@ -127,6 +130,12 @@ and a healing potion. It checks backed-up saves, no-op saves without writes or
 backups, stale revision rejection, untouched typed player fields and every
 unrelated LevelDB record. Both results are independently checked; items then
 return to engine carriers for two real save/reload cycles.
+
+Cross-container moves use items with different IDs or counts. The worker checks
+the exact occupied slots and typed item NBT after each move, deletion and
+recreation, with five intermediate-state checks per player. Extra slots, lost
+items and changed untouched metadata fail immediately, before a later operation
+could hide the error. These assertions also apply to the real-client profile.
 
 These player envelopes are **not evidence of client login or engine player
 persistence**. A simulated-player experiment on BDS 1.26.50.5 did not produce
@@ -205,7 +214,8 @@ same date, with the reviewed bundled durability corrections:
 | Enchantments | 68,166 applicability checks; 9,102 ordered pair checks, including 652 engine rejections; 2,028 level cases, 3,386 accepted pair cases and 795 preserved references |
 | Variants/boundaries | 120 data-variant cases, 282 potion cases and 336 durability boundaries |
 | Stack/gameplay | 1,648 merge pairs including full-container remainders; 6 hopper/drop cases |
-| Player service | 37 item cases; 2 synthetic player formats; 10 backed-up writes, 4 cross-container moves, 2 no-op checks and 2 stale revision rejections; 2 engine reloads |
+| Drop-fixture regression | 60 successful hopper/drop operations (10 repetitions of each gameplay case) in a copy of a generated, reload-verified world; all 13,037 carrier item cases independently verified before and after |
+| Player service | 37 item cases; 2 synthetic player formats; 10 backed-up writes with 10 intermediate NBT checks, 4 cross-container moves, 2 no-op checks and 2 stale revision rejections; 2 engine reloads |
 | Controlled add-on | 12 cases including 2 custom item types and Vanilla controls; 2 engine reloads; 2 unregistered creation attempts rejected |
 | Real client | Client-reported 26.51 on BDS 1.26.51.1; 3 connections; 37 item cases across Inventory and Ender Chest; 5 backed-up writes, 2 cross-container moves, 1 no-op check and 1 stale revision rejection; 2 engine reloads with independent disk checks |
 
@@ -218,6 +228,9 @@ own successful `client` run, with the Beta API and local offline-server profile
 described above. A fresh complete run passed after correcting account-index
 discovery; earlier failed diagnostic runs remain failures and were not combined
 with the successful run.
+The subsequent intermediate-state assertions have separate evidence from the
+automated service suite and an offline copy of the generated client seed; the
+three-connection real-client test has not been repeated with those assertions.
 
 ## Local use
 
@@ -263,6 +276,8 @@ detection and the production NBT adapter; they are not Minecraft-run evidence.
 The whole output directory must be Git-ignored when it is inside the repository;
 ignoring only JSON reports is insufficient. The offline worker rejects world or
 database links/junctions that could redirect it outside the disposable run.
+JSON status, configuration and report files are published atomically; a failed
+write leaves the previous complete file intact for concurrent status readers.
 
 Exit codes: **0** = selected suite passed, **2** = incomplete catalog coverage,
 **1** = mismatch, malformed/incomplete output or execution failure. Downstream

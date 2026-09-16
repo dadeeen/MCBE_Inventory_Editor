@@ -123,7 +123,8 @@ def test_client_discovery_distinguishes_account_indexes_and_rejects_ambiguity(mu
 
 
 @pytest.mark.parametrize("via_client", [False, True])
-def test_native_player_service_preserves_other_fields_and_records(tmp_path, monkeypatch, via_client):
+@pytest.mark.parametrize("case_ids", [("minecraft:stone",), ("minecraft:bow", "minecraft:stone")])
+def test_native_player_service_preserves_other_fields_and_records(tmp_path, monkeypatch, via_client, case_ids):
     import mcbe_editor.db as db_module
     from mcbe_editor import nbt
     from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
@@ -138,7 +139,9 @@ def test_native_player_service_preserves_other_fields_and_records(tmp_path, monk
     world = tmp_path / "nonplayable"
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic nonplayable fixture", encoding="utf-8")
-    cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
+    limits = {"minecraft:stone": 64, "minecraft:bow": 1}
+    observations = {item: {"max_amount": limits[item], "max_durability": 384 if item == "minecraft:bow" else None} for item in case_ids}
+    cases = make_cases(list(case_ids), observations, limits)
     player = synthetic_player(cases)
     key = b"player_server_synthetic"
     index_key = b"player_synthetic"
@@ -157,11 +160,12 @@ def test_native_player_service_preserves_other_fields_and_records(tmp_path, monk
     else:
         results, checks = exercise_player_service(world, (key,), cases)
     assert checks["backed_up_saves"] == 5 and checks["no_op_checks"] == 1 and checks["stale_revision_rejections"] == 1
+    assert checks["intermediate_state_checks"] == 5
     assert results[0]["Opaque"].save_to() == player.tag["Opaque"].save_to()
     assert read_records(world)[b"unrelated"] == b"preserved"
     assert read_records(world)[index_key] == index
     assert verify_player_items(read_records(world)[key], cases)["status"] == "pass"
-    assert set(player_items(results[0], "Inventory")) == {0, 1, 35, 34}
+    assert set(player_items(results[0], "Inventory")) == {34} | {slot for field, slot in assignments(cases).values() if field == "Inventory"}
 
 
 @pytest.mark.parametrize("statuses,exit_code", [(["pass", "pass", "pass"], 0), (["pass", "partial", "pass"], 2), (["fail", "partial", "pass"], 1)])
@@ -180,3 +184,61 @@ def test_all_suites_keep_failures_and_partial_results(tmp_path, monkeypatch, sta
                                     "--server-version", "1.26.51.1"])
     assert cli.main() == exit_code
     assert observed == ["extended", "service", "addons"]
+
+
+@pytest.mark.parametrize("fault", ["extra-slot", "lost-move", "changed-metadata", "skipped-delete"])
+def test_player_service_checks_intermediate_states_before_further_writes(tmp_path, monkeypatch, fault):
+    import mcbe_editor.db as db_module
+    from mcbe_editor import nbt
+    from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
+    from mcbe_editor.db import LevelDbAdapter
+    from mcbe_editor.services import BedrockEditorService
+    from scripts.engine_checks.nbt_roundtrip import read_records
+    from scripts.engine_checks.player_service import exercise_player_service
+
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
+    monkeypatch.setattr(db_module, "_registered_write_guard", None)
+    world = tmp_path / "nonplayable"
+    (world / "db").mkdir(parents=True)
+    (world / "levelname.txt").write_text("Synthetic nonplayable fixture", encoding="utf-8")
+    cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
+    key = b"player_server_synthetic"
+
+    def put(raw):
+        db = LevelDbAdapter(str(world / "db"))
+        try:
+            db.put_batch({key: raw})
+        finally:
+            db.close()
+
+    put(save_player_nbt(synthetic_player(cases)))
+    real_save = BedrockEditorService.save_player
+    writes = 0
+    fault_at = 4 if fault == "skipped-delete" else 1 if fault == "extra-slot" else 2
+
+    def broken_save(*args, **kwargs):
+        nonlocal writes
+        before = read_records(world)[key]
+        result = real_save(*args, **kwargs)
+        if result.get("success") and not result.get("no_op"):
+            writes += 1
+            if writes == fault_at:
+                current = load_player_nbt(read_records(world)[key])
+                if fault == "extra-slot":
+                    extra = deepcopy(current.tag["Inventory"][0])
+                    extra["Slot"] = nbt.ByteTag(24)
+                    current.tag["Inventory"].append(extra)
+                elif fault == "skipped-delete":
+                    current.tag["Inventory"] = load_player_nbt(before).tag["Inventory"]
+                elif fault == "lost-move":
+                    current.tag["Inventory"].pop(0)
+                else:
+                    current.tag["Inventory"][0]["unexpected"] = nbt.LongTag(1234)
+                put(save_player_nbt(current))
+        return result
+
+    monkeypatch.setattr(BedrockEditorService, "save_player", broken_save)
+    with pytest.raises(ProbeError, match="intermediate"):
+        exercise_player_service(world, (key,), cases)
+    assert writes == fault_at

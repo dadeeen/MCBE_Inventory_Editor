@@ -38,7 +38,11 @@ def sha256(path: Path) -> str:
 
 
 def write_json(path: Path, value: object) -> None:
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    from mcbe_editor.runtime_data import atomic_write_private_text
+
+    # Status readers must see either complete version, including after an
+    # interrupted write. This also keeps account-bearing identity files private.
+    atomic_write_private_text(path, json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
 def extract_server(archive: Path, destination: Path, expected_hash: str) -> None:
@@ -309,7 +313,7 @@ def public_summary(report: dict) -> dict:
         "addon": report.get("addon", {"status": "not_selected"}),
         "player_service": {key: player_service[key] for key in ("status", "synthetic_players", "real_players", "backed_up_saves",
                                                                "no_op_checks", "stale_revision_rejections", "cross_container_moves",
-                                                               "client_login_verified") if key in player_service},
+                                                               "intermediate_state_checks", "client_login_verified") if key in player_service},
         "client": {key: client[key] for key in ("status", "required_connections", "completed_connections", "profile") if key in client},
     }
 

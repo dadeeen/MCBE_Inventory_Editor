@@ -70,6 +70,9 @@ export function* runBehaviors(config, dimension, carriers, emit) {
         } else {
             chestBlock.setType("minecraft:air");
             dropped = dimension.spawnItem(original.clone(), { x: 44.5, y: 71.1, z: 0.5 });
+            // Control the fall geometry: spawnItem can launch the item sideways
+            // past the hopper. Collection and item metadata still use the engine.
+            dropped.clearVelocity();
             assertEqual(snapshot(dropped.getComponent("minecraft:item").itemStack, sourceCase), snapshot(original, sourceCase), "Dropped item");
         }
         for (let ticks = 0; ticks < 160 && hopper.emptySlotsCount === hopper.size; ticks++) yield { wait: 1 };
