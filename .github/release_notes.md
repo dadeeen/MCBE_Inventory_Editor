@@ -1,14 +1,15 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.5.22
+## What changed in v0.5.23
 
-- The Backup Manager now offers an installation-wide limit for the uncompressed contents of each backup. The default remains 1 GiB; operators can override it with `MCBE_BACKUP_MAX_UNCOMPRESSED_MIB`. Backup retention is unchanged.
-- Backup creation and restore use the same size limits and check estimated free disk space before creating ZIPs, restore snapshots or staging directories. Limit errors link directly to the backup settings.
-- The read-only LevelDB reader can recover intact records before an incomplete or CRC-damaged final record in the newest WAL. Discarded tail data is logged; other database corruption remains an error.
-- The local Windows launcher uses Waitress with persistent HTTP connections and four worker threads. Shutdown waits for active application work and releases blocked response transfers. Request limits preserve valid uploads at the boundary.
-- Docker disables Gunicorn's unused control socket, avoiding attempts to create `/app/.gunicorn` on the read-only filesystem. CI verifies startup, HTTP health and graceful shutdown in a container with a read-only root before publication.
+- Automatic, manual, and pre-restore backups now share source-consistency checks. World metadata must remain unchanged through ZIP creation, verification, synchronization, and publication. A detected change aborts the backup and any dependent write or restore.
+- The source is checked before the ZIP receives its regular backup filename, so a detected mixed archive cannot become visible if the process stops or cleanup fails. A final check also catches changes during publication. Failed cleanup of a published backup remains visible in the error response.
+- Completed ZIPs are explicitly synchronized to storage before publication, including the hard-link path. The copy fallback also synchronizes its target; directory entries are synchronized where supported. Actual synchronization errors stop dependent writes, and a later close error cannot hide the original failure.
+- Strict type checking now covers the backup adapter, shared consistency checks, settings, result contracts, and immutable write plans. Saves, workspace batches, mount creation, imports, and migration explicitly distinguish attempted writes from confirmed commits. Regression tests cover source changes, interrupted publication, synchronization failures, and backup retention after failed writes.
 
-**Updating an existing local installation:** run `setup.bat` once before `start.bat` to install the new hash-pinned Waitress dependency. Flask and Werkzeug remain required. Python 3.12–3.14 remain supported.
+Backups continue to contain the complete world. Configured size limits and retention policies are unchanged. Metadata checks do not create an atomic snapshot of a running world; directory synchronization is unavailable on Windows and some filesystems, so these changes do not guarantee protection against every power loss.
+
+**Updating from v0.5.22:** this release adds no dependencies. Python 3.12–3.14 remain supported. **If upgrading from v0.5.21 or earlier:** run `setup.bat` once before `start.bat` to install the hash-pinned Waitress dependency introduced in v0.5.22. Flask and Werkzeug remain required.
 
 > **If upgrading directly from v0.5.18 or earlier:** open **Tools & settings → Icons** and select **Load Vanilla icons** (**Werkzeuge & Einstellungen → Icons → Vanilla-Icons laden**) to rebuild existing PNGs with the resolver corrected in v0.5.19. Rescanning sources alone does not regenerate cached images.
 
