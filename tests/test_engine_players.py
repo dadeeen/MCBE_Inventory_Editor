@@ -6,7 +6,7 @@ from copy import deepcopy
 import pytest
 
 from scripts.engine_checks.cases import make_cases
-from scripts.engine_checks.client_profile import CONTROL_NAME, CONTROL_SLOTS, player_items, verify_player_items
+from scripts.engine_checks.client_profile import CONTROL_NAME, CONTROL_SLOTS, find_client_player_key, player_items, verify_player_items
 from scripts.engine_checks.protocol import ProbeError, catalog_result
 from scripts.engine_checks.runner import configure_server, container_arguments, public_summary
 from scripts.engine_checks.service_profile import assignments
@@ -96,10 +96,39 @@ def test_client_summary_never_contains_player_identifiers():
     assert "PRIVATE_" not in json.dumps(public_summary(report))
 
 
-def test_native_player_service_preserves_other_fields_and_records(tmp_path, monkeypatch):
-    import mcbe_editor.db as db_module
+@pytest.mark.parametrize("mutation", [None, "only-index", "second-player", "index-type", "index-extra", "server-index", "unreadable"])
+def test_client_discovery_distinguishes_account_indexes_and_rejects_ambiguity(mutation):
+    from mcbe_editor import nbt
     from mcbe_editor.bedrock_nbt import save_player_nbt
+
+    cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
+    index = nbt.NamedTag(nbt.CompoundTag({"MsaId": nbt.StringTag("synthetic"), "ServerId": nbt.StringTag("synthetic")}))
+    player_key = b"player_server_synthetic"
+    records = {player_key: save_player_nbt(synthetic_player(cases))}
+    if mutation == "only-index":
+        records.clear()
+    elif mutation == "second-player":
+        records[b"player_server_second"] = records[player_key]
+    elif mutation == "index-type":
+        index.tag["ServerId"] = nbt.IntTag(1)
+    elif mutation == "index-extra":
+        index.tag["Inventory"] = nbt.ListTag([])
+    index_key = b"player_server_index" if mutation == "server-index" else b"player_synthetic"
+    records[index_key] = b"invalid synthetic NBT" if mutation == "unreadable" else save_player_nbt(index)
+    if mutation is None:
+        assert find_client_player_key(records) == player_key
+    else:
+        with pytest.raises(ProbeError):
+            find_client_player_key(records)
+
+
+@pytest.mark.parametrize("via_client", [False, True])
+def test_native_player_service_preserves_other_fields_and_records(tmp_path, monkeypatch, via_client):
+    import mcbe_editor.db as db_module
+    from mcbe_editor import nbt
+    from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
     from mcbe_editor.db import LevelDbAdapter
+    from scripts.engine_checks.client_profile import client_worker
     from scripts.engine_checks.nbt_roundtrip import read_records
     from scripts.engine_checks.player_service import exercise_player_service
 
@@ -112,15 +141,25 @@ def test_native_player_service_preserves_other_fields_and_records(tmp_path, monk
     cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
     player = synthetic_player(cases)
     key = b"player_server_synthetic"
+    index_key = b"player_synthetic"
+    index = save_player_nbt(nbt.NamedTag(nbt.CompoundTag({"MsaId": nbt.StringTag("synthetic"), "ServerId": nbt.StringTag("synthetic")})))
     db = LevelDbAdapter(str(world / "db"))
     try:
-        db.put_batch({key: save_player_nbt(player), b"unrelated": b"preserved"})
+        db.put_batch({key: save_player_nbt(player), index_key: index, b"unrelated": b"preserved"})
     finally:
         db.close()
-    results, checks = exercise_player_service(world, (key,), cases)
+    if via_client:
+        checks = client_worker(tmp_path, world, read_records(world), cases, "edit")["player_service"]
+        results = [load_player_nbt(read_records(world)[key]).tag]
+        assert client_worker(tmp_path, world, read_records(world), cases, "verify")["status"] == "pass"
+        with pytest.raises(ProbeError, match="only once"):
+            client_worker(tmp_path, world, read_records(world), cases, "edit")
+    else:
+        results, checks = exercise_player_service(world, (key,), cases)
     assert checks["backed_up_saves"] == 5 and checks["no_op_checks"] == 1 and checks["stale_revision_rejections"] == 1
     assert results[0]["Opaque"].save_to() == player.tag["Opaque"].save_to()
     assert read_records(world)[b"unrelated"] == b"preserved"
+    assert read_records(world)[index_key] == index
     assert verify_player_items(read_records(world)[key], cases)["status"] == "pass"
     assert set(player_items(results[0], "Inventory")) == {0, 1, 35, 34}
 

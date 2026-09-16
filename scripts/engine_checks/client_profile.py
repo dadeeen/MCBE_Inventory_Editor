@@ -87,6 +87,36 @@ def verify_player_items(raw: bytes, cases: list[dict], *, seed: bool = False) ->
     return {"status": "pass", "cases": len(cases), "containers": len(containers)}
 
 
+def find_client_player_key(records: dict[bytes, bytes]) -> bytes:
+    """Separate BDS account indexes from the one fresh player's NBT.
+
+    Only the observed, typed index schema is ignored. Unknown or malformed
+    player-like records still fail closed instead of hiding another player.
+    The caller independently verifies all seeded slots before any mutation.
+    """
+    from mcbe_editor import nbt
+    from mcbe_editor.bedrock_nbt import load_player_nbt
+
+    players = []
+    for key, raw in records.items():
+        if not (key.startswith(b"player_") or key == b"~local_player"):
+            continue
+        try:
+            root = load_player_nbt(raw).tag
+        except Exception:
+            raise ProbeError("Unreadable player-like record in fresh client world") from None
+        is_account_index = (
+            key.startswith(b"player_") and not key.startswith(b"player_server_")
+            and isinstance(root, nbt.CompoundTag) and set(root) == {"MsaId", "ServerId"}
+            and all(isinstance(root[field], nbt.StringTag) for field in ("MsaId", "ServerId"))
+        )
+        if not is_account_index:
+            players.append(key)
+    if len(players) != 1:
+        raise ProbeError("Fresh client world must contain exactly one real player record")
+    return players[0]
+
+
 def client_worker(run_dir: Path, world: Path, records: dict, cases: list[dict], action: str) -> dict:
     from mcbe_editor.bedrock_nbt import load_player_nbt
 
@@ -102,10 +132,7 @@ def client_worker(run_dir: Path, world: Path, records: dict, cases: list[dict], 
         return verify_player_items(records[key], cases)
     if identity_file.exists():
         raise ProbeError("Client edit phase must run only once")
-    players = [key for key in records if key.startswith(b"player_") or key == b"~local_player"]
-    if len(players) != 1:
-        raise ProbeError("Fresh client world must contain exactly one real player record")
-    key = players[0]
+    key = find_client_player_key(records)
     verify_player_items(records[key], cases, seed=True)
     before = load_player_nbt(records[key]).tag
     locations = assignments(cases)

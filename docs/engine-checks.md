@@ -159,6 +159,11 @@ them. Independent disk checks follow each save, including untouched controls and
 the exact occupied slot set. A timeout, missing connection or partial cycle is a
 failure, never a green result.
 
+BDS also stores account-to-player index records under `player_` keys. Discovery
+excludes only the observed index schema (exactly two string fields, `MsaId` and
+`ServerId`); ambiguous or unreadable player-like records still fail. Index records
+are preserved byte for byte alongside every other unrelated database record.
+
 This profile explicitly enables the Beta APIs experiment and
 `@minecraft/server` **2.11.0-beta**, because the
 [Ender Chest component](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/entityenderinventorycomponent?view=minecraft-bedrock-experimental)
@@ -191,7 +196,7 @@ values and archive/catalog hashes are documented in [item-stack-limits.md](item-
 This was a local Docker run; the manual GitHub workflow has not yet been run.
 The scope exclusions above still apply.
 
-The expanded automated profiles subsequently passed on **BDS 1.26.51.1** on the
+The expanded profiles subsequently passed on **BDS 1.26.51.1** on the
 same date, with the reviewed bundled durability corrections:
 
 | Profile | Completed checks |
@@ -202,13 +207,17 @@ same date, with the reviewed bundled durability corrections:
 | Stack/gameplay | 1,648 merge pairs including full-container remainders; 6 hopper/drop cases |
 | Player service | 37 item cases; 2 synthetic player formats; 10 backed-up writes, 4 cross-container moves, 2 no-op checks and 2 stale revision rejections; 2 engine reloads |
 | Controlled add-on | 12 cases including 2 custom item types and Vanilla controls; 2 engine reloads; 2 unregistered creation attempts rejected |
+| Real client | Client-reported 26.51 on BDS 1.26.51.1; 3 connections; 37 item cases across Inventory and Ender Chest; 5 backed-up writes, 2 cross-container moves, 1 no-op check and 1 stale revision rejection; 2 engine reloads with independent disk checks |
 
 The official Linux archive SHA-256 was
 `ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`,
 and the raw catalog snapshot SHA-256 was
 `f7cdb1d9da1348e856920f7b66539339e3c7792c15b769b5267179f518003ad9`.
-Raw file hashes are line-ending sensitive. These automated results do not imply
-a successful real-client run; that profile needs its own passing report.
+Raw file hashes are line-ending sensitive. The real-client result came from its
+own successful `client` run, with the Beta API and local offline-server profile
+described above. A fresh complete run passed after correcting account-index
+discovery; earlier failed diagnostic runs remain failures and were not combined
+with the successful run.
 
 ## Local use
 
