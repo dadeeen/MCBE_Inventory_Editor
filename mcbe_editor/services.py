@@ -35,6 +35,7 @@ from .backup import (
 from .backup import list_backups as scan_backups
 from .backup import preview_backup as preview_world_backup
 from .backup import restore_backup as restore_world_backup
+from .backup_types import BackupCreateResult
 from .bedrock_nbt import load_player_nbt, save_player_nbt
 from .compatibility import analyze_player_compatibility, analyze_world_structure, assert_serialized_player_roundtrip
 from .config import load_config
@@ -97,6 +98,7 @@ from .service_errors import (
 )
 from .world import LOCAL_PLAYER_KEY, detect_capabilities, ensure_valid_world_path, get_world_name
 from .world_locks import get_world_lock, lock_key, locked_world
+from .write_transaction import WritePlan, WriteState
 
 LOGGER = logging.getLogger(__name__)
 
@@ -460,7 +462,7 @@ class BedrockEditorService:
             ensure_valid_world_path(world_path)
             backup_file = None
             db = None
-            write_attempted = False
+            write_state = WriteState()
             try:
                 # Phase 1 (read-only): read, validate and serialize entirely in
                 # memory.  Opening the mutating adapter is never free -- the
@@ -654,11 +656,9 @@ class BedrockEditorService:
                     if extra_batch_builder:
                         if not extra_writes:
                             raise ValueError("Speichern abgelehnt: Der gemeinsame Schreibplan ist leer.")
-                        write_attempted = True
-                        db.put_batch(extra_writes)
+                        write_state.execute(db, WritePlan(extra_writes))
                     else:
-                        write_attempted = True
-                        db.put(player_key, serialized_bytes)
+                        write_state.execute(db, WritePlan.single(player_key, serialized_bytes))
                 except PermissionError as exc:
                     raise ValueError(
                         t(
@@ -705,7 +705,7 @@ class BedrockEditorService:
                     if post_write_errors:
                         result.update(
                             {
-                                "write_committed": True,
+                                "write_committed": write_state.committed,
                                 "validation_failed": True,
                                 "error": (
                                     "Änderungen wurden geschrieben, aber der Abschluss nach dem Schreiben ist fehlgeschlagen. "
@@ -728,7 +728,7 @@ class BedrockEditorService:
                     )
                     return {
                         "success": False,
-                        "write_committed": True,
+                        "write_committed": write_state.committed,
                         "validation_failed": True,
                         "error_phase": "post_write",
                         "error": post_write_message,
@@ -739,7 +739,7 @@ class BedrockEditorService:
                         "post_write_error_detail": f"{type(exc).__name__}: {exc}",
                     }
             except Exception as exc:
-                if backup_file and not write_attempted:
+                if backup_file and not write_state.attempted:
                     remove_backup_after_aborted_write(backup_file, exc, operation="player.save")
                 raise
             finally:
@@ -964,7 +964,7 @@ class BedrockEditorService:
         source_raw = None
         target_raw = None
         merged_raw = None
-        write_attempted = False
+        write_state = WriteState()
         with self._locked_world(world_path):
             ensure_valid_world_path(world_path)
             try:
@@ -1010,8 +1010,7 @@ class BedrockEditorService:
                 assert_serialized_player_roundtrip(merged_raw)
                 if write_gate_check is not None:
                     write_gate_check()
-                write_attempted = True
-                db.put(target_key, merged_raw)
+                write_state.execute(db, WritePlan.single(target_key, merged_raw))
                 try:
                     close_db_preserving_active_exception(db, context="Spielermigration schreiben")
                 finally:
@@ -1043,7 +1042,7 @@ class BedrockEditorService:
                         close_failures.append((t("Datenbank konnte vor dem Migrations-Rollback nicht geschlossen werden"), close_exc))
                     finally:
                         db = None
-                if write_attempted:
+                if write_state.attempted:
                     rollback_failures, rollback_performed = self._rollback_player_state_transfer(
                         world_path,
                         target_key,
@@ -1071,7 +1070,7 @@ class BedrockEditorService:
 
             result = {
                 "success": True,
-                "write_committed": True,
+                "write_committed": write_state.committed,
                 "world_path": world_path,
                 "backup_file": os.path.basename(backup_file),
                 "source_player": self._state_transfer_player_summary(source_info),
@@ -1299,7 +1298,7 @@ class BedrockEditorService:
             backup_file = None
             db = None
             target_before_raw = None
-            write_attempted = False
+            write_state = WriteState()
             with self._locked_world(target_world_path):
                 ensure_valid_world_path(target_world_path)
                 try:
@@ -1351,8 +1350,7 @@ class BedrockEditorService:
                     assert_serialized_player_roundtrip(raw_bytes)
                     if write_gate_check is not None:
                         write_gate_check()
-                    write_attempted = True
-                    db.put(target_player_key, raw_bytes)
+                    write_state.execute(db, WritePlan.single(target_player_key, raw_bytes))
                     try:
                         close_db_preserving_active_exception(db, context="Spieler-Import nach dem Schreiben")
                     finally:
@@ -1380,7 +1378,7 @@ class BedrockEditorService:
 
                     result = {
                         "success": True,
-                        "write_committed": True,
+                        "write_committed": write_state.committed,
                         "world_path": target_world_path,
                         "backup_file": os.path.basename(backup_file),
                         "target_player": resulting_info,
@@ -1401,7 +1399,7 @@ class BedrockEditorService:
                             db = None
                     rollback_failures = []
                     rollback_performed = False
-                    if write_attempted:
+                    if write_state.attempted:
                         rollback_failures, rollback_performed = self._rollback_player_import(
                             target_world_path,
                             target_player_key,
@@ -1416,7 +1414,7 @@ class BedrockEditorService:
                                 rollback_failures=rollback_failures,
                             ) from exc
 
-                    if write_attempted and rollback_performed:
+                    if write_state.attempted and rollback_performed:
                         raise PlayerImportRolledBackError(exc, backup_file=backup_file) from exc
                     remove_backup_after_aborted_write(backup_file, exc, operation="player.import")
                     raise
@@ -1459,7 +1457,7 @@ class BedrockEditorService:
             ensure_valid_world_path(world_path)
             return preview_world_backup(world_path, backup_file)
 
-    def create_manual_backup(self, world_path):
+    def create_manual_backup(self, world_path: str) -> BackupCreateResult:
         """Create an on-demand backup of the world.
 
         Manuelle Backups werden bewusst nicht automatisch rotiert. Der Benutzer

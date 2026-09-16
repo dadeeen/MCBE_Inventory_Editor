@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import errno
 import hashlib
@@ -10,11 +12,15 @@ import shutil
 import stat
 import tempfile
 import zipfile
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO, TypeGuard, cast
 
+from .backup_consistency import BackupSourceChangedError, source_snapshot
 from .backup_settings import BackupLimitError, get_backup_settings
+from .backup_types import BackupDescriptor, BackupListEntry, BackupPath, RestoreToken
 from .config import load_config
 from .i18n import t
 from .runtime_data import atomic_write_private_text
@@ -60,8 +66,17 @@ BACKUP_FILENAME_METADATA_RE = re.compile(
 
 LOGGER = logging.getLogger(__name__)
 
+StrPath = str | os.PathLike[str]
+JsonObject = dict[str, Any]
 
-def remove_backup_after_aborted_write(backup_file: str | None, operation_error: Exception, *, operation: str) -> None:
+
+def _set_error_detail(error: BaseException, name: str, value: str) -> None:
+    """Attach API recovery details without changing the original exception type."""
+
+    setattr(error, name, value)
+
+
+def remove_backup_after_aborted_write(backup_file: str | None, operation_error: BaseException, *, operation: str) -> None:
     """Remove a pre-write backup or attach a user-visible cleanup warning."""
 
     if not backup_file:
@@ -77,7 +92,7 @@ def remove_backup_after_aborted_write(backup_file: str | None, operation_error: 
             error=cleanup_exc,
         )
         existing = getattr(operation_error, "cleanup_warning", None)
-        operation_error.cleanup_warning = f"{existing} {warning}" if existing else warning
+        _set_error_detail(operation_error, "cleanup_warning", f"{existing} {warning}" if existing else warning)
         LOGGER.exception(
             "Zusätzliches Backup nach abgebrochenem Vorgang konnte nicht entfernt werden operation=%s path=%s",
             operation,
@@ -105,6 +120,54 @@ def _fsync_directory(path: str) -> None:
                 os.close(fd)
 
 
+def _sync_backup_directory(path: str) -> None:
+    """Persist publication where supported; actual I/O errors must abort writes."""
+
+    if os.name == "nt" or not hasattr(os, "O_DIRECTORY"):
+        return
+    unsupported = {errno.EINVAL, errno.ENOSYS}
+    for name in ("ENOTSUP", "EOPNOTSUPP"):
+        value = getattr(errno, name, None)
+        if value is not None:
+            unsupported.add(value)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        if exc.errno in unsupported:
+            return
+        raise
+    try:
+        try:
+            os.fsync(fd)
+        except OSError as exc:
+            if exc.errno not in unsupported:
+                raise
+    except BaseException:
+        # Closing must not replace a real sync failure with an unsupported-
+        # operation error that could otherwise turn it into a successful backup.
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        raise
+    else:
+        os.close(fd)
+
+
+def _create_backup_directory(path: str) -> None:
+    # Persist newly created ancestor entries too. Syncing only the final
+    # directory would not persist its name in its own parent after a hard stop.
+    missing: list[str] = []
+    current = os.path.abspath(path)
+    while not os.path.exists(current):
+        missing.append(current)
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    os.makedirs(path, exist_ok=True)
+    for directory in reversed(missing):
+        _sync_backup_directory(os.path.dirname(directory))
+
+
 def _is_valid_world_directory(path: str) -> bool:
     try:
         return os.path.isdir(path) and not os.path.islink(path) and os.path.isdir(os.path.join(path, "db")) and not os.path.islink(os.path.join(path, "db"))
@@ -112,7 +175,7 @@ def _is_valid_world_directory(path: str) -> bool:
         return False
 
 
-def _valid_transaction_basename(value, *, prefix: str = "") -> bool:
+def _valid_transaction_basename(value: object, *, prefix: str = "") -> TypeGuard[str]:
     return (
         isinstance(value, str)
         and value not in {"", ".", ".."}
@@ -163,8 +226,8 @@ def _write_restore_transaction(
                 error=cleanup_exc,
             )
             existing = getattr(exc, "cleanup_warning", None)
-            exc.cleanup_warning = f"{existing} {warning}" if existing else warning
-            exc.transaction_journal_path = journal_path
+            _set_error_detail(exc, "cleanup_warning", f"{existing} {warning}" if existing else warning)
+            _set_error_detail(exc, "transaction_journal_path", journal_path)
             LOGGER.exception("Unvollständiger Restore-Transaktionsmarker konnte nicht entfernt werden: %s", journal_path)
         else:
             with contextlib.suppress(OSError):
@@ -178,7 +241,7 @@ def _remove_restore_transaction(journal_path: str) -> None:
     _fsync_directory(os.path.dirname(journal_path))
 
 
-def _load_restore_transaction(journal_path: str) -> dict:
+def _load_restore_transaction(journal_path: str) -> JsonObject:
     filename = os.path.basename(journal_path)
     match = RESTORE_TRANSACTION_RE.fullmatch(filename)
     if not match or os.path.islink(journal_path):
@@ -210,7 +273,7 @@ def _remove_restore_staging(path: str) -> None:
     shutil.rmtree(path)
 
 
-def recover_restore_transaction(journal_path: str, *, recovery_gate_check=None) -> dict:
+def recover_restore_transaction(journal_path: str, *, recovery_gate_check: Callable[[], object] | None = None) -> JsonObject:
     """Finish or roll back one journaled restore after an interrupted process."""
 
     journal_path = os.path.abspath(os.path.normpath(journal_path))
@@ -283,7 +346,7 @@ def recover_restore_transaction(journal_path: str, *, recovery_gate_check=None) 
 
 def _restore_journals_below(root_path: str, *, max_depth: int, max_dirs: int) -> list[str]:
     root = os.path.abspath(os.path.normpath(root_path))
-    journals = []
+    journals: list[str] = []
     if not os.path.isdir(root) or os.path.islink(root):
         return journals
     for checked, (current, dirs, files) in enumerate(os.walk(root, topdown=True, followlinks=False), start=1):
@@ -303,7 +366,9 @@ def _restore_journals_below(root_path: str, *, max_depth: int, max_dirs: int) ->
     return journals
 
 
-def recover_interrupted_restores(scan_roots, *, max_depth: int = 4, max_dirs: int = 2000, recovery_gate_check=None) -> list[dict]:
+def recover_interrupted_restores(
+    scan_roots: Iterable[StrPath], *, max_depth: int = 4, max_dirs: int = 2000, recovery_gate_check: Callable[[], object] | None = None,
+) -> list[JsonObject]:
     """Recover journaled restores found inside configured world roots."""
 
     journal_paths = set()
@@ -333,11 +398,14 @@ def recover_interrupted_restores(scan_roots, *, max_depth: int = 4, max_dirs: in
     return results
 
 
-def _world_locked(function):
+def _world_locked[**P, R](function: Callable[P, R]) -> Callable[P, R]:
     @wraps(function)
-    def wrapper(world_path, *args, **kwargs):
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        # All decorated functions have world_path first. Preserve its keyword
+        # form as well as the complete public signature through ParamSpec.
+        world_path = cast(str, args[0] if args else kwargs["world_path"])
         with locked_world(world_path):
-            return function(world_path, *args, **kwargs)
+            return function(*args, **kwargs)
 
     return wrapper
 
@@ -345,7 +413,7 @@ def _world_locked(function):
 class BackupRetentionError(OSError):
     """Report backup files that could not be removed during retention."""
 
-    def __init__(self, failures):
+    def __init__(self, failures: Iterable[tuple[str, OSError]]) -> None:
         self.failures = tuple(failures)
         details = "; ".join(f"{os.path.basename(path)}: {exc}" for path, exc in self.failures)
         super().__init__(t("{count} alte Backup-Datei(en) konnten nicht gelöscht werden: {details}", count=len(self.failures), details=details))
@@ -379,7 +447,7 @@ def _metadata_created_at(dt: datetime) -> str:
     return dt.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _utc_datetime_from_timestamp(timestamp) -> datetime | None:
+def _utc_datetime_from_timestamp(timestamp: float) -> datetime | None:
     """Convert a POSIX timestamp without relying on the platform C runtime.
 
     Windows can store NTFS mtimes before 1970 even though
@@ -409,7 +477,7 @@ def _backup_display_datetime(dt: datetime | None) -> str:
         return t("unbekannt")
 
 
-def _parse_created_at(value) -> datetime | None:
+def _parse_created_at(value: object) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
     try:
@@ -421,7 +489,7 @@ def _parse_created_at(value) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def _backup_metadata(world_path: str, *, kind: str, created_at: datetime, restore_source: str | None = None) -> dict:
+def _backup_metadata(world_path: str, *, kind: str, created_at: datetime, restore_source: str | None = None) -> JsonObject:
     metadata = {
         "schema_version": BACKUP_METADATA_VERSION,
         "kind": kind,
@@ -435,14 +503,14 @@ def _backup_metadata(world_path: str, *, kind: str, created_at: datetime, restor
     return metadata
 
 
-def _metadata_comment(metadata: dict) -> bytes:
+def _metadata_comment(metadata: JsonObject) -> bytes:
     encoded = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
     if len(encoded) > 65_535:
         raise ValueError("Backup-Metadaten sind zu groß.")
     return encoded
 
 
-def _metadata_from_filename(filename: str) -> dict | None:
+def _metadata_from_filename(filename: str) -> JsonObject | None:
     match = BACKUP_FILENAME_METADATA_RE.search(filename)
     if match is None:
         return None
@@ -454,7 +522,7 @@ def _metadata_from_filename(filename: str) -> dict | None:
     }
 
 
-def _read_backup_metadata(zipf: zipfile.ZipFile, filename: str) -> dict:
+def _read_backup_metadata(zipf: zipfile.ZipFile, filename: str) -> JsonObject:
     metadata = None
     if zipf.comment:
         try:
@@ -487,7 +555,7 @@ def _read_backup_metadata(zipf: zipfile.ZipFile, filename: str) -> dict:
     return metadata
 
 
-def _is_path_inside_or_same(path: str | os.PathLike, root: str | os.PathLike) -> bool:
+def _is_path_inside_or_same(path: StrPath, root: StrPath) -> bool:
     try:
         # Resolve symlinks as well as ``..`` segments.  A backup root that looks
         # outside the world but is a symlink back into it would otherwise be
@@ -499,14 +567,14 @@ def _is_path_inside_or_same(path: str | os.PathLike, root: str | os.PathLike) ->
         return False
 
 
-def _world_backup_id(world_path: str | os.PathLike) -> str:
+def _world_backup_id(world_path: StrPath) -> str:
     """Return a stable-enough, path-based ID to isolate equal world folder names."""
 
     normalized = os.path.normcase(os.path.realpath(os.path.abspath(os.path.normpath(world_path))))
     return hashlib.sha256(normalized.encode("utf-8", errors="surrogatepass")).hexdigest()[:BACKUP_DIR_HASH_LENGTH]
 
 
-def get_backups_dir(world_path):
+def get_backups_dir(world_path: str) -> str:
     config = load_config()
     world_dir_name = os.path.basename(os.path.normpath(world_path))
     if config.backup_root:
@@ -521,7 +589,7 @@ def get_backups_dir(world_path):
     return os.path.join(parent_dir, f"{world_dir_name}_backups")
 
 
-def ensure_safe_backup_location(world_path):
+def ensure_safe_backup_location(world_path: str) -> str:
     """Return the backup directory and reject dangerous in-world locations."""
 
     backups_dir = os.path.abspath(os.path.normpath(get_backups_dir(world_path)))
@@ -544,7 +612,7 @@ def _retention_limits() -> dict[str, int | None]:
     }
 
 
-def _normalized_path(path: str | os.PathLike) -> str:
+def _normalized_path(path: StrPath) -> str:
     return os.path.normcase(os.path.abspath(os.path.normpath(path)))
 
 
@@ -554,7 +622,7 @@ def _cleanup_stale_backup_artifacts(backups_dir: str, *, now: float | None = Non
     if not os.path.isdir(backups_dir):
         return
     cutoff = (datetime.now().timestamp() if now is None else now) - STALE_BACKUP_ARTIFACT_SECONDS
-    candidates = []
+    candidates: list[str] = []
     try:
         candidates.extend(os.path.join(backups_dir, name) for name in os.listdir(backups_dir) if name.startswith(".mcbe_backup_") and name.endswith(".part"))
     except OSError:
@@ -574,7 +642,7 @@ def _cleanup_stale_backup_artifacts(backups_dir: str, *, now: float | None = Non
             continue
 
 
-def _load_integrity_cache(backups_dir: str) -> dict:
+def _load_integrity_cache(backups_dir: str) -> JsonObject:
     path = os.path.join(backups_dir, BACKUP_INTEGRITY_CACHE_FILENAME)
     try:
         with open(path, encoding="utf-8") as cache_file:
@@ -585,10 +653,10 @@ def _load_integrity_cache(backups_dir: str) -> dict:
         return {}
     if payload.get("schema_version") != BACKUP_INTEGRITY_CACHE_VERSION or not isinstance(payload.get("entries"), dict):
         return {}
-    return payload["entries"]
+    return cast(JsonObject, payload["entries"])
 
 
-def _write_integrity_cache(backups_dir: str, entries: dict) -> None:
+def _write_integrity_cache(backups_dir: str, entries: JsonObject) -> None:
     path = os.path.join(backups_dir, BACKUP_INTEGRITY_CACHE_FILENAME)
     fd = None
     temp_path = None
@@ -621,7 +689,7 @@ def _write_integrity_cache(backups_dir: str, entries: dict) -> None:
                 os.remove(temp_path)
 
 
-def _cached_integrity_is_valid(path: str, stat_info: os.stat_result, cache: dict, cache_dirty: list[bool]) -> bool:
+def _cached_integrity_is_valid(path: str, stat_info: os.stat_result, cache: JsonObject, cache_dirty: list[bool]) -> bool:
     filename = os.path.basename(path)
     record = cache.get(filename)
     if (
@@ -664,7 +732,9 @@ def _seed_verified_integrity_cache(backups_dir: str, path: str) -> None:
 
 
 @_world_locked
-def prune_backups(world_path, keep_paths=None, *, retention_classes=None):
+def prune_backups(
+    world_path: str, keep_paths: Iterable[str | None] | None = None, *, retention_classes: Iterable[str] | None = None,
+) -> None:
     limits = _retention_limits()
     target_classes = set(retention_classes or (RETENTION_ROLLING, RETENTION_RECOVERY))
     target_classes &= {RETENTION_ROLLING, RETENTION_RECOVERY}
@@ -719,7 +789,7 @@ def prune_backups(world_path, keep_paths=None, *, retention_classes=None):
         raise BackupRetentionError(failures)
 
 
-def _verify_zip_integrity(zip_path):
+def _verify_zip_integrity(zip_path: StrPath | BinaryIO) -> None:
     """Verify all member CRCs of a ZIP archive; raise ValueError on corruption."""
 
     try:
@@ -733,11 +803,11 @@ def _verify_zip_integrity(zip_path):
         raise ValueError(t("Backup-Datei ist beschädigt (CRC-Fehler): {member}", member=bad_member))
 
 
-def _ignore_symlink_names(directory, names):
+def _ignore_symlink_names(directory: str, names: list[str]) -> list[str]:
     return [name for name in names if os.path.islink(os.path.join(directory, name))]
 
 
-def _raise_walk_error(exc):
+def _raise_walk_error(exc: OSError) -> None:
     if isinstance(exc, PermissionError):
         path = getattr(exc, "filename", None) or t("unbekannt")
         raise ValueError(
@@ -776,6 +846,11 @@ def _publish_archive_no_clobber(temp_path: str, target_path: str) -> bool:
     file into a usable backup.
     """
 
+    # Closing and reading the ZIP is not a durability barrier. On Windows the
+    # writable descriptor also allows os.fsync() to call the CRT's _commit().
+    with open(temp_path, "r+b") as archive:
+        os.fsync(archive.fileno())
+
     try:
         os.link(temp_path, target_path)
     except FileExistsError:
@@ -798,16 +873,24 @@ def _publish_archive_no_clobber(temp_path: str, target_path: str) -> bool:
                 target.flush()
                 os.fsync(target.fileno())
             _verify_zip_integrity(target_path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.remove(target_path)
+        except BaseException as exc:
+            remove_backup_after_aborted_write(target_path, exc, operation="backup.copy")
             raise
-    with contextlib.suppress(OSError):
-        os.remove(temp_path)
+    try:
+        with contextlib.suppress(OSError):
+            os.remove(temp_path)
+        _sync_backup_directory(os.path.dirname(target_path))
+    except Exception as exc:
+        # This function only owns a target after link/O_EXCL succeeded. Never
+        # allow an unconfirmed publication to authorize a subsequent DB write.
+        remove_backup_after_aborted_write(target_path, exc, operation="backup.publish")
+        raise
     return True
 
 
-def _backup_file_descriptor(path: str, *, integrity_cache=None, cache_dirty=None) -> dict | None:
+def _backup_file_descriptor(
+    path: str, *, integrity_cache: JsonObject | None = None, cache_dirty: list[bool] | None = None,
+) -> BackupDescriptor | None:
     """Read cheap listing/retention metadata without streaming all ZIP members."""
 
     try:
@@ -854,15 +937,18 @@ def _is_complete_backup_file(path: str) -> bool:
 
 
 @_world_locked
-def create_backup(world_path, *, prune_after=True, backup_kind=BACKUP_KIND_AUTOMATIC, restore_source=None):
+def create_backup(
+    world_path: str, *, prune_after: bool = True, backup_kind: str = BACKUP_KIND_AUTOMATIC, restore_source: str | None = None,
+) -> BackupPath:
     if not os.path.exists(world_path):
         raise FileNotFoundError("Welt-Ordner existiert nicht.")
 
     backup_kind = _normalize_backup_kind(backup_kind)
     backups_dir = ensure_safe_backup_location(world_path)
-    os.makedirs(backups_dir, exist_ok=True)
+    _create_backup_directory(backups_dir)
     _cleanup_stale_backup_artifacts(backups_dir)
 
+    source_before = source_snapshot(world_path)
     created_at = _utc_now()
     timestamp = created_at.strftime("%Y%m%dT%H%M%SZ")
     display_name = _safe_backup_name(get_world_name(world_path))
@@ -936,18 +1022,35 @@ def create_backup(world_path, *, prune_after=True, backup_kind=BACKUP_KIND_AUTOM
             validate_zip_members(zipf, world_path)
 
         _verify_zip_integrity(tmp_path)
+        # Reject a mixed archive while it still has its private temporary name.
+        # A crash or failed cleanup after publication must not expose it as a
+        # usable recovery copy.
+        if source_snapshot(world_path) != source_before:
+            raise BackupSourceChangedError(
+                "Backup verworfen: Die Welt wurde während der Sicherung verändert. Bitte Server vollständig stoppen und erneut versuchen."
+            )
         for _attempt in range(32):
             candidate = _backup_target_path(backups_dir, display_name, timestamp, backup_kind)
             try:
                 published = _publish_archive_no_clobber(tmp_path, candidate)
             except PermissionError as exc:
-                raise ValueError(f"Backup abgebrochen: Die fertige Backup-ZIP kann nicht im Backup-Ordner abgelegt werden. Pfad: {candidate}.") from exc
+                error = ValueError(f"Backup abgebrochen: Die fertige Backup-ZIP kann nicht im Backup-Ordner abgelegt werden. Pfad: {candidate}.")
+                if warning := getattr(exc, "cleanup_warning", None):
+                    _set_error_detail(error, "cleanup_warning", warning)
+                raise error from exc
             if published:
                 backup_zip_path = candidate
                 break
         if backup_zip_path is None:
             raise RuntimeError("Backup konnte nicht kollisionsfrei veröffentlicht werden.")
-    except Exception:
+        # Check after synchronization/publication as well as compression. The
+        # world lock keeps listing/retention away until this check has passed.
+        if source_snapshot(world_path) != source_before:
+            raise BackupSourceChangedError(
+                "Backup verworfen: Die Welt wurde während der Sicherung verändert. Bitte Server vollständig stoppen und erneut versuchen."
+            )
+    except Exception as exc:
+        remove_backup_after_aborted_write(backup_zip_path, exc, operation="backup.verify")
         try:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -961,10 +1064,10 @@ def create_backup(world_path, *, prune_after=True, backup_kind=BACKUP_KIND_AUTOM
         retention_class = _retention_class_for_kind(backup_kind)
         if retention_class != RETENTION_PINNED:
             prune_backups(world_path, keep_paths=[backup_zip_path], retention_classes=[retention_class])
-    return backup_zip_path
+    return BackupPath(backup_zip_path)
 
 
-def _validate_backup_path_for_world(world_path, backup_path):
+def _validate_backup_path_for_world(world_path: str, backup_path: str) -> str:
     backups_dir = os.path.abspath(ensure_safe_backup_location(world_path))
     candidate = os.path.abspath(os.path.normpath(backup_path))
     if os.path.commonpath([backups_dir, candidate]) != backups_dir:
@@ -980,7 +1083,7 @@ def _validate_backup_path_for_world(world_path, backup_path):
     return candidate
 
 
-def resolve_backup_path(world_path, backup_file):
+def resolve_backup_path(world_path: str, backup_file: str) -> str:
     if not isinstance(backup_file, str) or not backup_file:
         raise ValueError("Ungültiger Backup-Dateiname.")
     # Treat both POSIX and Windows separators as path separators on every host.
@@ -995,7 +1098,7 @@ def resolve_backup_path(world_path, backup_file):
 
 
 @_world_locked
-def delete_backup(world_path, backup_file):
+def delete_backup(world_path: str, backup_file: str) -> str:
     backup_path = resolve_backup_path(world_path, backup_file)
     try:
         stat_info = os.stat(backup_path, follow_symlinks=False)
@@ -1011,12 +1114,12 @@ def delete_backup(world_path, backup_file):
     return backup_path
 
 
-def _restore_world_id(world_path):
+def _restore_world_id(world_path: str) -> str:
     normalized = os.path.normcase(os.path.realpath(os.path.abspath(os.path.normpath(world_path))))
     return hashlib.sha256(normalized.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
-def _restore_token(world_path, backup_path, *, size_bytes, sha256):
+def _restore_token(world_path: str, backup_path: str, *, size_bytes: int, sha256: str) -> RestoreToken:
     return {
         "version": RESTORE_TOKEN_VERSION,
         "world_id": _restore_world_id(world_path),
@@ -1026,7 +1129,7 @@ def _restore_token(world_path, backup_path, *, size_bytes, sha256):
     }
 
 
-def _validated_restore_token(token):
+def _validated_restore_token(token: object) -> RestoreToken:
     if not isinstance(token, dict):
         raise ValueError("Restore abgelehnt: Die Restore-Vorschau fehlt oder ist veraltet. Bitte Vorschau neu laden.")
     version = token.get("version")
@@ -1054,7 +1157,7 @@ def _validated_restore_token(token):
 
 
 @_world_locked
-def snapshot_backup_for_restore(world_path, backup_path, *, expected_token=None):
+def snapshot_backup_for_restore(world_path: str, backup_path: str, *, expected_token: object = None) -> str:
     """Copy the selected backup to a private immutable restore source.
 
     The source is opened once after path validation.  Later restore work reads
@@ -1116,8 +1219,8 @@ def snapshot_backup_for_restore(world_path, backup_path, *, expected_token=None)
         except OSError as cleanup_exc:
             warning = t("Temporärer Restore-Snapshot konnte nicht entfernt werden: {path} ({error})", path=snapshot_path, error=cleanup_exc)
             existing = getattr(exc, "cleanup_warning", None)
-            exc.cleanup_warning = f"{existing} {warning}" if existing else warning
-            exc.source_snapshot_path = snapshot_path
+            _set_error_detail(exc, "cleanup_warning", f"{existing} {warning}" if existing else warning)
+            _set_error_detail(exc, "source_snapshot_path", snapshot_path)
             LOGGER.exception("Temporärer Restore-Snapshot konnte nach einem Fehler nicht entfernt werden: %s", snapshot_path)
         raise
 
@@ -1131,7 +1234,7 @@ def _safe_zip_member_name(name: str) -> str:
     return str(path)
 
 
-def _check_backup_totals(total_bytes, entry_count, limit_mib):
+def _check_backup_totals(total_bytes: int, entry_count: int, limit_mib: int) -> None:
     if entry_count > MAX_BACKUP_MEMBERS:
         raise ValueError(t("Backup enthält zu viele Dateien (max {limit}).", limit=MAX_BACKUP_MEMBERS))
     if total_bytes > limit_mib * 1024 * 1024:
@@ -1142,7 +1245,7 @@ def _check_backup_totals(total_bytes, entry_count, limit_mib):
         ))
 
 
-def _backup_tree_stats(world_path, backups_dir):
+def _backup_tree_stats(world_path: str, backups_dir: str) -> tuple[int, int]:
     """Inspect the same nonsymlink entries as the writer before creating a ZIP."""
     limit = get_backup_settings(default_mib=MAX_BACKUP_UNCOMPRESSED_MB)["max_uncompressed_mib"]
     total_bytes = entry_count = 0
@@ -1166,12 +1269,12 @@ def _backup_tree_stats(world_path, backups_dir):
     return total_bytes, entry_count
 
 
-def _zip_space_estimate(total_bytes, entry_count):
+def _zip_space_estimate(total_bytes: int, entry_count: int) -> int:
     # DEFLATE can expand incompressible input; also reserve archive metadata.
     return total_bytes + total_bytes // 100 + entry_count * 4096 + 1024 * 1024
 
 
-def _ensure_space(path, required_bytes):
+def _ensure_space(path: str, required_bytes: int) -> None:
     reserve = max(_MIN_FREE_SPACE_RESERVE, required_bytes // 20)
     free = shutil.disk_usage(path).free
     if free < required_bytes + reserve:
@@ -1181,7 +1284,7 @@ def _ensure_space(path, required_bytes):
         ))
 
 
-def _archive_size(archive_path, world_path):
+def _archive_size(archive_path: str, world_path: str) -> int:
     try:
         with zipfile.ZipFile(archive_path) as zipf:
             validate_zip_members(zipf, world_path)
@@ -1190,7 +1293,7 @@ def _archive_size(archive_path, world_path):
         raise ValueError("Backup-Datei ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
 
 
-def _preflight_restore(world_path, archive_path, backups_dir):
+def _preflight_restore(world_path: str, archive_path: str, backups_dir: str) -> None:
     """Budget staging, immutable source and pre-restore backup per filesystem."""
     unpacked = _archive_size(archive_path, world_path)
     current_size, current_count = _backup_tree_stats(world_path, backups_dir)
@@ -1198,7 +1301,7 @@ def _preflight_restore(world_path, archive_path, backups_dir):
         (os.path.dirname(os.path.abspath(world_path)), unpacked),
         (backups_dir, os.path.getsize(archive_path) + _zip_space_estimate(current_size, current_count)),
     ]
-    volumes = {}
+    volumes: dict[int, tuple[str, int]] = {}
     for path, size in requirements:
         device = os.stat(path).st_dev
         previous = volumes.get(device, (path, 0))
@@ -1207,7 +1310,7 @@ def _preflight_restore(world_path, archive_path, backups_dir):
         _ensure_space(path, size)
 
 
-def validate_zip_members(zipf, target_dir):
+def validate_zip_members(zipf: zipfile.ZipFile, target_dir: str) -> None:
     target_dir = os.path.abspath(target_dir)
     limit = get_backup_settings(default_mib=MAX_BACKUP_UNCOMPRESSED_MB)["max_uncompressed_mib"]
     total_uncompressed = 0
@@ -1229,7 +1332,7 @@ def validate_zip_members(zipf, target_dir):
         _check_backup_totals(total_uncompressed, i + 1, limit)
 
 
-def safe_extract_zip(zipf, target_dir):
+def safe_extract_zip(zipf: zipfile.ZipFile, target_dir: str) -> None:
     validate_zip_members(zipf, target_dir)
     target_dir = os.path.abspath(target_dir)
     for member in zipf.infolist():
@@ -1244,9 +1347,9 @@ def safe_extract_zip(zipf, target_dir):
 
 
 @_world_locked
-def list_backups(world_path):
+def list_backups(world_path: str) -> list[BackupListEntry]:
     backups_dir = ensure_safe_backup_location(world_path)
-    backups_list = []
+    backups_list: list[BackupListEntry] = []
 
     if os.path.exists(backups_dir):
         _cleanup_stale_backup_artifacts(backups_dir)
@@ -1286,7 +1389,7 @@ def list_backups(world_path):
 
 
 @_world_locked
-def preview_backup(world_path, backup_file):
+def preview_backup(world_path: str, backup_file: str) -> JsonObject:
     """Return a safe, non-mutating preview for a restore candidate."""
     backup_zip_path = resolve_backup_path(world_path, backup_file)
     if not os.path.exists(backup_zip_path):
@@ -1376,7 +1479,9 @@ def preview_backup(world_path, backup_file):
 
 
 @_world_locked
-def restore_backup(world_path, backup_file, *, resolved_backup_path=None, pre_restore_check=None):
+def restore_backup(
+    world_path: str, backup_file: str, *, resolved_backup_path: str | None = None, pre_restore_check: Callable[[], object] | None = None,
+) -> list[str]:
     # Service-level restore first resolves the selected backup, then creates a
     # pre-restore safety backup.  Accepting that pre-resolved path avoids a
     # second filename lookup afterwards, so an external file swap cannot make us
@@ -1479,8 +1584,8 @@ def restore_backup(world_path, backup_file, *, resolved_backup_path=None, pre_re
                 else:
                     if operation_error is not None:
                         existing = getattr(operation_error, "cleanup_warning", None)
-                        operation_error.cleanup_warning = f"{existing} {warning}" if existing else warning
-                        operation_error.temp_restore_path = temp_restore_dir
+                        _set_error_detail(operation_error, "cleanup_warning", f"{existing} {warning}" if existing else warning)
+                        _set_error_detail(operation_error, "temp_restore_path", temp_restore_dir)
                     LOGGER.exception("Temporärer Restore-Ordner konnte nach fehlgeschlagenem Restore nicht entfernt werden: %s", temp_restore_dir)
         elif os.path.exists(temp_restore_dir) and unresolved_transaction:
             warning = t(
@@ -1490,8 +1595,8 @@ def restore_backup(world_path, backup_file, *, resolved_backup_path=None, pre_re
             )
             if operation_error is not None:
                 existing = getattr(operation_error, "cleanup_warning", None)
-                operation_error.cleanup_warning = f"{existing} {warning}" if existing else warning
-                operation_error.temp_restore_path = temp_restore_dir
+                _set_error_detail(operation_error, "cleanup_warning", f"{existing} {warning}" if existing else warning)
+                _set_error_detail(operation_error, "temp_restore_path", temp_restore_dir)
             LOGGER.warning("Restore-Staging bleibt für die Transaktionswiederaufnahme erhalten: %s", temp_restore_dir)
 
         if transaction_journal and transaction_resolved and os.path.exists(transaction_journal):
@@ -1507,7 +1612,7 @@ def restore_backup(world_path, backup_file, *, resolved_backup_path=None, pre_re
                     cleanup_warnings.append(warning)
                 elif operation_error is not None:
                     existing = getattr(operation_error, "cleanup_warning", None)
-                    operation_error.cleanup_warning = f"{existing} {warning}" if existing else warning
+                    _set_error_detail(operation_error, "cleanup_warning", f"{existing} {warning}" if existing else warning)
                 LOGGER.exception("Restore-Transaktionsmarker konnte nicht entfernt werden: %s", transaction_journal)
 
     return cleanup_warnings

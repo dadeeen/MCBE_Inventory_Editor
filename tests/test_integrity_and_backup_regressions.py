@@ -475,7 +475,8 @@ def test_source_snapshot_does_not_suppress_directory_walk_errors(monkeypatch, tm
         return []
 
     with monkeypatch.context() as scoped_patch:
-        scoped_patch.setattr(backup_api_routes.os, "walk", inaccessible_walk)
+        from mcbe_editor import backup_consistency
+        scoped_patch.setattr(backup_consistency.os, "walk", inaccessible_walk)
 
         with pytest.raises(ValueError, match="kann nicht durchsucht werden"):
             backup_api_routes._source_snapshot(str(tmp_path))
@@ -575,3 +576,21 @@ def test_manual_backup_route_is_protected_from_local_heartbeat_shutdown() -> Non
     decorators = source[route_start:route_end]
 
     assert "@save_in_progress" in decorators
+
+
+@pytest.mark.parametrize("error_type", [ValueError, OSError, "source_changed"])
+def test_manual_backup_exposes_cleanup_details_from_shared_backup(monkeypatch, error_type) -> None:
+    from mcbe_editor import backup_api_routes
+
+    exception_class = backup_api_routes.BackupSourceChangedError if error_type == "source_changed" else error_type
+    error = exception_class("Sicherung fehlgeschlagen")
+    error.cleanup_warning = "Zusätzliches Archiv world.zip konnte nicht entfernt werden."
+    service = SimpleNamespace(create_manual_backup=Mock(side_effect=error), delete_backup=Mock())
+    deps, _ = _backup_deps(service)
+    monkeypatch.setattr(backup_api_routes, "ensure_valid_world_path", lambda path: path)
+    monkeypatch.setattr(backup_api_routes, "_source_snapshot", lambda _path: "stable")
+
+    response, status = backup_api_routes.create_backup({"world_path": "C:/world"}, deps)
+    assert status in {400, 409, 500}
+    assert response["cleanup_warning"] == error.cleanup_warning
+    service.delete_backup.assert_not_called()

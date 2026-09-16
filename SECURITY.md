@@ -46,6 +46,8 @@ Public hosting, untrusted multi-user access, broad host filesystem mounts, and d
 
 Before every edit, stop Minecraft or the server and create a complete copy outside the mounted world folder and `MCBE_BACKUP_ROOT`. Keep it until the result has been verified in Minecraft.
 
+Every editor-created world backup compares source metadata before and after creation and explicitly synchronizes the completed archive before publishing it. Detected changes and synchronization failures abort dependent writes. Metadata comparison is not an atomic snapshot of a live world; directory synchronization is unavailable on Windows and some filesystems. These safeguards do not establish universal power-loss protection.
+
 ## Deployment essentials
 
 - Enable password protection for LAN use.

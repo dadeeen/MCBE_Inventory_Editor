@@ -54,6 +54,18 @@ The important ordering is:
 Code extraction must preserve that visible sequence. A shorter function is not
 an improvement if it hides whether a failure happened before or after commit.
 
+The strict mypy entry points include the complete backup adapter, shared source
+consistency checks, backup settings/result contracts, and `write_transaction.py`.
+The latter owns immutable binary write plans and the attempted/committed boundary
+used by player saves, workspace batches, direct mount creation, imports, and
+migration. Backup path results retain their runtime string compatibility through
+`BackupPath`; listing and restore-token shapes are explicit `TypedDict`s.
+
+Run `python -m mypy` for this enforced scope. This does not claim strict coverage
+of all orchestration in `services.py`, `mount_write.py`, `main.py`, or the dynamic
+NBT transformations in `_inventory_core.py`. Expand those boundaries gradually;
+do not weaken strict checking of the existing entry points to include them.
+
 ## Frontend composition
 
 `templates/index.html` declares the browser-module load order. Feature files

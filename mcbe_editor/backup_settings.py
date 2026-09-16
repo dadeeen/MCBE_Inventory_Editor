@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import TypedDict
 
 from .config import load_config
 from .i18n import t
@@ -15,21 +16,30 @@ BACKUP_LIMIT_ENV = "MCBE_BACKUP_MAX_UNCOMPRESSED_MIB"
 MAX_CONFIGURED_MIB = 1024 * 1024
 
 
+class BackupSettings(TypedDict):
+    max_uncompressed_mib: int
+    source: str
+    editable: bool
+
+
 class BackupLimitError(ValueError):
     """The configured uncompressed size limit prevents a backup or restore."""
 
 
-def _validated_limit(value):
+def _validated_limit(value: object) -> int:
     if type(value) is not int or not 1 <= value <= MAX_CONFIGURED_MIB:
         raise ValueError(t("Das Backup-Limit muss eine ganze Zahl zwischen 1 und {max} MiB sein.", max=MAX_CONFIGURED_MIB))
     return value
 
 
-def _settings_path():
-    return Path(load_config().data_root) / "backup_settings.json"
+def _settings_path() -> Path:
+    data_root = load_config().data_root
+    if data_root is None:
+        raise ValueError("Datenverzeichnis für Backup-Einstellungen fehlt.")
+    return Path(data_root) / "backup_settings.json"
 
 
-def get_backup_settings(*, default_mib=1024):
+def get_backup_settings(*, default_mib: int = 1024) -> BackupSettings:
     configured = os.environ.get(BACKUP_LIMIT_ENV, "").strip()
     source = "default"
     limit = default_mib
@@ -56,7 +66,7 @@ def get_backup_settings(*, default_mib=1024):
     }
 
 
-def save_backup_settings(value):
+def save_backup_settings(value: object) -> BackupSettings:
     value = _validated_limit(value)
     if os.environ.get(BACKUP_LIMIT_ENV, "").strip():
         raise PermissionError(t("Das Backup-Limit wird über {name} vom Betreiber vorgegeben.", name=BACKUP_LIMIT_ENV))

@@ -1,4 +1,9 @@
 {
+  "Datenverzeichnis für Backup-Einstellungen fehlt.": "The data directory for backup settings is missing.",
+  "Ungültiger Schreibplan: Es werden nicht leere binäre Datenbankeinträge erwartet.": "Invalid write plan: non-empty binary database entries are required.",
+  "Ungültiger Schreibplan: Unbekannte Schreibart.": "Invalid write plan: unknown write mode.",
+  "Ungültiger Schreibplan: Einzelschreiben benötigt genau einen Wert.": "Invalid write plan: a single write requires exactly one value.",
+  "Dieser Schreibvorgang wurde bereits versucht und darf nicht erneut ausgeführt werden.": "This write has already been attempted and must not be executed again.",
   "Das Backup-Limit muss eine ganze Zahl zwischen 1 und {max} MiB sein.": "The backup limit must be a whole number between 1 and {max} MiB.",
   "Die Vorgabe {name} ist ungültig: {error}": "The {name} override is invalid: {error}",
   "Die gespeicherten Backup-Einstellungen sind ungültig. Bitte im Backup-Manager neu speichern.": "The saved backup settings are invalid. Please save them again in the Backup Manager.",

@@ -46,6 +46,8 @@ Die unterstützte Grenze umfasst:
 
 Beende Minecraft oder den Server vor jeder Bearbeitung und erstelle eine vollständige Kopie außerhalb des eingebundenen Weltordners und von `MCBE_BACKUP_ROOT`. Behalte sie, bis das Ergebnis in Minecraft geprüft wurde.
 
+Jedes vom Editor erstellte Welt-Backup vergleicht die Quellmetadaten vor und nach der Erstellung und synchronisiert das fertige Archiv ausdrücklich vor der Veröffentlichung. Erkannte Änderungen und Synchronisierungsfehler brechen abhängige Schreibvorgänge ab. Der Metadatenvergleich ist keine atomare Momentaufnahme einer laufenden Welt; die Verzeichnissynchronisierung steht unter Windows und auf manchen Dateisystemen nicht zur Verfügung. Diese Maßnahmen gewährleisten keinen universellen Schutz vor Stromausfällen.
+
 ## Wesentliche Deployment-Regeln
 
 - Aktiviere für LAN-Nutzung den Passwortschutz.

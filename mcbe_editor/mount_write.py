@@ -32,6 +32,7 @@ from .mounts import MOUNT_TYPE_DEFINITIONS, normalize_mount_position
 from .players import decode_player_key
 from .service_errors import denied_write_actor, denied_write_permission_hint
 from .world import ensure_valid_world_path
+from .write_transaction import WritePlan, WriteState
 
 ACTOR_PREFIX = b"actorprefix"
 DIGP_PREFIX = b"digp"
@@ -1232,7 +1233,7 @@ def create_horse_mount_with_service(
         player_key = decode_player_key(encoded_player_key)
         db = None
         backup_file = None
-        write_attempted = False
+        write_state = WriteState()
         try:
             db = service._open_db_readonly(world_path)
             player_info = service._get_player_info(db, player_key)
@@ -1279,13 +1280,7 @@ def create_horse_mount_with_service(
             digp_summary = digp_reference_summary(record.digp_value, actor_entry, unique_id_entry=unique_id_entry)
             if pre_write_check:
                 pre_write_check()
-            write_attempted = True
-            db.put_batch(
-                {
-                    record.actor_key: record.actor_value,
-                    record.digp_key: record.digp_value,
-                }
-            )
+            write_state.execute(db, WritePlan({record.actor_key: record.actor_value, record.digp_key: record.digp_value}))
             # Ab hier ist der Batch committed. Ab diesem Punkt darf kein Fehler
             # mehr wie ein wiederholbarer Pre-Write-Fehler nach außen dringen:
             # Nachvalidierung, DB-Schließen, Backup-Bereinigung und der Aufbau der
@@ -1346,7 +1341,7 @@ def create_horse_mount_with_service(
                         else failure_message
                     ),
                     "error": failure_message,
-                    "write_committed": True,
+                    "write_committed": write_state.committed,
                     "validation_failed": validation_failed,
                     "mount_type": mount_type,
                     "mount_label": mount_label,
@@ -1383,7 +1378,7 @@ def create_horse_mount_with_service(
                 )
                 return {
                     "success": False,
-                    "write_committed": True,
+                    "write_committed": write_state.committed,
                     "validation_failed": True,
                     "error_phase": "post_write",
                     "error": post_write_message,
@@ -1395,7 +1390,7 @@ def create_horse_mount_with_service(
                     "post_write_error_detail": f"{type(exc).__name__}: {exc}",
                 }
         except Exception as exc:
-            if backup_file and not write_attempted:
+            if backup_file and not write_state.attempted:
                 remove_backup_after_aborted_write(backup_file, exc, operation="mount.create")
             raise
         finally:

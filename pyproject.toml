@@ -52,6 +52,10 @@ quote-style = "double"
 python_version = "3.12"
 files = [
     "mcbe_editor/api_errors.py",
+    "mcbe_editor/backup.py",
+    "mcbe_editor/backup_consistency.py",
+    "mcbe_editor/backup_settings.py",
+    "mcbe_editor/backup_types.py",
     "mcbe_editor/bedrock_nbt.py",
     "mcbe_editor/deployment.py",
     "mcbe_editor/http_response_handlers.py",
@@ -66,6 +70,7 @@ files = [
     "mcbe_editor/setup_state.py",
     "mcbe_editor/update_output_i18n.py",
     "mcbe_editor/world_locks.py",
+    "mcbe_editor/write_transaction.py",
 ]
 strict = true
 follow_imports = "silent"
