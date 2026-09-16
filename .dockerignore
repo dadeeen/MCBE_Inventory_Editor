@@ -54,6 +54,8 @@ playwright-report/
 # CI, tests and development-only material are not runtime image inputs
 .github/
 docs/
+.engine-tests/
+scripts/engine_checks/
 fixtures/
 tests/
 package.json

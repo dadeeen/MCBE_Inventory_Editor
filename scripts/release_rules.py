@@ -7,6 +7,7 @@ BLOCKED_RELEASE_DIR_NAMES = frozenset(
         ".agents",
         ".claude",
         ".codex",
+        ".engine-tests",
         ".git",
         ".idea",
         ".lockcheck",
@@ -39,6 +40,8 @@ BLOCKED_RELEASE_FILE_NAMES = frozenset(
     {
         ".DS_Store",
         "Desktop.ini",
+        "bedrock_server",
+        "bedrock_server.exe",
         "Sample-World.zip",
         "Thumbs.db",
         "coverage.xml",

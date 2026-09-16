@@ -1,0 +1,84 @@
+name: Engine checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_version:
+        description: Exact official Linux BDS version (four parts)
+        required: true
+        type: string
+      archive_sha256:
+        description: Expected SHA-256 of the official Linux server ZIP
+        required: true
+        type: string
+      suite:
+        description: Selected engine check suite
+        required: true
+        default: items
+        type: choice
+        options: [items, catalog]
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Install existing locked runtime dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements/bootstrap.lock
+          python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
+          python -m pip install --no-build-isolation --require-hashes -r requirements/runtime.lock
+      - name: Download explicitly selected official server
+        env:
+          ENGINE_VERSION: ${{ inputs.server_version }}
+          ENGINE_SHA256: ${{ inputs.archive_sha256 }}
+        run: |
+          python - <<'PY'
+          import hashlib, os, pathlib, re, urllib.request
+          version, digest = os.environ['ENGINE_VERSION'], os.environ['ENGINE_SHA256'].lower()
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', version) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+              raise SystemExit('Invalid version or SHA-256')
+          target = pathlib.Path('.engine-tests/downloads/server.zip')
+          target.parent.mkdir(parents=True)
+          url = f'https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-{version}.zip'
+          with urllib.request.urlopen(url, timeout=120) as source, target.open('wb') as output:
+              total = 0
+              while chunk := source.read(1024 * 1024):
+                  total += len(chunk)
+                  if total > 500_000_000:
+                      raise SystemExit('Server download exceeded limit')
+                  output.write(chunk)
+          with target.open('rb') as source:
+              if hashlib.file_digest(source, 'sha256').hexdigest() != digest:
+                  raise SystemExit('Server archive SHA-256 mismatch')
+          PY
+      - name: Build isolated developer host
+        run: docker build -t mcbe-engine-check:local scripts/engine_checks
+      - name: Run real engine checks
+        env:
+          ENGINE_VERSION: ${{ inputs.server_version }}
+          ENGINE_SHA256: ${{ inputs.archive_sha256 }}
+          ENGINE_SUITE: ${{ inputs.suite }}
+        run: >-
+          python -m scripts.engine_checks
+          --archive .engine-tests/downloads/server.zip
+          --sha256 "$ENGINE_SHA256" --server-version "$ENGINE_VERSION"
+          --suite "$ENGINE_SUITE"
+      - name: Upload only the allowlisted summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engine-check-summary
+          path: .engine-tests/*/summary.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 30

@@ -162,6 +162,11 @@ license notices, and the installation/native-database checks together.
 
 ## Local check round
 
+Optional version-specific checks against the real Bedrock engine are documented
+in [Engine checks](engine-checks.md). The reusable runner and script-only probe
+are public developer tools; server binaries, generated worlds and local reports
+remain ignored. They are excluded from the application runtime bundle.
+
 Recommended local check round on Windows:
 
 ```bash

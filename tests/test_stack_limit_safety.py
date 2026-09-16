@@ -82,8 +82,11 @@ def test_old_database_default_does_not_restore_an_unverified_64(tmp_path):
     ("oak_boat", 1), ("pale_oak_chest_boat", 1), ("bamboo_chest_raft", 1),
     ("oak_sign", 16), ("pale_oak_hanging_sign", 16), ("bucket", 16),
     ("cod_bucket", 1), ("tadpole_bucket", 1), ("hopper_minecart", 1),
-    ("blue_egg", 16), ("armor_stand", 16), ("black_shulker_box", 1),
+    ("blue_egg", 16), ("armor_stand", 64), ("black_shulker_box", 1),
     ("music_disc_lava_chicken", 1), ("netherite_horse_armor", 1),
+    ("cake", 64), ("lodestone_compass", 64), ("straw_bed", 16), ("red_cushion", 16),
+    ("poplar_sign", 16), ("poplar_hanging_sign", 16), ("poplar_boat", 1), ("poplar_chest_boat", 1),
+    ("red_wool_stairs", 64), ("shelf_mushroom", 64),
 ])
 def test_reviewed_engine_limits_are_enforced_on_new_stacks(name, limit):
     item_id = f"minecraft:{name}"
@@ -97,8 +100,11 @@ def test_reviewed_engine_limits_are_enforced_on_new_stacks(name, limit):
 
 
 @pytest.mark.parametrize("name", ["straw_bed", "red_cushion", "poplar_boat", "red_wool_stairs", "shelf_mushroom"])
-def test_unverified_new_items_allow_one_and_preserve_real_original_amounts(name):
+def test_unverified_new_items_allow_one_and_preserve_real_original_amounts(name, monkeypatch):
     item_id = f"minecraft:{name}"
+    # Simulate a future registry update with no measured limit, even after the
+    # current catalog's remaining gaps have been verified by the engine.
+    monkeypatch.delitem(item_data.STACK_LIMITS, item_id, raising=False)
     assert item_data.is_addable_item_id(item_id)
     assert not item_data.has_verified_stack_limit(item_id)
     empty = nbt.CompoundTag({"Inventory": nbt.ListTag([])})
@@ -146,6 +152,8 @@ const catalog = context.window.MCBEItemCatalog.createItemCatalog({
 for (const id of db.addable_items) {
     assert.strictEqual(catalog.getMaxStack(id), db.stack_limits[id] ?? 1, id);
 }
+assert.strictEqual(catalog.getMaxStack('minecraft:red_cushion'), 16);
+delete limits['minecraft:red_cushion']; // Simulate a newly discovered, unverified ID.
 assert.strictEqual(catalog.hasVerifiedStackLimit('minecraft:red_cushion'), false);
 limits['minecraft:item.bed'] = 64;
 assert.strictEqual(catalog.getMaxStack('minecraft:item.bed'), 1);
