@@ -35,6 +35,7 @@
         rawName = "",
         isValidItemId = true,
         maxStack = 64,
+        stackLimitVerified = true,
         maxDamage = 0,
         rawCount = 1,
         rawDamage = 0,
@@ -54,6 +55,16 @@
             };
         }
 
+        if (!stackLimitVerified && Number(rawCount) > maxStack) {
+            return {
+                ok: false,
+                toast: {
+                    message: t("Stacklimit ungeprüft. Neue Stapel sind nur mit Menge 1 erlaubt; vorhandene Mengen bleiben unverändert erhalten."),
+                    type: "warning",
+                    ms: 4000,
+                },
+            };
+        }
         const count = clampInteger(rawCount, maxStack, 1, maxStack);
         const damage = clampInteger(rawDamage, 0, 0, maxDamage);
         if (!name || name === "minecraft:air" || count <= 0) {
@@ -249,6 +260,7 @@
                     rawName: name,
                     isValidItemId: validBulkItemId,
                     maxStack,
+                    stackLimitVerified: itemCatalog.hasVerifiedStackLimit(name),
                     maxDamage: maxDmg,
                     rawCount: elements.bulkCount?.value,
                     rawDamage: elements.bulkDamage?.value,
@@ -318,6 +330,7 @@
                 const changed = window.MCBEInventoryState.setTargetCounts(targets, {
                     desired: plan.desired,
                     getMaxStack: itemCatalog.getMaxStack,
+                    hasVerifiedStackLimit: itemCatalog.hasVerifiedStackLimit,
                     maxBedrockStackCount,
                 });
                 finishBulkEdit({ clear: false });

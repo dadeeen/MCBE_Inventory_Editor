@@ -1,4 +1,11 @@
 {
+  "Ungeprüfte Stacklimits: {count}. Neue Stapel dieser Items bleiben auf Menge 1 begrenzt.": "Unverified stack limits: {count}. New stacks of these items remain limited to 1.",
+  "Stacklimit ungeprüft – neue Stapel nur mit Menge 1": "Stack limit unverified – new stacks limited to 1",
+  "Stacklimit ungeprüft. Neue Stapel sind nur mit Menge 1 erlaubt; vorhandene Mengen bleiben unverändert erhalten.": "Stack limit unverified. New stacks are limited to 1; existing amounts are preserved unchanged.",
+  "{label}-Slot {slot}: Stacklimit für {name} ist noch ungeprüft. Neue Stapel sind nur mit Menge 1 erlaubt; vorhandene Mengen bleiben unverändert erhalten.": "{label} slot {slot}: the stack limit for {name} is unverified. New stacks are limited to 1; existing amounts are preserved unchanged.",
+  "unbekannte Felder": "unknown fields",
+  "value muss eine Ganzzahl zwischen 1 und 127 sein": "value must be an integer between 1 and 127",
+  "widersprüchliche Stacklimits für {id}": "conflicting stack limits for {id}",
   "Datenverzeichnis für Backup-Einstellungen fehlt.": "The data directory for backup settings is missing.",
   "Ungültiger Schreibplan: Es werden nicht leere binäre Datenbankeinträge erwartet.": "Invalid write plan: non-empty binary database entries are required.",
   "Ungültiger Schreibplan: Unbekannte Schreibart.": "Invalid write plan: unknown write mode.",

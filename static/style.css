@@ -4430,9 +4430,14 @@ body.item-browser-open {
     white-space: nowrap;
 }
 
+.slot-quick-copy .stack-limit-unverified {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
 .slot-quick-buttons {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
     gap: 7px;
     flex: 1 1 360px;
 }

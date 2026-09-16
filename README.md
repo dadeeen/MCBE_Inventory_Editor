@@ -34,6 +34,8 @@ The editor is intended for local use and trusted home networks. Do not expose it
 
 If no release is available yet, experienced users can use the source setup below.
 
+Stack sizes use explicit Mojang components and reviewed Bedrock values. If an updated item has no confirmed limit, new stacks are limited to **1** and **Max-Stack** is disabled. Existing amounts are preserved unchanged; the editor does not assume 64 from an item's name or registry entry. The update log reports how many limits are still unverified.
+
 ## Why this exists
 
 The editor was written for a private Bedrock server. Small corrections to a player's inventory or values meant copying world files to a Windows machine every time — far more effort than a routine fix deserves.

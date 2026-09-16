@@ -693,6 +693,7 @@
                 getWorldLabel,
                 getMaxDamage: itemCatalog.getMaxDamage,
                 getMaxStack: itemCatalog.getMaxStack,
+                hasVerifiedStackLimit: itemCatalog.hasVerifiedStackLimit,
                 hasMeaningfulObjectKeys: window.MCBESavePayloadLogic.hasMeaningfulObjectKeys,
                 itemDisplayName,
                 itemIsVisiblePresent,

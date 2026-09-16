@@ -393,7 +393,7 @@
                     enchantmentCompatibility: data.enchantment_compatibility || {},
                     itemComponents: data.item_components || {},
                     effectsDb: data.effects_db || {},
-                    stackLimits: data.stack_limits || { "__default__": 64 },
+                    stackLimits: data.stack_limits || { "__default__": 1 },
                     maxDamage: data.max_damage || { "__default__": defaultMaxDamage },
                     playerStats: data.stats,
                     playerEffects: data.effects || [],

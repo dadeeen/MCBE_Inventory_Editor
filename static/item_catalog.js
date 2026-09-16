@@ -585,13 +585,22 @@
             return Boolean(normalized) && addableItems.has(normalized);
         }
 
+        function hasVerifiedStackLimit(itemName) {
+            const normalized = String(itemName || "").trim().toLowerCase();
+            const limits = getStackLimits();
+            const value = limits[canonicalItemId(normalized)] ?? limits[normalized];
+            return Number.isInteger(value) && value >= 1 && value <= maxBedrockStackCount;
+        }
+
         function getMaxStack(itemName) {
             if (!itemName) return 64;
-            if (!isKnownItemId(itemName)) return maxBedrockStackCount;
+            if (!isKnownItemId(itemName) && !isAddableItemId(itemName)) return maxBedrockStackCount;
             const normalized = String(itemName).trim().toLowerCase();
             const stackLimits = getStackLimits();
-            const defaultLimit = stackLimits.__default__ ?? 64;
-            return stackLimits[normalized] ?? stackLimits[canonicalItemId(normalized)] ?? defaultLimit;
+            // An old __default__: 64 is not evidence for a newly registered ID.
+            return hasVerifiedStackLimit(normalized)
+                ? (stackLimits[canonicalItemId(normalized)] ?? stackLimits[normalized])
+                : 1;
         }
 
         function getMaxDamage(itemName) {
@@ -668,6 +677,7 @@
             getMaxDamage,
             vanillaExclusiveEnchantmentConflicts,
             getMaxStack,
+            hasVerifiedStackLimit,
             iconLookupCandidates,
             itemDamageLabel,
             itemComponent,

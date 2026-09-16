@@ -312,9 +312,12 @@
         }
     }
 
-    function slotQuickSubtitleHtml({ slotLabel = "", isEmpty = false, maxStack = "" } = {}) {
-        const secondLine = isEmpty ? "&nbsp;" : `${t("Max-Stack")} ${escapeHtml(String(maxStack))}`;
-        return `<span class="slot-quick-meta-line">${escapeHtml(slotLabel)}</span><span class="slot-quick-meta-line">${secondLine}</span>`;
+    function slotQuickSubtitleHtml({ slotLabel = "", isEmpty = false, maxStack = "", stackLimitVerified = true } = {}) {
+        const secondLine = isEmpty ? "&nbsp;" : stackLimitVerified
+            ? `${t("Max-Stack")} ${escapeHtml(String(maxStack))}`
+            : escapeHtml(t("Stacklimit ungeprüft – neue Stapel nur mit Menge 1"));
+        const limitClass = stackLimitVerified ? "" : " stack-limit-unverified";
+        return `<span class="slot-quick-meta-line">${escapeHtml(slotLabel)}</span><span class="slot-quick-meta-line${limitClass}">${secondLine}</span>`;
     }
 
     function slotQuickActionsModel({
@@ -322,6 +325,7 @@
         isEmpty = false,
         itemLabel = "",
         maxStack = "",
+        stackLimitVerified = true,
         isValidItem = false,
         damage = 0,
         repairableDamage = null,
@@ -332,13 +336,13 @@
             : Boolean(repairableDamage);
         return {
             titleText: isEmpty ? t("Leerer Slot") : itemLabel,
-            subtitleHtml: slotQuickSubtitleHtml({ slotLabel, isEmpty, maxStack }),
+            subtitleHtml: slotQuickSubtitleHtml({ slotLabel, isEmpty, maxStack, stackLimitVerified }),
             inspectDisabled: !hasInspectableNbt,
             inspectTitle: hasInspectableNbt
                 ? t("Geschützte Zusatzdaten für diesen Slot anzeigen")
                 : t("Keine geschützten Zusatzdaten in diesem Slot erkannt"),
             clearDisabled: isEmpty,
-            maxStackDisabled: isEmpty || !isValidItem,
+            maxStackDisabled: isEmpty || !isValidItem || !stackLimitVerified,
             repairDisabled: isEmpty || !canRepairDamage,
         };
     }

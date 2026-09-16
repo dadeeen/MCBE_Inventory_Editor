@@ -41,8 +41,8 @@ from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
 
 
 class TestGetMaxStack(unittest.TestCase):
-    def test_returns_default_for_unknown_item(self):
-        self.assertEqual(get_max_stack("minecraft:unknown"), 64)
+    def test_uses_safe_creation_bound_for_unknown_item(self):
+        self.assertEqual(get_max_stack("minecraft:unknown"), 1)
 
     def test_returns_default_for_unlisted_item(self):
         self.assertEqual(get_max_stack("minecraft:stone"), 64)

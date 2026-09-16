@@ -160,12 +160,14 @@
         return targets;
     }
 
-    function setTargetCounts(targets, { desired, getMaxStack = () => 64, maxBedrockStackCount = 127 } = {}) {
+    function setTargetCounts(targets, { desired, getMaxStack = () => 64, hasVerifiedStackLimit = () => true, maxBedrockStackCount = 127 } = {}) {
         let changed = 0;
         targets.forEach(({ map, slotId }) => {
             const item = map?.[slotId];
             if (!item) return;
             const maxStack = getMaxStack(item.name);
+            // Do not silently replace an existing amount with our safe fallback.
+            if (!hasVerifiedStackLimit(item.name) && desired > maxStack) return;
             const upperBound = Math.min(maxStack, maxBedrockStackCount);
             item.count = Math.min(Math.max(desired, 1), upperBound);
             changed += 1;

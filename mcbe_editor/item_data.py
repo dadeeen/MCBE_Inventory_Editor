@@ -14,7 +14,9 @@ from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
 from mcbe_editor.world_locks import locked_operation
 
-DEFAULT_MAX_STACK = 64
+# Safe creation bound when no per-item evidence is available. This is not a
+# claim about the item's actual in-game stack size.
+DEFAULT_MAX_STACK = 1
 DEFAULT_MAX_DAMAGE = 1561
 MAX_DATA_VALUE = 32767
 
@@ -292,6 +294,8 @@ def _str_int_dict(raw: Any, *, label: str) -> dict[str, int]:
         raise ValueError(f"Item-DB-Abschnitt {label} muss ein Objekt sein.")
     result: dict[str, int] = {}
     for key, value in raw.items():
+        if label == "stack_limits" and (type(value) is not int or not 1 <= value <= 127):
+            raise ValueError(f"Ungültiges Stacklimit für {key}: erwartet Ganzzahl zwischen 1 und 127.")
         result[str(key)] = int(value)
     return result
 
@@ -494,7 +498,9 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
         addable_item_ids = frozenset(addable_item_ids - technical_item_ids)
 
         db = {
-            "DEFAULT_MAX_STACK": int(defaults.get("max_stack", DEFAULT_MAX_STACK)),
+            # Old databases advertise a blanket 64. A missing per-item value
+            # must never regain that assumption through a persistent copy.
+            "DEFAULT_MAX_STACK": DEFAULT_MAX_STACK,
             "DEFAULT_MAX_DAMAGE": int(defaults.get("max_damage", DEFAULT_MAX_DAMAGE)),
             "MAX_DATA_VALUE": int(defaults.get("max_data_value", MAX_DATA_VALUE)),
             "STACK_LIMITS": _str_int_dict(raw.get("stack_limits", {}), label="stack_limits"),
@@ -701,10 +707,17 @@ def get_max_damage(item_name: str, durability: dict[str, int] | None = None) -> 
     return limits.get(normalized, limits.get(canonical_item_id(normalized), MAX_DATA_VALUE))
 
 
-def get_max_stack(item_name: str, stack_limits: dict[str, int] | None = None) -> int:
-    limits = stack_limits or STACK_LIMITS
+def has_verified_stack_limit(item_name: str, stack_limits: dict[str, int] | None = None) -> bool:
+    limits = STACK_LIMITS if stack_limits is None else stack_limits
     normalized = str(item_name or "").strip().lower()
-    return limits.get(normalized, limits.get(canonical_item_id(normalized), DEFAULT_MAX_STACK))
+    return normalized in limits or canonical_item_id(normalized) in limits
+
+
+def get_max_stack(item_name: str, stack_limits: dict[str, int] | None = None) -> int:
+    """Return a recorded limit, or the safe creation bound for an unknown one."""
+    limits = STACK_LIMITS if stack_limits is None else stack_limits
+    normalized = str(item_name or "").strip().lower()
+    return limits.get(canonical_item_id(normalized), limits.get(normalized, DEFAULT_MAX_STACK))
 
 
 def item_component(item_name: str, component_name: str) -> dict[str, Any] | None:

@@ -55,7 +55,7 @@ let itemDbStatus = null;
 let enchDb = {};         // From backend: ID -> {name_de, name_en, max_lvl}
 let enchantmentCompatibility = {}; // From backend: vanilla enchantment slot compatibility data
 let itemComponents = {}; // From Mojang behavior items: enchantable/repairable/wearable/dyeable
-let stackLimits = {};    // From backend: item_name -> max_stack (or __default__ = 64)
+let stackLimits = {};    // Explicit per-item limits; missing values use the safe bound 1.
 let maxDamage = {};      // From backend: item_name -> max_damage (or __default__ = 32767)
 let isDirty = false;
 let players = [];

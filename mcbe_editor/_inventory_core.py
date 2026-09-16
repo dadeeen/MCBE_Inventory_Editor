@@ -9,6 +9,7 @@ from mcbe_editor.item_data import (
     ENCHANTMENTS,
     get_max_damage,
     get_max_stack,
+    has_verified_stack_limit,
     is_addable_item_id,
     is_enchantable_item_id,
     is_enchantment_compatible_with_item,
@@ -2946,6 +2947,16 @@ def validate_item_stack_count(name: str, count: int, base_item_tag, duplicate_la
             original_count = _integer_tag_value_from_compound(base_item_tag, "Count")
     if original_count == count:
         return
+    if not has_verified_stack_limit(name):
+        raise ValueError(
+            t(
+                "{label}-Slot {slot}: Stacklimit für {name} ist noch ungeprüft. "
+                "Neue Stapel sind nur mit Menge 1 erlaubt; vorhandene Mengen bleiben unverändert erhalten.",
+                label=duplicate_label,
+                slot=slot,
+                name=name,
+            )
+        )
     raise ValueError(
         t(
             "{label}-Slot {slot}: Menge {count} überschreitet das Vanilla-Stacklimit {max} für {name}. "

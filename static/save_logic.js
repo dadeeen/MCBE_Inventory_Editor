@@ -33,6 +33,7 @@
             getWorldLabel,
             getMaxDamage,
             getMaxStack,
+            hasVerifiedStackLimit = () => true,
             hasMeaningfulObjectKeys,
             itemDisplayName,
             itemIsVisiblePresent,
@@ -298,7 +299,10 @@
             if (!Number.isFinite(count) || count < 1 || count > maxBedrockStackCount) {
                 issues.push({ level: "error", label: `${label}: ${t("ungültige Menge {count}; erlaubt sind 1 bis {max}.", { count: item.count, max: maxBedrockStackCount })}` });
             } else if (count > maxStack && !preservesOriginalCount) {
-                issues.push({ level: "error", label: `${label}: ${t("Menge {count} überschreitet das speicherbare Stacklimit {max} für {id}.", { count, max: maxStack, id: technicalId })}` });
+                const message = hasVerifiedStackLimit(item.name)
+                    ? t("Menge {count} überschreitet das speicherbare Stacklimit {max} für {id}.", { count, max: maxStack, id: technicalId })
+                    : t("Stacklimit ungeprüft. Neue Stapel sind nur mit Menge 1 erlaubt; vorhandene Mengen bleiben unverändert erhalten.");
+                issues.push({ level: "error", label: `${label}: ${message}` });
             }
             if (!Number.isFinite(damage) || (damage < 0 && !preservesOriginalDamage)) {
                 issues.push({ level: "error", label: `${label}: ${t("ungültige Abnutzung bzw. ungültiger Datenwert {damage}.", { damage: item.damage })}` });

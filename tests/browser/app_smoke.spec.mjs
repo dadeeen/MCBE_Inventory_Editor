@@ -185,7 +185,7 @@ test("copy keeps target stats and asks to create the target ender chest", async 
   expect(browserErrors).toEqual([]);
 });
 
-async function openDragFixture(page) {
+async function openDragFixture(page, overrides = {}) {
   const player = { player_key: "drag-player", label: "Drag Test", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: true };
   await page.route("**/api/icons/scan", route => route.fulfill({ json: { success: true, icons: {}, count: 0 } }));
   await page.route("**/api/heartbeat", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
@@ -202,12 +202,77 @@ async function openDragFixture(page) {
     hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
     items_db: { "minecraft:stone": ["Stein", "Stone"], "minecraft:carrot": ["Karotte", "Carrot"], "minecraft:iron_helmet": ["Eisenhelm", "Iron Helmet"] },
     ench_db: {}, stack_limits: { __default__: 64 }, max_damage: { __default__: 0 },
+    ...overrides,
   } }));
   await openAppWithSmokeWorldScan(page);
   await page.locator(".world-card").click();
   await page.locator("#btnLoad").click();
   await expect(page.locator("#inventoryContainer")).toBeVisible();
 }
+
+test("unverified stack limits preserve amounts and disable maximum actions", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  // This fixture tests local slot editing, not shared server status, asset
+  // setup, or presence. Keep those reads out of the suite-wide rate budget.
+  await page.route("**/api/server_status", route => route.fulfill({ json: {
+    success: true, status: "offline", write_gate: { allowed: true, read_allowed: true },
+  } }));
+  await page.route("**/api/item-db/status", route => route.fulfill({ json: {
+    item_db: { status: "ok", verification: { verified: true }, counts: { items: 2 } },
+  } }));
+  await page.route("**/api/icons/status", route => route.fulfill({ json: {
+    success: true, icons: {}, display_icons: {}, count: 0, sources: [], warnings: [],
+  } }));
+  await page.route("**/api/world/presence", route => route.fulfill({ json: {
+    success: true, other_sessions: [],
+  } }));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openDragFixture(page, {
+    inventory: {
+      0: { slot: 0, name: "minecraft:red_cushion", count: 16, damage: 0 },
+      1: { slot: 1, name: "minecraft:oak_sign", count: 1, damage: 0 },
+    },
+    items_db: { "minecraft:red_cushion": ["Rotes Kissen", "Red Cushion"], "minecraft:oak_sign": ["Eichenschild", "Oak Sign"] },
+    addable_items: ["minecraft:red_cushion", "minecraft:oak_sign"],
+    stack_limits: { __default__: 64, "minecraft:oak_sign": 16 },
+  });
+  await expect(page).toHaveTitle("Minecraft Bedrock Inventory Editor");
+  expect(new URL(page.url()).hostname).toBe("127.0.0.1");
+  await page.locator('[data-slot="0"]').click();
+  await expect(page.locator("#slotQuickSubtitle")).toContainText("Stacklimit ungeprüft");
+  await expect(page.locator("#btnQuickMaxStack")).toBeDisabled();
+  await expect(page.locator("#detailCount")).toHaveValue("16");
+  await page.mouse.move(0, 0);
+  await page.locator("#slotQuickActions").scrollIntoViewIfNeeded();
+  expect(await page.locator("#slotQuickActions").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  if (process.env.MCBE_QA_STACK_SCREENSHOT) {
+    await page.locator("#detailEditorPanel").screenshot({ path: process.env.MCBE_QA_STACK_SCREENSHOT });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#panelToggle [data-panel="right"]').click();
+  await expect(page.locator("#slotQuickSubtitle")).toBeVisible();
+  await page.locator("#slotQuickActions").scrollIntoViewIfNeeded();
+  expect(await page.locator("#slotQuickActions").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  if (process.env.MCBE_QA_STACK_MOBILE_SCREENSHOT) {
+    await page.locator("#detailEditorPanel").screenshot({ path: process.env.MCBE_QA_STACK_MOBILE_SCREENSHOT });
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.locator("#detailCount").fill("8");
+  await page.locator("#btnApplySingle").click();
+  await expect(page.locator('[data-slot="0"] .item-count')).toHaveText("16");
+  await page.locator('[data-slot="1"]').click();
+  await expect(page.locator("#btnQuickMaxStack")).toBeEnabled();
+  await page.locator("#btnQuickMaxStack").click();
+  await expect(page.locator("#detailCount")).toHaveValue("16");
+  await expect(page.locator('[data-slot="1"] .item-count')).toHaveText("16");
+  await page.locator('[data-slot="0"]').click();
+  await expect(page.locator("#detailCount")).toHaveValue("16");
+  await page.locator("#btnApplySingle").click();
+  await expect(page.locator('[data-slot="0"] .item-count')).toHaveText("16");
+  await expect(page.locator("#slotQuickSubtitle")).toContainText("Stacklimit ungeprüft");
+  await expect(page.locator("#btnQuickMaxStack")).toBeDisabled();
+  expect(browserErrors).toEqual([]);
+});
 
 async function openBackupSettings(page) {
   await page.locator('.app-section-nav [data-workflow-view="tools"]').click();
@@ -1511,6 +1576,8 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   const fences = Object.fromEntries(Object.entries(catalog.items).filter(([id]) => (
     catalog.addable_items.includes(id) && id.includes("fence")
   )));
+  const fenceCount = Object.keys(fences).length;
+  expect(fenceCount).toBeGreaterThan(20);
   // Registry order deliberately keeps the exact match behind its substring hits.
   const itemsDb = {
     ...fences,
@@ -1603,13 +1670,13 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   await page.locator("#detailItemSearch").fill("Zaun");
   const more = autocomplete.locator(".autocomplete-load-more");
   await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(10);
-  await expect(more).toHaveText("Weitere 10 von 15 anzeigen");
+  await expect(more).toHaveText(`Weitere 10 von ${fenceCount - 10} anzeigen`);
   await more.focus();
   await more.press("Enter");
   await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(20);
   await expect(autocomplete.locator(".autocomplete-item").nth(10)).toBeFocused();
-  await more.click();
-  await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(25);
+  while (await more.count()) await more.click();
+  await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(fenceCount);
   await expect(more).toHaveCount(0);
   await expect(autocomplete).toBeVisible();
   const fenceRow = autocomplete.locator(".autocomplete-item").filter({
@@ -1650,9 +1717,10 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   const bulkSearch = page.locator("#bulkItemSearch");
   const bulkList = page.locator("#bulkItemAutocomplete");
   await bulkSearch.fill("Zaun");
-  await bulkList.locator(".autocomplete-load-more").click();
-  await bulkList.locator(".autocomplete-load-more").click();
-  await expect(bulkList.locator(".autocomplete-item")).toHaveCount(25);
+  while (await bulkList.locator(".autocomplete-load-more").count()) {
+    await bulkList.locator(".autocomplete-load-more").click();
+  }
+  await expect(bulkList.locator(".autocomplete-item")).toHaveCount(fenceCount);
   const spruceRow = bulkList.locator(".autocomplete-item").filter({
     has: page.locator(".item-id", { hasText: /^minecraft:spruce_fence$/ }),
   });
@@ -1802,6 +1870,11 @@ test("fresh browser storage does not turn unavailable data statuses into setup w
 test("regular tools update refreshes the dismissed setup banner and resolves releases automatically", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   await dismissFirstRunSetup(page);
+  // This flow exercises asset updates; server polling is covered separately
+  // and must not consume the shared read budget of the smoke-test process.
+  await page.route("**/api/server_status", route => route.fulfill({ json: {
+    success: true, status: "offline", write_gate: { allowed: true, read_allowed: true },
+  } }));
   let updateRequest = null;
   await page.route("**/api/item-db/status", route => route.fulfill({
     status: 200,

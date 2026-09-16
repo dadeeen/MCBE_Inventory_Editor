@@ -65,11 +65,13 @@
     function stackCountFromForm({
         rawCount = 1,
         maxStack = 64,
+        stackLimitVerified = true,
         previousItem = null,
         itemName = "",
     } = {}) {
         const legalCount = clampInteger(rawCount, 1, 1, maxStack);
         const requestedCount = clampInteger(rawCount, 1, 1, MAX_BEDROCK_STACK_COUNT);
+        if (!stackLimitVerified) return requestedCount;
         const previousCount = Number(previousItem?.count);
         const preservesExistingOverstack = normalizedItemName(previousItem?.name) === normalizedItemName(itemName)
             && Number.isInteger(previousCount)
@@ -91,6 +93,7 @@
         currentPlayerKey = "",
         worldPath = "",
         maxStack = 64,
+        stackLimitVerified = true,
         maxDamage = 0,
         maxDisplayName = 64,
         maxLoreLines = 8,
@@ -118,6 +121,13 @@
             };
         }
 
+        if (!stackLimitVerified && Number(rawCount) > maxStack
+            && !(sameItem && Number(rawCount) === Number(previousItem.count))) {
+            return {
+                ok: false,
+                error: t("Stacklimit ungeprüft. Neue Stapel sind nur mit Menge 1 erlaubt; vorhandene Mengen bleiben unverändert erhalten."),
+            };
+        }
         const count = stackCountFromForm({
             rawCount,
             maxStack,
@@ -296,6 +306,7 @@
         hasTarget = false,
         rawName = "",
         maxStack = 64,
+        stackLimitVerified = true,
     } = {}) {
         if (!hasTarget) return { ok: false, reason: "no_target" };
         const name = normalizedItemName(rawName);
@@ -310,6 +321,7 @@
                 },
             };
         }
+        if (!stackLimitVerified) return { ok: false, reason: "unverified_stack_limit" };
         return { ok: true, count: maxStack };
     }
 
@@ -607,6 +619,7 @@
                 : logic.stackCountFromForm({
                     rawCount: elements.detailCount?.value,
                     maxStack,
+                    stackLimitVerified: itemCatalog.hasVerifiedStackLimit(itemId),
                     previousItem: sourceItem,
                     itemName: itemId,
                 });
@@ -740,6 +753,7 @@
                 currentPlayerKey: getCurrentPlayerKey?.(),
                 worldPath: getWorldPath?.(),
                 maxStack,
+                stackLimitVerified: itemCatalog.hasVerifiedStackLimit(name),
                 maxDamage: maxDmg,
                 maxDisplayName,
                 maxLoreLines,
@@ -771,6 +785,7 @@
                 isEmpty,
                 itemLabel: detailItemLabel(name, elements.detailCustomName?.value || "", damage),
                 maxStack,
+                stackLimitVerified: itemCatalog.hasVerifiedStackLimit(name),
                 isValidItem: itemCatalog.isValidItemId(name),
                 damage,
                 repairableDamage: itemCatalog.itemUsesDurabilityDamage(name) && damage > 0,
@@ -1013,6 +1028,7 @@
                 hasTarget: Boolean(target),
                 rawName: name,
                 maxStack: target ? itemCatalog.getMaxStack(name) : 64,
+                stackLimitVerified: itemCatalog.hasVerifiedStackLimit(name),
             });
             if (!plan.ok) {
                 if (plan.toast) showToast?.(plan.toast.message, plan.toast.type, plan.toast.ms);

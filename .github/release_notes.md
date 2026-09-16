@@ -2,6 +2,8 @@ Runtime package for the Minecraft Bedrock Inventory Editor.
 
 ## What changed in v0.5.23
 
+- The bundled item registry now includes the 105 additions from Bedrock 26.50. Incorrect default stack sizes for 142 older items, including boats, signs, minecarts, entity buckets, and shulker boxes, are corrected.
+- Stack limits now require an explicit per-item value. The updater accepts both documented Mojang component forms and rejects invalid or conflicting values. Missing values no longer imply 64: new stacks are limited to 1, Max-Stack is disabled, and existing amounts remain preserved unchanged. Unverified limits are visible in the editor and update log; this includes the new 26.50 items whose public definitions omit their limits.
 - Automatic, manual, and pre-restore backups now share source-consistency checks. World metadata must remain unchanged through ZIP creation, verification, synchronization, and publication. A detected change aborts the backup and any dependent write or restore.
 - The source is checked before the ZIP receives its regular backup filename, so a detected mixed archive cannot become visible if the process stops or cleanup fails. A final check also catches changes during publication. Failed cleanup of a published backup remains visible in the error response.
 - Completed ZIPs are explicitly synchronized to storage before publication, including the hard-link path. The copy fallback also synchronizes its target; directory entries are synchronized where supported. Actual synchronization errors stop dependent writes, and a later close error cannot hide the original failure.

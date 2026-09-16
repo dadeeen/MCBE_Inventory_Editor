@@ -34,6 +34,8 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
 
 Falls noch kein Release vorhanden ist, können erfahrene Nutzer die Source-Einrichtung weiter unten verwenden.
 
+Stapelgrößen stammen aus ausdrücklichen Mojang-Komponenten und geprüften Bedrock-Werten. Fehlt für ein aktualisiertes Item eine bestätigte Grenze, sind neue Stapel zunächst auf **1** begrenzt und **Max-Stack** ist deaktiviert. Vorhandene Mengen bleiben unverändert erhalten; der Editor leitet aus Namen oder Registry-Einträgen keine 64er-Grenze ab. Das Update-Protokoll nennt die Anzahl noch ungeprüfter Grenzen.
+
 ## Warum es dieses Projekt gibt
 
 Der Editor ist für einen privaten Bedrock-Server entstanden. Kleine Korrekturen an Inventar oder Spielerwerten bedeuteten jedes Mal, die Weltdateien an einen Windows-Rechner zu kopieren — für eine Routinekorrektur unverhältnismäßig viel Aufwand.

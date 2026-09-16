@@ -413,7 +413,6 @@ class TestMicrosoftItemListings(unittest.TestCase):
                         "minecraft:item": {
                             "description": {"identifier": "minecraft:invalid_limits"},
                             "components": {
-                                "minecraft:max_stack_size": 128,
                                 "minecraft:durability": {"max_durability": True},
                             },
                         }

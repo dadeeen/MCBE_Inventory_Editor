@@ -113,6 +113,20 @@ CURATED_ENGINE_DURABILITY = {
     "minecraft:wolf_armor": 64,
 }
 
+# Include explicit 64s from the reviewed snapshot as well. Registry membership
+# or an item name never proves a stack size. Do not retain data-driven values
+# here: a later Mojang release may remove those components again.
+_bundled_limits = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))
+_bundled_component_ids = set(_bundled_limits.get("behavior_item_source", {}).get("stack_limit_items", []))
+CURATED_ENGINE_STACK_LIMITS = {
+    **CURATED_ENGINE_STACK_LIMITS,
+    **{
+        item_id: limit
+        for item_id, limit in _bundled_limits.get("stack_limits", {}).items()
+        if item_id not in _bundled_component_ids
+    },
+}
+
 # Nur Komponenten, die im Editor tatsächlich eine Entscheidung treffen:
 # ``enchantable`` bestimmt die Verzauberungs-Kompatibilität, ``wearable`` die
 # Rüstungsslots. Weitere Mojang-Komponenten werden bewusst nicht extrahiert;
@@ -1054,6 +1068,7 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
     """
 
     stack_limits: dict[str, int] = {}
+    seen_stack_limits: dict[str, int | None] = {}
     durability: dict[str, int] = {}
     tracked: dict[str, dict[str, dict]] = {component: {} for component in TRACKED_ITEM_COMPONENTS}
     for info in sorted(zf.infolist(), key=lambda entry: entry.filename.replace("\\", "/").lower()):
@@ -1073,9 +1088,22 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
         if not re.fullmatch(r"minecraft:[a-z0-9_.-]+", identifier) or not isinstance(components, dict):
             continue
 
-        raw_stack = components.get("minecraft:max_stack_size")
-        if type(raw_stack) is int and 1 <= raw_stack <= 127:
+        raw_stack = None
+        if "minecraft:max_stack_size" in components:
+            raw_stack = components["minecraft:max_stack_size"]
+            # Both forms are documented by Mojang. An explicitly present empty
+            # object uses the component's documented value default, unlike an
+            # absent component on an engine-defined Vanilla item.
+            if isinstance(raw_stack, dict):
+                if set(raw_stack) - {"value"}:
+                    raise _component_error(member, "max_stack_size", tr("unbekannte Felder"))
+                raw_stack = raw_stack.get("value", 64)
+            if type(raw_stack) is not int or not 1 <= raw_stack <= 127:
+                raise _component_error(member, "max_stack_size", tr("value muss eine Ganzzahl zwischen 1 und 127 sein"))
             stack_limits[identifier] = raw_stack
+        if identifier in seen_stack_limits and seen_stack_limits[identifier] != raw_stack:
+            raise _component_error(member, "max_stack_size", tr("widersprüchliche Stacklimits für {id}", id=identifier))
+        seen_stack_limits[identifier] = raw_stack
 
         durability_component = components.get("minecraft:durability")
         raw_durability = durability_component.get("max_durability") if isinstance(durability_component, dict) else None
@@ -2077,7 +2105,7 @@ def write_all_dicts(
 ) -> None:
     data = _load_item_db_json()
     data["schema_version"] = 3
-    data.setdefault("defaults", {"max_stack": 64, "max_damage": 1561, "max_data_value": 32767})
+    data.setdefault("defaults", {"max_damage": 1561, "max_data_value": 32767})["max_stack"] = 1
     data.setdefault("stack_limits", {})
     data.setdefault("durability", {})
     data.setdefault("item_components", {component: {} for component in TRACKED_ITEM_COMPONENTS})
@@ -2591,6 +2619,12 @@ def main() -> int:
                     show_diff("STACK_LIMITS", old_stack_limits, new_stack_limits)
                     changes.append("STACK_LIMITS")
                     final_stack_limits = new_stack_limits
+                unverified_stack_count = len(set(new_addable_items) - set(new_stack_limits))
+                if unverified_stack_count:
+                    log(tr(
+                        "Ungeprüfte Stacklimits: {count}. Neue Stapel dieser Items bleiben auf Menge 1 begrenzt.",
+                        count=unverified_stack_count,
+                    ))
                 message = tr(
                     "Stack-Limits: {old_count} -> {new_count}",
                     old_count=len(old_stack_limits),
