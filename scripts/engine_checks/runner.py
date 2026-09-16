@@ -123,12 +123,13 @@ def docker_command(args: list[str], *, timeout: float = 30) -> str:
     return result.stdout.strip()
 
 
-def container_arguments(server: Path, name: str, image_id: str) -> list[str]:
+def container_arguments(server: Path, name: str, image_id: str, owner: str | None = None) -> list[str]:
     source = str(server.resolve())
     if "," in source:
         raise ProbeError("Docker bind-mount paths may not contain commas")
     return [
         "create", "--interactive", "--name", name, "--label", "mcbe.engine-probe=true",
+        "--label", f"mcbe.engine-probe.owner={owner or name}",
         "--network", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
         "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m", "--memory", "2g", "--cpus", "2", "--pids-limit", "256",
         "--user", f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") else "0:0",
@@ -139,14 +140,17 @@ def container_arguments(server: Path, name: str, image_id: str) -> list[str]:
 
 def run_phase(server: Path, run_dir: Path, phase: str, run_id: str, version: str, image_id: str, timeout: float) -> list[dict]:
     name = f"mcbe-engine-{uuid.uuid4().hex}"
-    container_id = docker_command(container_arguments(server, name, image_id))
-    if not re.fullmatch(r"[0-9a-f]{64}", container_id):
-        raise ProbeError("Docker did not return an owned container ID")
+    owner = uuid.uuid4().hex
+    container_id = None
     process = None
     transcript = Transcript(run_id, phase, version)
     lines: queue.Queue[str | None] = queue.Queue()
     failure = None
     try:
+        created_id = docker_command(container_arguments(server, name, image_id, owner))
+        if not re.fullmatch(r"[0-9a-f]{64}", created_id):
+            raise ProbeError("Docker did not return an owned container ID")
+        container_id = created_id
         process = subprocess.Popen(["docker", "start", "--attach", "--interactive", container_id], stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
 
@@ -196,10 +200,20 @@ def run_phase(server: Path, run_dir: Path, phase: str, run_id: str, version: str
         raise
     finally:
         try:
-            docker_command(["rm", "--force", container_id], timeout=20)
-        except ProbeError:
-            if failure is None:
-                raise
+            if container_id is None:
+                # A timed-out create can have succeeded in the daemon before
+                # the CLI lost its response. Never discover/delete by a shared
+                # label alone: this token is unique to this create attempt.
+                recovered = docker_command(["ps", "--all", "--no-trunc", "--filter", f"label=mcbe.engine-probe.owner={owner}",
+                                            "--format", "{{.ID}}"])
+                if recovered and not re.fullmatch(r"[0-9a-f]{64}", recovered):
+                    raise ProbeError("Could not identify one owned container for cleanup")
+                container_id = recovered or None
+            if container_id is not None:
+                docker_command(["rm", "--force", container_id], timeout=20)
+        except ProbeError as cleanup_error:
+            original = f"{failure or type(failure).__name__}; " if failure is not None else ""
+            raise ProbeError(f"{original}Cleanup failed for owned container {container_id or name}: {cleanup_error}") from cleanup_error
         finally:
             if process is not None:
                 if process.poll() is None:
@@ -210,17 +224,27 @@ def run_phase(server: Path, run_dir: Path, phase: str, run_id: str, version: str
                         stream.close()
 
 
+def source_hashes() -> dict[str, str]:
+    result = {}
+    for label, directory in (("probe_sha256", Path(__file__).parent), ("editor_source_sha256", ROOT / "mcbe_editor")):
+        digest = hashlib.sha256()
+        for path in sorted(directory.rglob("*")):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            if label == "editor_source_sha256" and path.suffix not in {".py", ".json"}:
+                continue
+            digest.update(path.relative_to(directory).as_posix().encode() + b"\0" + path.read_bytes())
+        result[label] = digest.hexdigest()
+    return result
+
+
 def editor_provenance() -> dict:
     def git(*args):
         result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, timeout=10, check=False)
         return result.stdout if result.returncode == 0 else b"unavailable"
 
-    probe_digest = hashlib.sha256()
-    for path in sorted(Path(__file__).parent.rglob("*")):
-        if path.is_file() and "__pycache__" not in path.parts:
-            probe_digest.update(path.relative_to(Path(__file__).parent).as_posix().encode() + b"\0" + path.read_bytes())
     return {"commit": git("rev-parse", "HEAD").decode().strip(), "dirty": bool(git("status", "--porcelain")),
-            "diff_sha256": hashlib.sha256(git("diff", "HEAD", "--binary")).hexdigest(), "probe_sha256": probe_digest.hexdigest()}
+            "diff_sha256": hashlib.sha256(git("diff", "HEAD", "--binary")).hexdigest(), **source_hashes()}
 
 
 def nbt_worker(run_dir: Path, action: str) -> dict:
@@ -258,8 +282,12 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
     if suite not in {"catalog", "items"}:
         raise ProbeError("Unknown engine check suite")
     resolved_work = work_root.resolve()
-    if resolved_work.is_relative_to(ROOT):
-        relative = (resolved_work / "engine-probe-output.json").relative_to(ROOT)
+    run_id = uuid.uuid4().hex
+    run_dir = resolved_work / (datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ-") + run_id[:12])
+    if run_dir.is_relative_to(ROOT):
+        # The directory itself must be excluded. An ignored *.json marker says
+        # nothing about whether the generated LevelDB/world files are ignored.
+        relative = run_dir.relative_to(ROOT).as_posix() + "/"
         ignored = subprocess.run(["git", "check-ignore", "--quiet", "--no-index", str(relative)], cwd=ROOT, timeout=10, check=False)
         if ignored.returncode != 0:
             raise ProbeError("Generated engine worlds must be placed in a Git-ignored work directory")
@@ -269,8 +297,6 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
     image_id = image_info["Id"]
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
         raise ProbeError("Docker image has no immutable local ID")
-    run_id = uuid.uuid4().hex
-    run_dir = resolved_work / (datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ-") + run_id[:12])
     run_dir.mkdir(parents=True, exist_ok=False)
     bundled_path = ROOT / "mcbe_editor/resources/item_db.json"
     catalog_path = bundled_path if catalog_path is None else catalog_path.resolve(strict=True)
@@ -330,6 +356,10 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                                    "write_path": "production item builder, codec, backup and native batch; test carrier adapter"}
         else:
             report["not_covered"].append("item NBT persistence (catalog-only run)")
+        # Phases and fresh workers load source files at different times. Do not
+        # attribute a mixed-source run to the snapshot recorded at startup.
+        if any(report["editor"][key] != digest for key, digest in source_hashes().items()):
+            raise ProbeError("Probe or editor sources changed during the run; rerun with stable sources")
         report["status"] = catalog["status"]
     except (ProbeError, OSError, ValueError, subprocess.SubprocessError) as exc:
         report["status"] = "fail"

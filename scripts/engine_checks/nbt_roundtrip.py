@@ -13,7 +13,7 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 
-from .cases import CARRIER_PREFIX, CONTROL_NAME
+from .cases import CARRIER_PREFIX, CONTROL_NAME, expected_snapshot
 from .protocol import ProbeError
 from .runner import WORLD_NAME, sha256
 
@@ -56,6 +56,20 @@ def read_records(world: Path) -> dict[bytes, bytes]:
         return dict(db.iter_items())
     finally:
         db.close()
+
+
+def indexed_items(items) -> dict:
+    from mcbe_editor import nbt
+
+    indexed = {}
+    for item in items:
+        if not isinstance(item, nbt.CompoundTag) or not isinstance(item.get("Slot"), nbt.ByteTag):
+            raise ProbeError("Carrier item has an invalid slot encoding")
+        slot = value(item, "Slot")
+        if not 0 <= slot <= 26 or slot in indexed:
+            raise ProbeError("Carrier contains a duplicated or invalid slot")
+        indexed[slot] = item
+    return indexed
 
 
 def carriers(records: dict[bytes, bytes], expected_names: set[str]) -> dict:
@@ -107,6 +121,10 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
     writes = {}
     for name, (key, named, field) in found.items():
         original_items = deepcopy(named.tag[field])
+        # Freeze the comparison before any editor code receives these mutable
+        # tags. A builder that accidentally mutates its input must not redefine
+        # the reference against which its output is checked.
+        before_bytes = {slot: item.save_to() for slot, item in indexed_items(original_items).items()}
         wrapper = nbt.CompoundTag({"Inventory": original_items})
         parsed, _ = nbt_to_json(wrapper)
         payloads = dict(parsed)
@@ -124,10 +142,9 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
                 "damage": case["damage"], "display_name": case["name"], "lore": case["lore"], "enchantments": [],
             }
         result = build_inventory_nbt(wrapper, list(payloads.values()), ENCHANTMENTS)
-        before = {value(item, "Slot"): item for item in original_items}
-        after = {value(item, "Slot"): item for item in result}
+        after = indexed_items(result)
         for slot in [26, *(case["slot"] for case in grouped[name] if case["mode"] == "preserve")]:
-            if slot not in before or slot not in after or before[slot].save_to() != after[slot].save_to():
+            if slot not in before_bytes or slot not in after or before_bytes[slot] != after[slot].save_to():
                 raise ProbeError("Editor changed an untouched engine-created item")
         # Replacing this one field must leave all other typed actor data intact.
         named.tag[field] = result
@@ -139,21 +156,70 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
     return writes
 
 
-def verify_saved_items(records: dict[bytes, bytes], cases: list[dict]) -> dict:
+def disk_snapshot(item, case: dict) -> dict:
+    """Read the tested fields independently of the production item builder."""
     from mcbe_editor import nbt
 
+    def compound(parent, key):
+        result = parent.get(key, nbt.CompoundTag())
+        if not isinstance(result, nbt.CompoundTag):
+            raise ProbeError(f"Saved NBT has an invalid {key} compound")
+        return result
+
+    if not isinstance(item.get("Count"), nbt.ByteTag) or value(item, "Count") != case["amount"]:
+        raise ProbeError(f"Saved NBT changed the amount in {case['case_id']}")
+    if not isinstance(item.get("Name"), nbt.StringTag):
+        raise ProbeError("Saved NBT has an invalid item name")
+    tag = compound(item, "tag")
+    display = compound(tag, "display")
+    name = display.get("Name", nbt.StringTag(""))
+    lore = display.get("Lore", nbt.ListTag([]))
+    if not isinstance(name, nbt.StringTag) or not isinstance(lore, nbt.ListTag) or any(not isinstance(line, nbt.StringTag) for line in lore):
+        raise ProbeError("Saved NBT has invalid display text")
+    # No enchanted cases are generated yet. Do not silently discard unknown
+    # enchantment entries as a permissive application reader might do.
+    for field in ("ench", "enchantments"):
+        entries = tag.get(field, nbt.ListTag([]))
+        if not isinstance(entries, nbt.ListTag) or entries:
+            raise ProbeError("Saved NBT contains unexpected enchantments")
+    damage = 0
+    if case.get("durable"):
+        damage_tag = tag.get("Damage", nbt.IntTag(0))
+        if not isinstance(damage_tag, nbt.IntTag):
+            raise ProbeError("Saved NBT has invalid durability")
+        damage = damage_tag.py_data
+    return {"id": value(item, "Name"), "amount": value(item, "Count"), "name": name.py_data,
+            "lore": [line.py_data for line in lore], "damage": damage, "enchantments": []}
+
+
+def empty_saved_slot(item) -> bool:
+    """BDS can persist unused carrier slots as explicit, typed empty records."""
+    from mcbe_editor import nbt
+
+    return (isinstance(item.get("Name"), nbt.StringTag) and value(item, "Name") == ""
+            and isinstance(item.get("Count"), nbt.ByteTag) and value(item, "Count") == 0
+            and set(item) <= {"Slot", "Name", "Count", "Damage", "WasPickedUp"}
+            and ("Damage" not in item or isinstance(item["Damage"], nbt.ShortTag) and value(item, "Damage") == 0)
+            and ("WasPickedUp" not in item or isinstance(item["WasPickedUp"], nbt.ByteTag) and value(item, "WasPickedUp") == 0))
+
+
+def verify_saved_items(records: dict[bytes, bytes], cases: list[dict]) -> dict:
     found = carriers(records, {case["carrier"] for case in cases})
+    indexed = {name: {slot: item for slot, item in indexed_items(named.tag[field]).items() if not empty_saved_slot(item)}
+               for name, (_key, named, field) in found.items()}
+    for name, items in indexed.items():
+        expected_slots = {26} | {case["slot"] for case in cases if case["carrier"] == name}
+        if items.keys() != expected_slots:
+            raise ProbeError("Saved NBT lost items or contains unexpected slots")
+        control = {"case_id": f"{name}/control", "id": "minecraft:stone", "amount": 1, "name": CONTROL_NAME,
+                   "lore": [], "damage": 0, "enchantments": []}
+        if disk_snapshot(items[26], control) != expected_snapshot(control):
+            raise ProbeError("Saved NBT changed an untouched control")
     digest = hashlib.sha256()
     for case in cases:
-        _key, named, field = found[case["carrier"]]
-        matches = [item for item in named.tag[field] if value(item, "Slot") == case["slot"]]
-        if len(matches) != 1:
-            raise ProbeError(f"Saved NBT lost or duplicated {case['case_id']}")
-        item = matches[0]
-        if not isinstance(item.get("Count"), nbt.ByteTag) or value(item, "Count") != case["amount"]:
-            raise ProbeError(f"Saved NBT changed the amount in {case['case_id']}")
-        if not isinstance(item.get("Name"), nbt.StringTag) or not value(item, "Name"):
-            raise ProbeError(f"Saved NBT has no valid item name in {case['case_id']}")
+        item = indexed[case["carrier"]][case["slot"]]
+        if disk_snapshot(item, case) != expected_snapshot(case):
+            raise ProbeError(f"Saved NBT changed item semantics in {case['case_id']}")
         digest.update(case["case_id"].encode() + item.save_to())
     return {"status": "pass", "cases": len(cases), "carriers": len(found), "item_nbt_sha256": digest.hexdigest()}
 
@@ -194,7 +260,8 @@ def run(run_dir: Path, action: str) -> dict:
     if not cases or any(not case["carrier"].startswith(CARRIER_PREFIX) for case in cases):
         raise ProbeError("Invalid generated test cases")
     world = run_dir / "server" / "worlds" / WORLD_NAME
-    if not world.resolve(strict=True).is_relative_to(run_dir) or any(path.is_symlink() for path in (world, world / "db")):
+    if any(not path.resolve(strict=True).is_relative_to(run_dir) or path.is_symlink() or path.is_junction()
+           for path in (world, world / "db")):
         raise ProbeError("World escaped the disposable run directory")
     before = read_records(world)
     if action == "verify":

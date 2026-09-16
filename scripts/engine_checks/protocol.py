@@ -107,12 +107,13 @@ def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits:
     unsupported = sorted(item for item in expected_ids if item in observed and observed[item]["max_amount"] > 127)
     registry_missing = sorted(set(expected_ids) - set(registered))
     registry_extra = sorted(set(registered) - set(expected_ids))
+    candidates = {item: observed[item]["max_amount"] for item in sorted(observed) if item not in recorded_limits}
     return {
-        "status": "fail" if mismatches or unsupported else "partial" if missing or errors or registry_missing or registry_extra else "pass",
+        "status": "fail" if mismatches or unsupported else "partial" if missing or errors or registry_missing or registry_extra or candidates else "pass",
         "expected_count": len(expected_ids), "observed_count": len(set(expected_ids) & observed.keys()),
         "missing": missing, "mismatches": mismatches, "outside_editor_count_range": unsupported,
         "registry_missing": registry_missing,
         "registry_extra": registry_extra,
         "observations": dict(sorted(observed.items())), "errors": dict(sorted(errors.items())),
-        "new_limit_candidates": {item: observed[item]["max_amount"] for item in sorted(observed) if item not in recorded_limits},
+        "new_limit_candidates": candidates,
     }

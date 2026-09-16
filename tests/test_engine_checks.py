@@ -374,3 +374,227 @@ assert item_data.get_max_stack('minecraft:stone') == int(sys.argv[2])
                             env={**os.environ, "MCBE_ITEM_DB_PATH": str(tmp_path / "catalog.json")},
                             capture_output=True, text=True, timeout=30, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_missing_catalog_limit_requires_review_even_when_engine_measurement_succeeds():
+    events = [
+        {"kind": "registry", "ids": ["minecraft:stone"]},
+        {"kind": "item", "id": "minecraft:stone", "max_amount": 64, "components": [], "max_durability": None},
+    ]
+    assert catalog_result(events, ["minecraft:stone"], {})["status"] == "partial"
+
+
+def test_roundtrip_requires_an_explicit_empty_snapshot_in_seed_output():
+    cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
+    events = [{"kind": "case", "case_id": case["case_id"], "snapshot": expected_snapshot(case, seed=True)} for case in cases]
+    del events[0]["snapshot"]
+    with pytest.raises(ProbeError):
+        validate_case_events(events, cases, seed=True)
+
+
+@pytest.mark.parametrize("amount", [True, 1.0, float("nan")])
+def test_roundtrip_rejects_malformed_numeric_snapshots(amount):
+    cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
+    events = [{"kind": "case", "case_id": case["case_id"], "snapshot": expected_snapshot(case)} for case in cases]
+    events[0]["snapshot"]["amount"] = amount
+    with pytest.raises(ProbeError):
+        validate_case_events(events, cases)
+
+
+def test_run_cannot_pass_with_editor_sources_changed_during_measurement(tmp_path, monkeypatch):
+    from scripts.engine_checks import runner
+
+    root = tmp_path / "repo"
+    resources = root / "mcbe_editor" / "resources"
+    resources.mkdir(parents=True)
+    runner.write_json(resources / "item_db.json", {"addable_items": ["minecraft:stone"], "stack_limits": {"minecraft:stone": 64}})
+    source = resources.parent / "inventory.py"
+    source.write_text("original_source = True\n", encoding="utf-8")
+    archive, digest = server_zip(tmp_path)
+    monkeypatch.setattr(runner, "ROOT", root)
+    monkeypatch.setattr(runner, "docker_command", lambda *_args, **_kwargs: json.dumps({
+        "Os": "linux", "Architecture": "amd64", "Id": "sha256:" + "a" * 64,
+    }))
+
+    def changed_source(*_args):
+        source.write_text("original_source = False\n", encoding="utf-8")
+        return [
+            {"kind": "registry", "ids": ["minecraft:stone"]},
+            {"kind": "item", "id": "minecraft:stone", "max_amount": 64, "components": [], "max_durability": None},
+        ]
+
+    monkeypatch.setattr(runner, "run_phase", changed_source)
+    _directory, report = runner.run_probe(archive, digest, "1.26.50.5", "unused", tmp_path / "runs", "catalog", 30)
+    assert report["status"] == "fail"
+    assert "sources changed" in report["failure"]
+
+
+def test_nbt_control_comparison_cannot_be_changed_by_a_mutating_builder(monkeypatch):
+    from mcbe_editor import inventory, nbt
+
+    real_builder = inventory.build_inventory_nbt
+
+    def corrupt_both_input_and_output(wrapper, *args, **kwargs):
+        result = real_builder(wrapper, *args, **kwargs)
+        for items in (wrapper["Inventory"], result):
+            control = next(item for item in items if item["Slot"].py_data == 26)
+            control["tag"]["unexpected_mutation"] = nbt.LongTag(1234)
+        return result
+
+    cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
+    records = synthetic_carriers(cases)
+    monkeypatch.setattr(inventory, "build_inventory_nbt", corrupt_both_input_and_output)
+    with pytest.raises(ProbeError, match="untouched"):
+        build_item_writes(records, cases)
+
+
+@pytest.mark.parametrize("mutation", ["identity", "name", "lore", "damage", "enchantment", "extra-slot"])
+def test_final_disk_verification_detects_data_loss_after_the_last_engine_observation(mutation):
+    from mcbe_editor import nbt
+    from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
+
+    observations = {"minecraft:bow": {"max_amount": 1, "max_durability": 384}}
+    cases = make_cases(list(observations), observations, {"minecraft:bow": 1})
+    records = synthetic_carriers(cases)
+    records.update(build_item_writes(records, cases))
+    verify_saved_items(records, cases)
+    key = next(key for key in records if key.startswith(b"actorprefix"))
+    actor = load_player_nbt(records[key])
+    target_case = next(case for case in cases if case["damage"]) if mutation == "damage" else next(
+        case for case in cases if case["name"]
+    )
+    target = next(item for item in actor.tag["ChestItems"] if item["Slot"].py_data == target_case["slot"])
+    if mutation == "identity":
+        target["Name"] = nbt.StringTag("minecraft:stone")
+    elif mutation == "name":
+        del target["tag"]["display"]["Name"]
+    elif mutation == "lore":
+        del target["tag"]["display"]["Lore"]
+    elif mutation == "damage":
+        target["tag"]["Damage"] = nbt.IntTag(0)
+    elif mutation == "enchantment":
+        target["tag"]["ench"] = nbt.ListTag([nbt.CompoundTag({"id": nbt.ShortTag(19), "lvl": nbt.ShortTag(1)})])
+    else:
+        extra = deepcopy(target)
+        extra["Slot"] = nbt.ByteTag(24)
+        actor.tag["ChestItems"].append(extra)
+    records[key] = save_player_nbt(actor)
+    with pytest.raises(ProbeError):
+        verify_saved_items(records, cases)
+
+
+@pytest.mark.parametrize("mutation", [None, "identity", "count-type", "count", "hidden-tag"])
+def test_disk_verification_accepts_only_canonical_empty_engine_slots(mutation):
+    from mcbe_editor import nbt
+    from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
+
+    cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {"minecraft:stone": 64})
+    records = synthetic_carriers(cases)
+    records.update(build_item_writes(records, cases))
+    key = next(key for key in records if key.startswith(b"actorprefix"))
+    actor = load_player_nbt(records[key])
+    empty = nbt.CompoundTag({"Slot": nbt.ByteTag(24), "Name": nbt.StringTag(""), "Count": nbt.ByteTag(0),
+                             "Damage": nbt.ShortTag(0), "WasPickedUp": nbt.ByteTag(0)})
+    if mutation == "identity":
+        empty["Name"] = nbt.StringTag("minecraft:stone")
+    elif mutation == "count-type":
+        empty["Count"] = nbt.ShortTag(0)
+    elif mutation == "count":
+        empty["Count"] = nbt.ByteTag(1)
+    elif mutation == "hidden-tag":
+        empty["tag"] = nbt.CompoundTag({"unexpected": nbt.IntTag(1)})
+    actor.tag["ChestItems"].append(empty)
+    records[key] = save_player_nbt(actor)
+    if mutation is None:
+        assert verify_saved_items(records, cases)["status"] == "pass"
+    else:
+        with pytest.raises(ProbeError):
+            verify_saved_items(records, cases)
+
+
+def test_cleanup_failure_keeps_original_error_and_identifies_remaining_container(tmp_path, monkeypatch):
+    from scripts.engine_checks import runner
+
+    class Process:
+        stdin = io.StringIO()
+        stdout = io.StringIO("Version: 1.26.51.1\n")
+
+        def wait(self, **_kwargs):
+            return 0
+
+        def poll(self):
+            return 0
+
+    def docker(args, **_kwargs):
+        if args[0] == "create":
+            return "b" * 64
+        if args[0] == "rm":
+            raise ProbeError("daemon refused cleanup")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(runner, "docker_command", docker)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    with pytest.raises(ProbeError) as caught:
+        runner.run_phase(tmp_path, tmp_path, "catalog", "test-run", "1.26.50.5", "sha256:" + "a" * 64, 10)
+    assert "version mismatch" in str(caught.value)
+    assert "daemon refused cleanup" in str(caught.value)
+    assert "b" * 64 in str(caught.value)
+
+
+def test_failed_create_recovers_only_the_container_with_its_unique_owner_label(tmp_path, monkeypatch):
+    from scripts.engine_checks import runner
+
+    calls = []
+
+    def docker(args, **_kwargs):
+        calls.append(list(args))
+        if args[0] == "create":
+            raise ProbeError("Create response was lost")
+        if args[0] == "ps":
+            return "c" * 64
+        if args[0] == "rm":
+            return ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(runner, "docker_command", docker)
+    with pytest.raises(ProbeError, match="Create response was lost"):
+        runner.run_phase(tmp_path, tmp_path, "catalog", "test-run", "1.26.50.5", "sha256:" + "a" * 64, 10)
+    assert calls[-1] == ["rm", "--force", "c" * 64]
+    owner = next(arg for arg in calls[0] if arg.startswith("mcbe.engine-probe.owner="))
+    assert f"label={owner}" in calls[1]
+
+
+def test_ignoring_only_json_does_not_make_generated_worlds_safe_to_place_in_git(tmp_path, monkeypatch):
+    import subprocess
+    from scripts.engine_checks import runner
+
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".gitignore").write_text("*.json\n", encoding="utf-8")
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(runner, "docker_command", lambda *_args, **_kwargs: pytest.fail("Unsafe output path reached Docker"))
+    with pytest.raises(ProbeError, match="Git-ignored"):
+        runner.run_probe(tmp_path / "server.zip", "a" * 64, "1.26.50.5", "unused", tmp_path / "reports", "items", 30)
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows directory junction regression")
+def test_offline_worker_rejects_a_database_junction_before_opening_it(tmp_path, monkeypatch):
+    import _winapi
+    from scripts.engine_checks import nbt_roundtrip
+    from scripts.engine_checks.runner import WORLD_NAME, sha256, write_json
+
+    run_dir = tmp_path / "run"
+    world = run_dir / "server" / "worlds" / WORLD_NAME
+    world.mkdir(parents=True)
+    outside = tmp_path / "unrelated-database"
+    outside.mkdir()
+    _winapi.CreateJunction(str(outside), str(world / "db"))
+    try:
+        cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {})
+        write_json(run_dir / "cases.json", cases)
+        write_json(run_dir / "run.json", {"format": "mcbe-engine-check-v1", "phases": {"seed": "pass"},
+                                          "cases_sha256": sha256(run_dir / "cases.json")})
+        monkeypatch.setattr(nbt_roundtrip, "read_records", lambda _world: pytest.fail("Junction target was opened"))
+        with pytest.raises(ProbeError, match="escaped"):
+            nbt_roundtrip.run(run_dir, "edit")
+    finally:
+        (world / "db").rmdir()  # Remove only this junction, never its target.

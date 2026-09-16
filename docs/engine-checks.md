@@ -16,6 +16,9 @@ a fresh disposable server. A timeout bounds each phase; only its own container
 is removed. Docker must already be running. Host firewall settings and existing
 containers are not changed. Linux runs as the host UID/GID; Windows bind mounts
 use container UID 0 with the same capability and filesystem restrictions.
+Each create attempt has a unique ownership label so its container can also be
+found after a lost CLI response. Cleanup failures retain the original error and
+identify the owned container instead of silently disappearing.
 The generated server uses offline mode and RakNet solely to start its script
 runtime without network services. Some BDS builds print a RakNet transport error;
 client connections are outside this profile and impossible with `--network none`.
@@ -23,8 +26,9 @@ Neither these server settings nor the disposable world are deployment examples.
 
 The exact four-part version must match BDS's own startup log. The report records
 server archive/executable SHA-256, immutable local image ID, API dependency,
-editor commit/dirty state, probe source hash, catalog hash and case hash. Hashes
-identify inputs; they do not attest a user-supplied binary's authenticity. Obtain
+editor commit/dirty state, probe/editor source hashes, catalog hash and case hash.
+Changed probe or editor sources at completion fail the run; rerun after edits
+have finished. Hashes identify inputs; they do not attest a user-supplied binary's authenticity. Obtain
 the archive directly from [Mojang](https://www.minecraft.net/en-us/download/server/bedrock).
 
 The script-only behavior pack does not redefine items or entities. It uses the
@@ -41,8 +45,9 @@ to load its chunks and actors even without a connected player. References:
 - Compare every bundled addable ID with the runtime registry and try every ID in
   their union. Record `ItemStack.maxAmount`, exposed components and durability.
 - Compare every recorded stack limit with the engine measurement. Contradictions
-  fail. Missing catalog limits produce review candidates, never automatic catalog
-  changes. Values above the editor's Count range also fail.
+  fail. Missing catalog limits produce review candidates and a partial result,
+  never automatic catalog changes or a passing result. Values above the editor's
+  Count range also fail.
 - Failed item construction remains unverified. No implicit 1 or 64 is invented.
   Partial coverage returns exit code 2, not a green result.
 
@@ -57,12 +62,16 @@ IDs whose measured catalog limits have not yet been promoted.
 
 The server stops cleanly before the offline worker opens LevelDB. A small carrier
 adapter uses the **production item builder, Bedrock codec, backup creation and
-native write batch**. It verifies preserved/control items byte for byte and every
+native write batch**. It freezes reference bytes before passing mutable NBT to
+the builder, then verifies preserved/control items byte for byte and every
 unrelated database record. Two engine reload/save cycles follow. The script only
 observes stored items in those phases; it never reconstructs them. Engine-visible
-semantics and saved NBT counts are checked after each cycle. Constructor clamping
-is checked during seeding too. Negative cases require the production builder to
-reject new amounts -1, 0, maximum + 1 and 128 for every tested ID.
+semantics and saved NBT are checked after each cycle. Independent disk checks
+cover occupied slots, item IDs, counts, names, lore, durability and the absence of
+unexpected enchantments. Canonical empty-slot records written by BDS are accepted;
+extra items, missing observations and incorrectly typed values fail. Constructor
+clamping is checked during seeding too. Negative cases require the production
+builder to reject new amounts -1, 0, maximum + 1 and 128 for every tested ID.
 
 This does **not** exercise the complete player service, player login, singleplayer
 `~local_player`, Ender Chest storage, UI, mount creation, gameplay interactions,
@@ -118,6 +127,9 @@ disposable world. `summary.json` is an allowlisted artifact for deliberate shari
 it contains no raw NBT, logs, local paths or exception messages. Keep all reports
 ignored by default. Unit tests in `tests/test_engine_checks.py` exercise failure
 detection and the production NBT adapter; they are not Minecraft-run evidence.
+The whole output directory must be Git-ignored when it is inside the repository;
+ignoring only JSON reports is insufficient. The offline worker rejects world or
+database links/junctions that could redirect it outside the disposable run.
 
 Exit codes: **0** = selected suite passed, **2** = incomplete catalog coverage,
 **1** = mismatch, malformed/incomplete output or execution failure. Downstream

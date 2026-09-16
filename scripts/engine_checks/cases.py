@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 SLOTS_PER_CARRIER = 26  # Slot 26 is an untouched engine-created control item.
 CARRIER_PREFIX = "MCBE_ENGINE_CARRIER_"
 CONTROL_NAME = "MCBE untouched control"
@@ -16,6 +18,7 @@ def make_cases(item_ids: list[str], observations: dict, limits: dict) -> list[di
             "case_id": f"case_{index:05d}", "id": item_id, "mode": mode, "amount": amount,
             "carrier": f"{CARRIER_PREFIX}{index // SLOTS_PER_CARRIER:04d}", "slot": index % SLOTS_PER_CARRIER,
             "name": "", "lore": [], "damage": 0, "enchantments": [], **extra,
+            "durable": observations[item_id].get("max_durability") is not None,
         })
 
     for item_id in sorted(item_ids):
@@ -53,6 +56,8 @@ def validate_case_events(events: list[dict], cases: list[dict], *, seed: bool = 
     from .protocol import ProbeError
 
     expected = {case["case_id"]: expected_snapshot(case, seed=seed) for case in cases}
+    if len(expected) != len(cases):
+        raise ProbeError("Duplicate expected roundtrip case")
     observed = {}
     for event in events:
         if event["kind"] != "case":
@@ -60,9 +65,15 @@ def validate_case_events(events: list[dict], cases: list[dict], *, seed: bool = 
         key = event.get("case_id")
         if key not in expected or key in observed:
             raise ProbeError("Unexpected or duplicate roundtrip case")
-        observed[key] = event.get("snapshot")
+        if "snapshot" not in event:
+            raise ProbeError("Missing explicit roundtrip snapshot")
+        observed[key] = event["snapshot"]
     if observed.keys() != expected.keys():
         raise ProbeError("Roundtrip probe omitted cases")
     for key, snapshot in expected.items():
-        if observed[key] != snapshot:
+        try:
+            equal = json.dumps(observed[key], sort_keys=True, allow_nan=False) == json.dumps(snapshot, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ProbeError("Invalid roundtrip snapshot") from exc
+        if not equal:
             raise ProbeError(f"Engine changed item semantics in {key}: expected {snapshot!r}, observed {observed[key]!r}")
