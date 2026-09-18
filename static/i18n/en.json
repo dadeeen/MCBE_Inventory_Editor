@@ -1,4 +1,6 @@
 {
+  "Effekt enthält nicht unterstützte NBT-Typen oder Werte und wird geschützt erhalten.": "This effect contains unsupported NBT types or values and is preserved unchanged.",
+  "Spieler-Import abgelehnt: Der Export ist unter dem Ziel-Key nicht sicher als Spieler erkennbar.": "Player import rejected: the export cannot be safely identified as a player under the target key.",
   "Ungeprüfte Stacklimits: {count}. Neue Stapel dieser Items bleiben auf Menge 1 begrenzt.": "Unverified stack limits: {count}. New stacks of these items remain limited to 1.",
   "Stacklimit ungeprüft – neue Stapel nur mit Menge 1": "Stack limit unverified – new stacks limited to 1",
   "Stacklimit ungeprüft. Neue Stapel sind nur mit Menge 1 erlaubt; vorhandene Mengen bleiben unverändert erhalten.": "Stack limit unverified. New stacks are limited to 1; existing amounts are preserved unchanged.",

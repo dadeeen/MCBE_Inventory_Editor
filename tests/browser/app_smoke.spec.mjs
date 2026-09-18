@@ -213,6 +213,47 @@ async function openDragFixture(page, overrides = {}) {
   await expect(page.locator("#inventoryContainer")).toBeVisible();
 }
 
+test("editing an effect preserves protected durations and unknown effect rows", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  const effects = [
+    { id: 1, amplifier: 0, duration: -1, ambient: false, show_particles: true, show_icon: true,
+      opaque: true, opaque_reason: "Effekt enthält nicht unterstützte NBT-Typen oder Werte und wird geschützt erhalten." },
+    { id: 100, amplifier: 400, duration: -20, ambient: false, show_particles: true, show_icon: true },
+    { id: 3, amplifier: 0, duration: 601, ambient: false, show_particles: true, show_icon: true },
+  ];
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  let savedPayload;
+  await page.route("**/api/player/save", route => {
+    savedPayload = route.request().postDataJSON();
+    return route.fulfill({ json: { success: true, player_revision: "saved-revision", backup_file: "effects-test.zip" } });
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openDragFixture(page, {
+    effects, effects_db: { 1: ["Tempo", "Speed"], 3: ["Eile", "Haste"] },
+    protected_nbt: { has_inventory_tag: true, has_ender_chest_tag: true, has_active_effects_tag: true, active_effect_entries_opaque: 1 },
+  });
+  await expect(page).toHaveURL(NORMAL_BASE_URL + "/");
+  await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
+  await page.locator('.tab-btn-dash[data-tab-dash="dashEffects"]').click();
+  const rows = page.locator("#effectsContainer .effect-row");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0).locator(".eff-duration")).toBeDisabled();
+  await expect(rows.nth(1).locator(".effect-remove")).toBeDisabled();
+  await rows.nth(2).locator(".eff-duration").fill("60");
+  await rows.nth(2).locator(".eff-duration").blur();
+  if (process.env.MCBE_QA_EFFECTS_SCREENSHOT) {
+    await rows.nth(0).evaluate(element => element.scrollIntoView({ block: "start" }));
+    await page.screenshot({ path: process.env.MCBE_QA_EFFECTS_SCREENSHOT, fullPage: false });
+  }
+  await page.locator('.app-section-nav button[data-workflow-view="save"]').click();
+  await page.locator("#btnSaveWorkflowRun").click();
+  await expect.poll(() => savedPayload).toBeTruthy();
+  expect(savedPayload.effects.slice(0, 2)).toEqual(effects.slice(0, 2));
+  expect(savedPayload.effects[2].duration).toBe(1200);
+  expect(savedPayload.stats).toEqual({});
+  expect(browserErrors).toEqual([]);
+});
+
 test("unverified stack limits preserve amounts and disable maximum actions", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   // This fixture tests local slot editing, not shared server status, asset

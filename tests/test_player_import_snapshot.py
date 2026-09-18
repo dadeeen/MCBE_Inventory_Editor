@@ -48,6 +48,76 @@ def _service():
     )
 
 
+def test_import_into_existing_fallback_player_keeps_it_discoverable(tmp_path, monkeypatch):
+    from mcbe_editor.db import LevelDbAdapter
+
+    target_key = b"custom-record"
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    source_raw = _player_raw("minecraft:stone")
+    target_raw = _player_raw("minecraft:dirt")
+    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
+    db = LevelDbAdapter(str(world / "db"))
+    try:
+        db.put(target_key, target_raw)
+    finally:
+        db.close()
+    export_path = _export(world, tmp_path / "exports", source_raw)
+    service = BedrockEditorService(ITEMS, ENCHANTMENTS)
+    loaded = service.load_player(str(world), encode_player_key(target_key))
+    assert loaded["player"]["kind"] == "unknown"
+    preview = service.preview_player_export(export_path, str(world))
+
+    result = service.import_player(
+        export_path, str(world), encode_player_key(target_key), True,
+        import_token=preview["import_token"], base_revision=loaded["player_revision"],
+    )
+
+    assert result["success"] is True and result["post_write_validated"] is True
+    assert result["target_player"]["kind"] == "unknown"
+    reader = service._open_db_readonly(str(world))
+    try:
+        assert reader.get(target_key) == source_raw
+    finally:
+        reader.close()
+    assert service.load_player(str(world), encode_player_key(target_key))["inventory"][0]["name"] == "minecraft:stone"
+
+
+@pytest.mark.parametrize("source_kind", ["weak_shape", "oversized"])
+def test_import_rejects_loss_of_fallback_player_identity_before_backup(tmp_path, monkeypatch, source_kind):
+    from unittest.mock import Mock
+
+    target_key = b"custom-record"
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    target_raw = _player_raw("minecraft:dirt")
+    # This is enough for a known local player, but not for an unknown database key.
+    source_raw = nbt.NamedTag(nbt.CompoundTag({"Health": nbt.FloatTag(10)})).save_to(compressed=False, little_endian=True)
+    if source_kind == "oversized":
+        source = nbt.load(target_raw, compressed=False, little_endian=True)
+        source.tag["AddonData"] = nbt.StringTag("x" * 512)
+        source_raw = source.save_to(compressed=False, little_endian=True)
+        monkeypatch.setattr("mcbe_editor.players.MAX_PLAYER_NBT_CANDIDATE_BYTES", len(source_raw) - 1)
+    PathFakeDb._shared_stores[str(world / "db")] = {target_key: target_raw}
+    export_path = _export(world, tmp_path / "exports", source_raw)
+    service = _service()
+    preview = service.preview_player_export(export_path, str(world))
+    assert preview["importable"] is True
+
+    with (
+        patch("mcbe_editor.services.create_backup", Mock(side_effect=AssertionError("Invalid import created a backup"))) as backup,
+        patch.object(service, "_open_db", Mock(side_effect=AssertionError("Invalid import opened a writer"))) as writer,
+        pytest.raises(ValueError, match="Ziel-Key"),
+    ):
+        service.import_player(
+            export_path, str(world), encode_player_key(target_key), True,
+            import_token=preview["import_token"], base_revision=service._player_revision(target_raw),
+        )
+    backup.assert_not_called()
+    writer.assert_not_called()
+    assert PathFakeDb._shared_stores[str(world / "db")][target_key] == target_raw
+
+
 @pytest.mark.parametrize("operation, existed", [("transfer", True), ("import", True), ("import", False)])
 @pytest.mark.parametrize("concurrent_state", ["newer", "restored"])
 def test_rollback_rechecks_target_on_native_write_connection(tmp_path, monkeypatch, operation, existed, concurrent_state):

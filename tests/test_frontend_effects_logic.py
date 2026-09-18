@@ -17,6 +17,41 @@ def _run_node(source: str) -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+def test_sync_effects_preserves_disabled_opaque_and_unknown_rows() -> None:
+    _run_node(r'''
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = {window: {}};
+        for (const file of ["static/effects_view.js", "static/effects_logic.js"]) {
+            vm.runInNewContext(fs.readFileSync(file, "utf8"), context);
+        }
+        const effects = [
+            {id: 1, amplifier: 0, duration: -1, show_particles: true, opaque: true},
+            {id: 100, amplifier: 400, duration: -20, show_particles: true},
+            {id: 3, amplifier: 0, duration: 601, show_particles: true},
+        ];
+        const before = JSON.stringify(effects.slice(0, 2));
+        const db = {1: ["Tempo", "Speed"], 3: ["Eile", "Haste"]};
+        const rows = effects.map((effect, index) => {
+            const model = context.window.MCBEEffectsView.effectRowModel(effect, index, db);
+            const controls = {
+                ".eff-level": {value: String(model.level), disabled: model.isProtectedEffect},
+                ".eff-duration": {value: String(model.durationSeconds), disabled: model.isProtectedEffect},
+                ".eff-particles": {checked: model.showParticles, disabled: model.isProtectedEffect},
+            };
+            return {dataset: {index: String(index)}, querySelector: selector => controls[selector]};
+        });
+        rows[2].querySelector(".eff-duration").value = "60";
+        const controller = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+            doc: {querySelectorAll: () => rows}, getPlayerEffects: () => effects, getEffectsDb: () => db,
+        });
+        controller.syncEffectsFromUI();
+        assert.equal(JSON.stringify(effects.slice(0, 2)), before);
+        assert.equal(effects[2].duration, 1200);
+    ''')
+
+
 def test_frontend_effects_logic_add_effect_decision() -> None:
     _run_node(
         textwrap.dedent(

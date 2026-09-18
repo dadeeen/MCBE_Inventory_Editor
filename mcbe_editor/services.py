@@ -42,6 +42,7 @@ from .config import load_config
 from .db import LevelDbAdapter, close_db_preserving_active_exception
 from .i18n import t
 from .inventory import (
+    ABILITY_TAG_FIELDS,
     _item_source_matches,
     apply_abilities,
     apply_effects,
@@ -580,7 +581,7 @@ class BedrockEditorService:
                             "Speichern abgelehnt: Dieser Spieler hat keinen ActiveEffects-Tag. "
                             "Eine neue Effektliste würde den Player-NBT-Aufbau ändern und muss ausdrücklich bestätigt werden."
                         )
-                if abilities_dict is not None:
+                if isinstance(abilities_dict, dict) and any(field in abilities_dict for field in ABILITY_TAG_FIELDS):
                     has_abilities_tag = "abilities" in player_tag
                     if has_abilities_tag and not isinstance(player_tag.get("abilities"), nbt.CompoundTag):
                         raise ValueError("Speichern abgelehnt: abilities hat einen unbekannten NBT-Typ und wird nicht ersetzt.")
@@ -1323,6 +1324,13 @@ class BedrockEditorService:
                             raise ValueError(f"Zielspieler ist read-only: {target_info['reason']}")
                         target_before_raw = self._read_player(db, target_player_key)
                         self._assert_import_target_revision_current(target_before_raw, base_revision)
+                        # Fallback-discovered players are valid existing targets,
+                        # but the replacement must still be recognizable under
+                        # that same key. Reject an incompatible shape before any
+                        # backup or mutating connection, not after the commit.
+                        replacement_info = classify_player_record(target_player_key, raw_bytes, allow_unknown_key=True)
+                        if not replacement_info or not replacement_info.get("editable"):
+                            raise ValueError(t("Spieler-Import abgelehnt: Der Export ist unter dem Ziel-Key nicht sicher als Spieler erkennbar."))
                 finally:
                     if db:
                         try:
@@ -1362,7 +1370,7 @@ class BedrockEditorService:
                         raise ValueError(
                             t("Nachvalidierung fehlgeschlagen: Importierter Player-Datensatz stimmt nicht bytegenau mit der Import-Datei überein.")
                         )
-                    resulting_info = classify_player_record(target_player_key, imported_after)
+                    resulting_info = classify_player_record(target_player_key, imported_after, allow_unknown_key=not import_as_exported_player)
                     if not resulting_info or not resulting_info.get("editable"):
                         raise ValueError(t("Nachvalidierung fehlgeschlagen: Der importierte Player-Datensatz ist unter dem Ziel-Key nicht sicher bearbeitbar."))
                     try:

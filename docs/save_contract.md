@@ -103,12 +103,15 @@ A missing field always means: "Do not modify this NBT section." This applies to 
 - Only synchronize UI values if the effects section is not opaque and it has been touched, already exists as a tag, or is not empty.
 - Only send `effects` on an actual change.
 - With `protectedNbt.active_effects_opaque`, never send `effects`.
+- Form synchronization must leave opaque and unknown effect rows untouched. Stored negative durations are protected because the seconds form cannot represent them safely.
+- Unchanged boolean effect controls retain their original byte values, including nonzero values other than `1`; only an actual boolean change rewrites them.
 
 ### Abilities
 
 - Only collect UI values after an actual user change and only for non-opaque data.
 - Only send `abilities` if a non-null object with actual changes exists.
 - With `protectedNbt.abilities_opaque` or `playerAbilities._opaque`, never send `abilities`.
+- Marker-only or unknown-only ability objects are no-ops at the backend too; they must not require creation confirmation, create an empty compound, or trigger a backup.
 
 ## No-op behavior
 

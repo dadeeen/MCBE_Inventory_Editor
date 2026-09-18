@@ -176,7 +176,9 @@ def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: b
     is_local = key in LOCAL_PLAYER_KEY_ALIASES
     key_is_player_like = _looks_like_player_key(key)
 
-    if not key_is_player_like and not allow_unknown_key:
+    # Direct validation (for example before an import) must use the same
+    # candidate and size limits as discovery, or accept an undiscoverable player.
+    if not key_is_player_like and (not allow_unknown_key or not _looks_like_unknown_player_candidate(raw_bytes)):
         return None
 
     try:

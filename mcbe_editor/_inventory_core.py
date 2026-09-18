@@ -524,7 +524,11 @@ def _effect_control_fields_opaque(effect_tag):
                 return True
         except (AttributeError, TypeError):
             return True
-    return False
+    # The seconds form and validator only support non-negative durations.
+    # Preserve other stored values rather than turning them into zero during
+    # the next form synchronization or rejecting an unrelated effect edit.
+    duration = effect_tag.get("Duration")
+    return isinstance(duration, nbt.IntTag) and duration.py_data < 0
 
 
 def _active_effects_opaque_entry_count(player_tag):
@@ -2172,7 +2176,7 @@ def parse_effects(player_tag):
         }
         if _effect_control_fields_opaque(eff):
             effect_data["opaque"] = True
-            effect_data["opaque_reason"] = "Effekt enthält unerwartete NBT-Typen und wird geschützt erhalten."
+            effect_data["opaque_reason"] = t("Effekt enthält nicht unterstützte NBT-Typen oder Werte und wird geschützt erhalten.")
         elif e_id in EFFECTS and e_id in seen_editable_ids:
             effect_data["opaque"] = True
             effect_data["opaque_reason"] = "Doppelter Effekt mit derselben ID wird geschützt erhalten."
@@ -3164,8 +3168,14 @@ def _set_effect_control_tag_if_changed(effect_compound, key: str, candidate) -> 
             # Absent and still at the displayed default: writing it would only
             # add a control tag this effect entry never carried.
             return
-    elif type(existing) is type(candidate) and get_tag_value(existing) == get_tag_value(candidate):
-        return
+    elif type(existing) is type(candidate):
+        unchanged = (
+            bool(get_tag_value(existing)) == bool(get_tag_value(candidate))
+            if key in {"Ambient", "ShowParticles", "ShowIcon"}
+            else get_tag_value(existing) == get_tag_value(candidate)
+        )
+        if unchanged:
+            return
     effect_compound[key] = candidate
 
 
@@ -3378,7 +3388,9 @@ def apply_abilities(player_tag, abilities_dict):
         return
     if not isinstance(abilities_dict, dict):
         raise ValueError("Fähigkeiten-Daten müssen ein Objekt sein.")
-    if not abilities_dict:
+    if not any(field in abilities_dict for field in ABILITY_TAG_FIELDS):
+        # UI markers and unknown keys are not ability edits. In particular,
+        # they must not create an empty abilities compound on a normal save.
         return
     ab_tag = player_tag.get("abilities")
     if ab_tag is not None and not _is_compound_tag(ab_tag):

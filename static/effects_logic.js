@@ -455,6 +455,7 @@
         function syncEffectRow(index, row) {
             const effects = playerEffects();
             if (!Number.isInteger(index) || !effects[index] || !row) return;
+            if (effects[index].opaque === true || !effectsDb()[effects[index].id]) return;
             Object.assign(
                 effects[index],
                 effectsView.effectPatchFromRowValues(effectsView.readEffectRowValues(row), effects[index]),
