@@ -70,6 +70,8 @@ With staged mounts, the controller adds `mounts` as a list. Every draft contains
 
 Absolute positions from the browser are not trusted. The backend preview path recomputes every position from the current player snapshot and the bounded offset. Unsafe positions are rejected; unchecked positions require `allow_unchecked_placement=true`. Two mounts must not use the same computed position.
 
+Known footprint obstructions, liquids and unsupported central floor blocks take precedence over missing neighboring columns. The unchecked-placement confirmation cannot override an obstruction already established by readable terrain data. Tamed mounts require a valid integer owner ID from the current player in both direct creation and workspace saves; a missing or opaque player ID must not produce an ownerless tamed entity.
+
 The workspace save prepares the changed player record as well as all new `actorprefix` and merged `digp` records. After exactly one backup, `putBatch` writes the complete key set atomically. The response only counts as successful if every created mount has been validated afterwards.
 
 ## Invariants for included player sections
@@ -82,6 +84,7 @@ A missing field always means: "Do not modify this NBT section." This applies to 
 - If included, send the complete visible container state as a list.
 - A change in another section must not pull the unchanged inventory into the payload.
 - Writable root equipment may require `root_equipment_editable=true`; read-only echo items must never be sent as changes.
+- A root equipment entry hidden by an existing legacy Inventory equipment slot is not a missing visible item. Unrelated inventory changes must preserve that hidden root entry, even when `root_equipment_editable=true`.
 
 ### Ender chest
 
@@ -140,13 +143,17 @@ Equine templates are eligible only when unowned and unequipped, with no active t
 
 Readonly database access validates SST block CRC32C before decompression and rejects invalid uint64 varints and file handles outside the table. Stored and expanded blocks are limited to 64 MiB; MANIFEST and relevant WAL input share a 256 MiB budget per reader. These are input limits, not a guarantee of total process memory usage. Larger inputs fail explicitly. The reader still does not lock against concurrent external writes.
 
-Only the newest relevant WAL may discard an incomplete final record or a CRC-damaged physical record ending exactly at EOF. Incomplete payloads must still fit within their declared 32 KiB block. Recovery discards the entire unfinished logical batch, logs a warning, and leaves the database files untouched. The reader does not scan past a damaged block or relax MANIFEST/SST checks. Native-engine comparisons cover intact earlier writes, overwritten and deleted keys, fragmented batches, and the service's list/load paths; this is not an interactive Minecraft recovery test.
+SST internal keys only admit value and deletion entry types. Point lookups and iteration must agree on the newest version, including tombstones. Files in deeper levels have disjoint internal-key ranges, but versions of the same user key may span adjacent files; MANIFEST insertion order must not decide which version a point lookup returns. The native writer's revision recheck remains necessary even after a successful readonly load.
+
+Only the newest relevant WAL enables recovery of a truncated physical payload or a CRC-damaged physical record ending exactly at EOF. Incomplete payloads must still fit within their declared 32 KiB block. This recovery discards the entire unfinished logical batch, logs a warning, and leaves the database files untouched. An unfinished logical fragment composed of otherwise valid physical records is also ignored in MANIFEST and older WAL files, matching native recovery; it is not exposed as a partial batch. The reader does not scan past CRC-damaged blocks. Native-engine comparisons cover intact earlier writes, overwritten and deleted keys, fragmented batches, and the service's list/load paths; this is not an interactive Minecraft recovery test.
 
 Before publication or retention cleanup, newly created backups must pass the same archive validation as restore: the installation's uncompressed-size limit (default 1 GiB) and 50,000 entries, including directories, plus the existing path checks. The Backup Manager persists the size limit separately in `data/backup_settings.json`; an explicit `MCBE_BACKUP_MAX_UNCOMPRESSED_MIB` operator override takes precedence and cannot be changed through the API. Both accept whole MiB in the range 1–1,048,576. Invalid explicit settings fail rather than silently changing the policy. Exceeding a limit aborts backup creation and any dependent write; it must not publish an unusable recovery copy or prune older backups. Temporary archives are removed on failure.
 
 Backup creation checks the source size and member count before opening its ZIP writer. Restore validates archive headers before CRC decompression and checks additional disk space for the immutable source, pre-restore backup and staging world before creating those copies. Requirements sharing a filesystem are added together. Estimates include ZIP overhead and a reserve of max(64 MiB, 5%); these are preflight estimates, not disk reservations. Mid-operation I/O errors still use the existing staging cleanup and rollback handling.
 
 All backup kinds use the shared `backup_consistency.source_snapshot()` check inside the world lock. The first metadata snapshot precedes metadata collection and ZIP creation; the second follows CRC verification and must match before the temporary ZIP can be published. A final comparison after archive synchronization and publication also detects source changes during those steps. A changed or unreadable source rejects the new archive before retention and before a dependent workflow can open its mutating database or replace a world. Failed cleanup is attached to the original error. The manual API also retains its outer source checks and final server gates. These are metadata comparisons, not content hashes or atomic filesystem snapshots; a fully stopped world remains required.
+
+Restore also binds the target world to the snapshot taken before its pre-restore safety backup and compares it again immediately before the first directory rename. An external change during extraction aborts the restore, preserving the changed world and the safety backup. Invalid ZIP-comment metadata must fall back to the existing filename/legacy classification without breaking listing or retention for other archives.
 
 The completed temporary ZIP is `fsync`ed before either publication path. The exclusive-copy fallback also flushes and synchronizes its new target. Newly created parent-directory entries and the publication directory are synchronized where supported. Windows skips directory synchronization; POSIX only ignores explicitly unsupported operations, while permission and I/O errors propagate and block dependent writes. An existing target is never replaced or removed on a naming collision. Storage hardware and filesystems still determine the ultimate power-loss guarantees.
 
@@ -172,6 +179,10 @@ The direct `/api/mount/create` path also performs its initial player checks thro
 ## Protected and preserved NBT data
 
 Player resets, export-only selection and list refreshes invalidate pending player loads. A late list response must not automatically select a player after the user changed context. Each player-load overlay belongs to its request; invalidating it closes that overlay without allowing an old completion to close a newer one.
+
+Selecting a diagnostic-only player requires the same dirty-state confirmation as other player switches. During player loading, the shared edit guard must prevent keyboard, clipboard, undo and form actions from modifying the outgoing state. The load's busy state must be released on success, failure or invalidation without releasing a newer request's guard.
+
+Controls retain the current player's intrinsic NBT protection and the current undo/redo availability independently of a temporary load or save lock. Renderers update that intrinsic state even while blocked; releasing the lock restores the latest state and tooltip.
 
 Save completions also recheck the player and world after presence updates and in error handlers. A context change must not apply the old operation's revision, history, backup list or reload requirement to the new view. Status messages retain a known failed post-validation or confirmed no-op even when a later presence request fails. Starting another save request after confirmation discards the previous response as evidence of that new request's outcome.
 
@@ -207,14 +218,17 @@ For items with original NBT that must be preserved, these rules continue to appl
 
 - External source references to another player or another world are preserved.
 - Same-world external player items actually used as NBT bases are recorded by player key, container, slot, item name, and preservation digest. After the backup and database reopen, those exact sources must still match before the final write.
+- External source collection includes items destined for writable root equipment. Writable root equipment remains an available copy source when its player has no Inventory tag.
 - Source references to the same player are only accepted if they still match the clean snapshot.
 - During a repair, the clean inventory and ender chest snapshots are searched.
 - A repaired source is only used on exactly one unambiguous match.
 - Unknown or future hidden NBT data is preserved through section omission and backend merge.
 - Unchanged display strings retain their original tags and encoded bytes, including when another field on the item changes. Lore line breaks are normalized only in newly entered or changed lines, after resolving the original item.
 - Unknown Name/Lore child types remain preserved and cannot be replaced through normal text edits. Their display representations must still be JSON-safe.
+- Unknown durability and authoritative nested entity-variant tag types must not be replaced through ordinary durability or bucket-variant edits. Unchanged and unrelated edits retain those fields byte-for-byte.
 - Newly entered or changed display text uses literal UTF-8. A visible `␛x41` is user text, not an instruction to write byte `0x41`; existing escaped raw-byte strings retain their original codec behavior.
 - Preservation digests include the wire bytes of opaque fields, including declared empty-list types, raw strings/names and floating-point bit patterns. Even a reorder inside an opaque compound invalidates a copied source. Editable display text, counts and durability values retain their existing exemptions; empty Lore with an incompatible element type and empty enchantment list types remain preservation-relevant.
+- Only actually editable enchantment entries may omit their values from provenance digests. Protected out-of-range levels, unknown types and additional duplicate entries remain fully preservation-relevant.
 - Opaque inventory/ender chest lists must not be replaced.
 
 ## Required regression tests

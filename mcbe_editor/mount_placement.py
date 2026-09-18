@@ -297,22 +297,12 @@ def _footprint_assessment(columns: list[dict[str, Any]], clearance_blocks: int =
 
     required_roles = ["floor", "feet", "head", *(f"body_{offset}" for offset in range(2, clearance_blocks))]
     missing = [column for column in columns if not all((column.get("block_names") or {}).get(role) for role in required_roles)]
-    if missing:
-        return {
-            "status": "unchecked",
-            "safe_to_place": None,
-            "message": t(
-                "Footprint konnte nicht vollständig gelesen werden ({missing} von {total} Spalten); Position ist nicht sicher bestätigt.",
-                missing=len(missing),
-                total=len(columns),
-            ),
-            "edge_overhang_count": 0,
-        }
-
+    # Unknown columns cannot turn a known collision or unsafe support into a
+    # placement that the user may approve as merely unchecked.
     for column in columns:
-        names = column["block_names"]
+        names = column.get("block_names") or {}
         for role in required_roles:
-            if role == "floor":
+            if role == "floor" or not names.get(role):
                 continue
             block_name = str(names[role])
             if block_name not in PASSABLE_PLACEMENT_SPACE_BLOCKS:
@@ -327,7 +317,7 @@ def _footprint_assessment(columns: list[dict[str, Any]], clearance_blocks: int =
                 }
 
     center = next((column for column in columns if column.get("center")), columns[0])
-    center_floor = str(center["block_names"]["floor"])
+    center_floor = str((center.get("block_names") or {}).get("floor") or "")
     if center_floor in PASSABLE_PLACEMENT_SPACE_BLOCKS:
         return {
             "status": "unsafe",
@@ -351,28 +341,12 @@ def _footprint_assessment(columns: list[dict[str, Any]], clearance_blocks: int =
             ),
             "edge_overhang_count": 0,
         }
-    if support_surface_shape_is_state_dependent(center_floor):
-        return {
-            "status": "unchecked",
-            "safe_to_place": None,
-            "message": t(
-                "Zentraler Bodenblock {floor} kann je nach Blockzustand tragen oder nicht; der Zustand wird nicht gelesen.", floor=center_floor
-            ),
-            "edge_overhang_count": 0,
-        }
-    if not is_confirmed_full_support_surface(center_floor):
-        return {
-            "status": "unchecked",
-            "safe_to_place": None,
-            "message": t("Zentraler Bodenblock {floor} ist kein bestätigter Vollblock; die Tragfähigkeit ist nicht sicher bestätigt.", floor=center_floor),
-            "edge_overhang_count": 0,
-        }
-
     edge_overhang = 0
     for column in columns:
-        if column.get("center"):
+        floor = (column.get("block_names") or {}).get("floor")
+        if column.get("center") or not floor:
             continue
-        floor = str(column["block_names"]["floor"])
+        floor = str(floor)
         if floor in LIQUID_PLACEMENT_BLOCKS:
             return {
                 "status": "unsafe",
@@ -396,6 +370,34 @@ def _footprint_assessment(columns: list[dict[str, Any]], clearance_blocks: int =
             # Rand ohne bestätigt tragfähigen Vollblock (Luft, Pflanze oder unbekannt):
             # als Überhang werten. Ränder dürfen überhängen, solange die Mitte trägt.
             edge_overhang += 1
+
+    if missing:
+        return {
+            "status": "unchecked",
+            "safe_to_place": None,
+            "message": t(
+                "Footprint konnte nicht vollständig gelesen werden ({missing} von {total} Spalten); Position ist nicht sicher bestätigt.",
+                missing=len(missing),
+                total=len(columns),
+            ),
+            "edge_overhang_count": edge_overhang,
+        }
+    if support_surface_shape_is_state_dependent(center_floor):
+        return {
+            "status": "unchecked",
+            "safe_to_place": None,
+            "message": t(
+                "Zentraler Bodenblock {floor} kann je nach Blockzustand tragen oder nicht; der Zustand wird nicht gelesen.", floor=center_floor
+            ),
+            "edge_overhang_count": edge_overhang,
+        }
+    if not is_confirmed_full_support_surface(center_floor):
+        return {
+            "status": "unchecked",
+            "safe_to_place": None,
+            "message": t("Zentraler Bodenblock {floor} ist kein bestätigter Vollblock; die Tragfähigkeit ist nicht sicher bestätigt.", floor=center_floor),
+            "edge_overhang_count": edge_overhang,
+        }
 
     if edge_overhang:
         message = t(
@@ -640,6 +642,11 @@ def _sync_selected_position_from_candidates(preview: dict[str, Any]) -> dict[str
     if not selected:
         safe = next((candidate for candidate in candidates if isinstance(candidate, dict) and candidate.get("safe_to_place") is True), None)
         selected = safe or next((candidate for candidate in candidates if isinstance(candidate, dict) and candidate.get("safe_to_place") is not False), None)
+        # Radius scanning may rename every candidate. Retain a known unsafe
+        # result when none is selectable instead of leaving an orphaned ID
+        # whose missing safety result would be interpreted as unchecked.
+        if selected is None:
+            selected = next((candidate for candidate in candidates if isinstance(candidate, dict)), None)
     if not selected:
         return preview
     return {

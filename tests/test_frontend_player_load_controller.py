@@ -101,6 +101,205 @@ def test_player_load_preserves_an_existing_workflow_view() -> None:
     )
 
 
+def test_readonly_player_selection_confirms_before_discarding_edits() -> None:
+    _run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
+        const rows = [];
+        const context = {window: {}, document: {createElement: () => ({
+            classList: {add() {}}, listeners: {},
+            addEventListener(name, callback) {this.listeners[name] = callback},
+        })}};
+        for (const name of ['player_view_models', 'player_load_controller']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        (async () => {
+            for (const exportable of [false, true]) {
+                const readonly = {player_key: 'bad', exportable, reason: 'Unreadable record'};
+                const inventory = {0: {Name: 'minecraft:stone', Count: 16}};
+                const state = {worldPath: 'world', currentPlayerKey: 'a', inventory,
+                    isDirty: true, players: [readonly]};
+                let accept = false, confirmations = 0, resets = 0, copies = 0;
+                const controller = context.window.MCBEPlayerLoadController.createPlayerLoadController({
+                    elements: {playersList: {appendChild(row) {rows.push(row)}}},
+                    getState: () => state, setState: patch => Object.assign(state, patch),
+                    showConfirmDialog: async () => {confirmations++; return accept},
+                    resetUndoRedoForUnloadedPlayer: () => {resets++},
+                    copyTextToClipboard: () => {copies++},
+                });
+                controller.renderPlayersList();
+                const select = rows.at(-1).listeners.click;
+                assert.equal(await select(), false);
+                assert.equal(confirmations, 1);
+                assert.equal(state.currentPlayerKey, 'a');
+                assert.equal(state.inventory, inventory);
+                assert.equal(state.isDirty, true);
+                assert.equal(resets, 0);
+                assert.equal(copies, 0);
+                assert.equal(controller.isLoading(), false);
+                accept = true;
+                assert.equal(await select(), true);
+                assert.equal(confirmations, 2);
+                assert.equal(state.currentPlayerKey, 'bad');
+                assert.equal(Object.keys(state.inventory).length, 0);
+                assert.equal(state.isDirty, false);
+                assert.equal(resets, 1);
+                assert.equal(copies, exportable ? 0 : 1);
+                assert.equal(controller.isLoading(), false);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1});
+    """)
+
+
+def test_load_busy_lifecycle_preserves_edits_and_does_not_unlock_newer_requests() -> None:
+    _run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
+        const context = {window: {}, console: {error() {}}};
+        for (const name of ['player_view_models', 'player_load_controller', 'write_status_view']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        function deferred() { let resolve, reject; return {
+            promise: new Promise((a, b) => {resolve = a; reject = b}), resolve, reject}; }
+        const loaded = key => ({success: true, player: {player_key: key}, inventory: {}, stats: {}});
+        (async () => {
+            let controller, confirmation = false;
+            const state = {worldPath: 'world', currentPlayerKey: 'a', isDirty: true, inventory: {0: {Count: 16}}};
+            const requests = [];
+            const form = {disabled: false, title: '', dataset: {}};
+            const container = {inert: false};
+            const gate = context.window.MCBEWriteStatusView.createWriteGateController({
+                getCurrentWriteGate: () => ({allowed: true}), getCurrentPlayerKey: () => state.currentPlayerKey,
+                getIsDirty: () => state.isDirty, getIsLoading: () => controller?.isLoading() || false,
+                elements: {editControls: [form], editorContainer: container},
+            });
+            controller = context.window.MCBEPlayerLoadController.createPlayerLoadController({
+                getState: () => state, setState: patch => Object.assign(state, patch),
+                showConfirmDialog: async () => confirmation,
+                onLoadBusyChanged: () => gate.updateWriteControls(),
+                markCleanState: () => {state.isDirty = false},
+                api: {loadPlayer: () => {const r = deferred(); requests.push(r); return r.promise}},
+            });
+            const cancelled = controller.loadPlayer('b');
+            assert.equal(gate.editingBlocked(), true);
+            assert.equal(container.inert, true);
+            assert.equal(form.disabled, true);
+            assert.equal(await cancelled, false);
+            assert.equal(state.isDirty, true);
+            assert.equal(state.inventory[0].Count, 16);
+            assert.equal(requests.length, 0);
+            assert.equal(gate.editingBlocked(), false);
+            assert.equal(container.inert, false);
+            assert.equal(form.disabled, false);
+
+            for (const error of [false, true]) {
+                const failed = controller.loadPlayer('b', true);
+                assert.equal(gate.editingBlocked(), true);
+                if (error) requests.at(-1).reject(new Error('offline'));
+                else requests.at(-1).resolve({success: false, error: 'rejected'});
+                assert.equal(await failed, false);
+                assert.equal(state.isDirty, true);
+                assert.equal(state.inventory[0].Count, 16);
+                assert.equal(gate.editingBlocked(), false);
+                assert.equal(container.inert, false);
+            }
+            for (const oldCompletesFirst of [true, false]) {
+                const old = controller.loadPlayer('old', true), oldRequest = requests.at(-1);
+                const latest = controller.loadPlayer('latest', true), latestRequest = requests.at(-1);
+                if (oldCompletesFirst) {
+                    oldRequest.resolve(loaded('old'));
+                    assert.equal(await old, false);
+                    assert.equal(gate.editingBlocked(), true);
+                    assert.equal(container.inert, true);
+                }
+                latestRequest.resolve(loaded('latest'));
+                assert.equal(await latest, true);
+                assert.equal(state.currentPlayerKey, 'latest');
+                assert.equal(gate.editingBlocked(), false);
+                assert.equal(form.disabled, false);
+                assert.equal(container.inert, false);
+                if (!oldCompletesFirst) {
+                    oldRequest.resolve(loaded('old'));
+                    assert.equal(await old, false);
+                    assert.equal(gate.editingBlocked(), false);
+                    assert.equal(state.currentPlayerKey, 'latest');
+                }
+            }
+            const invalidated = controller.loadPlayer('old', true);
+            controller.resetLoadedPlayerState();
+            assert.equal(controller.isLoading(), false);
+            assert.equal(container.inert, false);
+            requests.at(-1).resolve(loaded('old'));
+            assert.equal(await invalidated, false);
+            assert.equal(state.currentPlayerKey, '');
+        })().catch(error => {console.error(error); process.exitCode = 1});
+    """)
+
+
+def test_loaded_controls_restore_current_protection_and_undo_after_busy_state() -> None:
+    _run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
+        const context = {window: {}};
+        for (const name of ['player_view_models', 'player_load_controller', 'write_status_view',
+                            'ability_state', 'ability_view', 'effects_logic', 'undo_redo_view', 'undo_redo_controller']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        const protection = protectedFields => protectedFields ? {
+            stat_fields_opaque: {health: 'Health'}, ability_fields_opaque: {fly_speed: 'flySpeed'},
+        } : {};
+        const control = () => ({disabled: false, title: '', dataset: {}, value: ''});
+        (async () => {
+            for (const nextProtected of [false, true]) {
+                let load;
+                const health = control(), speed = control(), undoButton = control(), redoButton = control();
+                const state = {worldPath: 'world', currentPlayerKey: 'a', isDirty: false,
+                    protectedNbt: protection(!nextProtected), inventory: {0: {Count: 16}}};
+                const gate = context.window.MCBEWriteStatusView.createWriteGateController({
+                    getCurrentWriteGate: () => ({allowed: true}), getCurrentPlayerKey: () => state.currentPlayerKey,
+                    getIsLoading: () => load?.isLoading() || false,
+                    elements: {editControls: [health, speed, undoButton, redoButton]},
+                });
+                const effects = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+                    doc: {getElementById: id => id === 'abFlySpeed' ? speed : null},
+                    statsFormElements: () => ({health}), getProtectedNbt: () => state.protectedNbt,
+                    getPlayerStats: () => ({}), getPlayerAbilities: () => ({}),
+                    editingBlocked: gate.editingBlocked,
+                });
+                const undo = context.window.MCBEUndoRedoController.createUndoRedoAppController({
+                    buttons: {undo: undoButton, redo: redoButton},
+                    takeSnapshot: () => ({inv: state.inventory}), snapshotHash: JSON.stringify,
+                    editingBlocked: gate.editingBlocked, getEditingBlockedReason: gate.editingBlockedReason,
+                });
+                load = context.window.MCBEPlayerLoadController.createPlayerLoadController({
+                    getState: () => state, setState: patch => Object.assign(state, patch),
+                    renderStatsForm: effects.loadAbilitiesUI, setStatsProtectionUI: effects.setStatsProtectionUI,
+                    showConfirmDialog: async () => false,
+                    onLoadBusyChanged: () => {gate.updateWriteControls(); undo.updateUndoButtons()},
+                    api: {loadPlayer: async () => ({success: true, player: {player_key: 'b'}, stats: {},
+                        inventory: {}, protected_nbt: protection(nextProtected)})},
+                });
+                effects.setStatsProtectionUI();
+                effects.loadAbilitiesUI();
+                assert.equal(health.disabled, !nextProtected);
+                assert.equal(speed.disabled, !nextProtected);
+                assert.equal(await load.loadPlayer('b'), true);
+                assert.equal(load.isLoading(), false);
+                assert.equal(health.disabled, nextProtected);
+                assert.equal(speed.disabled, nextProtected);
+                assert.equal(health.title.includes('Health'), nextProtected);
+                assert.equal(speed.title.includes('flySpeed'), nextProtected);
+                assert.equal(undoButton.disabled, true);
+                state.isDirty = true;
+                undo.pushUndo('Edit');
+                assert.equal(undoButton.disabled, false);
+                assert.equal(await load.loadPlayer('c'), false);
+                assert.equal(undoButton.disabled, false);
+                assert.equal(undoButton.title.includes('Edit'), true);
+                assert.equal(health.disabled, nextProtected);
+                assert.equal(speed.disabled, nextProtected);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1});
+    """)
+
+
 def test_recent_world_ui_is_cleared_instead_of_persisted() -> None:
     _run_node(
         textwrap.dedent(

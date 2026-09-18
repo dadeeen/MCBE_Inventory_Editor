@@ -366,16 +366,17 @@
 
         function setAbilityControlsDisabled(disabled) {
             const models = abilityView.abilityControlModels({
-                disabled: disabled || isEditingBlocked(),
+                disabled,
                 protectedFields: protectedAbilityFields(),
-            });
+            }).map(model => ({ ...model, blocked: isEditingBlocked() }));
             abilityView.applyAbilityControlModels(doc, models);
             const resetButton = doc.getElementById("btnResetAbilitySpeeds");
             if (resetButton) {
                 const fields = protectedAbilityFields();
-                resetButton.disabled = Boolean(
-                    disabled || isEditingBlocked() || fields.fly_speed || fields.walk_speed,
-                );
+                abilityView.applyControlState(resetButton, {
+                    disabled: Boolean(disabled || fields.fly_speed || fields.walk_speed),
+                    blocked: isEditingBlocked(),
+                });
             }
         }
 
@@ -393,7 +394,7 @@
                 protectedFields: protectedStatFields(),
             }).map(model => ({
                 ...model,
-                disabled: model.disabled || isEditingBlocked(),
+                blocked: isEditingBlocked(),
             }));
             abilityView.applyStatProtectionControlModels(statsFormElements?.(), models);
             const locationElements = statsFormElements?.() || {};
@@ -402,10 +403,10 @@
                 targetDimension: locationElements.dimensionId?.value,
                 blocked: models.some(model => ["dimensionId", "posX", "posY", "posZ"].includes(model.key) && model.disabled),
             });
-            abilityView.applyLocationConversionModel?.(locationElements.convertLocation, locationModel);
+            abilityView.applyLocationConversionModel?.(locationElements.convertLocation, { ...locationModel, blocked: isEditingBlocked() });
             abilityView.applyLocationConversionNote?.(locationElements.convertLocationNote, locationModel);
             const applyButton = doc.getElementById("btnApplyStats");
-            if (applyButton && isEditingBlocked()) applyButton.disabled = true;
+            abilityView.applyControlState(applyButton, { disabled: false, blocked: isEditingBlocked() });
         }
 
         function removeProtectedStatsFromPayload(statsPayload) {
@@ -500,17 +501,16 @@
                     summary.textContent = optionModel.label;
                     description.textContent = optionModel.description;
                     details.open = false;
-                    addButton.disabled = false;
+                    abilityView.applyControlState(addButton, { disabled: false });
                 });
                 list.appendChild(option);
             });
-            const blocked = isEditingBlocked()
-                || protectedNbt().active_effects_opaque === true
+            const blocked = protectedNbt().active_effects_opaque === true
                 || options.length === 0;
             details.classList.toggle("disabled", blocked);
             details.setAttribute("aria-disabled", String(blocked));
             if (blocked) details.open = false;
-            addButton.disabled = blocked || select.value === "";
+            abilityView.applyControlState(addButton, { disabled: blocked || select.value === "", blocked: isEditingBlocked() });
         }
 
         function syncEffectsFromUI() {
@@ -549,7 +549,7 @@
                 const row = effectsView.effectRowElement(model);
                 if (isEditingBlocked()) {
                     row.querySelectorAll("input, select, textarea, button").forEach(control => {
-                        control.disabled = true;
+                        abilityView.applyControlState(control, { disabled: control.disabled, title: control.title, blocked: true });
                     });
                 }
                 const captureLiveEffectUndo = () => {

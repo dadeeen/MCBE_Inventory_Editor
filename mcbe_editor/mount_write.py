@@ -860,6 +860,18 @@ def build_horse_actor_nbt_from_template(
     return nbt.NamedTag(_apply_horse_identity(tag, position, unique_id, actor_suffix, horse_profile)).save_to(**SAVE_KWARGS)
 
 
+def _require_mount_owner_unique_id(owner_unique_id: Any) -> int:
+    if isinstance(owner_unique_id, bool) or not isinstance(owner_unique_id, int) or owner_unique_id == -1 or not -(2**63) <= owner_unique_id < 2**63:
+        raise ValueError(t("Gezähmt erzeugen abgelehnt: Die UniqueID des Referenzspielers konnte nicht gelesen werden."))
+    return owner_unique_id
+
+
+def mount_owner_unique_id_from_player(player_tag: Any) -> int:
+    owner_tag = player_tag.get("UniqueID") if isinstance(player_tag, nbt.CompoundTag) else None
+    owner_unique_id = _tag_data(owner_tag) if isinstance(owner_tag, nbt.LongTag) else None
+    return _require_mount_owner_unique_id(owner_unique_id)
+
+
 def build_horse_actor_nbt(
     position: dict[str, float],
     unique_id: int,
@@ -872,6 +884,8 @@ def build_horse_actor_nbt(
 ) -> bytes:
     _require_synthetic_creatable(mount_type)
     _require_tameable_if_tamed(mount_type, tamed)
+    if tamed:
+        owner_unique_id = _require_mount_owner_unique_id(owner_unique_id)
     pos = normalize_mount_position(position)
     is_horse = mount_type == "minecraft:horse"
     profile = normalize_horse_profile(horse_profile) if is_horse else None
@@ -936,8 +950,7 @@ def build_horse_actor_nbt(
     if tamed_spec is not None:
         tag["definitions"] = nbt.ListTag([nbt.StringTag(value) for value in tamed_spec["definitions"]])
         tag["IsTamed"] = nbt.ByteTag(1)
-        if owner_unique_id is not None:
-            tag["OwnerNew"] = nbt.LongTag(int(owner_unique_id))
+        tag["OwnerNew"] = nbt.LongTag(owner_unique_id)
     return nbt.NamedTag(tag).save_to(**SAVE_KWARGS)
 
 
@@ -1239,7 +1252,9 @@ def create_horse_mount_with_service(
             player_info = service._get_player_info(db, player_key)
             if not player_info["editable"]:
                 raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")
-            service._read_player(db, player_key)
+            player_raw = service._read_player(db, player_key)
+            if tamed:
+                mount_owner_unique_id_from_player(_load_entity_tag(player_raw))
             db.close()
             db = None
 
@@ -1260,11 +1275,7 @@ def create_horse_mount_with_service(
             owner_unique_id = None
             if tamed:
                 # Evidenz: Zähmen setzt OwnerNew auf die UniqueID des Spielers.
-                player_tag = _load_entity_tag(player_raw)
-                owner_value = _tag_data(player_tag.get("UniqueID")) if isinstance(player_tag, nbt.CompoundTag) and "UniqueID" in player_tag else None
-                if not isinstance(owner_value, int):
-                    raise ValueError("Gezähmt erzeugen abgelehnt: Die UniqueID des Referenzspielers konnte nicht gelesen werden.")
-                owner_unique_id = owner_value
+                owner_unique_id = mount_owner_unique_id_from_player(_load_entity_tag(player_raw))
             record = build_horse_mount_record(
                 db,
                 position,

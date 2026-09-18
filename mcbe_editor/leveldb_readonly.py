@@ -12,8 +12,10 @@ Supported on-disk features:
 * Write-ahead log replay (in memory only) so unflushed saves are visible
 * SST/.ldb table files with block index and restart points
 * WAL/MANIFEST and SST block CRC32C validation
-* Incomplete or CRC-damaged final records in the newest WAL are discarded
-  with a warning; MANIFEST, SST and non-tail corruption remain errors
+* The newest WAL can discard an incomplete physical record or a CRC-damaged
+  physical record ending at EOF, with a warning; other CRC/length errors fail
+* Unfinished logical fragments and short EOF headers follow native recovery:
+  ignored in every log, with incomplete-tail warnings for the newest WAL
 * Mojang compression IDs: 0 (none), 2 (zlib) and 4 (raw zlib);
   Snappy (1) is rejected with a clear error because Bedrock never writes it
 
@@ -125,14 +127,18 @@ def _split_internal_key(internal_key: bytes) -> tuple[bytes, int, int]:
         raise CorruptDatabaseError("Interner Schlüssel ist zu kurz.")
     user_key = internal_key[:-8]
     tail = struct.unpack("<Q", internal_key[-8:])[0]
-    return user_key, tail >> 8, tail & 0xFF
+    entry_type = tail & 0xFF
+    if entry_type not in (_TYPE_DELETION, _TYPE_VALUE):
+        raise CorruptDatabaseError("Unbekannter Eintragstyp im internen SST-Schlüssel.")
+    return user_key, tail >> 8, entry_type
 
 
 def _iter_log_records(data: bytes, *, recover_tail: bool = False):
     """Join log fragments; optionally discard a damaged final WAL record.
 
     Unlike native non-paranoid recovery, do not skip damaged blocks to look
-    for later records. Only the newest WAL opts in; MANIFEST stays strict.
+    for later records. Only the newest WAL opts in to damaged physical-tail
+    recovery. Unfinished logical fragments follow native recovery in every log.
     """
 
     fragments: list[bytes] = []
@@ -483,16 +489,21 @@ class ReadonlyLevelDbAdapter:
                     raise KeyError(key)
                 return found[2]
 
-        # Deeper levels have disjoint key ranges within each level.
+        # Deeper levels have disjoint *internal*-key ranges. Versions of the
+        # same user key can straddle file boundaries, and MANIFEST insertion
+        # order does not rank those versions. Resolve every matching file in
+        # this level before applying its newest value or tombstone.
         for level in sorted(level for level in self._files if level > 0):
+            best = None
             for file_no, (smallest, largest) in self._files[level].items():
                 if _split_internal_key(smallest)[0] <= key <= _split_internal_key(largest)[0]:
                     found = self._table(file_no).get(key)
-                    if found is not None:
-                        if found[1] == _TYPE_DELETION:
-                            raise KeyError(key)
-                        return found[2]
-                    break
+                    if found is not None and (best is None or found[0] > best[0]):
+                        best = found
+            if best is not None:
+                if best[1] == _TYPE_DELETION:
+                    raise KeyError(key)
+                return best[2]
         raise KeyError(key)
 
     def put(self, key: bytes, value: bytes) -> None:

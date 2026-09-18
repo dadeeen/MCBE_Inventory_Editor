@@ -29,6 +29,7 @@
         "#btnMaxAllEnch",
         "#btnClearAllEnch",
         "#btnApplyStats",
+        "#btnConvertOverworldNether",
         "#btnResetAbilitySpeeds",
         "#btnAddEffect",
         "#btnApplyEffects",
@@ -73,19 +74,23 @@
         return buttons;
     }
 
-    function applyIntrinsicEditControlState(control, { disabled = false, title = "" } = {}) {
+    function applyIntrinsicEditControlState(control, { disabled = false, title = "", blocked = false, blockedTitle = "" } = {}) {
         if (!control || !("disabled" in control)) return;
         const intrinsicDisabled = Boolean(disabled);
         const intrinsicTitle = String(title || "");
         const dataset = control.dataset || null;
-        if (dataset?.writeGateEditBlocked === "true") {
+        if (blocked || dataset?.writeGateEditBlocked === "true") {
             // Dynamic editor renderers may update their own disabled state while
             // the write gate is active. Remember that intrinsic state without
             // visually reopening the control until the gate is lifted.
-            dataset.writeGatePreviousDisabled = intrinsicDisabled ? "true" : "false";
-            dataset.writeGatePreviousTitle = intrinsicTitle;
+            if (dataset) {
+                dataset.writeGateEditBlocked = "true";
+                dataset.writeGatePreviousDisabled = intrinsicDisabled ? "true" : "false";
+                dataset.writeGatePreviousTitle = intrinsicTitle;
+                if (blockedTitle) dataset.writeGateBlockedTitle = blockedTitle;
+            }
             control.disabled = true;
-            control.title = dataset.writeGateBlockedTitle || control.title || "";
+            control.title = blockedTitle || dataset?.writeGateBlockedTitle || intrinsicTitle;
             control.setAttribute?.("aria-disabled", "true");
             return;
         }
@@ -301,6 +306,7 @@
         getCurrentPlayerKey = () => "",
         getIsDirty = () => false,
         getIsSaving = () => false,
+        getIsLoading = () => false,
         buildChangeSummary = () => ({ total: 0 }),
         updateImportControls = () => {},
         updatePlayerTransferControls = () => {},
@@ -320,6 +326,7 @@
             restoreButtons = [],
             backupCreateButtons = [],
             editControls = [],
+            editorContainer = null,
         } = elements;
         let nextServerStatusRequestOrder = 0;
         let appliedServerStatusRequestOrder = 0;
@@ -377,12 +384,13 @@
         }
 
         function editingBlocked() {
-            return getIsSaving() || (Boolean(getCurrentPlayerKey()) && writeBlocked());
+            return getIsSaving() || getIsLoading() || (Boolean(getCurrentPlayerKey()) && writeBlocked());
         }
 
         function editingBlockedReason() {
             return getIsSaving()
                 ? t("Bearbeitung ist während des Speicherns gesperrt.")
+                : getIsLoading() ? t("Bearbeitung ist während des Ladens gesperrt.")
                 : effectiveWriteGate()?.reason || t("Bearbeitung ist aktuell gesperrt.");
         }
 
@@ -406,12 +414,14 @@
 
         function updateWriteControls() {
             const gate = effectiveWriteGate();
-            const blocked = gate?.allowed === false && gate?.requires_unknown_server_confirmation !== true;
+            const busy = getIsSaving() || getIsLoading();
+            const blocked = busy || (gate?.allowed === false && gate?.requires_unknown_server_confirmation !== true);
+            if (editorContainer) editorContainer.inert = busy;
             const model = writeControlModel({
                 isDirty: getIsDirty(),
                 blocked,
-                blockedReason: gate?.reason || "",
-                hasEditablePlayer: Boolean(getCurrentPlayerKey()),
+                blockedReason: busy ? editingBlockedReason() : gate?.reason || "",
+                hasEditablePlayer: busy || Boolean(getCurrentPlayerKey()),
                 summary: buildChangeSummary({ limit: 3, includeSections: false }),
             });
             applyWriteControlModel({ saveButtons, restoreButtons, backupCreateButtons, editControls }, model);
@@ -551,6 +561,7 @@
     function collectWriteGateElements(doc = document) {
         return {
             serverStatusBadge: doc.getElementById("serverStatusBadge"),
+            editorContainer: doc.querySelector?.(".app-container") || null,
             saveButtons: [
                 doc.getElementById("btnSave"),
                 doc.getElementById("btnDirtyReview"),
@@ -579,7 +590,7 @@
             return true;
         }
         function guardWorldWriteAction() {
-            if (!controller.writeBlocked()) return false;
+            if (!controller.writeBlocked() && !deps.getIsLoading?.()) return false;
             blockedFeedback();
             return true;
         }

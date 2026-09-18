@@ -162,12 +162,22 @@
         };
     }
 
+    function applyControlState(element, model = {}) {
+        if (!element) return;
+        const apply = window.MCBEWriteStatusView?.applyIntrinsicEditControlState;
+        if (apply) {
+            apply(element, model);
+        } else {
+            element.disabled = Boolean(model.disabled || model.blocked);
+            element.title = model.blockedTitle || model.title || "";
+        }
+    }
+
     function applyAbilityControlModels(doc = document, models = []) {
         models.forEach(model => {
             const element = doc.getElementById?.(model.id);
             if (!element) return;
-            element.disabled = Boolean(model.disabled);
-            element.title = model.title || "";
+            applyControlState(element, model);
         });
     }
 
@@ -219,8 +229,7 @@
         models.forEach(model => {
             const element = elements[model.key];
             if (!element) return;
-            element.disabled = Boolean(model.disabled);
-            element.title = model.title || "";
+            applyControlState(element, model);
         });
     }
 
@@ -300,9 +309,8 @@
 
     function applyLocationConversionModel(element, model = {}) {
         if (!element) return;
-        element.disabled = Boolean(model.disabled);
+        applyControlState(element, model);
         element.textContent = model.label || "";
-        element.title = model.title || "";
     }
 
     function abilityRiskNoteModel({
@@ -331,6 +339,7 @@
         applyAbilityControlModels,
         applyAbilityFormModel,
         applyAbilityRiskNoteModel,
+        applyControlState,
         applyLocationConversionModel,
         applyLocationConversionNote,
         applyStatProtectionControlModels,

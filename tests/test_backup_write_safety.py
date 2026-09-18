@@ -329,3 +329,97 @@ def test_restore_aborts_when_pre_restore_backup_source_changes(world, monkeypatc
     assert Path(selected).read_bytes() == original_archive
     assert list(Path(selected).parent.glob("*.zip")) == [Path(selected)]
     assert not list((Path(selected).parent / ".restore_sources").glob("*.zip"))
+
+
+@pytest.mark.parametrize("change_phase", ["after_backup", "extraction", "final_gate"])
+def test_restore_rejects_source_changes_after_pre_restore_backup(world, monkeypatch, change_phase):
+    from mcbe_editor import services
+
+    selected = Path(backup.create_backup(str(world), prune_after=False))
+    selected_bytes = selected.read_bytes()
+    current = world / "db" / "a.bin"
+    current.write_bytes(b"before-restore")
+    service = BedrockEditorService(ITEMS, ENCHANTMENTS)
+    token = service.preview_backup_restore(str(world), selected.name)["backup_token"]
+    original_create = services.create_backup
+    original_extract = backup.safe_extract_zip
+    created = []
+
+    def create(*args, **kwargs):
+        result = original_create(*args, **kwargs)
+        created.append(Path(result))
+        if change_phase == "after_backup":
+            current.write_bytes(b"external-change")
+        return result
+
+    def extract(*args, **kwargs):
+        original_extract(*args, **kwargs)
+        if change_phase == "extraction":
+            current.write_bytes(b"external-change")
+
+    def final_gate():
+        if change_phase == "final_gate":
+            current.write_bytes(b"external-change")
+
+    monkeypatch.setattr(services, "create_backup", create)
+    monkeypatch.setattr(backup, "safe_extract_zip", extract)
+    with pytest.raises(BackupSourceChangedError, match="Restore abgelehnt"):
+        service.restore_backup(str(world), selected.name, backup_token=token, pre_restore_check=final_gate)
+
+    assert current.read_bytes() == b"external-change"
+    assert selected.read_bytes() == selected_bytes
+    assert len(created) == 1 and created[0].exists()
+    with zipfile.ZipFile(created[0]) as archive:
+        assert archive.read("db/a.bin") == b"before-restore"
+    assert not list(world.parent.glob(".world_restoring_*"))
+    assert not list(world.parent.glob(".world_rollback_*"))
+    assert not list(world.parent.glob(".mcbe_restore_*.json"))
+    assert not list((selected.parent / ".restore_sources").glob("*.zip"))
+
+
+def test_direct_restore_checks_source_before_swap(world, monkeypatch):
+    selected = Path(backup.create_backup(str(world), prune_after=False))
+    current = world / "db" / "a.bin"
+    current.write_bytes(b"before-restore")
+    original_extract = backup.safe_extract_zip
+
+    def extract(*args, **kwargs):
+        original_extract(*args, **kwargs)
+        current.write_bytes(b"external-change")
+
+    monkeypatch.setattr(backup, "safe_extract_zip", extract)
+    with pytest.raises(BackupSourceChangedError, match="Restore abgelehnt"):
+        backup.restore_backup(str(world), selected.name)
+
+    assert current.read_bytes() == b"external-change"
+    assert not list(world.parent.glob(".world_restoring_*"))
+    assert not list(world.parent.glob(".world_rollback_*"))
+
+
+def test_restore_rechecks_server_gate_after_source_snapshot(world, monkeypatch):
+    selected = Path(backup.create_backup(str(world), prune_after=False))
+    current = world / "db" / "a.bin"
+    current.write_bytes(b"before-restore")
+    original_snapshot = backup.source_snapshot
+    scans = 0
+    gate_calls = []
+
+    def snapshot(path):
+        nonlocal scans
+        result = original_snapshot(path)
+        scans += 1
+        return result
+
+    def final_gate():
+        gate_calls.append(scans)
+        if scans == 2:
+            raise ValueError("server started during metadata check")
+
+    monkeypatch.setattr(backup, "source_snapshot", snapshot)
+    with pytest.raises(ValueError, match="server started"):
+        backup.restore_backup(str(world), selected.name, pre_restore_check=final_gate)
+
+    assert gate_calls == [1, 2]
+    assert current.read_bytes() == b"before-restore"
+    assert not list(world.parent.glob(".world_restoring_*"))
+    assert not list(world.parent.glob(".world_rollback_*"))

@@ -165,18 +165,23 @@ def _canonical_nbt(tag):
     return [type(tag).__name__, _core.save_player_nbt(_core.nbt.NamedTag(tag)).hex()]
 
 
-def _canonical_preserved_enchantments(list_tag):
+def _canonical_preserved_enchantments(list_tag, seen_ids=None):
     entries = []
+    seen_ids = seen_ids if seen_ids is not None else set()
     if not _core._is_list_tag(list_tag):
         return _canonical_nbt(list_tag)
     for enchantment in list_tag:
         if not _core._is_compound_tag(enchantment):
             entries.append(_canonical_nbt(enchantment))
             continue
-        enchantment_id = _core._enchantment_id_from_tag(enchantment)
-        if enchantment_id not in ENCHANTMENTS:
+        editable_values = _core._editable_known_enchantment_values(enchantment)
+        if editable_values is None or editable_values[0] in seen_ids:
+            # Unknown/malformed entries and additional known-ID occurrences are
+            # copied verbatim. None of their bytes are owned by the visible form.
             entries.append(_canonical_nbt(enchantment))
             continue
+        enchantment_id, _level = editable_values
+        seen_ids.add(enchantment_id)
         extra_keys = sorted((key for key in enchantment if str(key) not in {"id", "lvl"}), key=str)
         id_tag = enchantment.get("id")
         level_tag = enchantment.get("lvl")
@@ -196,6 +201,7 @@ def _canonical_preserved_item_tag(tag_compound, item_name: str):
     if not _core._is_compound_tag(tag_compound):
         return _canonical_nbt(tag_compound)
     entries = []
+    seen_enchantment_ids = set()
     for key in sorted(tag_compound.keys(), key=str):
         key_name = str(key)
         value = tag_compound[key]
@@ -225,7 +231,9 @@ def _canonical_preserved_item_tag(tag_compound, item_name: str):
                 )
             continue
         if key_name in {"ench", "enchantments"}:
-            preserved = _canonical_preserved_enchantments(value)
+            # Sorted keys visit ench before enchantments, matching the parser's
+            # precedence when a known ID occurs in both families.
+            preserved = _canonical_preserved_enchantments(value, seen_enchantment_ids)
             entries.append([key_name, preserved])
             continue
         entries.append([key_name, _canonical_nbt(value)])

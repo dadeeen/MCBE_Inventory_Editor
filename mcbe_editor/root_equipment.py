@@ -598,6 +598,7 @@ def apply_root_equipment_writes(
     source_item_maps=None,
     target_player_key=None,
     extra_original_items=None,
+    original_inventory_slots=(),
     allow_clears=False,
     used_external_source_checks=None,
 ) -> None:
@@ -610,7 +611,9 @@ def apply_root_equipment_writes(
     und nicht schreibbare Listen bleiben unverändert.
     """
 
-    writable = root_equipment_writable_slots(player_tag)
+    # Inventory entries take precedence in the UI. Their shadowed root entries
+    # were never presented to the user and omission must not clear them.
+    writable = root_equipment_writable_slots(player_tag) - set(original_inventory_slots)
     if not writable:
         if equipment_items:
             raise ValueError("Ausrüstungs-Slots sind bei diesem Spieler nicht bearbeitbar (unbekanntes Root-Listen-Format).")

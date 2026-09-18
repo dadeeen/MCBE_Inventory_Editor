@@ -776,7 +776,7 @@ def test_donkey_and_mule_roll_temper_while_tamed_variants_have_none() -> None:
         assert wild_tag["Temper"].py_data == wild.mount_stats["temper"], mount_type
 
         tamed = build_horse_mount_record(
-            db, {"x": 0.5, "y": 64.0, "z": 0.5}, create_mode="synthetic_full", mount_type=mount_type, tamed=True, owner_unique_id=-1
+            db, {"x": 0.5, "y": 64.0, "z": 0.5}, create_mode="synthetic_full", mount_type=mount_type, tamed=True, owner_unique_id=-4294967295
         )
         assert "Temper" not in nbt.load(tamed.actor_value, **LOAD_KWARGS).tag, mount_type
         # Der Record darf keinen Zähmfortschritt melden, den er nie geschrieben hat.
@@ -836,7 +836,7 @@ def test_tamed_donkey_ignores_a_requested_temper_because_taming_removes_the_tag(
         mount_type="minecraft:donkey",
         mount_stats={"temper": 42},
         tamed=True,
-        owner_unique_id=-1,
+        owner_unique_id=-4294967295,
     )
 
     assert "Temper" not in nbt.load(record.actor_value, **LOAD_KWARGS).tag
@@ -1025,7 +1025,7 @@ def test_build_tamed_donkey_actor_nbt_matches_taming_evidence() -> None:
     assert "BreedCooldown" in tag and "InLove" in tag and "LoveCause" in tag
 
     mule_raw = build_horse_actor_nbt(
-        {"x": 0.5, "y": 64.0, "z": 0.5}, unique_id_from_actor_key(actor), suffix, mount_type="minecraft:mule", tamed=True, owner_unique_id=-1
+        {"x": 0.5, "y": 64.0, "z": 0.5}, unique_id_from_actor_key(actor), suffix, mount_type="minecraft:mule", tamed=True, owner_unique_id=-4294967295
     )
     mule_tag = nbt.load(mule_raw, **LOAD_KWARGS).tag
     assert "BreedCooldown" not in mule_tag and "InLove" not in mule_tag and "LoveCause" not in mule_tag
@@ -1051,6 +1051,12 @@ def test_tamed_create_only_supported_for_donkey_and_mule() -> None:
     assert validation["ok"] is True
     assert "+minecraft:donkey_tamed" in validation["details"]["expected_definitions"]
     assert "-minecraft:donkey_wild" in validation["details"]["expected_definitions"]
+
+
+@pytest.mark.parametrize("owner", [None, -1, True, 1.5, "42", -(2**63) - 1, 2**63])
+def test_tamed_mount_builder_rejects_missing_or_invalid_owner(owner) -> None:
+    with pytest.raises(ValueError, match="UniqueID des Referenzspielers"):
+        build_horse_actor_nbt({"x": 0.5, "y": 64.0, "z": 0.5}, 1, mount_type="minecraft:donkey", tamed=True, owner_unique_id=owner)
 
 
 def test_non_horse_mount_rejects_template_clone_and_unknown_types() -> None:

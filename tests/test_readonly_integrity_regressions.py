@@ -40,6 +40,25 @@ def test_structurally_valid_corrupt_value_is_rejected_by_adapter(tmp_path, acces
     assert _snapshot(db_path) == before
 
 
+@pytest.mark.parametrize("access", ["get", "iter_items"])
+@pytest.mark.parametrize("entry_type", [2, 255])
+def test_unknown_sst_entry_type_is_rejected_with_valid_crc(tmp_path, access, entry_type):
+    # Keep the index/range boundary valid, so rejection must reach the data key.
+    bad_key = _key(b"player", 9, entry_type)
+    valid_boundary = _key(b"z", 10)
+    table = _table([[(bad_key, b"must-not-be-exposed"), (valid_boundary, b"last")]], 0)
+    db_path = _world_db(tmp_path, manifest=_new_file(0, 3, table, _key(b"player", 9), valid_boundary))
+    (db_path / "000003.ldb").write_bytes(table)
+    before = _snapshot(db_path)
+    db = reader.ReadonlyLevelDbAdapter(str(db_path))
+    try:
+        with pytest.raises(reader.CorruptDatabaseError, match="Eintragstyp"):
+            db.get(b"player") if access == "get" else list(db.iter_items())
+    finally:
+        db.close()
+    assert _snapshot(db_path) == before
+
+
 @pytest.mark.parametrize("last", [2, 0x7f, 0x81])
 def test_varint_cannot_exceed_uint64(last):
     with pytest.raises(reader.CorruptDatabaseError):

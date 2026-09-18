@@ -882,6 +882,8 @@ def _set_editable_item_damage(item_compound, name: str, damage: int):
             if existing_tag_damage is not None:
                 _set_numeric_tag_preserving_type(tag_compound, "Damage", damage, nbt.IntTag)
             elif damage > 0:
+                if "Damage" in tag_compound:
+                    raise ValueError(t("Item-Metadaten können nicht bearbeitet werden, weil der vorhandene Item-tag einen unbekannten NBT-Typ verwendet."))
                 tag_compound["Damage"] = nbt.IntTag(damage)
         if "Damage" not in item_compound:
             item_compound["Damage"] = nbt.ShortTag(0)
@@ -1281,6 +1283,16 @@ def _contained_actor_identifier(item) -> str:
     return ""
 
 
+def _entity_variant_has_opaque_numeric_fields(item, field_names) -> bool:
+    # Every representation that the variant writer synchronizes must be safe.
+    # An outer numeric value must not make an opaque nested field editable.
+    return any(
+        key in compound and not isinstance(compound[key], INTEGER_TAG_TYPES)
+        for compound in _entity_data_candidate_compounds(item)
+        for key in field_names
+    )
+
+
 def _axolotl_variant_value(item):
     compounds = _entity_data_candidate_compounds(item)
     invalid_numeric_source = ""
@@ -1591,7 +1603,7 @@ def _tropical_fish_bucket_variant(item, actor: str) -> EntityVariantInfo | None:
         # BodyID/ColorID/GroupName also drive the bucket's localized label,
         # but those strings alone are not proof of a complete captured entity.
         # Only expose mutation when all four numeric entity-state fields exist.
-        "can_edit": has_numeric_state,
+        "can_edit": has_numeric_state and not _entity_variant_has_opaque_numeric_fields(item, state_keys),
     }
     if state["variant"] is not None:
         result["variant"] = state["variant"]
@@ -1639,7 +1651,8 @@ def _item_entity_variant(item) -> EntityVariantInfo | None:
             # Language keys are useful for display, but editing them without
             # numeric Variant + age state could create a bucket whose label and
             # spawned entity disagree.
-            "can_edit": numeric_variant and numeric_age,
+            "can_edit": numeric_variant and numeric_age
+            and not _entity_variant_has_opaque_numeric_fields(item, ("Variant", "IsBaby", "Baby", "Age")),
         }
     return _tropical_fish_bucket_variant(item, actor)
 
@@ -2717,6 +2730,13 @@ def _entity_variant_unknown_tag_type_error():
     return ValueError(t("Item-Metadaten können nicht bearbeitet werden, weil der vorhandene Item-tag einen unbekannten NBT-Typ verwendet."))
 
 
+def _set_entity_variant_numeric_tag(compound, key: str, value: int, default_factory) -> None:
+    original = compound.get(key)
+    if original is not None and not isinstance(original, INTEGER_TAG_TYPES):
+        raise _entity_variant_unknown_tag_type_error()
+    _set_numeric_tag_preserving_type(compound, key, value, default_factory)
+
+
 def _set_entity_variant_display_string(compound, key: str, value: str, *, numeric_is_state: bool = False) -> None:
     original = compound.get(key) if hasattr(compound, "get") else None
     if original is None or isinstance(original, nbt.StringTag):
@@ -2777,7 +2797,7 @@ def _apply_axolotl_variant_edit(item_compound, edit):
     if numeric_variant_seen:
         # A numeric entity payload is authoritative; make it internally
         # complete without changing the surrounding entity compound.
-        _set_numeric_tag_preserving_type(primary, "Variant", variant, nbt.IntTag)
+        _set_entity_variant_numeric_tag(primary, "Variant", variant, nbt.IntTag)
 
     age_seen = False
     for compound in compounds:
@@ -2799,7 +2819,7 @@ def _apply_axolotl_variant_edit(item_compound, edit):
             compound["BodyID"] = nbt.StringTag(f"item.axolotl{'Baby' if is_baby else 'Adult'}BodySingle.name")
 
     if not age_seen:
-        _set_numeric_tag_preserving_type(primary, "IsBaby", int(is_baby), nbt.ByteTag)
+        _set_entity_variant_numeric_tag(primary, "IsBaby", int(is_baby), nbt.ByteTag)
 
     # These fields drive the bucket's localized name. They do not replace or
     # discard the complete saved entity payload.
@@ -2833,7 +2853,7 @@ def _apply_tropical_fish_variant_edit(item_compound, edit):
         # If this bucket contains a numeric saved-entity representation, keep
         # the four correlated fields together in that same compound.
         for key, value in numeric_values.items():
-            _set_numeric_tag_preserving_type(primary, key, value, nbt.IntTag)
+            _set_entity_variant_numeric_tag(primary, key, value, nbt.IntTag)
 
     pattern_token, _label_de, _label_en = TROPICAL_FISH_PATTERN_BY_VALUES[(edit["variant"], edit["mark_variant"])]
     name_shape = "Single" if edit["color"] == edit["color2"] else "Multi"

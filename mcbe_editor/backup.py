@@ -532,7 +532,11 @@ def _read_backup_metadata(zipf: zipfile.ZipFile, filename: str) -> JsonObject:
         if isinstance(candidate, dict):
             kind = candidate.get("kind")
             created_at = _parse_created_at(candidate.get("created_at"))
-            if candidate.get("schema_version") == BACKUP_METADATA_VERSION and kind in BACKUP_KINDS - {BACKUP_KIND_LEGACY}:
+            if (
+                candidate.get("schema_version") == BACKUP_METADATA_VERSION
+                and isinstance(kind, str)
+                and kind in BACKUP_KINDS - {BACKUP_KIND_LEGACY}
+            ):
                 metadata = {
                     **candidate,
                     "kind": kind,
@@ -1481,6 +1485,7 @@ def preview_backup(world_path: str, backup_file: str) -> JsonObject:
 @_world_locked
 def restore_backup(
     world_path: str, backup_file: str, *, resolved_backup_path: str | None = None, pre_restore_check: Callable[[], object] | None = None,
+    expected_source_snapshot: str | None = None,
 ) -> list[str]:
     # Service-level restore first resolves the selected backup, then creates a
     # pre-restore safety backup.  Accepting that pre-resolved path avoids a
@@ -1492,6 +1497,9 @@ def restore_backup(
     if not os.path.exists(backup_zip_path):
         raise FileNotFoundError("Backup-Datei existiert nicht.")
 
+    # The service supplies the state from before its pre-restore backup. Direct
+    # callers still detect changes during this function's preparation/extraction.
+    source_before = expected_source_snapshot if expected_source_snapshot is not None else source_snapshot(world_path)
     parent_dir = os.path.dirname(os.path.normpath(world_path))
     unpacked = _archive_size(backup_zip_path, world_path)
     _ensure_space(parent_dir or ".", unpacked)
@@ -1519,6 +1527,18 @@ def restore_backup(
         if not os.path.isdir(os.path.join(temp_restore_dir, "db")):
             raise ValueError("Backup enthält keinen gültigen Bedrock-db-Ordner.")
 
+        if pre_restore_check:
+            pre_restore_check()
+        # The application lock cannot stop an external writer. A server may have
+        # saved and stopped again during extraction, leaving the final gate open
+        # while the pre-restore backup no longer contains the latest world state.
+        if source_snapshot(world_path) != source_before:
+            raise BackupSourceChangedError(t(
+                "Restore abgelehnt: Die Zielwelt wurde während der Vorbereitung verändert. "
+                "Bitte Server vollständig stoppen und den Restore erneut starten."
+            ))
+        # Metadata scans can take time too; preserve a final server-status check
+        # after the scan, immediately before starting the directory transaction.
         if pre_restore_check:
             pre_restore_check()
         transaction_journal = _write_restore_transaction(

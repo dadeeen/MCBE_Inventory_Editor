@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 from mcbe_editor.mount_block_probe import (
     CHUNK_VERSION_TAG,
     DATA_2D_TAG,
@@ -20,6 +22,43 @@ from mcbe_editor.mount_block_probe import (
 )
 from mcbe_editor.mount_placement import _candidate_with_footprint_probe, _footprint_assessment, _reassess_candidate_space
 from mcbe_editor.mounts import build_mount_preview
+
+
+@pytest.mark.parametrize(
+    ("role", "block", "center"),
+    [
+        ("feet", "minecraft:stone", True),
+        ("head", "minecraft:stone", False),
+        ("body_2", "minecraft:stone", False),
+        ("floor", "minecraft:air", True),
+        ("floor", "minecraft:water", True),
+        ("floor", "minecraft:water", False),
+        ("floor", "minecraft:stone_block_slab", True),
+        ("floor", "minecraft:stone_block_slab", False),
+    ],
+)
+def test_incomplete_footprint_never_hides_known_unsafe_blocks(role, block, center) -> None:
+    solid_floor = {"floor": "minecraft:stone", "feet": "minecraft:air", "head": "minecraft:air", "body_2": "minecraft:air"}
+    columns = [
+        {"block_x": 15, "block_z": 8, "center": True, "block_names": dict(solid_floor)},
+        {"block_x": 15, "block_z": 9, "center": False, "block_names": dict(solid_floor)},
+        {"block_x": 16, "block_z": 8, "center": False, "block_names": {}},
+    ]
+    columns[0 if center else 1]["block_names"][role] = block
+    for ordered in [columns, list(reversed(columns))]:
+        result = _footprint_assessment(ordered, clearance_blocks=3)
+        assert result["status"] == "unsafe"
+        assert result["safe_to_place"] is False
+
+
+def test_incomplete_but_unobstructed_footprint_remains_unchecked() -> None:
+    result = _footprint_assessment([
+        {"block_x": 15, "block_z": 8, "center": True,
+         "block_names": {"floor": "minecraft:stone", "feet": "minecraft:air", "head": "minecraft:air"}},
+        {"block_x": 16, "block_z": 8, "center": False, "block_names": {}},
+    ])
+    assert result["status"] == "unchecked"
+    assert result["safe_to_place"] is None
 
 
 class FakeDb:

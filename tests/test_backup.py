@@ -1525,6 +1525,31 @@ def test_backup_integrity_cache_ignores_valid_non_object_json(tmp_path):
     assert _load_integrity_cache(str(tmp_path)) == {}
 
 
+@pytest.mark.parametrize("kind", [[], {}, ["manual"], 1, None])
+def test_invalid_backup_kind_does_not_block_other_backups(tmp_path, monkeypatch, kind):
+    import json
+
+    from mcbe_editor.backup import create_backup, get_backups_dir, list_backups, prune_backups
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    (world / "db" / "state.dat").write_bytes(b"current")
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+    monkeypatch.setenv("MCBE_MAX_BACKUPS_PER_WORLD", "1")
+    valid = Path(create_backup(str(world), prune_after=False))
+    malformed = Path(get_backups_dir(str(world))) / "legacy.zip"
+    with zipfile.ZipFile(malformed, "w") as archive:
+        archive.writestr("db/state.dat", b"old")
+        archive.comment = json.dumps({"schema_version": 1, "kind": kind}).encode("utf-8")
+
+    listed = {entry["filename"]: entry for entry in list_backups(str(world))}
+    assert set(listed) == {valid.name, malformed.name}
+    assert listed[malformed.name]["kind"] == "legacy"
+    prune_backups(str(world), keep_paths=[str(valid)])
+    assert valid.exists()
+    assert not malformed.exists()
+
+
 def test_delete_backup_succeeds_when_integrity_cache_has_wrong_json_type(tmp_path):
     from mcbe_editor.backup import BACKUP_INTEGRITY_CACHE_FILENAME, create_backup, delete_backup, get_backups_dir
 

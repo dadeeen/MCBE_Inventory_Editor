@@ -81,6 +81,7 @@ window.MCBEWorkspaceView.migrateBrowserStorage({
 let themeController = null;
 let workspaceController = null;
 let mountController = null;
+let playerLoadApp = null;
 
 // Appearance and workspace helpers
 function getThemeController() {
@@ -704,6 +705,7 @@ const writeGateController = window.MCBEWriteStatusView.createInventoryWriteGateC
     getIsDirty: () => isDirty,
     buildChangeSummary,
     getIsSaving: () => saveAppController?.isSaving() || false,
+    getIsLoading: () => playerLoadApp?.isLoading() || false,
     updateImportControls: () => updateImportControls(),
     updatePlayerTransferControls: () => getPlayerToolsController().updateStateTransferWriteControl(),
     renderSaveWorkflowPanel,
@@ -815,7 +817,6 @@ const {
 } = slotInspectorController;
 slotInspectorController.wire();
 
-let playerLoadApp = null;
 const appStateBridge = window.MCBEAppStateBridge;
 const PLAYER_LOAD_STATE_KEYS = [
     "worldPath",
@@ -924,6 +925,10 @@ function getPlayerLoadApp() {
                 updatePlayerExportFolderControl,
                 updateImportControls,
                 updateWriteControls,
+                onLoadBusyChanged: () => {
+                    updateWriteControls();
+                    updateUndoButtons();
+                },
                 // Exporte lesen den geladenen Stand und bleiben bei einer
                 // reinen Server-Schreibsperre verfügbar.
                 exportBlocked: () => !permissions().canExport,

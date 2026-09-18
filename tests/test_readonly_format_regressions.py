@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 import struct
 import zlib
 
@@ -125,3 +126,48 @@ def test_synthetic_tables_merge_with_wal_versions_and_tombstones(tmp_path, compr
     finally:
         reader.close()
     assert _snapshot(root) == before
+
+
+@pytest.mark.parametrize("older_type,newer_type", [(1, 1), (0, 1), (1, 0)])
+@pytest.mark.parametrize("reverse_manifest_order", [False, True])
+def test_deeper_level_versions_follow_sequence_not_manifest_order(tmp_path, older_type, newer_type, reverse_manifest_order):
+    old_key = _key(b"player", 5, older_type)
+    new_key = _key(b"player", 9, newer_type)
+    old = _table([[(old_key, b"old" if older_type else b"")]], 0)
+    new = _table([[(new_key, b"new" if newer_type else b"")]], 0)
+    files = [_new_file(1, 3, old, old_key, old_key), _new_file(1, 4, new, new_key, new_key)]
+    if reverse_manifest_order:
+        files.reverse()
+    metadata = b"\x01" + _length_prefixed(b"leveldb.BytewiseComparator") + b"\x03\x05\x04\x09"
+    root = _world_db(tmp_path, manifest=metadata + b"".join(files))
+    (root / "000003.ldb").write_bytes(old)
+    (root / "000004.ldb").write_bytes(new)
+    before = _snapshot(root)
+    expected = {b"player": b"new"} if newer_type else {}
+    reader = ReadonlyLevelDbAdapter(str(root))
+    try:
+        assert dict(reader.iter_items()) == expected
+        if newer_type:
+            assert reader.get(b"player") == expected[b"player"]
+        else:
+            with pytest.raises(KeyError):
+                reader.get(b"player")
+    finally:
+        reader.close()
+    assert _snapshot(root) == before
+
+    # The internal ranges are valid even though their user-key boundaries touch.
+    # Compare on a copy because opening the native engine rewrites metadata.
+    leveldb = pytest.importorskip("leveldb")
+    native_path = tmp_path / "native-copy"
+    shutil.copytree(root, native_path)
+    native = leveldb.LevelDB(str(native_path))
+    try:
+        assert dict(native.items()) == expected
+        if newer_type:
+            assert native.get(b"player") == expected[b"player"]
+        else:
+            with pytest.raises(KeyError):
+                native.get(b"player")
+    finally:
+        native.close()

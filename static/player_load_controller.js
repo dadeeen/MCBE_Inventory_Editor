@@ -72,6 +72,7 @@
             loadBackupsList = () => {},
             showLoading = () => {},
             hideLoading = () => {},
+            onLoadBusyChanged = () => {},
             defaultMaxDamage = 32767,
             appConfig = {},
             exportBlocked = () => false,
@@ -105,9 +106,37 @@
         let playerListRequestId = 0;
         let worldLoadRequestId = 0;
         let playerLoadingOverlayRequestId = null;
+        const pendingLoads = new Set();
+        let wasLoading = false;
+
+        function isLoading() {
+            // Superseded responses may still be pending, but must neither keep
+            // the editor locked nor release a newer request's lock on completion.
+            return [...pendingLoads].some(load => load.isCurrent());
+        }
+
+        function syncLoadBusyState() {
+            const loading = isLoading();
+            if (loading === wasLoading) return;
+            wasLoading = loading;
+            onLoadBusyChanged(loading);
+        }
+
+        async function whileLoading(isCurrent, action) {
+            const load = { isCurrent };
+            pendingLoads.add(load);
+            try {
+                syncLoadBusyState();
+                return await action();
+            } finally {
+                pendingLoads.delete(load);
+                syncLoadBusyState();
+            }
+        }
 
         function invalidatePlayerLoad() {
             playerLoadRequestId += 1;
+            syncLoadBusyState();
             if (playerLoadingOverlayRequestId !== null) {
                 playerLoadingOverlayRequestId = null;
                 hideLoading();
@@ -192,26 +221,39 @@
             updateAppMode();
         }
 
-        async function selectExportOnlyPlayer(player) {
-            const previousRequestId = playerLoadRequestId;
+        async function selectReadOnlyPlayer(player) {
+            invalidatePlayerLoad();
+            let requestId = playerLoadRequestId;
             const requestedWorldPath = getState().worldPath;
-            if (getState().isDirty) {
-                const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Fortfahren?"));
-                if (!ok) return;
-            }
-            if (previousRequestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return;
-            resetLoadedPlayerState({ showEmptyState: false });
-            const requestId = playerLoadRequestId;
-            setState({ currentPlayerKey: player.player_key, currentPlayer: player });
-            if (btnExportPlayer) btnExportPlayer.disabled = !player.exportable || exportBlocked();
-            updateImportControls();
-            renderPlayersList();
-            await updateWorldPresence();
-            if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return;
-            setWorkflowView("player", { scroll: false });
-            logLoadStatus(t("{player} ausgewählt – nur Export möglich.", { player: getCurrentPlayerLabel() }), "warning");
-            updateWriteControlsSafe();
+            const isCurrent = () => requestId === playerLoadRequestId && requestedWorldPath === getState().worldPath;
+            return whileLoading(isCurrent, async () => {
+                if (getState().isDirty) {
+                    const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Fortfahren?"));
+                    if (!ok) return false;
+                }
+                if (!isCurrent()) return false;
+                resetLoadedPlayerState({ showEmptyState: false });
+                requestId = playerLoadRequestId;
+                syncLoadBusyState();
+                setState({ currentPlayerKey: player.player_key || "", currentPlayer: player });
+                if (btnExportPlayer) btnExportPlayer.disabled = !player.exportable || exportBlocked();
+                updateImportControls();
+                renderPlayersList();
+                if (!player.exportable) {
+                    copyTextToClipboard(buildPlayersDiagnosticsText(), t("Spieler-Diagnose kopiert."));
+                    logLoadStatus(player.reason, "warning");
+                } else {
+                    await updateWorldPresence();
+                    if (!isCurrent()) return false;
+                    setWorkflowView("player", { scroll: false });
+                    logLoadStatus(t("{player} ausgewählt – nur Export möglich.", { player: getCurrentPlayerLabel() }), "warning");
+                }
+                updateWriteControlsSafe();
+                return true;
+            });
         }
+
+        const selectExportOnlyPlayer = selectReadOnlyPlayer;
 
         function updateWriteControlsSafe() {
             deps.updateWriteControls?.();
@@ -235,16 +277,8 @@
                 const row = playerRowElement(model);
                 if (player.editable) {
                     row.addEventListener("click", () => loadPlayer(player.player_key));
-                } else if (player.exportable) {
-                    row.addEventListener("click", () => selectExportOnlyPlayer(player));
-                } else if (player.reason) {
-                    row.addEventListener("click", () => {
-                        resetLoadedPlayerState({ showEmptyState: false });
-                        setState({ currentPlayer: player, currentPlayerKey: player.player_key || "" });
-                        renderPlayersList();
-                        copyTextToClipboard(buildPlayersDiagnosticsText(), t("Spieler-Diagnose kopiert."));
-                        logLoadStatus(player.reason, "warning");
-                    });
+                } else if (player.exportable || player.reason) {
+                    row.addEventListener("click", () => selectReadOnlyPlayer(player));
                 }
                 playersList.appendChild(row);
             });
@@ -317,6 +351,13 @@
             invalidatePlayerLoad();
             const requestId = playerLoadRequestId;
             const requestedWorldPath = getState().worldPath;
+            return whileLoading(
+                () => requestId === playerLoadRequestId && requestedWorldPath === getState().worldPath,
+                () => performPlayerLoad(playerKey, skipDirtyCheck, options, requestId, requestedWorldPath),
+            );
+        }
+
+        async function performPlayerLoad(playerKey, skipDirtyCheck, options, requestId, requestedWorldPath) {
             const { showLoadingOverlay = true } = options || {};
             if (!skipDirtyCheck && getState().isDirty) {
                 const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Spieler trotzdem wechseln?"));
@@ -481,6 +522,13 @@
 
         async function loadWorldFromInput() {
             const requestId = ++worldLoadRequestId;
+            return whileLoading(
+                () => requestId === worldLoadRequestId,
+                () => performWorldLoad(requestId),
+            );
+        }
+
+        async function performWorldLoad(requestId) {
             // A world change invalidates every player response started for the
             // previously selected world, even before the new world request has
             // completed.
@@ -553,6 +601,7 @@
                     renderPlayerToolOptions();
                     renderWorldAnalysis();
                     await updateWorldPresence();
+                    if (requestId !== worldLoadRequestId) return false;
                     setWorkflowView("player", { scroll: false });
                     logLoadStatus(t("Welt geladen, aber keine editierbaren Spieler erkannt. Details stehen in der Spieler-Liste und in der Spieler-Diagnose."), "warning");
                 }
@@ -587,6 +636,7 @@
         }
 
         return {
+            isLoading,
             loadPlayer,
             loadPlayersList,
             loadWorldFromInput,
@@ -595,6 +645,7 @@
             resetLoadedPlayerState,
             saveRecentWorld,
             selectExportOnlyPlayer,
+            selectReadOnlyPlayer,
             wire,
         };
     }

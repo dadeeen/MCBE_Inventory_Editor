@@ -35,6 +35,7 @@ from .backup import (
 from .backup import list_backups as scan_backups
 from .backup import preview_backup as preview_world_backup
 from .backup import restore_backup as restore_world_backup
+from .backup_consistency import source_snapshot
 from .backup_types import BackupCreateResult
 from .bedrock_nbt import load_player_nbt, save_player_nbt
 from .compatibility import analyze_player_compatibility, analyze_world_structure, assert_serialized_player_roundtrip
@@ -304,7 +305,7 @@ class BedrockEditorService:
     def _source_items_for_container(player_tag, source_container):
         tag_name = "EnderChestInventory" if source_container == "ender_chest" else "Inventory"
         source_list_tag = player_tag.get(tag_name)
-        if not isinstance(source_list_tag, nbt.ListTag):
+        if source_container != "inventory" and not isinstance(source_list_tag, nbt.ListTag):
             return None
         source_items = items_by_slot_for_origin(source_list_tag)
         if source_container == "inventory":
@@ -488,7 +489,7 @@ class BedrockEditorService:
                 inventory_list, root_equipment_items = split_root_equipment_writes(player_tag, inventory_list, original_inventory_data.keys())
                 reject_root_equipment_fallback_slot_writes(player_tag, inventory_list, original_inventory_data.keys())
 
-                source_item_maps = self._collect_external_source_items(db, world_path, player_key, inventory_list, ender_chest_list)
+                source_item_maps = self._collect_external_source_items(db, world_path, player_key, inventory_list, ender_chest_list, root_equipment_items)
                 used_external_source_checks = set()
                 target_encoded_key = encode_player_key(player_key)
                 root_equipment_originals = root_equipment_original_items_by_slot(player_tag)
@@ -536,6 +537,7 @@ class BedrockEditorService:
                         source_item_maps=source_item_maps,
                         target_player_key=target_encoded_key,
                         extra_original_items=inventory_originals,
+                        original_inventory_slots=original_inventory_data.keys(),
                         # Ein Payload ohne Ausrüstungs-Items bedeutet nur dann
                         # "Slots leeren", wenn der Client die editierbaren
                         # Root-Listen kennt. Stale Clients löschen so nichts.
@@ -1512,6 +1514,7 @@ class BedrockEditorService:
             operation_error = None
             pre_restore_backup = None
             try:
+                world_snapshot_before_backup = source_snapshot(world_path)
                 pre_restore_backup = create_backup(
                     world_path,
                     prune_after=False,
@@ -1524,6 +1527,7 @@ class BedrockEditorService:
                         os.path.basename(selected_backup),
                         resolved_backup_path=restore_source_snapshot,
                         pre_restore_check=pre_restore_check,
+                        expected_source_snapshot=world_snapshot_before_backup,
                     )
                     or []
                 )

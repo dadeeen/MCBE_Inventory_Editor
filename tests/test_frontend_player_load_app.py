@@ -163,6 +163,7 @@ def test_frontend_player_load_app_wires_app_dependencies_and_facade_methods() ->
             assert.strictEqual(
                 JSON.stringify(bridge.facadeMethods()),
                 JSON.stringify([
+                    "isLoading",
                     "loadPlayer",
                     "loadPlayersList",
                     "loadWorldFromInput",

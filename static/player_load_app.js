@@ -2,6 +2,7 @@
     "use strict";
 
     const FACADE_METHODS = Object.freeze([
+        "isLoading",
         "loadPlayer",
         "loadPlayersList",
         "loadWorldFromInput",
@@ -49,6 +50,7 @@
             showToast: feedback.showToast,
             showLoading: feedback.showLoading,
             hideLoading: feedback.hideLoading,
+            onLoadBusyChanged: actions.onLoadBusyChanged,
             logStatus: actions.logStatus,
             copyTextToClipboard: actions.copyTextToClipboard,
             buildPlayersDiagnosticsText: actions.buildPlayersDiagnosticsText,

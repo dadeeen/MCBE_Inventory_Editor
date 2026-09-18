@@ -1,19 +1,18 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.5.23
+## What changed in v0.5.24
 
-- **Updated item catalog:** includes 105 additions from Bedrock 26.50 and reviewed stack limits for all 1,623 registered IDs, including corrections for boats, signs, minecarts, entity buckets and shulker boxes.
-- **Safer stack limits:** unverified limits no longer imply 64. New stacks are limited to 1 and Max-Stack is disabled until a limit is confirmed; existing amounts remain unchanged. The editor and update log identify unverified limits.
-- **Corrected item properties:** updated durability for fishing rods, carrots on sticks and chainmail helmets, plus enchantment compatibility for lodestone compasses and maces.
-- **More consistent backups:** automatic, manual and pre-restore backups share source-consistency checks. Detected source changes or storage synchronization failures stop dependent writes or restores.
-- **Stronger write handling:** immutable write plans, expanded type checking and regression tests improve handling of interrupted backups and uncertain write outcomes.
-- **Engine verification tools:** optional developer checks exercise item NBT, stack boundaries, enchantments, selected variants, player saves and controlled add-ons against an explicitly selected official Bedrock server. Server binaries, generated worlds and raw reports are excluded from the repository and runtime packages.
+- **Preserved player data:** fixes cases where editing inventory, effects or abilities could overwrite protected or unchanged NBT. Hidden root equipment, unknown durability and bucket-variant fields, and protected enchantment entries retain their original data.
+- **Reliable copying and player changes:** cross-player copies now work with root equipment, including sources without an Inventory tag. Diagnostic player selection asks before discarding edits; loading blocks new edits and restores the correct field protection and undo/redo state afterward. Save and import completions remain bound to their original player context.
+- **Corrected read-only LevelDB reader:** selects the newest matching record across table boundaries and consistently rejects unsupported SST entry types. The external native `amulet-leveldb` dependency is unchanged.
+- **Safer backup restore:** changes to the target world after the safety backup abort the restore before replacement. Invalid ZIP metadata no longer blocks backup listing or retention.
+- **Mount creation checks:** tamed mounts require a valid player owner in both direct and workspace saves. Known obstructions remain blocked when neighboring terrain is unreadable or a placement search changes candidate IDs.
 
-Validation includes 13,037 item cases across two engine save/reload cycles on BDS 1.26.51.1, plus a separate real-client Inventory/Ender Chest persistence test. Coverage is specific to the tested version and profiles; it does not certify arbitrary add-ons, every metadata combination, singleplayer persistence or all gameplay. See [engine-check scope](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.23/docs/engine-checks.md) for details.
+Validation includes the complete Python suite, 38 Chromium browser tests, native LevelDB save/backup regressions and six integration tests using disposable copies of twelve private worlds. Those integration tests cover save, restore, import/export, migration and byte-identical NBT backend comparisons. No new in-game validation was performed for these changes. See the [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.24/docs/save_contract.md) and [engine-check scope](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.24/docs/engine-checks.md) for validation boundaries.
 
 Backups continue to contain the complete world. Configured size limits and retention policies are unchanged. Metadata checks do not create an atomic snapshot of a running world; directory synchronization is unavailable on Windows and some filesystems, so these changes do not guarantee protection against every power loss.
 
-**Updating from v0.5.22:** this release adds no dependencies. Python 3.12–3.14 remain supported. **If upgrading from v0.5.21 or earlier:** run `setup.bat` once before `start.bat` to install the hash-pinned Waitress dependency introduced in v0.5.22. Flask and Werkzeug remain required.
+This release adds no dependencies. Python 3.12–3.14 remain supported. **If upgrading from v0.5.21 or earlier:** run `setup.bat` once before `start.bat` to install the hash-pinned Waitress dependency introduced in v0.5.22. Flask and Werkzeug remain required.
 
 > **If upgrading directly from v0.5.18 or earlier:** open **Tools & settings → Icons** and select **Load Vanilla icons** (**Werkzeuge & Einstellungen → Icons → Vanilla-Icons laden**) to rebuild existing PNGs with the resolver corrected in v0.5.19. Rescanning sources alone does not regenerate cached images.
 

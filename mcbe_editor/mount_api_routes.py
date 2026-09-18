@@ -22,6 +22,7 @@ from .mount_write import (
     MOUNT_WRITE_LABELS,
     build_horse_mount_record,
     create_horse_mount_with_service,
+    mount_owner_unique_id_from_player,
     normalize_create_mode,
     validate_horse_mount_write,
 )
@@ -121,7 +122,9 @@ def _read_int_tag(player_tag: Any, *tag_names: str) -> int | None:
     return None
 
 
-def _enrich_mount_snapshot_from_player_nbt(deps: MountRouteDeps, world_path: str, encoded_player_key: str, player_snapshot: dict[str, Any]) -> dict[str, Any]:
+def _enrich_mount_snapshot_from_player_nbt(
+    deps: MountRouteDeps, world_path: str, encoded_player_key: str, player_snapshot: dict[str, Any], *, tamed: bool = False
+) -> dict[str, Any]:
     """Read authoritative placement context directly from the current player NBT."""
 
     stats = player_snapshot.get("stats") if isinstance(player_snapshot.get("stats"), dict) else None
@@ -133,6 +136,8 @@ def _enrich_mount_snapshot_from_player_nbt(deps: MountRouteDeps, world_path: str
         db = deps.service._open_db_readonly(world_path)
         player_bytes = deps.service._read_player(db, raw_player_key)
         player_tag = load_player_nbt(player_bytes).tag
+        if tamed:
+            mount_owner_unique_id_from_player(player_tag)
         position = _read_float_list(player_tag, "Pos", 3)
         if position is None or len(position) != 3:
             raise ValueError("Spielerposition fehlt oder ist ungültig. Mount-Vorschau wurde sicherheitshalber abgebrochen.")
@@ -176,7 +181,7 @@ def _preview_from_request(data: dict, deps: MountRouteDeps):
     player_key = deps.json_string(data, "player_key")
     mount_type = deps.json_string(data, "mount_type", "minecraft:horse")
     player_snapshot = deps.service.load_player(world_path, player_key)
-    player_snapshot = _enrich_mount_snapshot_from_player_nbt(deps, world_path, player_key, player_snapshot)
+    player_snapshot = _enrich_mount_snapshot_from_player_nbt(deps, world_path, player_key, player_snapshot, tamed=_strict_boolean(data, "tamed"))
     result = build_mount_preview(
         player_snapshot,
         player_key,
@@ -482,7 +487,7 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
         def build_extra_batch(db, decoded_player_key):
             staged = _StagedMountDbView(db)
             player_tag = load_player_nbt(deps.service._read_player(db, decoded_player_key)).tag
-            owner_unique_id = _tag_value(player_tag.get("UniqueID")) if "UniqueID" in player_tag else None
+            owner_unique_id = mount_owner_unique_id_from_player(player_tag) if any(spec["tamed"] for spec in specs) else None
             records = []
             results = []
             for spec in specs:

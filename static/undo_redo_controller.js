@@ -136,10 +136,10 @@
             const model = window.MCBEUndoRedoView.undoRedoButtonModels(stack.state());
             if (editingBlocked()) {
                 const reason = getEditingBlockedReason() || t("Bearbeitung ist aktuell gesperrt.");
-                model.undo.disabled = true;
-                model.undo.title = reason;
-                model.redo.disabled = true;
-                model.redo.title = reason;
+                model.undo.blocked = true;
+                model.undo.blockedTitle = reason;
+                model.redo.blocked = true;
+                model.redo.blockedTitle = reason;
             }
             window.MCBEUndoRedoView.applyUndoRedoButtonModels({
                 undoButton: buttons.undo,

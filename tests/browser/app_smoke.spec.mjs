@@ -213,6 +213,172 @@ async function openDragFixture(page, overrides = {}) {
   await expect(page.locator("#inventoryContainer")).toBeVisible();
 }
 
+async function openPlayerSwitchFixture(page, { fromProtected = false, toProtected = false } = {}) {
+  const players = [
+    { player_key: "a", label: "Spieler A", editable: true, exportable: true, has_inventory_tag: true },
+    { player_key: "b", label: "Spieler B", editable: true, exportable: true, has_inventory_tag: true },
+    { player_key: "bad", label: "Diagnose-Spieler", editable: false, exportable: false, reason: "Player NBT could not be read" },
+  ];
+  const payload = key => ({
+    success: true, player: players.find(player => player.player_key === key), player_revision: `revision-${key}`,
+    inventory: key === "a" ? { 0: { slot: 0, name: "minecraft:stone", count: 16, damage: 0 } } : {},
+    ender_chest: {}, has_ender_chest: true,
+    effects: [{ id: 1, amplifier: 0, duration: 600, show_particles: true, opaque: key === "a" ? fromProtected : toProtected }],
+    effects_db: { 1: ["Tempo", "Speed"], 2: ["Langsamkeit", "Slowness"] },
+    stats: { pos: [0, 64, 0], dimension_id: 0, health: 20, xp_level: 0, xp_progress: 0, food_level: 20, food_saturation: 5, gamemode: 0 },
+    protected_nbt: { has_inventory_tag: true, has_ender_chest_tag: true,
+      ...((key === "a" ? fromProtected : toProtected)
+        ? { stat_fields_opaque: { health: "Health" }, ability_fields_opaque: { fly_speed: "flySpeed" } } : {}) },
+    hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
+    items_db: { "minecraft:stone": ["Stein", "Stone"] }, ench_db: {},
+    stack_limits: { __default__: 64 }, max_damage: { __default__: 0 },
+  });
+  let pendingLoad;
+  for (const url of ["**/api/icons/scan", "**/api/world/presence", "**/api/heartbeat"]) {
+    await page.route(url, route => route.fulfill({ json: { success: true, icons: {}, count: 0, other_sessions: [] } }));
+  }
+  // These synthetic player flows do not exercise background status services;
+  // keep their repeated page starts out of the shared server rate limit.
+  for (const [url, response] of Object.entries({
+    "**/api/server_status": { success: true, server_status: { status: "offline" }, write_gate: { allowed: true } },
+    "**/api/icons/status": { success: true, icons: {}, count: 0 },
+    "**/api/item-db/status": { success: true, item_db: { status: "ready", counts: {} } },
+    "**/api/backup/settings": { success: true, settings: { max_uncompressed_mib: 2048, source: "default" } },
+    "**/api/backups": { success: true, backups: [] },
+  })) {
+    await page.route(url, route => route.fulfill({ json: response }));
+  }
+  await page.route("**/api/players", route => route.fulfill({ json: { success: true, world_name: "Smoke Test World", players } }));
+  await page.route("**/api/player/load", route => {
+    const key = route.request().postDataJSON().player_key;
+    if (key === "b") { pendingLoad = route; return; }
+    return route.fulfill({ json: payload(key) });
+  });
+  await openAppWithSmokeWorldScan(page);
+  await expect(page).toHaveTitle("Minecraft Bedrock Inventory Editor");
+  await page.locator(".world-card").click();
+  await page.locator("#btnLoad").click();
+  await expect(page.locator("#inventoryContainer")).toBeVisible();
+  await expect(page.locator("#loadingOverlay")).toBeHidden();
+  return {
+    finishLoad: async success => {
+      expect(pendingLoad).toBeTruthy();
+      await pendingLoad.fulfill({ json: success ? payload("b") : { success: false, error: "Synthetischer Ladefehler" } });
+    },
+  };
+}
+
+async function copyPlayerFixtureItem(page) {
+  await page.locator('[data-slot="0"]').click();
+  await page.keyboard.press("Control+c");
+  await page.locator('[data-slot="1"]').click();
+}
+
+async function capturePlayerLoadEvidence(page, name) {
+  const directory = process.env.MCBE_BROWSER_EVIDENCE_DIR;
+  if (!directory) return;
+  fs.mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: `${directory}/${name}.png`, animations: "disabled" });
+}
+
+test("diagnostic player selection preserves edits until discard is confirmed", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await openPlayerSwitchFixture(page);
+  await copyPlayerFixtureItem(page);
+  await page.keyboard.press("Control+Shift+v");
+  await expect(page.locator("#btnUndo")).toBeEnabled();
+  await page.locator(".player-row").filter({ hasText: "Diagnose-Spieler" }).click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await expect(page.locator("#confirmMessage")).toContainText("ungespeicherte Änderungen");
+  await capturePlayerLoadEvidence(page, "diagnostic-discard-confirmation");
+  await page.locator("#confirmCancel").click();
+  expect(await page.evaluate(() => ({ key: currentPlayerKey, dirty: isDirty, item: inventory[1]?.name })))
+    .toEqual({ key: "a", dirty: true, item: "minecraft:stone" });
+  await expect(page.locator("#btnUndo")).toBeEnabled();
+  await page.keyboard.press("Control+z");
+  expect(await page.evaluate(() => ({ dirty: isDirty, item: inventory[1]?.name }))).toEqual({ dirty: false, item: undefined });
+  await expect(page.locator("#btnRedo")).toBeEnabled();
+  await page.locator("#btnRedo").click();
+  expect(await page.evaluate(() => isDirty)).toBe(true);
+  await page.locator(".player-row").filter({ hasText: "Diagnose-Spieler" }).click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await page.locator("#confirmOk").click();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  await expect(page.locator("#inventoryContainer")).toBeHidden();
+  expect(await page.evaluate(() => ({ key: currentPlayerKey, dirty: isDirty, items: Object.keys(inventory).length })))
+    .toEqual({ key: "bad", dirty: false, items: 0 });
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  expect(browserErrors).toEqual([]);
+});
+
+for (const protectedFields of [true, false]) {
+  test(`player load restores the new player's ${protectedFields ? "protected" : "editable"} controls`, async ({ page }) => {
+    const browserErrors = collectBrowserErrors(page);
+    const fixture = await openPlayerSwitchFixture(page, { fromProtected: !protectedFields, toProtected: protectedFields });
+    for (const selector of ["#statHealth", "#abFlySpeed", "#btnResetAbilitySpeeds", "#effectsContainer .eff-level"]) {
+      await expect(page.locator(selector)).toHaveJSProperty("disabled", !protectedFields);
+    }
+    const request = page.waitForRequest("**/api/player/load");
+    await page.locator(".player-row").filter({ hasText: "Spieler B" }).click();
+    await request;
+    await fixture.finishLoad(true);
+    await expect(page.locator("#loadingOverlay")).toBeHidden();
+    for (const selector of ["#statHealth", "#abFlySpeed", "#btnResetAbilitySpeeds", "#effectsContainer .eff-level"]) {
+      await expect(page.locator(selector)).toHaveJSProperty("disabled", protectedFields);
+      await expect(page.locator(selector)).not.toHaveAttribute("title", "Bearbeitung ist während des Ladens gesperrt.");
+    }
+    expect(browserErrors).toEqual([]);
+  });
+}
+
+for (const success of [true, false]) {
+  test(`player load blocks editing and releases controls after ${success ? "success" : "failure"}`, async ({ page }) => {
+    const browserErrors = collectBrowserErrors(page);
+    const fixture = await openPlayerSwitchFixture(page);
+    await copyPlayerFixtureItem(page);
+    if (!success) {
+      await page.keyboard.press("Control+Shift+v");
+      await page.locator('[data-slot="2"]').click();
+    }
+    const before = await page.evaluate(() => JSON.stringify(inventory));
+    const request = page.waitForRequest("**/api/player/load");
+    await page.locator(".player-row").filter({ hasText: "Spieler B" }).click();
+    if (!success) {
+      await expect(page.locator("#confirmOverlay")).toBeVisible();
+      await page.locator("#confirmOk").click();
+    }
+    await request;
+    await expect(page.locator("#loadingOverlay")).toBeVisible();
+    await expect(page.locator(".app-container")).toHaveJSProperty("inert", true);
+    await expect(page.locator("#statHealth")).toBeDisabled();
+    await expect(page.locator("#btnUndo")).toBeDisabled();
+    await page.keyboard.press("Control+Shift+v");
+    await page.keyboard.press("Control+z");
+    expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+    expect(await page.evaluate(() => isDirty)).toBe(!success);
+    if (success) await capturePlayerLoadEvidence(page, "player-load-editing-locked");
+    await fixture.finishLoad(success);
+    await expect(page.locator("#loadingOverlay")).toBeHidden();
+    await expect(page.locator(".app-container")).toHaveJSProperty("inert", false);
+    await expect(page.locator("#statHealth")).toBeEnabled();
+    expect(await page.evaluate(() => currentPlayerKey)).toBe(success ? "b" : "a");
+    if (success) {
+      expect(await page.evaluate(() => Object.keys(inventory).length)).toBe(0);
+      await expect(page.locator("#btnUndo")).toBeDisabled();
+      await page.locator('[data-slot="1"]').click();
+      await page.keyboard.press("Control+Shift+v");
+      expect(await page.evaluate(() => inventory[1]?.name)).toBe("minecraft:stone");
+      await expect(page.locator("#btnUndo")).toBeEnabled();
+    } else {
+      expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+      await expect(page.locator("#btnUndo")).toBeEnabled();
+      await page.keyboard.press("Control+z");
+      expect(await page.evaluate(() => isDirty)).toBe(false);
+    }
+    expect(browserErrors).toEqual([]);
+  });
+}
+
 test("editing an effect preserves protected durations and unknown effect rows", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   const effects = [

@@ -40,9 +40,14 @@
         ];
         for (const [button, state] of pairs) {
             if (!button || !state) continue;
-            button.disabled = Boolean(state.disabled);
+            const apply = window.MCBEWriteStatusView?.applyIntrinsicEditControlState;
+            if (apply) {
+                apply(button, state);
+            } else {
+                button.disabled = Boolean(state.disabled || state.blocked);
+                button.title = state.blockedTitle || state.title || "";
+            }
             button.textContent = state.text || "";
-            button.title = state.title || "";
         }
     }
 

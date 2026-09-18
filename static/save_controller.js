@@ -756,8 +756,8 @@
                 openSaveReview,
                 onSaveBusyChanged: busy => {
                     if (editorContainer) editorContainer.inert = busy;
-                    updateUndoButtons();
                     updateWriteControls();
+                    updateUndoButtons();
                 },
                 payloadContainsUserChanges: window.MCBESavePayloadLogic.payloadContainsUserChanges,
                 postSavePayload,
