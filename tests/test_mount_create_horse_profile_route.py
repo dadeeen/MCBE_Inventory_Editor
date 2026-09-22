@@ -29,6 +29,7 @@ def _deps() -> MountRouteDeps:
 def _preview(*, safe_to_place=True):
     return {
         "mount_type": "minecraft:horse",
+        "player_revision": "a" * 64,
         "create_available": True,
         "can_create": True,
         "selected_candidate_id": "rechts_2",
@@ -54,7 +55,7 @@ def _patch_create(monkeypatch, preview, captured):
         return "world", "player", preview
 
     def fake_create_horse_mount_with_service(
-        service, world_path, player_key, received_preview, *, create_mode, horse_profile, mount_stats=None, tamed=False, pre_write_check
+        service, world_path, player_key, received_preview, *, create_mode, horse_profile, mount_stats=None, tamed=False, base_revision, pre_write_check
     ):
         captured.update(
             {
@@ -66,6 +67,7 @@ def _patch_create(monkeypatch, preview, captured):
                 "horse_profile": horse_profile,
                 "mount_stats": mount_stats,
                 "tamed": tamed,
+                "base_revision": base_revision,
             }
         )
         pre_write_check()
@@ -100,6 +102,7 @@ def test_mount_create_passes_horse_profile_to_writer(monkeypatch) -> None:
             "mount_type": "minecraft:horse",
             "create_mode": "synthetic_full",
             "horse_profile": profile,
+            "base_revision": "client-supplied-revision-is-not-authoritative",
         },
         _deps(),
     )
@@ -109,6 +112,7 @@ def test_mount_create_passes_horse_profile_to_writer(monkeypatch) -> None:
     assert result["placement_safety"]["status"] == "safe"
     assert captured["horse_profile"] == profile
     assert captured["preview"] is preview
+    assert captured["base_revision"] == preview["player_revision"]
 
 
 def test_mount_create_returns_error_status_after_committed_validation_failure(monkeypatch) -> None:

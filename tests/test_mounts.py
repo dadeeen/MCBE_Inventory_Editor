@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import struct
@@ -220,6 +221,8 @@ def test_mount_route_enriches_preview_with_player_rotation_and_dimension() -> No
         }
     )
     service = _FakeMountService(player_key, save_player_nbt(nbt.NamedTag(player_tag)))
+    # load_player may have observed an older state than the authoritative NBT read.
+    service.load_player = lambda *_args: {**_player_snapshot(), "player_revision": "a" * 64}
 
     _world_path, _player_key, preview = _preview_from_request(
         {
@@ -232,6 +235,7 @@ def test_mount_route_enriches_preview_with_player_rotation_and_dimension() -> No
     )
 
     assert preview["server_guard_epoch"] == 123
+    assert preview["player_revision"] == hashlib.sha256(service.player_bytes).hexdigest()
     assert preview["dimension_id"] == 0
     assert preview["player_rotation"] == [-90.0, 0.0]
     assert preview["placement_search"]["prefers_view_direction"] is True

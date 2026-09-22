@@ -6,6 +6,7 @@ and delegates preview/write work to the mount domain helpers.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -148,7 +149,7 @@ def _enrich_mount_snapshot_from_player_nbt(
             enriched_stats["rotation"] = rotation
         if dimension_id is not None:
             enriched_stats["dimension_id"] = dimension_id
-        return {**player_snapshot, "stats": enriched_stats}
+        return {**player_snapshot, "stats": enriched_stats, "player_revision": hashlib.sha256(player_bytes).hexdigest()}
     except ValueError:
         raise
     except Exception as exc:
@@ -190,6 +191,7 @@ def _preview_from_request(data: dict, deps: MountRouteDeps):
         placement_radius=data.get("placement_radius"),
     )
     result = _annotate_preview_with_chunk_probe(deps, world_path, result)
+    result["player_revision"] = player_snapshot["player_revision"]
     guard = deps.server_guard_snapshot()
     result["server_guard_epoch"] = int(guard.get("server_guard_epoch") or deps.server_online_epoch())
     result["server_guard_token"] = str(guard.get("server_guard_token") or "")
@@ -299,6 +301,7 @@ def create_mount(data: dict, deps: MountRouteDeps):
             horse_profile=horse_profile,
             mount_stats=mount_stats,
             tamed=tamed,
+            base_revision=preview["player_revision"],
             pre_write_check=lambda: deps.require_final_world_write_allowed("Mount erzeugen"),
         )
         result["placement_safety"] = placement_safety

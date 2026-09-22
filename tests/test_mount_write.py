@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import struct
 from contextlib import nullcontext
 from dataclasses import replace
@@ -74,6 +75,8 @@ def test_template_prefilter_preserves_supported_identifiers_and_aliases():
 
 
 def test_direct_mount_create_uses_one_atomic_batch(monkeypatch, tmp_path) -> None:
+    events = []
+
     class WriteDb:
         def __init__(self):
             self.batches = []
@@ -82,13 +85,14 @@ def test_direct_mount_create_uses_one_atomic_batch(monkeypatch, tmp_path) -> Non
             return None
 
         def put_batch(self, writes):
+            events.append("write")
             self.batches.append(dict(writes))
 
     db = WriteDb()
     service = SimpleNamespace(
         _locked_world=lambda _path: nullcontext(),
         _open_db_readonly=lambda _path: db,
-        _open_db=lambda _path: db,
+        _open_db=lambda _path: events.append("open") or db,
         _get_player_info=lambda _db, _key: {"editable": True},
         _read_player=lambda _db, _key: b"player",
     )
@@ -110,7 +114,7 @@ def test_direct_mount_create_uses_one_atomic_batch(monkeypatch, tmp_path) -> Non
     )
     monkeypatch.setattr("mcbe_editor.mount_write.ensure_valid_world_path", lambda path: str(path))
     monkeypatch.setattr("mcbe_editor.mount_write.decode_player_key", lambda _key: b"player")
-    monkeypatch.setattr("mcbe_editor.mount_write.create_backup", lambda *_args, **_kwargs: str(tmp_path / "backup.zip"))
+    monkeypatch.setattr("mcbe_editor.mount_write.create_backup", lambda *_args, **_kwargs: events.append("backup") or str(tmp_path / "backup.zip"))
     monkeypatch.setattr("mcbe_editor.mount_write.prune_backups", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("mcbe_editor.mount_write.build_horse_mount_record", lambda *_args, **_kwargs: record)
     monkeypatch.setattr("mcbe_editor.mount_write.validate_horse_mount_write", lambda *_args, **_kwargs: {"ok": True, "errors": []})
@@ -121,10 +125,91 @@ def test_direct_mount_create_uses_one_atomic_batch(monkeypatch, tmp_path) -> Non
         "player",
         {"mount_type": "minecraft:horse", "selected_position": record.position},
         create_mode="synthetic_full",
+        pre_write_check=lambda: events.append("gate"),
     )
 
     assert result["success"] is True
     assert db.batches == [{record.actor_key: record.actor_value, record.digp_key: record.digp_value}]
+    assert events == ["backup", "gate", "open", "gate", "write"]
+
+
+@pytest.mark.parametrize("change_stage", ["before_backup", "during_backup"])
+def test_direct_mount_rejects_player_revision_drift_before_actor_write(monkeypatch, tmp_path, change_stage) -> None:
+    from mcbe_editor.services import BedrockEditorService
+
+    original = b"preview-player"
+    current = {"player": b"changed-player" if change_stage == "before_backup" else original}
+    events = []
+    db = SimpleNamespace(close=lambda: None)
+    service = SimpleNamespace(
+        _locked_world=lambda _path: nullcontext(),
+        _open_db_readonly=lambda _path: db,
+        _open_db=lambda _path: events.append("open") or db,
+        _get_player_info=lambda _db, _key: {"editable": True},
+        _read_player=lambda _db, _key: current["player"],
+        _assert_player_revision_current=BedrockEditorService({}, {})._assert_player_revision_current,
+    )
+    backup_path = tmp_path / "backup.zip"
+
+    def create_backup(*_args, **_kwargs):
+        events.append("backup")
+        backup_path.write_bytes(b"synthetic backup")
+        current["player"] = b"changed-player"
+        return str(backup_path)
+
+    monkeypatch.setattr("mcbe_editor.mount_write.ensure_valid_world_path", lambda path: str(path))
+    monkeypatch.setattr("mcbe_editor.mount_write.decode_player_key", lambda _key: b"player")
+    monkeypatch.setattr("mcbe_editor.mount_write.create_backup", create_backup)
+    monkeypatch.setattr("mcbe_editor.mount_write.build_horse_mount_record", lambda *_args, **_kwargs: pytest.fail("Stale preview reached actor creation"))
+
+    with pytest.raises(ValueError, match="Spieler.*geändert"):
+        create_horse_mount_with_service(
+            service,
+            str(tmp_path),
+            "player",
+            {"mount_type": "minecraft:horse", "selected_position": {"x": 1.0, "y": 64.0, "z": 1.0}},
+            create_mode="synthetic_full",
+            base_revision=hashlib.sha256(original).hexdigest(),
+        )
+
+    assert events == ([] if change_stage == "before_backup" else ["backup", "open"])
+    assert not backup_path.exists()
+    assert current["player"] == b"changed-player"
+
+
+def test_direct_mount_rechecks_write_gate_before_opening_mutating_database(monkeypatch, tmp_path) -> None:
+    db = SimpleNamespace(close=lambda: None)
+    service = SimpleNamespace(
+        _locked_world=lambda _path: nullcontext(),
+        _open_db_readonly=lambda _path: db,
+        _open_db=lambda _path: pytest.fail("Blocked gate opened the mutating database"),
+        _get_player_info=lambda _db, _key: {"editable": True},
+        _read_player=lambda _db, _key: b"player",
+    )
+    backup_path = tmp_path / "backup.zip"
+
+    def create_backup(*_args, **_kwargs):
+        backup_path.write_bytes(b"synthetic backup")
+        return str(backup_path)
+
+    def block_write():
+        assert backup_path.exists()
+        raise ValueError("Server läuft noch.")
+
+    monkeypatch.setattr("mcbe_editor.mount_write.ensure_valid_world_path", lambda path: str(path))
+    monkeypatch.setattr("mcbe_editor.mount_write.decode_player_key", lambda _key: b"player")
+    monkeypatch.setattr("mcbe_editor.mount_write.create_backup", create_backup)
+
+    with pytest.raises(ValueError, match="Server läuft noch"):
+        create_horse_mount_with_service(
+            service,
+            str(tmp_path),
+            "player",
+            {"mount_type": "minecraft:horse", "selected_position": {"x": 1.0, "y": 64.0, "z": 1.0}},
+            pre_write_check=block_write,
+        )
+
+    assert not backup_path.exists()
 
 
 def test_direct_mount_backup_failure_leaves_native_world_files_identical(monkeypatch, tmp_path) -> None:

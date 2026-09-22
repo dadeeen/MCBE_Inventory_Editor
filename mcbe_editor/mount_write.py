@@ -1230,6 +1230,7 @@ def create_horse_mount_with_service(
     horse_profile: Any = None,
     mount_stats: Any = None,
     tamed: bool = False,
+    base_revision: str | None = None,
     pre_write_check=None,
 ) -> dict[str, Any]:
     mount_type = str(preview.get("mount_type") or "")
@@ -1253,6 +1254,9 @@ def create_horse_mount_with_service(
             if not player_info["editable"]:
                 raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")
             player_raw = service._read_player(db, player_key)
+            if base_revision is not None:
+                service._assert_player_revision_current(player_raw, base_revision)
+            original_player_raw = player_raw
             if tamed:
                 mount_owner_unique_id_from_player(_load_entity_tag(player_raw))
             db.close()
@@ -1270,8 +1274,12 @@ def create_horse_mount_with_service(
                     )
                 ) from exc
 
+            if pre_write_check:
+                pre_write_check()
             db = service._open_db(world_path)
             player_raw = service._read_player(db, player_key)
+            if player_raw != original_player_raw:
+                raise ValueError("Speichern abgelehnt: Der Spieler wurde während der Backup-Erstellung extern geändert. Bitte neu laden.")
             owner_unique_id = None
             if tamed:
                 # Evidenz: Zähmen setzt OwnerNew auf die UniqueID des Spielers.
