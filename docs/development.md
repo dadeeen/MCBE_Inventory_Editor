@@ -24,6 +24,13 @@ controlled by the existing application
 configuration and ProxyFix. Docker keeps Gunicorn with `--no-control-socket`:
 the app does not use its management socket and the container root stays read-only.
 
+The bundled Docker command uses one worker process and four threads. First-run
+setup state and session signing keys are held in each process; live setup changes
+are not synchronized across custom multi-worker deployments. Complete setup with
+one worker, then restart all workers so they load the saved decision and signing
+key together. Interprocess write locks prevent concurrent world writes but do not
+provide authentication-state synchronization.
+
 Docker CI loads the runtime image and runs `scripts/docker/smoke_image.sh` before
 publication. The probe uses a read-only root, temporary data/world mounts and no
 external network or host ports. It checks HTTP readiness, absence of the unused
