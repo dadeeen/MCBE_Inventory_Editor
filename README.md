@@ -32,6 +32,8 @@ The editor is intended for local use and trusted home networks. Do not expose it
 6. Extract the runtime ZIP, run `setup.bat` once, then start the editor with `start.bat`. If setup reports a missing C++ runtime, install the current [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) for your Python architecture and rerun setup. This runtime is separate from the compiler/Build Tools.
 7. On first start, follow the setup dialog and load **Item DB** and **Vanilla icons**. You can postpone this and return through the setup notice or **Tools** later. The editor ships with a bundled item snapshot and no icons, so without this step items from newer Minecraft versions are missing and every slot shows a placeholder symbol.
 
+During updates, the progress display shows downloaded MB and a percentage when the total size is known. It then switches to archive checks, data processing or icon creation, and finishing. A completed download is not yet a completed update; matching cached downloads are shown separately.
+
 If no release is available yet, experienced users can use the source setup below.
 
 Stack sizes use explicit Mojang components and reviewed Bedrock values. If an updated item has no confirmed limit, new stacks are limited to **1** and **Max-Stack** is disabled. Existing amounts are preserved unchanged; the editor does not assume 64 from an item's name or registry entry. The update log reports how many limits are still unverified.

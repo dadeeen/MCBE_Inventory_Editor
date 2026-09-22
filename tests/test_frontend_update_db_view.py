@@ -126,20 +126,36 @@ def test_database_update_surfaces_loaded_player_refresh_warning() -> None:
 
             const store = context.window.MCBEStatusStore.createStatusStore();
             const toasts = [];
+            let finalizing = false;
+            let stopped = false;
             const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
                 outputEl,
-                fetchImpl: async () => ({ payload: { success: true, reloaded: true } }),
+                fetchImpl: async (_url, options) => {
+                    assert.equal(options.headers["X-CSRF-Token"], "test");
+                    assert.equal(options.headers["X-MCBE-Progress"], "progress-id");
+                    return { payload: { success: true, reloaded: true } };
+                },
                 parseJsonResponse: async response => response.payload,
                 withCsrf: () => ({ "X-CSRF-Token": "test" }),
                 logStatus: (message, type, options) => store.addNotice({ message, type, ...options }),
                 showToast: (message, type, duration) => toasts.push({ message, type, duration }),
-                onReloaded: async () => ({ warning: "Spieler später neu laden." }),
+                startUpdateProgress: () => ({
+                    headers: { "X-MCBE-Progress": "progress-id" },
+                    finalizing() { finalizing = true; },
+                    stop() { stopped = true; },
+                }),
+                onReloaded: async () => {
+                    assert.equal(finalizing, true, "Polling must end before a slow player refresh");
+                    assert.equal(stopped, false, "Keep the completion phase visible during refresh");
+                    return { warning: "Spieler später neu laden." };
+                },
             });
 
             (async () => {
                 await controller.run(false, true);
                 const notice = store.allNotices()[0];
+                assert.equal(stopped, true);
                 assert.strictEqual(notice.type, "warning");
                 assert.strictEqual(notice.active, true);
                 assert.strictEqual(notice.message, "Spieler später neu laden.");

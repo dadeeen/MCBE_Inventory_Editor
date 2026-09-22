@@ -1412,6 +1412,29 @@ class _DownloadOpener:
         return _DownloadResponse(self.payload)
 
 
+@pytest.mark.parametrize("known_size", [True, False])
+def test_download_progress_reports_real_bytes_before_archive_validation(monkeypatch, tmp_path, known_size):
+    payload = _zip_bytes(content=b"x" * (2 * 1024 * 1024))
+    response = _DownloadResponse(payload)
+    response.headers = {}
+    opener = _DownloadOpener(payload)
+    monkeypatch.setattr(opener, "open", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(update_db, "_build_validating_opener", lambda *_args, **_kwargs: opener)
+    snapshots = []
+    monkeypatch.setattr(update_db, "report_progress", lambda phase, **counts: snapshots.append({"phase": phase, **counts}))
+
+    update_db.download_with_progress(
+        response.url, tmp_path / "download.zip", expected_size=len(payload) if known_size else None,
+    )
+
+    downloaded = [row for row in snapshots if row["phase"] == "downloading"]
+    assert downloaded[0]["current"] == 0
+    assert downloaded[1]["current"] == 1024 * 1024
+    assert downloaded[-1]["current"] == len(payload)
+    assert all((row.get("total") or 0) == (len(payload) if known_size else 0) for row in downloaded)
+    assert snapshots[-1] == {"phase": "validating"}
+
+
 def test_latest_release_resolution_reuses_only_matching_valid_cache(monkeypatch, tmp_path):
     archive = tmp_path / "bedrock_resource_pack.zip"
     archive.write_bytes(_zip_bytes())

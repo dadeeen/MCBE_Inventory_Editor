@@ -1734,6 +1734,30 @@ def _icon_zip_bytes(filename="file.txt", content=b"ok"):
     return buffer.getvalue()
 
 
+def test_icon_download_progress_reports_bytes_and_cache_hit_without_fake_download(monkeypatch, tmp_path):
+    import scripts.update_icons as update_icons_module
+
+    payload = _icon_zip_bytes(content=b"x" * (2 * 1024 * 1024))
+    snapshots = []
+    monkeypatch.setattr(update_icons_module, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(update_icons_module, "_build_validating_opener", lambda *_args, **_kwargs: _IconDownloadOpener(payload))
+    monkeypatch.setattr(update_icons_module, "report_progress", lambda phase, **counts: snapshots.append({"phase": phase, **counts}))
+    info = {"resource_pack_asset": "test-full.zip", "resource_pack_asset_size": len(payload),
+            "resource_pack_url": "https://release-assets.githubusercontent.com/example.zip"}
+
+    result = update_icons_module.download_release_zip(info, use_cache=False)
+
+    assert result.read_bytes() == payload
+    downloaded = [row for row in snapshots if row["phase"] == "downloading"]
+    assert downloaded[0]["current"] == 0
+    assert downloaded[1]["current"] == 1024 * 1024
+    assert downloaded[-1] == {"phase": "downloading", "current": len(payload), "total": len(payload), "unit": "bytes"}
+    assert snapshots[-1] == {"phase": "validating"}
+    snapshots.clear()
+    assert update_icons_module.download_release_zip(info, use_cache=True) == result
+    assert snapshots == [{"phase": "cached"}]
+
+
 def test_icon_updater_rejects_malformed_allowlisted_url():
     import scripts.update_icons as update_icons_module
 

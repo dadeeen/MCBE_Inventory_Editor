@@ -100,6 +100,7 @@
         showToast = () => {},
         showConfirmDialog = async () => true,
         onReloaded = () => {},
+        startUpdateProgress = title => window.MCBEAssetUpdateProgress?.start(title),
     } = {}) {
         const append = (text) => appendOutput(outputEl, text);
         let updateRunning = false;
@@ -116,8 +117,8 @@
             if (!outputEl) {
                 return { success: false, error: t("Update-Ausgabe ist nicht verfügbar.") };
             }
-            if (updateRunning) {
-                return { success: false, busy: true, error: t("Ein Datenbank-Update läuft bereits.") };
+            if (updateRunning || window.MCBEAssetUpdateProgress?.isRunning()) {
+                return { success: false, busy: true, error: t("Ein Update läuft bereits.") };
             }
             updateRunning = true;
             setUpdateControlsDisabled(true);
@@ -141,12 +142,13 @@
             append("");
 
             showLoading(t("{mode} wird ausgeführt...", { mode }));
+            const progress = startUpdateProgress(dryRun ? t("Item-Datenbank prüfen") : t("Item-Datenbank aktualisieren"));
             updateStatus(t("{mode} läuft...", { mode }), "running", true);
 
             try {
                 const res = await fetchImpl("/api/update_db", {
                     method: "POST",
-                    headers: withCsrf(),
+                    headers: { ...withCsrf(), ...progress?.headers },
                     body: JSON.stringify(updateDbPayload({
                         dryRun,
                         force,
@@ -160,6 +162,7 @@
                 if (data.output) append(data.output);
 
                 if (data.success) {
+                    progress?.finalizing();
                     const reviewToken = data.update_review_token || data.release_cache_token;
                     if (dryRun && reviewToken && data.resource_pack_release) {
                         reviewedSources = {
@@ -213,6 +216,7 @@
                 showToast(message, "error", 5000);
                 return { success: false, error: message };
             } finally {
+                progress?.stop();
                 hideLoading();
                 updateRunning = false;
                 setUpdateControlsDisabled(false);

@@ -134,6 +134,7 @@
     }
 
     function showLoading(text) {
+        window.MCBEAssetUpdateProgress?.stop();
         const overlay = document.getElementById("loadingOverlay");
         const textEl = document.getElementById("loadingText");
         if (!overlay || !textEl) return;
@@ -144,6 +145,7 @@
     }
 
     function hideLoading() {
+        window.MCBEAssetUpdateProgress?.stop();
         loadingRequested = false;
         const overlay = document.getElementById("loadingOverlay");
         if (!overlay) return;

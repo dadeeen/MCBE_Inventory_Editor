@@ -28,11 +28,12 @@ def _load_runtime_dependencies():
     from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
     from mcbe_editor.update_output_i18n import output_t
+    from mcbe_editor.update_progress import report_progress
 
-    return BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, output_t
+    return BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, output_t, report_progress
 
 
-BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, tr = _load_runtime_dependencies()
+BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, tr, report_progress = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 ENCHANTMENT_MAX_LEVELS_PATH = REPO_ROOT / "mcbe_editor" / "resources" / "enchantment_max_levels.json"
@@ -464,6 +465,7 @@ def _matching_cached_release(dest: Path, latest_info: dict) -> dict:
     try:
         if dest.stat().st_size != expected_size:
             return {}
+        report_progress("cached")
         _validate_downloaded_zip(dest)
     except (OSError, RuntimeError):
         return {}
@@ -845,6 +847,7 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
     _validate_https_url(url, ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
 
     def report(downloaded: int, totalsize: int) -> None:
+        report_progress("downloading", current=downloaded, total=expected_size or totalsize, unit="bytes")
         if totalsize > 0:
             pct = min(100, downloaded * 100 // totalsize)
             sys.stdout.write(f"\r  {tr('Wird heruntergeladen...')} {pct}%")
@@ -857,6 +860,7 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
     temp_path = Path(temp_name)
 
     try:
+        report_progress("downloading", current=0, total=expected_size, unit="bytes")
         with opener.open(url, timeout=60) as resp, os.fdopen(fd, "wb") as out:
             fd = -1
             _validate_final_response_url(resp, ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
@@ -883,6 +887,7 @@ def download_with_progress(url: str, dest: Path, *, expected_size: int | None = 
                     actual=downloaded,
                 )
             )
+        report_progress("validating")
         _validate_downloaded_zip(temp_path)
         os.replace(temp_path, dest)
         print(f"\r  {Colors.GREEN}{tr('Heruntergeladen')}{Colors.END} ({dest.name}){' ' * 20}")
@@ -2481,6 +2486,7 @@ def main() -> int:
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
 
     ensure_data_paths()
+    report_progress("checking")
     log(f"  Item-DB: {ITEM_DB_PATH}", Colors.DIM)
     log(f"  Cache:   {CACHE_DIR}", Colors.DIM)
 
@@ -2505,6 +2511,7 @@ def main() -> int:
     if args.cache:
         if not rp_zip.exists():
             raise RuntimeError(tr("Kein gecachtes Resource-Pack für die erneute Verarbeitung vorhanden."))
+        report_progress("cached")
         _validate_downloaded_zip(rp_zip)
         release_info = read_release_metadata()
         if not release_info:
@@ -2518,6 +2525,7 @@ def main() -> int:
         release_info = resolve_latest_rp(rp_zip)
 
     step(tr("2/4  Daten extrahieren und parsen"))
+    report_progress("processing")
     old_items, old_effects, old_enchants = read_all_dicts()
     old_stack_limits = read_stack_limits()
     old_durability = read_durability()
@@ -2765,6 +2773,7 @@ def main() -> int:
             pending_source_version.pop(item_db_verification.VERIFICATION_FIELD, None)
 
     step(tr("4/4  Änderungen schreiben"))
+    report_progress("finalizing")
     if not changes and not source_identity_changed:
         log(f"  {Colors.GREEN}{tr('Alles aktuell, keine Änderungen.')}{Colors.END}")
         if args.dry_run or not verification_eligible:

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from mcbe_editor import update_script_runner
+from mcbe_editor.update_progress import PROGRESS_ENV
 
 
 class Completed:
@@ -15,6 +16,7 @@ class Completed:
 
 def test_run_update_db_builds_command_env_and_directories(tmp_path, monkeypatch):
     calls = []
+    monkeypatch.setenv(PROGRESS_ENV, str(tmp_path / "unrelated-progress.json"))
 
     def fake_run(*args, **kwargs):
         calls.append((args, kwargs))
@@ -58,6 +60,7 @@ def test_run_update_db_builds_command_env_and_directories(tmp_path, monkeypatch)
     assert kwargs["check"] is False
     assert kwargs["env"]["NO_COLOR"] == "1"
     assert kwargs["env"]["MCBE_UPDATE_LOCALE"] == "de"
+    assert PROGRESS_ENV not in kwargs["env"]
     assert kwargs["env"]["MCBE_ITEM_DB_PATH"] == config.item_db_path
     assert kwargs["env"]["MCBE_UPDATE_CACHE_DIR"] == config.update_cache_dir
     assert (tmp_path / "data").is_dir()
@@ -79,7 +82,8 @@ def test_run_update_icons_builds_icon_cache_env_and_directories(tmp_path, monkey
         update_cache_dir=str(tmp_path / "cache"),
     )
 
-    result = update_script_runner.run_update_icons(tmp_path, config, force=True, use_cache=False, locale="en")
+    progress_path = tmp_path / "progress.json"
+    result = update_script_runner.run_update_icons(tmp_path, config, force=True, use_cache=False, locale="en", progress_path=progress_path)
 
     assert result == (7, "script output")
     args, kwargs = calls[0]
@@ -88,6 +92,7 @@ def test_run_update_icons_builds_icon_cache_env_and_directories(tmp_path, monkey
     assert kwargs["timeout"] == 300
     assert kwargs["env"]["NO_COLOR"] == "1"
     assert kwargs["env"]["MCBE_UPDATE_LOCALE"] == "en"
+    assert kwargs["env"][PROGRESS_ENV] == str(progress_path.resolve())
     assert kwargs["env"]["MCBE_DATA_ROOT"] == str(tmp_path / "data")
     assert kwargs["env"]["MCBE_ICON_CACHE_ROOT"] == str(tmp_path / "data" / "icons" / "vanilla")
     assert (tmp_path / "data").is_dir()

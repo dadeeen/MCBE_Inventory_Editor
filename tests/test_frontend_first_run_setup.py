@@ -280,6 +280,33 @@ def test_frontend_first_run_setup_blocks_updates_in_read_only_mode() -> None:
     )
 
 
+def test_frontend_first_run_setup_serializes_downloads_and_unlocks_after_failure() -> None:
+    _run_node(r"""
+        (async () => {
+            const elements = buildElements();
+            let finish;
+            let iconCalls = 0;
+            const controller = view.createFirstRunSetupController({
+                elements,
+                isItemDbPending: () => true,
+                isIconsPending: () => true,
+                runItemDbUpdate: () => new Promise(resolve => { finish = resolve; }),
+                runIconsUpdate: async () => { iconCalls += 1; return { success: false }; },
+            });
+            const first = controller.runTodo('item_db');
+            assert.equal(elements.rows.item_db.button.disabled, true);
+            assert.equal(elements.rows.icons.button.disabled, true);
+            await controller.runTodo('icons');
+            assert.equal(iconCalls, 0);
+            finish({ success: false, error: 'offline' });
+            await first;
+            assert.equal(elements.rows.icons.button.disabled, false);
+            await controller.runTodo('icons');
+            assert.equal(iconCalls, 1);
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+
+
 def test_frontend_first_run_setup_remembers_dismissal() -> None:
     _run_node(
         textwrap.dedent(

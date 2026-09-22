@@ -1211,6 +1211,22 @@
             <div class="loading-spinner"></div>
             <div class="loading-progress" aria-hidden="true"><span></span></div>
             <div class="loading-text" id="loadingText">{{ t("Lade...") }}</div>
+            <section id="assetUpdateProgress" class="asset-update-progress" hidden aria-labelledby="loadingText">
+                <p id="assetProgressPhase" class="asset-progress-phase" role="status"></p>
+                <div class="asset-progress-counts">
+                    <span id="assetProgressValue" class="asset-progress-value" aria-hidden="true">—</span>
+                    <span id="assetProgressAmount" class="asset-progress-amount"></span>
+                </div>
+                <div id="assetProgressBar" class="asset-progress-bar is-indeterminate" role="progressbar" aria-labelledby="assetProgressPhase" aria-describedby="assetProgressAmount" aria-valuemin="0" aria-valuemax="100">
+                    <span id="assetProgressFill"></span>
+                </div>
+                <ol class="asset-progress-steps" aria-hidden="true">
+                    <li data-progress-step="0">{{ t("Download") }}</li>
+                    <li data-progress-step="1">{{ t("Verarbeitung") }}</li>
+                    <li data-progress-step="2">{{ t("Abschluss") }}</li>
+                </ol>
+                <p id="assetProgressHint" class="asset-progress-hint"></p>
+            </section>
         </div>
     </div>
 
@@ -1321,6 +1337,7 @@
     <script src="{{ url_for('static', filename='workspace_view.js') }}"></script>
     <script src="{{ url_for('static', filename='theme_controller.js') }}"></script>
     <script src="{{ url_for('static', filename='ui_feedback.js') }}"></script>
+    <script src="{{ url_for('static', filename='asset_update_progress.js') }}"></script>
     <script src="{{ url_for('static', filename='undo_redo_view.js') }}"></script>
     <script src="{{ url_for('static', filename='undo_redo_controller.js') }}"></script>
     <script src="{{ url_for('static', filename='ability_state.js') }}"></script>

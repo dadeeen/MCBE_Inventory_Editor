@@ -82,7 +82,7 @@
                                 : "";
             }
             if (button) {
-                button.disabled = done || busy || locked || unknown;
+                button.disabled = done || TODO_IDS.some(todo => running[todo]) || locked || unknown;
                 button.textContent = done ? t("Erledigt") : t("Jetzt laden");
                 button.style.display = done ? "none" : "";
             }
@@ -150,7 +150,7 @@
         }
 
         async function runTodo(id) {
-            if (running[id] || !canWriteAppState() || !isPending(id)) return;
+            if (TODO_IDS.some(todo => running[todo]) || !canWriteAppState() || !isPending(id)) return;
             running[id] = true;
             errors[id] = "";
             render();

@@ -30,6 +30,7 @@
         logStatus = () => {},
         appendUpdateOutput = () => {},
         consoleObj = console,
+        startUpdateProgress = title => window.MCBEAssetUpdateProgress?.start(title),
     } = {}) {
         const {
             panel,
@@ -51,10 +52,10 @@
             return summary;
         }
 
-        async function postJson(url, body = undefined) {
+        async function postJson(url, body = undefined, extraHeaders = {}) {
             const options = {
                 method: "POST",
-                headers: withCsrf(),
+                headers: { ...withCsrf(), ...extraHeaders },
             };
             if (body !== undefined) options.body = JSON.stringify(body);
             const res = await fetchImpl(url, options);
@@ -301,6 +302,9 @@
         }
 
         async function updateVanillaIcons() {
+            if (window.MCBEAssetUpdateProgress?.isRunning()) {
+                return { success: false, busy: true, error: t("Ein Update läuft bereits.") };
+            }
             if (!canWriteAppState()) {
                 showToast(READ_ONLY_SOURCES_MESSAGE, "warning");
                 return { success: false, error: READ_ONLY_SOURCES_MESSAGE };
@@ -309,13 +313,15 @@
                 if (control) control.disabled = true;
             }
             showLoading(t("Vanilla-Icons werden geladen..."));
+            const progress = startUpdateProgress(t("Vanilla-Icons laden"));
             const updateStatus = (message, type, active = undefined) => logStatus(message, type, {
                 key: "vanilla-icons-update",
                 active,
             });
             updateStatus(t("Vanilla-Icons werden aus Mojang/bedrock-samples geladen..."), "running", true);
             try {
-                const data = await postJson("/api/icons/vanilla/update", {});
+                const data = await postJson("/api/icons/vanilla/update", {}, progress?.headers);
+                if (data.success) progress?.finalizing();
                 if (data.output) appendUpdateOutput(`\n=== ${t("Vanilla-Icons")} ===\n${data.output}`);
                 if (!data.success) {
                     const message = data.error || t("Vanilla-Icons konnten nicht geladen werden.");
@@ -343,6 +349,7 @@
                 showToast(message, "error", 6000);
                 return { success: false, error: message };
             } finally {
+                progress?.stop();
                 hideLoading();
                 applyAppStateControlLocks();
             }

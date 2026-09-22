@@ -35,6 +35,7 @@ def _load_runtime_dependencies():
     from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
     from mcbe_editor.update_output_i18n import output_t
+    from mcbe_editor.update_progress import report_progress
 
     return (
         publish_icon_cache,
@@ -50,6 +51,7 @@ def _load_runtime_dependencies():
         resolve_icon_definition,
         supports_block_preview,
         IconResolution,
+        report_progress,
     )
 
 
@@ -67,6 +69,7 @@ def _load_runtime_dependencies():
     resolve_icon_definition,
     supports_block_preview,
     IconResolution,
+    report_progress,
 ) = _load_runtime_dependencies()
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DATA_ROOT = Path(os.environ.get("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser()
@@ -872,6 +875,7 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
     zip_path = CACHE_DIR / asset_name
     if use_cache and zip_path.exists() and zip_path.stat().st_size == expected_size:
         try:
+            report_progress("cached")
             _validate_downloaded_zip(zip_path)
         except RuntimeError:
             pass
@@ -884,6 +888,7 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
     fd, temp_name = tempfile.mkstemp(prefix=f".{asset_name}.", suffix=".part", dir=CACHE_DIR)
     temp_path = Path(temp_name)
     try:
+        report_progress("downloading", current=0, total=expected_size, unit="bytes")
         with opener.open(str(info["resource_pack_url"]), timeout=60) as resp, os.fdopen(fd, "wb") as output:
             fd = -1
             _validate_final_response_url(resp, ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
@@ -896,6 +901,7 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
                 if total > MAX_RESOURCE_PACK_BYTES:
                     raise RuntimeError(tr("Resource-Pack-Download ist größer als erwartet."))
                 output.write(chunk)
+                report_progress("downloading", current=total, total=expected_size, unit="bytes")
             output.flush()
             os.fsync(output.fileno())
         if total != expected_size:
@@ -906,6 +912,7 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
                     actual=total,
                 )
             )
+        report_progress("validating")
         _validate_downloaded_zip(temp_path)
         os.replace(temp_path, zip_path)
         return zip_path
@@ -1639,6 +1646,7 @@ def build_icon_cache(
     # Normalize only the working address (without resolving symlinks) so the
     # atomic publisher can compare both parent directories reliably.
     target_root = Path(os.path.abspath(target_root))
+    report_progress("processing")
     with zipfile.ZipFile(zip_path) as zf:
         item_textures = parse_texture_data(_read_json_member(zf, "textures/item_texture.json"))
         terrain_textures = parse_texture_data(_read_json_member(zf, "textures/terrain_texture.json"))
@@ -1672,7 +1680,8 @@ def build_icon_cache(
             render_failures: dict[str, str] = {}
             resolutions: dict[str, dict[str, Any]] = {}
             block_items = {normalize_identifier(value) for value in (block_item_ids or set())}
-            for item_id in icon_targets:
+            for processed, item_id in enumerate(icon_targets):
+                report_progress("rendering", current=processed, total=len(icon_targets), unit="items")
                 is_block = item_id in block_items
                 texture_data = terrain_textures if is_block else item_textures
                 data_driven_aliases = block_aliases if is_block else item_aliases
@@ -1892,6 +1901,7 @@ def build_icon_cache(
                     }
                     used_members.add(_zip_member_key(source[1].filename))
                     bed_variant_icons += 1
+            report_progress("rendering", current=len(icon_targets), total=len(icon_targets), unit="items")
             for asset_id, texture_target in AXOLOTL_DISPLAY_ASSETS.items():
                 selected = _select_texture_source(
                     candidate_texture_keys(texture_target, item_aliases),
@@ -1940,6 +1950,7 @@ def build_icon_cache(
                 "items": mapped,
                 "display_assets": display_assets,
             }
+            report_progress("finalizing")
             atomic_write_text(staging / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
             publish_icon_cache(staging, target_root, warn=log)
             return manifest
@@ -1957,6 +1968,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dry-run", action="store_true", help=tr("Nur Quelle prüfen, nichts extrahieren."))
     args = parser.parse_args(argv)
+    report_progress("checking")
 
     if args.cache and not args.force:
         info = read_release_metadata()

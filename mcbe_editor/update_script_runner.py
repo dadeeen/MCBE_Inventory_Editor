@@ -11,6 +11,7 @@ from typing import Any
 
 from mcbe_editor.i18n import SUPPORTED_LOCALES
 from mcbe_editor.update_output_i18n import UPDATE_LOCALE_ENV
+from mcbe_editor.update_progress import PROGRESS_ENV, write_progress
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -47,6 +48,7 @@ def run_update_db(
     use_cache: bool = False,
     expected_review_token: str | None = None,
     locale: str = "de",
+    progress_path: Path | None = None,
 ) -> tuple[int, str]:
     """Run the item_db update script and return its output."""
     cmd = [sys.executable, "-m", "scripts.update_db"]
@@ -75,6 +77,9 @@ def run_update_db(
             env[name] = value
     env["NO_COLOR"] = "1"
     env[UPDATE_LOCALE_ENV] = _normalized_locale(locale)
+    env.pop(PROGRESS_ENV, None)
+    if progress_path is not None:
+        env[PROGRESS_ENV] = str(progress_path.resolve())
 
     _ensure_dirs(
         {
@@ -95,6 +100,8 @@ def run_update_db(
         timeout=180,
         check=False,
     )
+    if progress_path is not None:
+        write_progress(progress_path, "finalizing")
     return proc.returncode, strip_terminal_formatting(proc.stdout)
 
 
@@ -105,6 +112,7 @@ def run_update_icons(
     force: bool = False,
     use_cache: bool = False,
     locale: str = "de",
+    progress_path: Path | None = None,
 ) -> tuple[int, str]:
     """Run the vanilla icon update script and return its output."""
     cmd = [sys.executable, "-m", "scripts.update_icons"]
@@ -127,6 +135,9 @@ def run_update_icons(
             env[name] = str(value)
     env["NO_COLOR"] = "1"
     env[UPDATE_LOCALE_ENV] = _normalized_locale(locale)
+    env.pop(PROGRESS_ENV, None)
+    if progress_path is not None:
+        env[PROGRESS_ENV] = str(progress_path.resolve())
 
     _ensure_dirs(
         {
@@ -146,6 +157,8 @@ def run_update_icons(
         timeout=300,
         check=False,
     )
+    if progress_path is not None:
+        write_progress(progress_path, "finalizing")
     return proc.returncode, strip_terminal_formatting(proc.stdout)
 
 

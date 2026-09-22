@@ -39,6 +39,7 @@ from mcbe_editor import (
     runtime_api_routes,
     scan_api_routes,
     status_snapshots,
+    update_progress,
     update_script_runner,
 )
 from mcbe_editor.audit import AuditLogger
@@ -1345,6 +1346,7 @@ def run_update_db(dry_run=False, force=False, only=None, use_cache=False, expect
         use_cache=use_cache,
         expected_review_token=expected_review_token,
         locale=i18n.request_locale(),
+        progress_path=getattr(g, "update_progress_path", None) if has_request_context() else None,
     )
 
 
@@ -1355,6 +1357,7 @@ def run_update_icons(force=False, use_cache=False):
         force=force,
         use_cache=use_cache,
         locale=i18n.request_locale(),
+        progress_path=getattr(g, "update_progress_path", None) if has_request_context() else None,
     )
 
 
@@ -1419,10 +1422,42 @@ def item_db_route_deps() -> item_db_api_routes.ItemDbRouteDeps:
     )
 
 
+def _update_progress_directory() -> Path:
+    return Path(APP_CONFIG.data_root or "data") / "cache" / "update_progress"
+
+
+def track_update_progress(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        progress_id = request.headers.get(update_progress.PROGRESS_HEADER)
+        if progress_id is None:
+            return func(*args, **kwargs)
+        try:
+            with update_progress.track_progress(_update_progress_directory(), progress_id) as path:
+                g.update_progress_path = path
+                return func(*args, **kwargs)
+        except ValueError as exc:
+            return api_error(str(exc), status=400)
+
+    return wrapped
+
+
+@app.route("/api/update_progress/<progress_id>", methods=["GET"])
+@rate_limit("read")
+def update_progress_route(progress_id):
+    try:
+        response = jsonify({"success": True, "progress": update_progress.read_progress(_update_progress_directory(), progress_id)})
+    except ValueError as exc:
+        response = app.make_response(api_error(str(exc), status=400))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/api/update_db", methods=["POST"])
 @rate_limit("mutate")
 @require_csrf
 @block_when_read_only("app_write")
+@track_update_progress
 @item_db_update_guard
 def update_db():
     return item_db_api_routes.update_db(request_json_object(), item_db_route_deps())
@@ -1682,6 +1717,7 @@ def icons_scan_route():
 @rate_limit("mutate")
 @require_csrf
 @block_when_read_only("app_write")
+@track_update_progress
 def icons_vanilla_update_route():
     return icon_api_routes.icons_vanilla_update(request_json_object(), icon_route_deps())
 
