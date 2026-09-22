@@ -6,6 +6,8 @@
   "Icon-Quelle liegt außerhalb ihres Quellordners. Bitte Icons neu scannen.": "The icon source is outside its source directory. Please rescan icons.",
   "Icon-Quelle ist keine reguläre Datei. Bitte Icons neu scannen.": "The icon source is not a regular file. Please rescan icons.",
   "Icon-Quelle wurde beim Öffnen ersetzt. Bitte Icons neu scannen.": "The icon source was replaced while opening it. Please rescan icons.",
+  "Spieler-Export ist zu groß (maximal {limit} MiB).": "Player export is too large (maximum {limit} MiB).",
+  "Ungültiger Quellslot: {slot}": "Invalid source slot: {slot}",
   "Unterbrochene Welt-Restores prüfen oder nach Bestätigung wiederaufnehmen.": "Inspect interrupted world restores or resume them after confirmation.",
   "Welt- oder Suchordner; ohne Angabe gelten die konfigurierten Suchorte.": "World or scan directories; defaults to the configured scan roots.",
   "Bestätigt für diesen Lauf, dass Minecraft und Server vollständig gestoppt sind; erlaubt Recovery bei unbekanntem Status.": "Confirms for this run that Minecraft and the server are fully stopped; permits recovery when server status is unknown.",

@@ -2341,12 +2341,9 @@ def validate_inventory_item(item_data, enchantments_db, is_ender_chest=False, *,
 
     source_slot = slot
     if "source_slot" in item_data:
-        try:
-            candidate_source_slot = _strict_int(item_data.get("source_slot"), "Quellslot")
-        except ValueError:
-            candidate_source_slot = slot
-        if candidate_source_slot in source_valid_slots:
-            source_slot = candidate_source_slot
+        source_slot = _strict_int(item_data["source_slot"], "Quellslot")
+        if source_slot not in source_valid_slots:
+            raise ValueError(t("Ungültiger Quellslot: {slot}", slot=source_slot))
 
     source_world_path = item_data.get("source_world_path")
     if source_world_path is not None:

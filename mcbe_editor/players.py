@@ -19,11 +19,14 @@ from mcbe_editor import nbt
 from .bedrock_nbt import load_player_nbt
 from .i18n import t
 from .inventory import extract_player_stats, nbt_to_json, protected_player_nbt_flags
+from .path_safety import is_linklike, is_linklike_stat
 from .service_errors import PlayerImportPreviewStaleError
 from .world import LOCAL_PLAYER_KEY, get_world_name
 
 MAX_EXPORT_UNCOMPRESSED_MB = 50
 MAX_EXPORT_MEMBERS = 100
+MAX_EXPORT_SOURCE_BYTES = 64 * 1024 * 1024
+STALE_IMPORT_SOURCE_SECONDS = 24 * 60 * 60
 MAX_PLAYER_LABEL_LENGTH = 128
 
 EXPORT_FORMAT = "mcbe-player-export"
@@ -478,6 +481,29 @@ def _path_is_inside_or_same(path: str | os.PathLike, root: str | os.PathLike) ->
         return False
 
 
+def _cleanup_stale_import_sources(snapshot_dir, *, now=None):
+    """Remove only old, regular snapshots left by an interrupted import."""
+    cutoff = (datetime.now(UTC).timestamp() if now is None else now) - STALE_IMPORT_SOURCE_SECONDS
+    try:
+        if is_linklike(snapshot_dir):
+            return
+        with os.scandir(snapshot_dir) as entries:
+            for entry in entries:
+                if not re.fullmatch(r"player_import_source_[A-Za-z0-9_-]+\.zip", entry.name):
+                    continue
+                with contextlib.suppress(OSError):
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISREG(info.st_mode) and not is_linklike_stat(info) and info.st_mtime < cutoff:
+                        os.remove(entry.path)
+    except OSError:
+        pass
+
+
+def _check_import_source_size(size):
+    if size > MAX_EXPORT_SOURCE_BYTES:
+        raise ValueError(t("Spieler-Export ist zu groß (maximal {limit} MiB).", limit=MAX_EXPORT_SOURCE_BYTES // (1024 * 1024)))
+
+
 def snapshot_player_export_for_import(export_zip, target_world_path, *, expected_token=None):
     """Copy one validated export source to an immutable private snapshot.
 
@@ -506,15 +532,17 @@ def snapshot_player_export_for_import(export_zip, target_world_path, *, expected
         source_stat = os.stat(source_path, follow_symlinks=False)
     except OSError as exc:
         raise ValueError(f"Spieler-Export kann nicht gelesen werden: {exc}") from exc
-    if not stat.S_ISREG(source_stat.st_mode):
+    if not stat.S_ISREG(source_stat.st_mode) or is_linklike_stat(source_stat):
         raise ValueError("Spieler-Export ist keine reguläre Datei.")
+    _check_import_source_size(source_stat.st_size)
 
     export_root = os.path.abspath(os.path.normpath(player_export_dir_for_world(target_world_path)))
     os.makedirs(export_root, exist_ok=True)
     snapshot_dir = os.path.join(export_root, ".import_sources")
     os.makedirs(snapshot_dir, exist_ok=True)
-    if os.path.islink(snapshot_dir) or not _path_is_inside_or_same(snapshot_dir, export_root):
+    if is_linklike(snapshot_dir) or not _path_is_inside_or_same(snapshot_dir, export_root):
         raise ValueError("Temporärer Import-Ordner ist unsicher.")
+    _cleanup_stale_import_sources(snapshot_dir)
 
     fd, snapshot_path = tempfile.mkstemp(prefix="player_import_source_", suffix=".zip", dir=snapshot_dir)
     try:
@@ -527,10 +555,11 @@ def snapshot_player_export_for_import(export_zip, target_world_path, *, expected
                 raise ValueError("Spieler-Export wurde während der Import-Vorbereitung ersetzt.")
             digest = hashlib.sha256()
             size_bytes = 0
-            while chunk := source.read(1024 * 1024):
+            while chunk := source.read(min(1024 * 1024, MAX_EXPORT_SOURCE_BYTES - size_bytes + 1)):
+                size_bytes += len(chunk)
+                _check_import_source_size(size_bytes)
                 snapshot.write(chunk)
                 digest.update(chunk)
-                size_bytes += len(chunk)
             snapshot.flush()
             os.fsync(snapshot.fileno())
         actual_token = _player_import_token(
