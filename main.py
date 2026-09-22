@@ -485,7 +485,7 @@ def start_background_tasks() -> None:
         return
     if not APP_CONFIG.read_only:
         try:
-            recovery_roots = [root["path"] for root in get_configured_scan_roots(include_disabled=False) if root.get("path")]
+            recovery_roots = [root["path"] for root in get_configured_scan_roots(include_disabled=False, include_missing=True) if root.get("path")]
             recovery_results = recover_interrupted_restores(
                 recovery_roots,
                 max_depth=APP_CONFIG.world_scan_depth,

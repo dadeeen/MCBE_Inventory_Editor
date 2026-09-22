@@ -275,8 +275,8 @@ def _scan_root_entry(path: str | os.PathLike, *, kind: str, enabled: bool = True
     }
 
 
-def get_configured_scan_roots(*, include_disabled: bool = True) -> list[dict]:
-    """Return configured world scan roots with metadata for UI/API display."""
+def get_configured_scan_roots(*, include_disabled: bool = True, include_missing: bool = False) -> list[dict]:
+    """Return configured roots, optionally retaining missing recovery targets."""
 
     config = load_config()
     roots: list[dict] = []
@@ -298,11 +298,13 @@ def get_configured_scan_roots(*, include_disabled: bool = True) -> list[dict]:
         # roots are different: keep stale/missing entries visible in the UI so
         # people can see, disable, or remove broken Docker mounts/NAS paths.
         keep_for_diagnostics = include_disabled and bool(entry.get("removable"))
-        if os.path.isdir(path) or keep_for_diagnostics:
+        # A restore can temporarily rename a directly configured world out of
+        # the way. Recovery still needs that path to find its sibling journal.
+        if os.path.isdir(path) or include_missing or keep_for_diagnostics:
             roots.append(entry)
             seen.add(normalized)
 
-    if config.worlds_root and os.path.isdir(config.worlds_root):
+    if config.worlds_root and (include_missing or os.path.isdir(config.worlds_root)):
         add_root(
             _scan_root_entry(
                 config.worlds_root,

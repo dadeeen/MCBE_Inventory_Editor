@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
             return {**gate, "allowed": False, "reason": "Recovery benötigt --confirm-server-stopped."}
         return gate
 
-    roots = args.paths or [root["path"] for root in get_configured_scan_roots(include_disabled=False) if root.get("path")]
+    roots = args.paths or [root["path"] for root in get_configured_scan_roots(include_disabled=False, include_missing=True) if root.get("path")]
     results = recover_interrupted_restores(
         roots, max_depth=config.world_scan_depth, max_dirs=config.world_scan_max_dirs, recovery_gate_check=gate_check,
     )

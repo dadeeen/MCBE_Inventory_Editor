@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mcbe_editor import backup, restore_recovery, server_status
+from mcbe_editor import backup, restore_recovery, server_status, world
 from mcbe_editor.config import load_config
 
 
@@ -107,6 +107,75 @@ def test_recovery_cli_confirmed_unknown_restores_original_and_is_idempotent(inte
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("root_source", ["settings", "worlds_root"])
+def test_recovery_cli_finds_missing_configured_world_and_skips_disabled_world(
+    interrupted_restore, monkeypatch, capsys, root_source,
+):
+    state = interrupted_restore
+    _mock_server_probe(monkeypatch, "unknown")
+    monkeypatch.setattr(world, "get_minecraft_saves_candidates", lambda **_kwargs: [])
+    monkeypatch.setenv("MCBE_WORLDS_ROOT", str(state.world) if root_source == "worlds_root" else "")
+
+    disabled_world = state.root / "disabled"
+    disabled_id = "fedcba9876543210"
+    disabled_rollback = state.root / f".disabled_rollback_interrupted_{disabled_id}"
+    disabled_staging = state.root / ".disabled_restoring_interrupted"
+    _world(disabled_rollback, b"disabled original")
+    _world(disabled_staging, b"disabled selected backup")
+    disabled_journal = Path(backup._write_restore_transaction(
+        str(state.root), disabled_world.name, str(disabled_rollback), str(disabled_staging), disabled_id,
+    ))
+    settings = state.root.parent / "settings.json"
+    configured_roots = [{"path": str(disabled_world), "enabled": False}]
+    if root_source == "settings":
+        configured_roots.append({"path": str(state.world), "enabled": True})
+    settings.write_text(json.dumps({"scan_roots": configured_roots}), encoding="utf-8")
+    monkeypatch.setenv("MCBE_SETTINGS_PATH", str(settings))
+
+    assert world.get_configured_scan_roots(include_disabled=False) == []
+    roots = world.get_configured_scan_roots(include_disabled=False, include_missing=True)
+    assert [root["path"] for root in roots] == [str(state.world)]
+    before = _tree_contents(state.root)
+
+    assert restore_recovery.main([]) == 1
+    result, = json.loads(capsys.readouterr().out)
+    assert result["status"] == "deferred-write-gate"
+    assert result["world_path"] == str(state.world)
+    assert _tree_contents(state.root) == before
+
+    assert restore_recovery.main(["--confirm-server-stopped"]) == 0
+    result, = json.loads(capsys.readouterr().out)
+    assert result == {"status": "original-restored", "world_path": str(state.world)}
+    assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
+    assert not state.journal.exists()
+    assert not disabled_world.exists()
+    for candidate in (disabled_rollback, disabled_staging, disabled_journal):
+        relative = candidate.relative_to(state.root).as_posix()
+        assert candidate.exists()
+        assert {
+            name: content for name, content in _tree_contents(state.root).items()
+            if name == relative or name.startswith(relative + "/")
+        } == {name: content for name, content in before.items() if name == relative or name.startswith(relative + "/")}
+
+
+def test_recovery_missing_root_selection_keeps_docker_boundary(interrupted_restore, monkeypatch, capsys):
+    state = interrupted_restore
+    _mock_server_probe(monkeypatch, "unknown")
+    monkeypatch.setenv("MCBE_EDITOR_MODE", "docker")
+    monkeypatch.setenv("MCBE_WORLDS_ROOT", str(state.world))
+    monkeypatch.setattr(world, "get_minecraft_saves_candidates", lambda **_kwargs: [])
+    settings = state.root.parent / "settings.json"
+    settings.write_text(json.dumps({"scan_roots": [{"path": str(state.root), "enabled": True}]}), encoding="utf-8")
+    monkeypatch.setenv("MCBE_SETTINGS_PATH", str(settings))
+
+    roots = world.get_configured_scan_roots(include_disabled=False, include_missing=True)
+    assert [root["path"] for root in roots] == [str(state.world)]
+    assert restore_recovery.main(["--confirm-server-stopped"]) == 0
+    result, = json.loads(capsys.readouterr().out)
+    assert result == {"status": "original-restored", "world_path": str(state.world)}
+    assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
+
+
 def test_recovery_cli_preserves_ambiguous_world_rollback_and_staging(interrupted_restore, monkeypatch, capsys):
     state = interrupted_restore
     _mock_server_probe(monkeypatch, "unknown")
@@ -126,9 +195,13 @@ def test_startup_defers_unknown_until_explicit_cli_confirmation(interrupted_rest
 
     state = interrupted_restore
     calls = _mock_server_probe(monkeypatch, "unknown")
+    monkeypatch.setenv("MCBE_WORLDS_ROOT", "")
+    monkeypatch.setattr(world, "get_minecraft_saves_candidates", lambda **_kwargs: [])
+    settings = state.root.parent / "settings.json"
+    settings.write_text(json.dumps({"scan_roots": [{"path": str(state.world), "enabled": True}]}), encoding="utf-8")
+    monkeypatch.setenv("MCBE_SETTINGS_PATH", str(settings))
     monkeypatch.setattr(application, "APP_CONFIG", load_config())
     monkeypatch.setattr(application, "_BACKGROUND_TASKS_STARTED", False)
-    monkeypatch.setattr(application, "get_configured_scan_roots", lambda **_kwargs: [{"path": str(state.root)}])
     monkeypatch.setattr(application, "WORLD_PRESENCE", SimpleNamespace(start_cleanup_thread=lambda: None, stop_cleanup_thread=lambda: None))
     monkeypatch.setattr(application.atexit, "register", lambda _callback: None)
     before = _tree_contents(state.root)
@@ -139,7 +212,7 @@ def test_startup_defers_unknown_until_explicit_cli_confirmation(interrupted_rest
     assert "deferred-write-gate" in caplog.text
     assert "python -m mcbe_editor.restore_recovery --help" in caplog.text
     assert _tree_contents(state.root) == before
-    assert restore_recovery.main([str(state.root), "--confirm-server-stopped"]) == 0
+    assert restore_recovery.main(["--confirm-server-stopped"]) == 0
     result, = json.loads(capsys.readouterr().out)
     assert result["status"] == "original-restored"
     assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
