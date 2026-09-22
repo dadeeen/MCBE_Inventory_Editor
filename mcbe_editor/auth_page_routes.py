@@ -92,6 +92,7 @@ def setup(method: str, form: Any, deps: AuthPageDeps):
         "setup.html",
         errors=errors,
         setup_token=deps.setup_csrf_token(),
+        csrf_token=deps.get_csrf_token(),
         default_username=deps.app_config.auth_username,
         can_choose_open=can_choose_open,
         bind_host=deps.runtime_bind_host,

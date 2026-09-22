@@ -42,7 +42,7 @@ from mcbe_editor import (
     update_script_runner,
 )
 from mcbe_editor.audit import AuditLogger
-from mcbe_editor.config import host_reaches_beyond_loopback
+from mcbe_editor.config import _host_for_origin, host_reaches_beyond_loopback
 from mcbe_editor.db import register_runtime_leveldb_write_guard
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
 from mcbe_editor.distribution import data_root_snapshot, distribution_snapshot
@@ -411,11 +411,6 @@ AUDIT_LOG = AuditLogger(
     max_bytes=APP_CONFIG.audit_log_max_bytes,
 )
 
-_PERSISTENT_AUTH_AVAILABLE = bool(SETUP_STATE.password_hash())
-_ENV_AUTH_AVAILABLE = bool(APP_CONFIG.auth_password_hash or APP_CONFIG.auth_password)
-_WIDE_BIND = APP_CONFIG.is_docker or host_reaches_beyond_loopback(RUNTIME_BIND_HOST)
-
-
 def _setup_storage_can_complete_auth(config=APP_CONFIG, setup_state=SETUP_STATE) -> bool:
     """Return whether the persistent setup page can resolve this auth state."""
 
@@ -426,35 +421,44 @@ def _setup_storage_can_complete_auth(config=APP_CONFIG, setup_state=SETUP_STATE)
     return not setup_state.completed()
 
 
-_SETUP_CAN_COMPLETE = _setup_storage_can_complete_auth()
-
-
 def _wide_bind_has_unresolved_unwritable_setup(
     *,
-    wide_bind: bool = _WIDE_BIND,
-    env_auth_available: bool = _ENV_AUTH_AVAILABLE,
-    persistent_auth_available: bool = _PERSISTENT_AUTH_AVAILABLE,
-    setup_state=SETUP_STATE,
+    wide_bind: bool,
+    env_auth_available: bool,
+    persistent_auth_available: bool,
+    setup_state,
 ) -> bool:
     return bool(
         wide_bind and not env_auth_available and not persistent_auth_available and not setup_state.open_acknowledged() and not setup_state.storage_available
     )
 
 
-if _wide_bind_has_unresolved_unwritable_setup():
-    raise RuntimeError(
-        "The service is reachable in LAN/Docker mode, but first-run setup is not complete "
-        "and the persistent setup path is not writable. Check owner and write permissions of the data volume."
-    )
-if APP_CONFIG.auth_required and not (_ENV_AUTH_AVAILABLE or _PERSISTENT_AUTH_AVAILABLE or SETUP_STATE.storage_available):
-    raise RuntimeError(
-        "MCBE_AUTH_REQUIRED is enabled, but neither MCBE_AUTH_PASSWORD_HASH nor MCBE_AUTH_PASSWORD is set and no writable persistent setup path is available."
-    )
-if APP_CONFIG.fail_on_insecure_config and _WIDE_BIND and not (_ENV_AUTH_AVAILABLE or _PERSISTENT_AUTH_AVAILABLE) and not _SETUP_CAN_COMPLETE:
-    raise RuntimeError(
-        "Insecure configuration blocked: MCBE_FAIL_ON_INSECURE_CONFIG=true, "
-        "but auth is disabled and the service does not bind to loopback only. Enable auth or bind to 127.0.0.1."
-    )
+def validate_startup_security(bind_host: str) -> None:
+    """Validate the effective bind, including CLI overrides, before listening."""
+    wide_bind = APP_CONFIG.is_docker or host_reaches_beyond_loopback(bind_host)
+    env_auth = bool(APP_CONFIG.auth_password_hash or APP_CONFIG.auth_password)
+    persistent_auth = bool(SETUP_STATE.password_hash())
+    if _wide_bind_has_unresolved_unwritable_setup(
+        wide_bind=wide_bind, env_auth_available=env_auth, persistent_auth_available=persistent_auth, setup_state=SETUP_STATE,
+    ):
+        raise RuntimeError(
+            "The service is reachable in LAN/Docker mode, but first-run setup is not complete "
+            "and the persistent setup path is not writable. Check owner and write permissions of the data volume."
+        )
+    if APP_CONFIG.auth_required and not (env_auth or persistent_auth or SETUP_STATE.storage_available):
+        raise RuntimeError(
+            "MCBE_AUTH_REQUIRED is enabled, but neither MCBE_AUTH_PASSWORD_HASH nor MCBE_AUTH_PASSWORD is set "
+            "and no writable persistent setup path is available."
+        )
+    if APP_CONFIG.fail_on_insecure_config and wide_bind and not (env_auth or persistent_auth) and not _setup_storage_can_complete_auth(APP_CONFIG, SETUP_STATE):
+        raise RuntimeError(
+            "Insecure configuration blocked: MCBE_FAIL_ON_INSECURE_CONFIG=true, "
+            "but auth is disabled and the service does not bind to loopback only. Enable auth or bind to 127.0.0.1."
+        )
+
+
+if __name__ != "__main__":
+    validate_startup_security(RUNTIME_BIND_HOST)
 
 
 def _heartbeat_now() -> float:
@@ -838,7 +842,7 @@ def _check_login_post_token() -> str | None:
 def require_first_run_setup():
     if not first_run_setup_required():
         return None
-    if request.endpoint in {"healthz", "setup", "static"}:
+    if request.endpoint in {"healthz", "setup", "static", "heartbeat"}:
         return None
     if _is_api_request():
         return api_error(
@@ -854,7 +858,7 @@ def require_first_run_setup():
 def require_authentication():
     if not auth_enabled():
         return None
-    if request.endpoint in {"healthz", "login", "setup", "static"}:
+    if request.endpoint in {"healthz", "login", "setup", "static", "heartbeat"}:
         return None
     if _is_authenticated():
         return None
@@ -2081,6 +2085,8 @@ def _get_version() -> str:
 @app.after_request
 def add_security_headers(response):
     response = http_response_handlers.add_security_headers(response)
+    if request.endpoint in {"login", "setup"}:
+        response.headers["Cache-Control"] = "no-store"
     if response.mimetype in {"application/json", "text/html"}:
         response = http_response_handlers.add_locale_vary_headers(response)
     return response
@@ -2119,9 +2125,35 @@ if __name__ != "__main__":
     log_startup_security_report()
 
 
-if __name__ == "__main__":
+def open_browser_when_ready(host: str, port: int) -> None:
+    import urllib.request
     import webbrowser
 
+    browser_host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+    browser_url = f"http://{_host_for_origin(browser_host)}:{port}/"
+    ready_url = f"{browser_url}healthz"
+    while True:
+        try:
+            with contextlib.closing(urllib.request.urlopen(ready_url, timeout=2)):
+                pass
+            break
+        except Exception:
+            time.sleep(0.3)
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(browser_url)
+            LOGGER.info("opened browser via Windows shell url=%s", browser_url)
+            return
+        opened = webbrowser.open(browser_url, new=2)
+        if opened:
+            LOGGER.info("opened browser url=%s", browser_url)
+        else:
+            LOGGER.warning("browser auto-open returned false url=%s", browser_url)
+    except Exception as exc:
+        LOGGER.warning("browser auto-open failed url=%s error=%s", browser_url, exc)
+
+
+if __name__ == "__main__":
     from mcbe_editor.local_server import LocalServer
 
     parser = argparse.ArgumentParser(description="MCBE Inventory Editor")
@@ -2137,13 +2169,16 @@ if __name__ == "__main__":
     RUNTIME_BIND_HOST = HOST
     RUNTIME_BIND_PORT = PORT
 
-    if APP_CONFIG.fail_on_insecure_config and _wide_reachable(HOST) and not (_ENV_AUTH_AVAILABLE or _PERSISTENT_AUTH_AVAILABLE) and not _SETUP_CAN_COMPLETE:
-        LOGGER.error("Insecure configuration blocked: auth is disabled and the service does not bind to loopback only.")
-        print("  Error: insecure configuration blocked. Enable auth or bind to 127.0.0.1.")
+    try:
+        validate_startup_security(HOST)
+    except RuntimeError as exc:
+        LOGGER.error("Startup blocked: %s", exc)
+        print(f"  Error: {exc}")
         sys.exit(1)
 
     # Dynamically add origin for the actual host:port so ALLOWED_ORIGINS stays in sync
-    ALLOWED_ORIGINS.add(f"http://{HOST}:{PORT}")
+    server_url = f"http://{_host_for_origin(HOST)}:{PORT}"
+    ALLOWED_ORIGINS.add(server_url)
     ALLOWED_ORIGINS.add(f"http://localhost:{PORT}")
 
     log_startup_security_report(HOST, PORT)
@@ -2160,40 +2195,14 @@ if __name__ == "__main__":
         print(f"  Use another port: python main.py --port {PORT + 1}")
         sys.exit(1)
 
-    LOGGER.info("local server ready server=waitress url=http://%s:%s", HOST, PORT)
-    print(f"  MCBE Inventory Editor — http://{HOST}:{PORT}")
+    LOGGER.info("local server ready server=waitress url=%s", server_url)
+    print(f"  MCBE Inventory Editor — {server_url}")
     print("  Press Ctrl+C to stop")
     print()
     LAST_HEARTBEAT = _heartbeat_now()
 
-    def open_browser_when_ready():
-        import urllib.request
-
-        browser_host = "127.0.0.1" if HOST in {"0.0.0.0", "::"} else HOST
-        browser_url = f"http://{browser_host}:{PORT}/"
-        ready_url = f"{browser_url}api/config"
-        while True:
-            try:
-                with contextlib.closing(urllib.request.urlopen(ready_url, timeout=2)):
-                    pass
-                break
-            except Exception:
-                time.sleep(0.3)
-        try:
-            if sys.platform.startswith("win"):
-                os.startfile(browser_url)
-                LOGGER.info("opened browser via Windows shell url=%s", browser_url)
-                return
-            opened = webbrowser.open(browser_url, new=2)
-            if opened:
-                LOGGER.info("opened browser url=%s", browser_url)
-            else:
-                LOGGER.warning("browser auto-open returned false url=%s", browser_url)
-        except Exception as exc:
-            LOGGER.warning("browser auto-open failed url=%s error=%s", browser_url, exc)
-
     if APP_CONFIG.open_browser and not args.no_browser:
-        threading.Thread(target=open_browser_when_ready, daemon=True).start()
+        threading.Thread(target=open_browser_when_ready, args=(HOST, PORT), daemon=True).start()
     if APP_CONFIG.is_local and APP_CONFIG.local_heartbeat_shutdown:
         threading.Thread(target=check_heartbeat, daemon=True).start()
     try:
