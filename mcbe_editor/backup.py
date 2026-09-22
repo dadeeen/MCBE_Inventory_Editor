@@ -1358,15 +1358,30 @@ def validate_zip_members(zipf: zipfile.ZipFile, target_dir: str) -> None:
 def safe_extract_zip(zipf: zipfile.ZipFile, target_dir: str) -> None:
     validate_zip_members(zipf, target_dir)
     target_dir = os.path.abspath(target_dir)
+    os.makedirs(target_dir, exist_ok=True)
+    created_dirs = {os.path.normcase(target_dir)}
     for member in zipf.infolist():
         safe_name = _safe_zip_member_name(member.filename)
-        target_path = os.path.abspath(os.path.join(target_dir, *PurePosixPath(safe_name).parts))
-        if member.is_dir():
-            os.makedirs(target_path, exist_ok=True)
-            continue
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with zipf.open(member, "r") as src, open(target_path, "wb") as dst:
-            shutil.copyfileobj(src, dst)
+        parts = PurePosixPath(safe_name).parts
+        target_path = os.path.join(target_dir, *parts)
+        try:
+            directory = target_dir
+            for part in parts if member.is_dir() else parts[:-1]:
+                directory = os.path.join(directory, part)
+                normalized = os.path.normcase(directory)
+                if normalized not in created_dirs:
+                    # Only reuse directories created under the same spelling.
+                    # DOS 8.3 aliases can otherwise merge unrelated ZIP trees.
+                    os.mkdir(directory)
+                    created_dirs.add(normalized)
+            if member.is_dir():
+                continue
+            # Lexically distinct names may alias on the target filesystem.
+            # Never overwrite an earlier member in the private staging tree.
+            with zipf.open(member, "r") as src, open(target_path, "xb") as dst:
+                shutil.copyfileobj(src, dst)
+        except FileExistsError as exc:
+            raise ValueError(t("Backup enthält kollidierende Dateisystempfade: {path}", path=member.filename)) from exc
 
 
 @_world_locked

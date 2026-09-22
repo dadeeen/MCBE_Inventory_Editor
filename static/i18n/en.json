@@ -1757,6 +1757,7 @@
   "Backup abgebrochen: Weltordner ist während der Sicherung verschwunden. Bitte Minecraft/Server vollständig stoppen und erneut speichern.": "Backup aborted: a world folder disappeared during the backup. Please stop Minecraft/the server completely and save again.",
   "Backup enthält keinen gültigen Bedrock-db-Ordner.": "Backup does not contain a valid Bedrock db folder.",
   "Backup enthält zu viele Dateien (max {limit}).": "Backup contains too many files (max {limit}).",
+  "Backup enthält kollidierende Dateisystempfade: {path}": "Backup contains colliding filesystem paths: {path}",
   "Backup konnte nicht erstellt werden: {error}": "Backup could not be created: {error}",
   "Backup konnte nicht gelöscht werden: {error}": "Backup could not be deleted: {error}",
   "Backup konnte nicht kollisionsfrei veröffentlicht werden.": "Backup could not be published without a name collision.",

@@ -3,6 +3,7 @@
 import os
 import stat
 from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 import zipfile
 
@@ -107,6 +108,65 @@ def test_restore_rejects_nonportable_members_before_extracting(tmp_path, name):
 def test_restore_accepts_portable_unicode_names(tmp_path):
     assert backup._safe_zip_member_name("behavior_packs/Überprüfung/file.json") == "behavior_packs/Überprüfung/file.json"
     assert backup._safe_zip_member_name("db/") == "db"
+
+
+def test_restore_alias_collision_preserves_current_world(tmp_path, monkeypatch):
+    world_path = tmp_path / "world"
+    (world_path / "db").mkdir(parents=True)
+    original = world_path / "db" / "CURRENT"
+    original.write_bytes(b"current world")
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+    backups_dir = Path(backup.ensure_safe_backup_location(str(world_path)))
+    backups_dir.mkdir(parents=True)
+    archive = backups_dir / "aliased.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("db/LongFilename.txt", b"first member")
+        zf.writestr("db/LONGFI~1.TXT", b"second member")
+    real_open = open
+
+    def aliased_open(path, *args, **kwargs):
+        # Exercise the filesystem alias on hosts without native DOS short names.
+        path = Path(path)
+        if path.name == "LONGFI~1.TXT":
+            path = path.with_name("LongFilename.txt")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(backup, "open", aliased_open, raising=False)
+    with pytest.raises(ValueError, match="kollidierende Dateisystempfade"):
+        backup.restore_backup(str(world_path), archive.name)
+    assert original.read_bytes() == b"current world"
+    assert set(world_path.rglob("*")) == {world_path / "db", original}
+    assert not list(tmp_path.glob(".world_*"))
+    assert not list(tmp_path.glob(".mcbe_restore_*.json"))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Native DOS 8.3 aliases are Windows-specific")
+@pytest.mark.parametrize("kind", ["file", "directory"])
+def test_restore_rejects_native_short_name_aliases(tmp_path, kind):
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    if kind == "file":
+        first, second = "LongFilename.txt", "LONGFI~1.TXT"
+        (probe / first).write_bytes(b"probe")
+        alias = probe / second
+    else:
+        first, second = "LongDirectoryName/first.txt", "LONGDI~1/second.txt"
+        (probe / "LongDirectoryName").mkdir()
+        alias = probe / "LONGDI~1"
+    if not alias.exists():
+        pytest.skip("This filesystem does not create DOS 8.3 aliases")
+    target = tmp_path / "staging"
+    target.mkdir()
+    archive = tmp_path / "aliased.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr(f"db/{first}", b"first member")
+        zf.writestr(f"db/{second}", b"second member")
+
+    with zipfile.ZipFile(archive) as zf, pytest.raises(ValueError, match="kollidierende Dateisystempfade"):
+        backup.safe_extract_zip(zf, str(target))
+    files = [path for path in target.rglob("*") if path.is_file()]
+    assert files == [target / "db" / first]
+    assert files[0].read_bytes() == b"first member"
 
 
 def test_release_walker_does_not_include_junction_contents(tmp_path):
