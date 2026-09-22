@@ -1840,6 +1840,7 @@
   "EnderChestInventory enthält {count} versteckte Slot-ID(s) außerhalb des editierbaren Bereichs": "EnderChestInventory contains {count} hidden slot ID(s) outside the editable range",
   "Equine-Template konnte nicht gelesen werden.": "Equine template could not be read.",
   "Ersteinrichtung erforderlich.": "First-run setup required.",
+  "Die Ersteinrichtung konnte nicht gespeichert werden. Prüfe die Schreibrechte und den freien Speicherplatz des Datenordners.": "First-run setup could not be saved. Check the write permissions and free space of the data folder.",
   "Experimentell: Die Vorschau zeigt vier Richtungskandidaten. Intern wird je Richtung die Linie von Abstand {min} bis {max} geprüft, kein vollständiger Flächenscan um den Spieler.": "Experimental: the preview shows four direction candidates. Internally, each direction checks the line from distance {min} to {max}, not a full area scan around the player.",
   "Experimentelles Mount ({label}) wurde erzeugt und direkt validiert. Bitte Weltkopie prüfen, bevor du damit weiterarbeitest.": "Experimental mount ({label}) was created and validated directly. Please check a world copy before continuing to work with it.",
   "Exportordner konnte nicht geöffnet werden: {error}": "Export folder could not be opened: {error}",

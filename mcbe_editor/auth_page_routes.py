@@ -66,11 +66,17 @@ def setup(method: str, form: Any, deps: AuthPageDeps):
                     )
                 except SetupAlreadyCompletedError:
                     return deps.redirect(deps.url_for("index"))
-                deps.set_app_secret_key(stable_secret)
-                deps.session.clear()
-                deps.logger.info("setup completed mode=password username=%r remote=%s", username[:120], deps.remote_addr())
-                deps.audit_event("setup.password", "success", details={"username": username})
-                return deps.redirect(deps.url_for("login"))
+                except OSError as exc:
+                    deps.logger.warning("setup save_failed mode=password remote=%s error=%s", deps.remote_addr(), exc)
+                    errors.append(t(
+                        "Die Ersteinrichtung konnte nicht gespeichert werden. Prüfe die Schreibrechte und den freien Speicherplatz des Datenordners."
+                    ))
+                else:
+                    deps.set_app_secret_key(stable_secret)
+                    deps.session.clear()
+                    deps.logger.info("setup completed mode=password username=%r remote=%s", username[:120], deps.remote_addr())
+                    deps.audit_event("setup.password", "success", details={"username": username})
+                    return deps.redirect(deps.url_for("login"))
         elif not errors and action == "open":
             if not can_choose_open:
                 errors.append(t("Offener Betrieb ist deaktiviert, weil Authentifizierung explizit angefordert wurde."))
@@ -81,10 +87,16 @@ def setup(method: str, form: Any, deps: AuthPageDeps):
                     deps.setup_state.save_open()
                 except SetupAlreadyCompletedError:
                     return deps.redirect(deps.url_for("index"))
-                deps.session.clear()
-                deps.logger.warning("setup completed mode=open remote=%s risk_acknowledged=true", deps.remote_addr())
-                deps.audit_event("setup.open", "success", details={"risk_acknowledged": True})
-                return deps.redirect(deps.url_for("index"))
+                except OSError as exc:
+                    deps.logger.warning("setup save_failed mode=open remote=%s error=%s", deps.remote_addr(), exc)
+                    errors.append(t(
+                        "Die Ersteinrichtung konnte nicht gespeichert werden. Prüfe die Schreibrechte und den freien Speicherplatz des Datenordners."
+                    ))
+                else:
+                    deps.session.clear()
+                    deps.logger.warning("setup completed mode=open remote=%s risk_acknowledged=true", deps.remote_addr())
+                    deps.audit_event("setup.open", "success", details={"risk_acknowledged": True})
+                    return deps.redirect(deps.url_for("index"))
         elif not errors:
             errors.append(t("Bitte wähle Passwort aktivieren oder offen fortfahren."))
 

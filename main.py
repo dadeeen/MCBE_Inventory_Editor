@@ -759,8 +759,9 @@ def _wide_reachable(bind_host: str | None = None) -> bool:
 def first_run_setup_required() -> bool:
     if _env_auth_credentials_configured():
         return False
-    if not SETUP_STATE.storage_available:
-        return False
+    # Storage availability determines whether setup can be saved, never whether
+    # an unfinished deployment may expose its API. A runtime write failure must
+    # keep the same setup gate that protected the instance before the failure.
     # Requiring authentication after open-mode setup reopens /setup until a
     # password is stored.
     if APP_CONFIG.auth_required and not SETUP_STATE.password_hash():
@@ -2166,7 +2167,9 @@ if __name__ == "__main__":
     parser.add_argument("--version", action="version", version=_get_version(), help="show the version")
     args = parser.parse_args()
 
-    HOST = args.host
+    HOST = args.host.strip()
+    if not HOST:
+        parser.error("--host must not be empty")
     PORT = args.port
     RUNTIME_BIND_HOST = HOST
     RUNTIME_BIND_PORT = PORT
