@@ -10,6 +10,7 @@ from typing import Any
 from werkzeug.security import generate_password_hash
 
 from .i18n import t
+from .setup_state import SetupAlreadyCompletedError
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,12 @@ def setup(method: str, form: Any, deps: AuthPageDeps):
                 errors.append(t("Die beiden Passwörter stimmen nicht überein."))
             else:
                 password_hash = generate_password_hash(password)
-                stable_secret = deps.setup_state.save_password(username=username, password_hash=password_hash)
+                try:
+                    stable_secret = deps.setup_state.save_password(
+                        username=username, password_hash=password_hash, allow_open_upgrade=deps.app_config.auth_required,
+                    )
+                except SetupAlreadyCompletedError:
+                    return deps.redirect(deps.url_for("index"))
                 deps.set_app_secret_key(stable_secret)
                 deps.session.clear()
                 deps.logger.info("setup completed mode=password username=%r remote=%s", username[:120], deps.remote_addr())
@@ -71,7 +77,10 @@ def setup(method: str, form: Any, deps: AuthPageDeps):
             elif form.get("risk_ack") != "yes":
                 errors.append(t("Bitte bestätige die Risiko-Hinweise, wenn du ohne Passwort fortfahren möchtest."))
             else:
-                deps.setup_state.save_open()
+                try:
+                    deps.setup_state.save_open()
+                except SetupAlreadyCompletedError:
+                    return deps.redirect(deps.url_for("index"))
                 deps.session.clear()
                 deps.logger.warning("setup completed mode=open remote=%s risk_acknowledged=true", deps.remote_addr())
                 deps.audit_event("setup.open", "success", details={"risk_acknowledged": True})

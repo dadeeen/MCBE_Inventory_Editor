@@ -8,7 +8,61 @@ from dataclasses import replace
 import pytest
 from werkzeug.security import generate_password_hash
 
-from mcbe_editor.setup_state import FirstRunSetup, is_supported_password_hash
+from mcbe_editor.setup_state import FirstRunSetup, SetupAlreadyCompletedError, is_supported_password_hash
+
+
+def test_concurrent_setup_decisions_commit_only_once(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    path = tmp_path / "setup.json"
+    # Separate objects also exercise a stale in-memory state, as in workers.
+    password_setup, open_setup = FirstRunSetup(path), FirstRunSetup(path)
+    barrier = Barrier(2)
+    password_hash = generate_password_hash("correct horse battery staple")
+
+    def choose(setup, mode):
+        barrier.wait(timeout=5)
+        try:
+            if mode == "password":
+                setup.save_password(username="admin", password_hash=password_hash)
+            else:
+                setup.save_open()
+            return mode
+        except SetupAlreadyCompletedError:
+            return None
+
+    with ThreadPoolExecutor(2) as pool:
+        password = pool.submit(choose, password_setup, "password")
+        opened = pool.submit(choose, open_setup, "open")
+        winners = [mode for mode in (password.result(timeout=10), opened.result(timeout=10)) if mode]
+    assert len(winners) == 1
+    assert FirstRunSetup(path).mode() == winners[0]
+
+
+def test_stale_open_request_cannot_overwrite_password(tmp_path):
+    path = tmp_path / "setup.json"
+    stale = FirstRunSetup(path)
+    winner = FirstRunSetup(path)
+    winner.save_password(username="admin", password_hash=generate_password_hash("long password"))
+    committed = path.read_bytes()
+
+    with pytest.raises(SetupAlreadyCompletedError):
+        stale.save_open()
+    assert path.read_bytes() == committed
+    assert stale.password_hash() == winner.password_hash()
+
+
+def test_open_mode_upgrade_requires_explicit_auth_requirement(tmp_path):
+    setup = FirstRunSetup(tmp_path / "setup.json")
+    setup.save_open()
+    password_hash = generate_password_hash("long password")
+    with pytest.raises(SetupAlreadyCompletedError):
+        setup.save_password(username="admin", password_hash=password_hash)
+    setup.save_password(username="admin", password_hash=password_hash, allow_open_upgrade=True)
+    with pytest.raises(SetupAlreadyCompletedError):
+        setup.save_password(username="other", password_hash=password_hash, allow_open_upgrade=True)
+    assert setup.username() == "admin"
 
 
 def test_first_run_setup_defaults_to_pending(tmp_path):

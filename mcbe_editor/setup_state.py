@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import new as new_hash
@@ -13,12 +14,17 @@ from string import hexdigits
 from typing import Any
 
 from mcbe_editor.runtime_data import atomic_write_private_text, restrict_private_file
+from mcbe_editor.world_locks import locked_operation
 
 _MAX_PASSWORD_HASH_WORK = 128 * 1024 * 1024
 _MAX_PBKDF2_ITERATIONS = 2_000_000
 _MAX_SCRYPT_N = 1 << 20
 _MAX_SCRYPT_R = 64
 _MAX_SCRYPT_P = 16
+
+
+class SetupAlreadyCompletedError(ValueError):
+    """Another request has already committed the first-run decision."""
 
 
 def _utc_now_iso() -> str:
@@ -211,12 +217,24 @@ class FirstRunSetup:
         with self._lock:
             return self._state.get("auth_mode") == "open" and self._state.get("risk_acknowledged") is True
 
-    def save_password(self, *, username: str, password_hash: str) -> str:
+    @contextlib.contextmanager
+    def _pending_write(self, *, allow_open_upgrade: bool = False) -> Iterator[None]:
+        if self.path is None:
+            raise RuntimeError("Setup kann nicht gespeichert werden: kein Setup-Pfad konfiguriert.")
+        with self._lock, locked_operation(f"setup:{self.path.name}", root=self.path.parent):
+            # Reload inside the shared lock: separate workers/instances may
+            # have passed the request-level pending check simultaneously.
+            self.reload()
+            if self.completed() and not (allow_open_upgrade and self.open_acknowledged()):
+                raise SetupAlreadyCompletedError("First-run setup has already been completed.")
+            yield
+
+    def save_password(self, *, username: str, password_hash: str, allow_open_upgrade: bool = False) -> str:
         if not username.strip():
             raise ValueError("Benutzername darf nicht leer sein.")
         if not is_supported_password_hash(password_hash):
             raise ValueError("Passwort-Hash ist leer oder hat kein unterstütztes Werkzeug-Format.")
-        with self._lock:
+        with self._pending_write(allow_open_upgrade=allow_open_upgrade):
             secret_key = self._state.get("secret_key")
             if not isinstance(secret_key, str) or not secret_key:
                 secret_key = secrets.token_urlsafe(32)
@@ -233,7 +251,7 @@ class FirstRunSetup:
         return secret_key
 
     def save_open(self) -> None:
-        with self._lock:
+        with self._pending_write():
             data = {
                 "setup_version": 1,
                 "created_at": self._state.get("created_at") or _utc_now_iso(),

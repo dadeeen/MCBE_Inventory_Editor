@@ -1,7 +1,23 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from mcbe_editor import auth_page_routes
+from mcbe_editor.setup_state import SetupAlreadyCompletedError
+
+
+@pytest.mark.parametrize("action", ["open", "password"])
+def test_setup_losing_concurrent_request_redirects_without_success_side_effects(action):
+    deps = _deps()
+    getattr(deps.setup_state, f"save_{action}").side_effect = SetupAlreadyCompletedError()
+    result = auth_page_routes.setup("POST", {
+        "action": action, "risk_ack": "yes", "password": "12345678", "password_confirm": "12345678",
+    }, deps)
+    assert result == ("redirect", "/index")
+    deps.set_app_secret_key.assert_not_called()
+    deps.audit_event.assert_not_called()
+    assert deps.session.cleared is False
 
 
 class SessionDict(dict):
