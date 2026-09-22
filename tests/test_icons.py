@@ -133,6 +133,49 @@ def test_icon_scan_reports_unreadable_directory_source(monkeypatch, tmp_path):
     assert any("PermissionError" in warning for warning in result["warnings"])
 
 
+@pytest.mark.parametrize("denied_first", [True, False])
+def test_icon_scan_keeps_readable_siblings_of_unreadable_directory(monkeypatch, tmp_path, denied_first):
+    from pathlib import Path
+
+    import mcbe_editor.icons as icons_module
+
+    root = tmp_path / "pack"
+    denied_dir = root / "unreadable"
+    denied_dir.mkdir(parents=True)
+    icon = root / "textures" / "items" / "apple.png"
+    icon.parent.mkdir(parents=True)
+    icon.write_bytes(b"readable icon")
+    real_scandir = icons_module.os.scandir
+    real_walk = icons_module.os.walk
+    visited = []
+
+    def denied_scandir(path):
+        current = Path(path) if isinstance(path, (str, os.PathLike)) else None
+        if current in {denied_dir, icon.parent}:
+            visited.append(current)
+        if current == denied_dir:
+            raise PermissionError("unreadable subtree")
+        return real_scandir(path)
+
+    def ordered_walk(*args, **kwargs):
+        for current, dirs, files in real_walk(*args, **kwargs):
+            if Path(current) == root:
+                # Exercise both traversal orders regardless of filesystem ordering.
+                dirs.sort(key=lambda name: (name == denied_dir.name) != denied_first)
+            yield current, dirs, files
+
+    monkeypatch.setattr(icons_module.os, "scandir", denied_scandir)
+    monkeypatch.setattr(icons_module.os, "walk", ordered_walk)
+    candidates = {}
+    scanned, warnings = icons_module._scan_directory(root, "test", candidates, {}, 0)
+
+    assert visited == ([denied_dir, icon.parent] if denied_first else [icon.parent, denied_dir])
+    assert scanned == 1
+    assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
+    assert len(warnings) == 1
+    assert "PermissionError: unreadable subtree" in warnings[0]
+
+
 from mcbe_editor.icons import add_icon_source, load_icon_sources, remove_icon_source
 import zipfile
 

@@ -1010,11 +1010,8 @@ def _add_variant_alias_icons(icons: dict[str, IconCandidate]) -> int:
     return added
 
 
-def _directory_files(root: Path):
-    def raise_error(error):
-        raise error
-
-    for current, dirs, files in os.walk(root, followlinks=False, onerror=raise_error):
+def _directory_files(root: Path, *, onerror):
+    for current, dirs, files in os.walk(root, followlinks=False, onerror=onerror):
         if is_linklike(current):
             dirs[:] = []
             continue
@@ -1034,13 +1031,17 @@ def _scan_directory(
 ) -> tuple[int, list[str]]:
     warnings: list[str] = []
     source_icons: dict[str, IconCandidate] = {}
+
+    def record_error(error: OSError) -> None:
+        warnings.append(f"{root}: {error.__class__.__name__}: {error}")
+
     try:
         # pathlib's recursive glob may silently yield no entries when the root
         # itself is unreadable. Probe one directory entry first so diagnostics
         # do not report an inaccessible source as healthy and empty.
         with os.scandir(root) as entries:
             next(entries, None)
-        for path in _directory_files(root):
+        for path in _directory_files(root, onerror=record_error):
             if scanned >= _MAX_SCAN_FILES:
                 warnings.append(t("Scan-Limit erreicht ({limit} Dateien). Weitere Icons wurden übersprungen.", limit=_MAX_SCAN_FILES))
                 break
@@ -1063,7 +1064,7 @@ def _scan_directory(
             else:
                 _add_source_texture(source_icons, candidate)
     except OSError as exc:
-        warnings.append(f"{root}: {exc.__class__.__name__}: {exc}")
+        record_error(exc)
     for candidate in source_icons.values():
         _add_icon(icons, candidate)
     return scanned, warnings
