@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path, PurePath
 
@@ -112,16 +113,21 @@ def iter_runtime_files(root: Path) -> Iterator[Path]:
     one of the runtime trees remain excluded.
     """
 
+    from mcbe_editor.path_safety import is_linklike
+
     root = root.expanduser().resolve()
     for relative in sorted(RUNTIME_EXACT_PATHS | OPTIONAL_WHEEL_PATHS):
         candidate = root / Path(relative)
-        if candidate.is_file() or candidate.is_symlink():
+        if candidate.is_file() and not any(is_linklike(parent) for parent in (candidate, *candidate.parents) if parent.is_relative_to(root)):
             yield candidate
 
     for directory in sorted(RUNTIME_TREE_DIRS):
         tree_root = root / directory
-        if not tree_root.is_dir() or tree_root.is_symlink():
+        if not tree_root.is_dir() or is_linklike(tree_root):
             continue
-        for candidate in sorted(tree_root.rglob("*")):
-            if candidate.is_file() or candidate.is_symlink():
-                yield candidate
+        for current, dirs, files in os.walk(tree_root, followlinks=False):
+            dirs[:] = sorted(name for name in dirs if not is_linklike(Path(current) / name))
+            for name in sorted(files):
+                candidate = Path(current) / name
+                if candidate.is_file() and not is_linklike(candidate):
+                    yield candidate

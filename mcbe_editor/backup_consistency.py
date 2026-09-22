@@ -7,10 +7,16 @@ import os
 import stat
 
 from .i18n import t
+from .path_safety import is_linklike, is_linklike_stat
 
 
 class BackupSourceChangedError(ValueError):
     """The source changed before a recovery archive could be accepted."""
+
+
+def reject_linklike_entry(path: str) -> None:
+    if is_linklike(path):
+        raise ValueError(t("Backup abgebrochen: Die Welt enthält einen Symlink oder Reparse-Point: {path}", path=path))
 
 
 def source_snapshot(world_path: str) -> str:
@@ -41,7 +47,7 @@ def source_snapshot(world_path: str) -> str:
 
     try:
         root_info = os.stat(root_path, follow_symlinks=False)
-        if not stat.S_ISDIR(root_info.st_mode) or stat.S_ISLNK(root_info.st_mode):
+        if not stat.S_ISDIR(root_info.st_mode) or is_linklike_stat(root_info):
             raise ValueError("Welt-Ordner ist kein regulärer Ordner.")
         add_entry("d", root_path, root_info)
 
@@ -60,19 +66,22 @@ def source_snapshot(world_path: str) -> str:
             raise error
 
         for current, dirs, files in os.walk(root_path, topdown=True, onerror=raise_walk_error, followlinks=False):
-            dirs[:] = sorted(name for name in dirs if not os.path.islink(os.path.join(current, name)))
+            reject_linklike_entry(current)
+            dirs.sort()
             files = sorted(files)
 
             for name in dirs:
                 path = os.path.join(current, name)
                 info = os.stat(path, follow_symlinks=False)
-                if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+                reject_linklike_entry(path)
+                if stat.S_ISDIR(info.st_mode):
                     add_entry("d", path, info)
 
             for name in files:
                 path = os.path.join(current, name)
                 info = os.stat(path, follow_symlinks=False)
-                if stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+                reject_linklike_entry(path)
+                if stat.S_ISREG(info.st_mode):
                     add_entry("f", path, info)
     except FileNotFoundError as exc:
         raise BackupSourceChangedError(

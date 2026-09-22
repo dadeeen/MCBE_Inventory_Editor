@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import stat
 import tempfile
 import threading
 import time
@@ -15,6 +16,7 @@ from pathlib import Path, PurePosixPath
 
 from .i18n import t
 from .icon_cache import recover_icon_cache
+from .path_safety import is_linklike, is_linklike_stat
 from .world_locks import locked_operation
 
 _ALLOWED_EXTENSIONS = {".png", ".webp"}
@@ -25,7 +27,7 @@ _MAX_FILE_BYTES = 2_000_000
 _MAX_SCAN_FILES = 12000
 _MAX_ARCHIVE_MEMBERS = 20000
 _SOURCE_FILE_VERSION = 2
-_INDEX_FILE_VERSION = 6
+_INDEX_FILE_VERSION = 7
 _ICON_SOURCES_LOCK = threading.RLock()
 _LOGGER = logging.getLogger(__name__)
 _POTION_DAMAGE_TEXTURE_SUFFIXES = {
@@ -358,6 +360,42 @@ def _read_limited_binary(stream) -> bytes:
     return data
 
 
+def _checked_source_path(path: Path, root: Path) -> os.stat_result:
+    path, root = Path(os.path.abspath(path)), Path(os.path.abspath(root))
+    path.relative_to(root)
+    # Configured roots are canonicalized during discovery. Recheck ancestors
+    # above the root too: replacing its parent must not move a cached boundary.
+    for current in (path, *path.parents):
+        if is_linklike(current):
+            raise ValueError("Icon-Quelle enthält einen Symlink oder Reparse-Point. Bitte Icons neu scannen.")
+    if not path.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+        raise ValueError("Icon-Quelle liegt außerhalb ihres Quellordners. Bitte Icons neu scannen.")
+    info = path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(info.st_mode) or is_linklike_stat(info):
+        raise ValueError("Icon-Quelle ist keine reguläre Datei. Bitte Icons neu scannen.")
+    return info
+
+
+@contextmanager
+def _open_source_file(path: Path, root: Path):
+    before = _checked_source_path(path, root)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    try:
+        with os.fdopen(fd, "rb") as stream:
+            fd = -1
+            opened = os.fstat(stream.fileno())
+            # Revalidate the directory chain and descriptor before any bytes
+            # are read, including on Windows where O_NOFOLLOW is unavailable.
+            after = _checked_source_path(path, root)
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened) or not os.path.samestat(after, opened):
+                raise ValueError("Icon-Quelle wurde beim Öffnen ersetzt. Bitte Icons neu scannen.")
+            yield stream
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 @dataclass(frozen=True)
 class IconCandidate:
     item_id: str
@@ -366,6 +404,7 @@ class IconCandidate:
     token: str
     archive_path: Path | None = None
     archive_member: str | None = None
+    source_root: Path | None = None
 
     @property
     def suffix(self) -> str:
@@ -377,7 +416,7 @@ class IconCandidate:
 
     def read_bytes(self) -> bytes:
         if self.archive_path and self.archive_member:
-            with zipfile.ZipFile(self.archive_path) as zf:
+            with _open_source_file(self.archive_path, self.source_root or self.archive_path.parent) as archive, zipfile.ZipFile(archive) as zf:
                 matches = [info for info in zf.infolist() if info.filename.replace("\\", "/") == self.archive_member]
                 if len(matches) != 1 or not _archive_member_looks_like_icon(matches[0]):
                     raise ValueError("Icon-Archiv wurde seit dem Scan verändert. Bitte Icons neu scannen.")
@@ -386,7 +425,7 @@ class IconCandidate:
         if self.path:
             if not _looks_like_icon(self.path):
                 raise ValueError("Icon-Datei ist zu groß oder wurde seit dem Scan verändert. Bitte Icons neu scannen.")
-            with self.path.open("rb") as src:
+            with _open_source_file(self.path, self.source_root or self.path.parent) as src:
                 return _read_limited_binary(src)
         raise FileNotFoundError("Icon-Quelle fehlt.")
 
@@ -398,6 +437,7 @@ class IconCandidate:
             "token": self.token,
             "archive_path": str(self.archive_path) if self.archive_path else None,
             "archive_member": self.archive_member,
+            "source_root": str(self.source_root) if self.source_root else None,
         }
 
     @classmethod
@@ -409,14 +449,18 @@ class IconCandidate:
             path_raw = entry.get("path")
             archive_raw = entry.get("archive_path")
             archive_member = entry.get("archive_member")
+            source_root = Path(entry["source_root"]) if entry.get("source_root") else None
             if not item_id or not token:
                 return None
             path = Path(path_raw) if path_raw else None
             archive_path = Path(archive_raw) if archive_raw else None
             if archive_path and archive_member:
-                return cls(item_id=item_id, path=None, source=source, token=token, archive_path=archive_path, archive_member=str(archive_member))
+                return cls(
+                    item_id=item_id, path=None, source=source, token=token, archive_path=archive_path,
+                    archive_member=str(archive_member), source_root=source_root,
+                )
             if path:
-                return cls(item_id=item_id, path=path, source=source, token=token)
+                return cls(item_id=item_id, path=path, source=source, token=token, source_root=source_root)
         except (TypeError, ValueError):
             return None
         return None
@@ -424,7 +468,8 @@ class IconCandidate:
 
 def _safe_stat(path: Path):
     try:
-        return path.stat()
+        info = path.stat(follow_symlinks=False)
+        return None if is_linklike_stat(info) else info
     except OSError:
         return None
 
@@ -443,7 +488,7 @@ def _token_for_text(text: str) -> str:
 def _token_for(path: Path) -> str:
     stat = _safe_stat(path)
     revision = f"{getattr(stat, 'st_size', 0)}:{getattr(stat, 'st_mtime_ns', 0)}"
-    return _token_for_text(f"{path.resolve()}::{revision}")
+    return _token_for_text(f"{path.absolute()}::{revision}")
 
 
 def _normalize_item_id(stem: str) -> str:
@@ -484,7 +529,7 @@ def _looks_like_icon(path: Path) -> bool:
     if not (_parts_look_like_icon(path.parts, path.suffix) or _parts_look_like_display_asset(path.parts, path.suffix)):
         return False
     st = _safe_stat(path)
-    return bool(st and 0 < st.st_size <= _MAX_FILE_BYTES)
+    return bool(st and stat.S_ISREG(st.st_mode) and 0 < st.st_size <= _MAX_FILE_BYTES)
 
 
 def _archive_member_looks_like_icon(info: zipfile.ZipInfo) -> bool:
@@ -927,6 +972,7 @@ def _alias_variant_icon(icons: dict[str, IconCandidate], alias_id: str, target_i
         token=target.token,
         archive_path=target.archive_path,
         archive_member=target.archive_member,
+        source_root=target.source_root,
     )
     return True
 
@@ -964,6 +1010,21 @@ def _add_variant_alias_icons(icons: dict[str, IconCandidate]) -> int:
     return added
 
 
+def _directory_files(root: Path):
+    def raise_error(error):
+        raise error
+
+    for current, dirs, files in os.walk(root, followlinks=False, onerror=raise_error):
+        if is_linklike(current):
+            dirs[:] = []
+            continue
+        dirs[:] = [name for name in dirs if not is_linklike(Path(current) / name)]
+        for name in files:
+            path = Path(current) / name
+            if not is_linklike(path):
+                yield path
+
+
 def _scan_directory(
     root: Path,
     source_label: str,
@@ -979,7 +1040,7 @@ def _scan_directory(
         # do not report an inaccessible source as healthy and empty.
         with os.scandir(root) as entries:
             next(entries, None)
-        for path in root.rglob("*"):
+        for path in _directory_files(root):
             if scanned >= _MAX_SCAN_FILES:
                 warnings.append(t("Scan-Limit erreicht ({limit} Dateien). Weitere Icons wurden übersprungen.", limit=_MAX_SCAN_FILES))
                 break
@@ -996,7 +1057,7 @@ def _scan_directory(
             asset_id = _normalize_display_asset_id(path.stem) if is_display_asset else _normalize_item_id(path.stem)
             if not asset_id:
                 continue
-            candidate = IconCandidate(item_id=asset_id, path=path, source=source_label, token=_token_for(path))
+            candidate = IconCandidate(item_id=asset_id, path=path, source=source_label, token=_token_for(path), source_root=root)
             if is_display_asset:
                 _add_icon(display_assets, candidate)
             else:
@@ -1018,7 +1079,7 @@ def _scan_archive(
     warnings: list[str] = []
     source_icons: dict[str, IconCandidate] = {}
     try:
-        with zipfile.ZipFile(path) as zf:
+        with _open_source_file(path, path.parent) as archive, zipfile.ZipFile(archive) as zf:
             infos = zf.infolist()
             if len(infos) > _MAX_ARCHIVE_MEMBERS:
                 warnings.append(
@@ -1048,7 +1109,7 @@ def _scan_archive(
                     _add_icon(display_assets, candidate)
                 else:
                     _add_source_texture(source_icons, candidate)
-    except (OSError, zipfile.BadZipFile) as exc:
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
         warnings.append(f"{path}: {exc.__class__.__name__}: {exc}")
     for candidate in source_icons.values():
         _add_icon(icons, candidate)

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import load_config
 from .i18n import t
+from .path_safety import is_linklike
 
 LOCAL_PLAYER_KEY = b"~local_player"
 
@@ -112,7 +113,7 @@ def _candidate_roaming_bedrock_saves(*, existing_only: bool) -> list[Path]:
             continue
         try:
             user_dirs = sorted(
-                (child for child in users_root.iterdir() if child.is_dir() and not child.is_symlink()),
+                (child for child in users_root.iterdir() if child.is_dir() and not is_linklike(child)),
                 key=lambda item: item.name.lower(),
             )
         except OSError:
@@ -341,7 +342,7 @@ def _is_world_dir(path: Path) -> bool:
     """Return True for real Bedrock world folders, without following symlinks."""
 
     try:
-        return path.is_dir() and not path.is_symlink() and (path / "db").is_dir() and not (path / "db").is_symlink()
+        return path.is_dir() and not is_linklike(path) and (path / "db").is_dir() and not is_linklike(path / "db")
     except OSError:
         return False
 
@@ -405,7 +406,7 @@ def _validate_scan_path(abs_path: str) -> Path:
     config = load_config()
     if config.is_docker and config.worlds_root and not _is_path_within_root(abs_path, config.worlds_root):
         raise ValueError(f"Im Docker/LAN-Modus sind nur Suchpfade unter {config.worlds_root} erlaubt.")
-    if candidate.is_symlink():
+    if is_linklike(candidate):
         raise ValueError("Symlink-Suchpfade werden aus Sicherheitsgründen nicht unterstützt.")
     if not candidate.is_dir():
         raise ValueError(f"Pfad existiert nicht: {abs_path}")
@@ -508,7 +509,7 @@ def _scan_single_dir(saves_dir, max_depth: int | None = None, stats: dict | None
     # inspects parent directories. Symlinks are skipped so a mounted root cannot
     # silently escape into another host path.
     try:
-        if root.is_symlink():
+        if is_linklike(root):
             _warn_once(stats, t("Suchpfad {path} ist ein Symlink und wurde übersprungen.", path=root))
             return worlds
         if not root.is_dir():
@@ -558,7 +559,7 @@ def _scan_single_dir(saves_dir, max_depth: int | None = None, stats: dict | None
         children = []
         for child in entries:
             try:
-                if child.is_symlink():
+                if is_linklike(child):
                     stats["skipped_symlinks"] += 1
                     continue
                 if not child.is_dir():
@@ -605,7 +606,7 @@ def _scan_root_diagnostic(root: dict) -> dict:
         elif not path:
             status = "missing"
             message = "kein Pfad"
-        elif candidate.is_symlink():
+        elif is_linklike(candidate):
             status = "skipped"
             message = "Symlink wird aus Sicherheitsgründen übersprungen"
         elif not candidate.exists():
@@ -714,13 +715,13 @@ def ensure_valid_world_path(world_path: str) -> str:
             raise ValueError(f"Im Docker/LAN-Modus sind nur Welten unter {worlds_root} erlaubt.")
 
     candidate = Path(world_path)
-    if candidate.is_symlink():
-        raise ValueError("Symlink-Weltpfade werden aus Sicherheitsgründen nicht unterstützt.")
+    if is_linklike(candidate):
+        raise ValueError("Symlinks und Reparse-Points werden als Weltpfade nicht unterstützt.")
     if not os.path.isdir(world_path):
         raise ValueError("Welt-Ordner existiert nicht.")
     db_path = os.path.join(world_path, "db")
-    if os.path.islink(db_path):
-        raise ValueError("Der 'db'-Ordner darf kein Symlink sein.")
+    if is_linklike(db_path) or not _is_path_within_root(db_path, world_path):
+        raise ValueError("Der 'db'-Ordner darf kein Symlink oder Reparse-Point sein und muss innerhalb der Welt liegen.")
     if not os.path.isdir(db_path):
         candidate_worlds = []
         if candidate.is_dir():

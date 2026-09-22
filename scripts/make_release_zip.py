@@ -51,11 +51,15 @@ EXCLUDED_FILE_NAMES = set(BLOCKED_RELEASE_FILE_NAMES) | {RELEASE_MANIFEST_NAME}
 
 
 def should_include(path: Path, *, root: Path = ROOT) -> bool:
+    from mcbe_editor.path_safety import is_linklike
+
     try:
         rel = path.relative_to(root)
     except ValueError:
         return False
-    if path.is_symlink() or not is_runtime_relative_path(rel):
+    if not is_runtime_relative_path(rel):
+        return False
+    if any(is_linklike(parent) for parent in (path, *path.parents) if parent.is_relative_to(root)):
         return False
     if any(is_blocked_release_dir_name(part) for part in rel.parts):
         return False

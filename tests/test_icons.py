@@ -655,11 +655,12 @@ def test_icon_sources_tolerate_invalid_priority_in_settings(tmp_path):
 
 
 def test_icon_index_cache_tolerates_invalid_numeric_counters(tmp_path):
-    from mcbe_editor.icons import _load_cached_result
+    from mcbe_editor.icons import _INDEX_FILE_VERSION, _load_cached_result
 
     cache = tmp_path / "icon_index_cache.json"
     cache.write_text(
-        '{"version":6,"sources_signature":"sig","sources":[],"icons":{},"warnings":[],"scanned_files":"broken","variant_aliases":"broken"}',
+        json.dumps({"version": _INDEX_FILE_VERSION, "sources_signature": "sig", "sources": [], "icons": {}, "warnings": [],
+                    "scanned_files": "broken", "variant_aliases": "broken"}),
         encoding="utf-8",
     )
 
@@ -671,13 +672,13 @@ def test_icon_index_cache_tolerates_invalid_numeric_counters(tmp_path):
 
 
 def test_icon_index_cache_rejects_non_object_source_entries(tmp_path):
-    from mcbe_editor.icons import _load_cached_result
+    from mcbe_editor.icons import _INDEX_FILE_VERSION, _load_cached_result
 
     cache = tmp_path / "icon_index_cache.json"
     cache.write_text(
         json.dumps(
             {
-                "version": 4,
+                "version": _INDEX_FILE_VERSION,
                 "sources_signature": "sig",
                 "sources": ["broken"],
                 "icons": {},

@@ -18,11 +18,12 @@ from functools import wraps
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, TypeGuard, cast
 
-from .backup_consistency import BackupSourceChangedError, source_snapshot
+from .backup_consistency import BackupSourceChangedError, reject_linklike_entry, source_snapshot
 from .backup_settings import BackupLimitError, get_backup_settings
 from .backup_types import BackupDescriptor, BackupListEntry, BackupPath, RestoreToken
 from .config import load_config
 from .i18n import t
+from .path_safety import is_linklike
 from .runtime_data import atomic_write_private_text
 from .world import get_world_name
 from .world_locks import locked_world
@@ -170,7 +171,7 @@ def _create_backup_directory(path: str) -> None:
 
 def _is_valid_world_directory(path: str) -> bool:
     try:
-        return os.path.isdir(path) and not os.path.islink(path) and os.path.isdir(os.path.join(path, "db")) and not os.path.islink(os.path.join(path, "db"))
+        return os.path.isdir(path) and not is_linklike(path) and os.path.isdir(os.path.join(path, "db")) and not is_linklike(os.path.join(path, "db"))
     except OSError:
         return False
 
@@ -244,7 +245,7 @@ def _remove_restore_transaction(journal_path: str) -> None:
 def _load_restore_transaction(journal_path: str) -> JsonObject:
     filename = os.path.basename(journal_path)
     match = RESTORE_TRANSACTION_RE.fullmatch(filename)
-    if not match or os.path.islink(journal_path):
+    if not match or is_linklike(journal_path):
         raise ValueError("Ungültiger Restore-Transaktionsmarker.")
     with open(journal_path, encoding="utf-8") as journal:
         payload = json.load(journal)
@@ -268,7 +269,7 @@ def _load_restore_transaction(journal_path: str) -> JsonObject:
 def _remove_restore_staging(path: str) -> None:
     if not os.path.lexists(path):
         return
-    if os.path.islink(path) or not os.path.isdir(path):
+    if is_linklike(path) or not os.path.isdir(path):
         raise OSError(f"Restore-Staging ist kein regulärer Ordner: {path}")
     shutil.rmtree(path)
 
@@ -318,7 +319,7 @@ def recover_restore_transaction(journal_path: str, *, recovery_gate_check: Calla
         # Never delete either candidate automatically in that ambiguous state.
         if world_valid and not os.path.lexists(staging_path):
             if os.path.lexists(rollback_path):
-                if os.path.islink(rollback_path) or not os.path.isdir(rollback_path):
+                if is_linklike(rollback_path) or not os.path.isdir(rollback_path):
                     raise RuntimeError(f"Restore-Rollback ist kein regulärer Ordner: {rollback_path}")
                 shutil.rmtree(rollback_path)
             _remove_restore_staging(staging_path)
@@ -347,7 +348,7 @@ def recover_restore_transaction(journal_path: str, *, recovery_gate_check: Calla
 def _restore_journals_below(root_path: str, *, max_depth: int, max_dirs: int) -> list[str]:
     root = os.path.abspath(os.path.normpath(root_path))
     journals: list[str] = []
-    if not os.path.isdir(root) or os.path.islink(root):
+    if not os.path.isdir(root) or is_linklike(root):
         return journals
     for checked, (current, dirs, files) in enumerate(os.walk(root, topdown=True, followlinks=False), start=1):
         depth = len(os.path.relpath(current, root).split(os.sep)) if current != root else 0
@@ -358,7 +359,7 @@ def _restore_journals_below(root_path: str, *, max_depth: int, max_dirs: int) ->
             and name not in {"db", "backups", ".git", ".hg", ".svn", "__pycache__"}
             and not name.endswith("_backups")
             and not (name.startswith(".") and ("_restoring_" in name or "_rollback_" in name))
-            and not os.path.islink(os.path.join(current, name))
+            and not is_linklike(os.path.join(current, name))
         ]
         journals.extend(os.path.join(current, name) for name in files if RESTORE_TRANSACTION_RE.fullmatch(name))
         if checked >= max_dirs:
@@ -632,7 +633,7 @@ def _cleanup_stale_backup_artifacts(backups_dir: str, *, now: float | None = Non
     except OSError:
         return
     restore_sources = os.path.join(backups_dir, ".restore_sources")
-    if os.path.isdir(restore_sources) and not os.path.islink(restore_sources):
+    if os.path.isdir(restore_sources) and not is_linklike(restore_sources):
         with contextlib.suppress(OSError):
             candidates.extend(
                 os.path.join(restore_sources, name) for name in os.listdir(restore_sources) if name.startswith("restore_source_") and name.endswith(".zip")
@@ -808,7 +809,7 @@ def _verify_zip_integrity(zip_path: StrPath | BinaryIO) -> None:
 
 
 def _ignore_symlink_names(directory: str, names: list[str]) -> list[str]:
-    return [name for name in names if os.path.islink(os.path.join(directory, name))]
+    return [name for name in names if is_linklike(os.path.join(directory, name))]
 
 
 def _raise_walk_error(exc: OSError) -> None:
@@ -899,7 +900,7 @@ def _backup_file_descriptor(
 
     try:
         stat_info = os.stat(path, follow_symlinks=False)
-        if os.path.islink(path) or not stat.S_ISREG(stat_info.st_mode) or stat_info.st_size <= 0:
+        if is_linklike(path) or not stat.S_ISREG(stat_info.st_mode) or stat_info.st_size <= 0:
             return None
         with zipfile.ZipFile(path, "r") as zipf:
             # Parsing the central directory proves that publication completed.
@@ -976,13 +977,14 @@ def create_backup(
     try:
         with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(world_path, onerror=_raise_walk_error):
+                reject_linklike_entry(root)
                 root_abs = os.path.normpath(os.path.abspath(root))
                 if _is_path_inside_or_same(root_abs, backups_dir_normalized):
                     dirs[:] = []
                     continue
-                dirs[:] = [
-                    d for d in dirs if not os.path.islink(os.path.join(root, d)) and not _is_path_inside_or_same(os.path.join(root, d), backups_dir_normalized)
-                ]
+                for name in dirs + files:
+                    reject_linklike_entry(os.path.join(root, name))
+                dirs[:] = [d for d in dirs if not _is_path_inside_or_same(os.path.join(root, d), backups_dir_normalized)]
                 for dirname in dirs:
                     dir_path = os.path.join(root, dirname)
                     arcname = os.path.relpath(dir_path, world_path).replace(os.sep, "/").rstrip("/") + "/"
@@ -1003,7 +1005,8 @@ def create_backup(
                         ) from exc
                 for file in files:
                     file_path = os.path.join(root, file)
-                    if os.path.islink(file_path) or _is_path_inside_or_same(file_path, backups_dir_normalized):
+                    reject_linklike_entry(file_path)
+                    if _is_path_inside_or_same(file_path, backups_dir_normalized):
                         continue
                     arcname = os.path.relpath(file_path, world_path)
                     try:
@@ -1078,7 +1081,7 @@ def _validate_backup_path_for_world(world_path: str, backup_path: str) -> str:
         raise ValueError("Backup-Datei liegt außerhalb des Backup-Ordners.")
     if not candidate.lower().endswith(".zip"):
         raise ValueError("Backup-Datei muss eine ZIP-Datei sein.")
-    if os.path.islink(candidate):
+    if is_linklike(candidate):
         raise ValueError("Backup-Datei darf kein Symlink sein.")
     real_candidate = os.path.realpath(candidate)
     real_backups_dir = os.path.realpath(backups_dir)
@@ -1183,7 +1186,7 @@ def snapshot_backup_for_restore(world_path: str, backup_path: str, *, expected_t
     _preflight_restore(world_path, source_path, backups_dir)
     snapshot_dir = os.path.join(backups_dir, ".restore_sources")
     os.makedirs(snapshot_dir, exist_ok=True)
-    if os.path.islink(snapshot_dir) or not _is_path_inside_or_same(snapshot_dir, backups_dir):
+    if is_linklike(snapshot_dir) or not _is_path_inside_or_same(snapshot_dir, backups_dir):
         raise ValueError("Temporärer Restore-Ordner ist unsicher.")
     fd, snapshot_path = tempfile.mkstemp(prefix="restore_source_", suffix=".zip", dir=snapshot_dir)
     try:
@@ -1232,6 +1235,18 @@ def snapshot_backup_for_restore(world_path: str, backup_path: str, *, expected_t
 def _safe_zip_member_name(name: str) -> str:
     if not name or "\0" in name or "\\" in name:
         raise ValueError(f"Unsicherer Pfad im Backup: {name}")
+    # Check raw components before PurePosixPath collapses '.' or empty parts.
+    # A portable backup must not become an ADS, device or aliased path on NTFS.
+    parts = name.removesuffix("/").split("/")
+    reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    for part in parts:
+        device = part.split(".", 1)[0].rstrip(" ").upper()
+        if (
+            part in {"", ".", ".."} or part.endswith((".", " "))
+            or any(ord(char) < 32 or char in '<>:"|?*' for char in part)
+            or device in reserved or re.fullmatch(r"(?:COM|LPT)[1-9¹²³]", device)
+        ):
+            raise ValueError(f"Unsicherer Pfad im Backup: {name}")
     path = PurePosixPath(name)
     if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
         raise ValueError(f"Unsicherer Pfad im Backup: {name}")
@@ -1250,18 +1265,22 @@ def _check_backup_totals(total_bytes: int, entry_count: int, limit_mib: int) -> 
 
 
 def _backup_tree_stats(world_path: str, backups_dir: str) -> tuple[int, int]:
-    """Inspect the same nonsymlink entries as the writer before creating a ZIP."""
+    """Reject unsupported entries before creating a complete-world ZIP."""
     limit = get_backup_settings(default_mib=MAX_BACKUP_UNCOMPRESSED_MB)["max_uncompressed_mib"]
     total_bytes = entry_count = 0
     for root, dirs, files in os.walk(world_path, onerror=_raise_walk_error):
+        reject_linklike_entry(root)
         if _is_path_inside_or_same(root, backups_dir):
             dirs[:] = []
             continue
-        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d)) and not _is_path_inside_or_same(os.path.join(root, d), backups_dir)]
+        for name in dirs + files:
+            reject_linklike_entry(os.path.join(root, name))
+        dirs[:] = [d for d in dirs if not _is_path_inside_or_same(os.path.join(root, d), backups_dir)]
         entry_count += len(dirs)
         for name in files:
             path = os.path.join(root, name)
-            if os.path.islink(path) or _is_path_inside_or_same(path, backups_dir):
+            reject_linklike_entry(path)
+            if _is_path_inside_or_same(path, backups_dir):
                 continue
             info = os.stat(path, follow_symlinks=False)
             if not stat.S_ISREG(info.st_mode):
