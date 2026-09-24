@@ -50,6 +50,15 @@ def test_progress_is_exclusive_and_failure_cleans_up_only_its_own_snapshot(tmp_p
         assert update_progress.read_progress(tmp_path, second_id) is None
 
 
+def test_progress_file_name_is_the_validated_id(tmp_path):
+    for progress_id in ("0" * 31 + "1", "f" * 32):
+        assert update_progress.progress_path(tmp_path, progress_id) == tmp_path / f"{progress_id}.json"
+    # int() alone would accept upper case, underscores and whitespace; the ID check must reject them first.
+    for invalid in ("A" * 32, "a" * 30 + "_1", " " + "a" * 31, "../" + "a" * 29, "a" * 31, "a" * 33):
+        with pytest.raises(ValueError, match="Ungültige"):
+            update_progress.progress_path(tmp_path, invalid)
+
+
 def test_progress_storage_errors_do_not_abort_updates(tmp_path, monkeypatch):
     monkeypatch.setattr(update_progress, "ensure_private_directory", lambda _path: (_ for _ in ()).throw(OSError("disk unavailable")))
     with update_progress.track_progress(tmp_path, "a" * 32) as path:

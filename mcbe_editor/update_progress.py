@@ -25,7 +25,8 @@ _last_report: tuple[str, str, float] = ("", "", 0.0)
 def progress_path(directory: Path, progress_id: str) -> Path:
     if not _ID_RE.fullmatch(progress_id):
         raise ValueError("Ungültige Fortschritts-ID.")
-    return directory / f"{progress_id}.json"
+    # Render the name from the parsed number so request text never becomes part of a path.
+    return directory / f"{int(progress_id, 16):032x}.json"
 
 
 def write_progress(path: Path, phase: str, *, current: int | None = None, total: int | None = None, unit: str | None = None) -> None:
