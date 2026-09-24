@@ -1,16 +1,21 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.5.24
+## What changed in v0.5.25
 
-- **Preserved player data:** fixes cases where editing inventory, effects or abilities could overwrite protected or unchanged NBT. Hidden root equipment, unknown durability and bucket-variant fields, and protected enchantment entries retain their original data.
-- **Reliable copying and player changes:** cross-player copies now work with root equipment, including sources without an Inventory tag. Diagnostic player selection asks before discarding edits; loading blocks new edits and restores the correct field protection and undo/redo state afterward. Save and import completions remain bound to their original player context.
-- **Corrected read-only LevelDB reader:** selects the newest matching record across table boundaries and consistently rejects unsupported SST entry types. The external native `amulet-leveldb` dependency is unchanged.
-- **Safer backup restore:** changes to the target world after the safety backup abort the restore before replacement. Invalid ZIP metadata no longer blocks backup listing or retention.
-- **Mount creation checks:** tamed mounts require a valid player owner in both direct and workspace saves. Known obstructions remain blocked when neighboring terrain is unreadable or a placement search changes candidate IDs.
+- **Download progress for item data and icons:** the setup and update dialogs show real percentages and downloaded megabytes, followed by separate verification, processing and finishing stages. "Done" appears only after processing succeeds. Updates continue if progress reporting is unavailable.
+- **Recovery for interrupted restores:** a new operator command recovers restores that were interrupted while the server status was unknown. Recovery requires explicit confirmation that the server is stopped; a detected online server, read-only mode and ambiguous world copies remain blocked. Interrupted restores are now also found when the configured world folder is temporarily missing. See the [README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.25/README.md#data-safety-and-privacy) for usage.
+- **Safer backups and restores:** symlinks, Windows junctions and other reparse points in worlds are rejected instead of being silently omitted from backups. Restores reject unsafe ZIP member names and filenames that collide on Windows, including 8.3 short names, before the world is replaced.
+- **Setup and login hardening:** first-run setup decisions are atomic across concurrent requests, and access stays locked if saving the setup decision fails. An empty `--host` no longer binds to all network interfaces; startup safety checks apply to the effective host. Login and setup pages stay alive and are no longer cached.
+- **Import and mount checks:** player import archives are limited to 64 MiB, abandoned import copies are cleaned up after one day, and invalid item source slots are rejected instead of silently replaced. Direct mount creation is bound to the player state shown in the preview and aborts if that player changed in the meantime.
+- **Icon discovery:** an unreadable resource-pack subdirectory no longer stops scanning the remaining icon source.
 
-Validation includes the complete Python suite, 38 Chromium browser tests, native LevelDB save/backup regressions and six integration tests using disposable copies of twelve private worlds. Those integration tests cover save, restore, import/export, migration and byte-identical NBT backend comparisons. No new in-game validation was performed for these changes. See the [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.24/docs/save_contract.md) and [engine-check scope](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.24/docs/engine-checks.md) for validation boundaries.
+Validation includes the complete Python suite, 38 Chromium browser tests, native Windows junction and 8.3 short-name regressions, restore-recovery integration tests and five integration tests using disposable copies of private worlds. Those integration tests cover scanning, save, backup restore, import/export and player transfer. The NBT codec is unchanged in this release; the byte-identical NBT backend comparison on private worlds was not repeated. No new in-game validation was performed for these changes. See the [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.25/docs/save_contract.md) and [engine-check scope](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.5.25/docs/engine-checks.md) for validation boundaries.
 
-Backups continue to contain the complete world. Configured size limits and retention policies are unchanged. Metadata checks do not create an atomic snapshot of a running world; directory synchronization is unavailable on Windows and some filesystems, so these changes do not guarantee protection against every power loss.
+> **Worlds behind symlinks or junctions:** world folders and their contents must be ordinary directories and files. If a world or its `db` folder is reached through a symlink or Windows junction, move or copy it to a regular folder before upgrading.
+
+> **Multiple server processes:** first-run setup and session signing keys are kept per process. Complete setup with a single process, then restart all processes. The bundled Docker configuration uses one process and is unaffected.
+
+Backups continue to contain the complete world. Configured size limits and retention policies are unchanged.
 
 This release adds no dependencies. Python 3.12–3.14 remain supported. **If upgrading from v0.5.21 or earlier:** run `setup.bat` once before `start.bat` to install the hash-pinned Waitress dependency introduced in v0.5.22. Flask and Werkzeug remain required.
 
