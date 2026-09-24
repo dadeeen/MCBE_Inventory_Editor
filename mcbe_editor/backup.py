@@ -345,10 +345,19 @@ def recover_restore_transaction(journal_path: str, *, recovery_gate_check: Calla
         )
 
 
+def _is_searchable_directory(path: str) -> bool:
+    # An entry whose type cannot be read holds no readable journal. Skip it
+    # instead of aborting recovery for every configured root.
+    try:
+        return not is_linklike(path)
+    except OSError:
+        return False
+
+
 def _restore_journals_below(root_path: str, *, max_depth: int, max_dirs: int) -> list[str]:
     root = os.path.abspath(os.path.normpath(root_path))
     journals: list[str] = []
-    if not os.path.isdir(root) or is_linklike(root):
+    if not os.path.isdir(root) or not _is_searchable_directory(root):
         return journals
     for checked, (current, dirs, files) in enumerate(os.walk(root, topdown=True, followlinks=False), start=1):
         depth = len(os.path.relpath(current, root).split(os.sep)) if current != root else 0
@@ -359,7 +368,7 @@ def _restore_journals_below(root_path: str, *, max_depth: int, max_dirs: int) ->
             and name not in {"db", "backups", ".git", ".hg", ".svn", "__pycache__"}
             and not name.endswith("_backups")
             and not (name.startswith(".") and ("_restoring_" in name or "_rollback_" in name))
-            and not is_linklike(os.path.join(current, name))
+            and _is_searchable_directory(os.path.join(current, name))
         ]
         journals.extend(os.path.join(current, name) for name in files if RESTORE_TRANSACTION_RE.fullmatch(name))
         if checked >= max_dirs:

@@ -136,6 +136,25 @@ def test_posix_world_with_windows_reserved_names_can_be_backed_up_and_restored(t
     assert {name: (world_path / name).read_bytes() for name in names} == {name: name.encode() for name in names}
 
 
+def test_restore_journal_search_skips_entries_with_unreadable_type(tmp_path, monkeypatch):
+    root = tmp_path / "worlds"
+    unreadable = root / "a_unreadable"
+    unreadable.mkdir(parents=True)
+    journal = root / "server" / ".mcbe_restore_0123456789abcdef.json"
+    journal.parent.mkdir()
+    journal.write_text("{}", encoding="utf-8")
+    real_is_linklike = backup.is_linklike
+
+    def is_linklike(path):
+        # POSIX lstat fails with EACCES below a readable but unsearchable directory.
+        if Path(path) == unreadable:
+            raise PermissionError("entry type unavailable")
+        return real_is_linklike(path)
+
+    monkeypatch.setattr(backup, "is_linklike", is_linklike)
+    assert backup._restore_journals_below(str(root), max_depth=4, max_dirs=100) == [str(journal)]
+
+
 def test_restore_accepts_portable_unicode_names(tmp_path):
     assert backup._safe_zip_member_name("behavior_packs/Überprüfung/file.json") == "behavior_packs/Überprüfung/file.json"
     assert backup._safe_zip_member_name("db/") == "db"
