@@ -37,6 +37,12 @@ def test_python_support_is_consistent_across_project_files():
     assert "EnableDelayedExpansion" in setup
     assert 'for %%V in (3.14 3.13 3.12)' in setup
     assert "!PYTHON_CMD! -m venv .venv" in setup
+    # The Python install manager exits with negative HRESULT-style codes, which `if not errorlevel 1` accepts.
+    assert re.search(r"(?im)^\s*if\s+(?:not\s+)?errorlevel\s+1\s+set\b", setup) is None
+    assert 'if "!errorlevel!"=="0" set "PYTHON_CMD=py -%%V"' in setup
+    assert 'if not "!errorlevel!"=="0" (' in setup
+    assert "installation!" not in setup
+    assert 'if not "%errorlevel%"=="0" (' in _read("start.bat")
 
     workflow = _read(".github/workflows/ci.yml")
     assert 'python-version: "3.12"' in workflow

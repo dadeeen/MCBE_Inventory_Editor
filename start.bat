@@ -21,7 +21,7 @@ set "MCBE_REQUIRE_SERVER_OFFLINE=false"
 start "MCBE Browser Launcher" /min powershell.exe -NoProfile -Command "$url=$env:MCBE_LOCAL_URL; $hostName=$env:MCBE_EDITOR_HOST; $port=[int]$env:MCBE_EDITOR_PORT; function Test-Ready { $client=New-Object Net.Sockets.TcpClient; try { $connect=$client.BeginConnect($hostName,$port,$null,$null); if (-not $connect.AsyncWaitHandle.WaitOne(700)) { return $false }; $client.EndConnect($connect); return $true } catch { return $false } finally { $client.Close() } }; Start-Sleep -Seconds 4; if (Test-Ready) { Start-Process $url; exit 0 }; Start-Sleep -Seconds 4; if (Test-Ready) { Start-Process $url; exit 0 }; Start-Process $url"
 
 ".venv\Scripts\python.exe" main.py
-if errorlevel 1 (
+if not "%errorlevel%"=="0" (
     echo.
     echo Failed to start the server.
     pause
