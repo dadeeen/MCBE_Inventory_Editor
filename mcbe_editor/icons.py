@@ -1010,15 +1010,27 @@ def _add_variant_alias_icons(icons: dict[str, IconCandidate]) -> int:
     return added
 
 
-def _directory_files(root: Path, *, onerror):
+def _directory_files(root: Path, *, onerror, onlink):
+    def skipped(path: Path) -> bool:
+        # Links stay outside the source boundary. An entry whose type cannot be
+        # read is reported like an unreadable directory instead of ending the scan.
+        try:
+            linked = is_linklike(path)
+        except OSError as exc:
+            onerror(exc)
+            return True
+        if linked:
+            onlink(path)
+        return linked
+
     for current, dirs, files in os.walk(root, followlinks=False, onerror=onerror):
-        if is_linklike(current):
+        if skipped(Path(current)):
             dirs[:] = []
             continue
-        dirs[:] = [name for name in dirs if not is_linklike(Path(current) / name)]
+        dirs[:] = [name for name in dirs if not skipped(Path(current) / name)]
         for name in files:
             path = Path(current) / name
-            if not is_linklike(path):
+            if not skipped(path):
                 yield path
 
 
@@ -1031,6 +1043,7 @@ def _scan_directory(
 ) -> tuple[int, list[str]]:
     warnings: list[str] = []
     source_icons: dict[str, IconCandidate] = {}
+    skipped_links: list[Path] = []
 
     def record_error(error: OSError) -> None:
         warnings.append(f"{root}: {error.__class__.__name__}: {error}")
@@ -1041,7 +1054,7 @@ def _scan_directory(
         # do not report an inaccessible source as healthy and empty.
         with os.scandir(root) as entries:
             next(entries, None)
-        for path in _directory_files(root, onerror=record_error):
+        for path in _directory_files(root, onerror=record_error, onlink=skipped_links.append):
             if scanned >= _MAX_SCAN_FILES:
                 warnings.append(t("Scan-Limit erreicht ({limit} Dateien). Weitere Icons wurden übersprungen.", limit=_MAX_SCAN_FILES))
                 break
@@ -1065,6 +1078,12 @@ def _scan_directory(
                 _add_source_texture(source_icons, candidate)
     except OSError as exc:
         record_error(exc)
+    if skipped_links:
+        warnings.append(t(
+            "{path}: Verlinkte Einträge (Symlink oder Reparse-Point) übersprungen: {count}. "
+            "Verlinkte Resource Packs bei Bedarf direkt als Icon-Quelle hinzufügen.",
+            path=root, count=len(skipped_links),
+        ))
     for candidate in source_icons.values():
         _add_icon(icons, candidate)
     return scanned, warnings

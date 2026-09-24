@@ -176,6 +176,55 @@ def test_icon_scan_keeps_readable_siblings_of_unreadable_directory(monkeypatch, 
     assert "PermissionError: unreadable subtree" in warnings[0]
 
 
+def test_icon_scan_reports_linked_pack_that_can_be_added_directly(monkeypatch, tmp_path):
+    from tests.test_path_safety_regressions import directory_link
+
+    pack = tmp_path / "repository" / "MyPack"
+    (pack / "textures" / "items").mkdir(parents=True)
+    (pack / "textures" / "items" / "apple.png").write_bytes(b"linked icon")
+    packs = tmp_path / "development_resource_packs"
+    packs.mkdir()
+    with directory_link(pack, packs / "MyPack") as link:
+        monkeypatch.setenv("MCBE_ICON_ROOTS", str(packs))
+        result = scan_icons(force=True)
+        assert "minecraft:apple" not in result["icons"]
+        assert f"{packs.resolve()}: Verlinkte Einträge (Symlink oder Reparse-Point) übersprungen: 1." in "\n".join(result["warnings"])
+
+        # A directly configured link is canonicalized to its target and scanned normally.
+        monkeypatch.setenv("MCBE_ICON_ROOTS", str(link))
+        result = scan_icons(force=True)
+        token = result["icons"]["minecraft:apple"]["token"]
+        assert result["_by_token"][token].read_bytes() == b"linked icon"
+        assert not any("Verlinkte Einträge" in warning for warning in result["warnings"])
+
+
+def test_icon_scan_continues_after_entry_with_unreadable_type(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    import mcbe_editor.icons as icons_module
+
+    root = tmp_path / "pack"
+    unreadable = root / "a_unreadable"
+    unreadable.mkdir(parents=True)
+    icon = root / "textures" / "items" / "apple.png"
+    icon.parent.mkdir(parents=True)
+    icon.write_bytes(b"readable icon")
+    real_is_linklike = icons_module.is_linklike
+
+    def is_linklike(path):
+        if Path(path) == unreadable:
+            raise PermissionError("entry type unavailable")
+        return real_is_linklike(path)
+
+    monkeypatch.setattr(icons_module, "is_linklike", is_linklike)
+    candidates = {}
+    scanned, warnings = icons_module._scan_directory(root, "test", candidates, {}, 0)
+
+    assert scanned == 1
+    assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
+    assert warnings == [f"{root}: PermissionError: entry type unavailable"]
+
+
 from mcbe_editor.icons import add_icon_source, load_icon_sources, remove_icon_source
 import zipfile
 
