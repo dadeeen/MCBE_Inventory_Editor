@@ -1,19 +1,35 @@
 """Explicit operator recovery for restores deferred at application startup.
 
-Run ``python -m mcbe_editor.restore_recovery --help`` from the application root.
+Run ``-m mcbe_editor.restore_recovery --help`` from the application root with
+the installation's interpreter, for example ``.venv\\Scripts\\python.exe``.
 The CLI reuses journal validation and the same world locks as normal writes.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
+import shlex
+import subprocess
+import sys
 from dataclasses import replace
+from pathlib import Path
 
 from .backup import recover_interrupted_restores
 from .config import AppConfig, load_config
 from .server_status import write_gate
 from .world import get_configured_scan_roots
+
+
+def recovery_help_command() -> str:
+    # A bare "python" may be missing or older than the runtime on Windows.
+    interpreter = Path(sys.executable)
+    with contextlib.suppress(ValueError):
+        interpreter = interpreter.relative_to(Path.cwd())
+    command = [str(interpreter), "-m", "mcbe_editor.restore_recovery", "--help"]
+    return subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
 
 
 def recovery_write_gate(config: AppConfig, *, server_stopped_confirmed: bool = False) -> dict:

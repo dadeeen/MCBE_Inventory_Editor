@@ -210,7 +210,7 @@ def test_startup_defers_unknown_until_explicit_cli_confirmation(interrupted_rest
 
     assert application._BACKGROUND_TASKS_STARTED is True
     assert "deferred-write-gate" in caplog.text
-    assert "python -m mcbe_editor.restore_recovery --help" in caplog.text
+    assert f"recovery_help='{restore_recovery.recovery_help_command()}'" in caplog.text
     assert _tree_contents(state.root) == before
     assert restore_recovery.main(["--confirm-server-stopped"]) == 0
     result, = json.loads(capsys.readouterr().out)
@@ -218,3 +218,24 @@ def test_startup_defers_unknown_until_explicit_cli_confirmation(interrupted_rest
     assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
     assert not state.journal.exists()
     assert len(calls) == 2
+
+
+def test_recovery_help_names_the_installation_interpreter(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(restore_recovery.sys, "executable", str(tmp_path / ".venv" / "Scripts" / "python.exe"))
+
+    expected = Path(".venv", "Scripts", "python.exe")
+    assert restore_recovery.recovery_help_command() == f"{expected} -m mcbe_editor.restore_recovery --help"
+
+
+def test_recovery_help_quotes_an_interpreter_outside_the_application(tmp_path, monkeypatch):
+    interpreter = tmp_path / "shared env" / "python.exe"
+    application = tmp_path / "application"
+    application.mkdir()
+    monkeypatch.chdir(application)
+    monkeypatch.setattr(restore_recovery.sys, "executable", str(interpreter))
+
+    command = restore_recovery.recovery_help_command()
+
+    assert command.startswith(("\"", "'")) and str(interpreter) in command
+    assert command.endswith(" -m mcbe_editor.restore_recovery --help")

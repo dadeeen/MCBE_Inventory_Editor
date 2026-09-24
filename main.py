@@ -328,7 +328,7 @@ ICON_INDEX = {
 }
 from mcbe_editor.backup import recover_interrupted_restores  # noqa: E402
 from mcbe_editor.players import player_export_dir_for_world  # noqa: E402
-from mcbe_editor.restore_recovery import recovery_write_gate  # noqa: E402
+from mcbe_editor.restore_recovery import recovery_help_command, recovery_write_gate  # noqa: E402
 from mcbe_editor.server_status import check_server_status, unknown_status_confirmation_from_payload, write_gate  # noqa: E402
 from mcbe_editor.services import BedrockEditorService  # noqa: E402
 from mcbe_editor.world import (  # noqa: E402
@@ -520,10 +520,10 @@ def start_background_tasks() -> None:
                 )
             elif recovery.get("status") == "deferred-write-gate":
                 LOGGER.warning(
-                    "startup restore_recovery status=deferred-write-gate journal=%s reason=%s "
-                    "recovery_help='python -m mcbe_editor.restore_recovery --help'",
+                    "startup restore_recovery status=deferred-write-gate journal=%s reason=%s recovery_help='%s'",
                     recovery.get("journal_path"),
                     recovery.get("reason"),
+                    recovery_help_command(),
                 )
     WORLD_PRESENCE.start_cleanup_thread()
     atexit.register(WORLD_PRESENCE.stop_cleanup_thread)
