@@ -1232,20 +1232,29 @@ def snapshot_backup_for_restore(world_path: str, backup_path: str, *, expected_t
         raise
 
 
+# Win32 turns these names into streams, devices or silently shortened paths.
+# On POSIX they are ordinary names that Linux/Docker worlds may contain, so
+# applying the rules there would block every backup of such a world.
+_WINDOWS_PATH_RULES = os.name == "nt"
+_WINDOWS_DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"})
+
+
+def _is_unsafe_windows_name(part: str) -> bool:
+    device = part.split(".", 1)[0].rstrip(" ").upper()
+    return (
+        part.endswith((".", " "))
+        or any(ord(char) < 32 or char in '<>:"|?*' for char in part)
+        or device in _WINDOWS_DEVICE_NAMES
+        or re.fullmatch(r"(?:COM|LPT)[1-9¹²³]", device) is not None
+    )
+
+
 def _safe_zip_member_name(name: str) -> str:
     if not name or "\0" in name or "\\" in name:
         raise ValueError(f"Unsicherer Pfad im Backup: {name}")
     # Check raw components before PurePosixPath collapses '.' or empty parts.
-    # A portable backup must not become an ADS, device or aliased path on NTFS.
-    parts = name.removesuffix("/").split("/")
-    reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
-    for part in parts:
-        device = part.split(".", 1)[0].rstrip(" ").upper()
-        if (
-            part in {"", ".", ".."} or part.endswith((".", " "))
-            or any(ord(char) < 32 or char in '<>:"|?*' for char in part)
-            or device in reserved or re.fullmatch(r"(?:COM|LPT)[1-9¹²³]", device)
-        ):
+    for part in name.removesuffix("/").split("/"):
+        if part in {"", ".", ".."} or (_WINDOWS_PATH_RULES and _is_unsafe_windows_name(part)):
             raise ValueError(f"Unsicherer Pfad im Backup: {name}")
     path = PurePosixPath(name)
     if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):

@@ -89,11 +89,18 @@ def test_backup_rejects_file_symlink(tmp_path, monkeypatch):
         backup.create_backup(str(root))
 
 
-@pytest.mark.parametrize("name", [
+WINDOWS_ONLY_UNSAFE_NAMES = [
     "db/entry:stream", "db/CON", "db/nul.txt", "db/COM1.log", "db/LPT9", "db/COM¹", "db/CONOUT$",
-    "db/trailing.", "db/trailing ", "db/a<file", "db/a?file", "db/a\x01file", "db//CURRENT", "db/./CURRENT",
+    "db/trailing.", "db/trailing ", "db/a<file", "db/a?file", "db/a\x01file",
+]
+
+
+@pytest.mark.parametrize(("name", "windows_rules"), [
+    *((name, True) for name in WINDOWS_ONLY_UNSAFE_NAMES),
+    ("db//CURRENT", False), ("db/./CURRENT", False), ("db/../CURRENT", False),
 ])
-def test_restore_rejects_nonportable_members_before_extracting(tmp_path, name):
+def test_restore_rejects_unsafe_members_before_extracting(tmp_path, monkeypatch, name, windows_rules):
+    monkeypatch.setattr(backup, "_WINDOWS_PATH_RULES", windows_rules)
     archive = tmp_path / "source.zip"
     target = tmp_path / "staging"
     target.mkdir()
@@ -103,6 +110,30 @@ def test_restore_rejects_nonportable_members_before_extracting(tmp_path, name):
     with zipfile.ZipFile(archive) as zf, pytest.raises(ValueError, match="Unsicherer Pfad"):
         backup.safe_extract_zip(zf, str(target))
     assert list(target.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", WINDOWS_ONLY_UNSAFE_NAMES)
+def test_windows_name_rules_do_not_apply_to_posix_worlds(monkeypatch, name):
+    # Validation only: extracting these names on NTFS would create streams or devices.
+    monkeypatch.setattr(backup, "_WINDOWS_PATH_RULES", False)
+    assert backup._safe_zip_member_name(name) == name
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows cannot create these names")
+def test_posix_world_with_windows_reserved_names_can_be_backed_up_and_restored(tmp_path, monkeypatch):
+    world_path = tmp_path / "world"
+    names = ["db/CURRENT", "resource_packs/Pack/textures/aux.png", "behavior_packs/My Pack: Remastered/manifest.json", "resource_packs/Pack v1./pack.json"]
+    for name in names:
+        (world_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (world_path / name).write_bytes(name.encode())
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+
+    created = Path(backup.create_backup(str(world_path)))
+    with zipfile.ZipFile(created) as zf:
+        assert set(names) <= set(zf.namelist())
+    (world_path / names[1]).write_bytes(b"changed")
+    backup.restore_backup(str(world_path), created.name)
+    assert {name: (world_path / name).read_bytes() for name in names} == {name: name.encode() for name in names}
 
 
 def test_restore_accepts_portable_unicode_names(tmp_path):
