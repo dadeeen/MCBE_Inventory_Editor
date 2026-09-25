@@ -30,11 +30,15 @@ Limitations (by design):
 
 from __future__ import annotations
 
+import array
+import functools
+import hashlib
 import heapq
 import logging
 import os
 import re
 import struct
+import sys
 import zlib
 
 LOGGER = logging.getLogger(__name__)
@@ -79,12 +83,45 @@ def _build_crc32c_table() -> tuple[int, ...]:
 
 
 _CRC32C_TABLE = _build_crc32c_table()
+# The CRC consumes 32-bit little-endian words; a wrong word size would compute
+# wrong checksums instead of failing, so refuse such a platform outright.
+if array.array("I").itemsize != 4:  # pragma: no cover - no such CPython platform
+    raise ImportError("CRC-32C benötigt einen 32-Bit-Array-Typ.")
+
+
+@functools.cache
+def _crc32c_word_tables() -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Tables that advance the CRC by the low and the high half of a 32-bit word.
+
+    Built on first use: 2 x 65,536 entries (about 5 MB) let the loop take four
+    bytes with two lookups, more than twice as fast as one byte per step.
+    """
+
+    table = _CRC32C_TABLE
+    shifted = [table]
+    for _ in range(3):
+        shifted.append(tuple((value >> 8) ^ table[value & 0xFF] for value in shifted[-1]))
+    t0, t1, t2, t3 = shifted
+    low = tuple(t3[half & 0xFF] ^ t2[half >> 8] for half in range(65536))
+    high = tuple(t1[half & 0xFF] ^ t0[half >> 8] for half in range(65536))
+    return low, high
 
 
 def _crc32c(data: bytes) -> int:
+    low, high = _crc32c_word_tables()
+    view = memoryview(data)
+    aligned = len(view) - len(view) % 4
+    words = array.array("I")
+    words.frombytes(view[:aligned])
+    if sys.byteorder == "big":  # pragma: no cover - little-endian test hosts
+        words.byteswap()
     crc = 0xFFFFFFFF
-    for byte in data:
-        crc = _CRC32C_TABLE[(crc ^ byte) & 0xFF] ^ (crc >> 8)
+    for word in words:
+        crc ^= word
+        crc = low[crc & 0xFFFF] ^ high[crc >> 16]
+    table = _CRC32C_TABLE
+    for byte in view[aligned:]:
+        crc = table[(crc ^ byte) & 0xFF] ^ (crc >> 8)
     return crc ^ 0xFFFFFFFF
 
 
@@ -422,6 +459,8 @@ class ReadonlyLevelDbAdapter:
         self._tables: dict[int, _Table] = {}
         self._closed = False
         self._metadata_bytes = 0
+        self._metadata_digests: list[tuple[str, int, bytes]] = []
+        self._content_token: tuple | None = None
 
         current_path = os.path.join(db_path, "CURRENT")
         if not os.path.isfile(current_path):
@@ -457,7 +496,36 @@ class ReadonlyLevelDbAdapter:
         if len(data) != size:
             raise CorruptDatabaseError("MANIFEST/WAL-Datei wurde während des Lesens verkürzt.")
         self._metadata_bytes += size
+        self._metadata_digests.append((os.path.basename(path), size, hashlib.blake2b(data, digest_size=16).digest()))
         return data
+
+    def content_token(self) -> tuple:
+        """Identify the database state this reader sees, e.g. as a cache key.
+
+        The MANIFEST and the replayed logs can change while an engine runs, so
+        they count by the digest of the bytes this reader parsed.  Tables are
+        immutable in LevelDB (new content gets a new file number); they count
+        by number, size and modification time.
+        """
+
+        if self._content_token is None:
+            tables = []
+            for file_no in sorted({file_no for files in self._files.values() for file_no in files}):
+                for extension in ("ldb", "sst"):
+                    try:
+                        stat = os.stat(os.path.join(self._db_path, f"{file_no:06d}.{extension}"))
+                    except FileNotFoundError:
+                        continue
+                    tables.append((file_no, extension, stat.st_size, stat.st_mtime_ns))
+                    break
+                else:
+                    tables.append((file_no, None, None, None))
+            self._content_token = (
+                os.path.normcase(os.path.abspath(self._db_path)),
+                tuple(self._metadata_digests),
+                tuple(tables),
+            )
+        return self._content_token
 
     def _table(self, file_no: int) -> _Table:
         table = self._tables.get(file_no)

@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import random
 import shutil
 import struct
 import unittest
@@ -16,6 +17,7 @@ from mcbe_editor.leveldb_readonly import (
     _RECORD_LAST,
     _RECORD_MIDDLE,
     _TAG_LOG_NUMBER,
+    _TAG_NEW_FILE,
     _TAG_PREV_LOG_NUMBER,
     _TYPE_VALUE,
     _crc32c,
@@ -76,6 +78,93 @@ def test_log_record_crc_is_validated():
 
     with unittest.TestCase().assertRaises(CorruptDatabaseError):
         list(_iter_log_records(bytes(record)))
+
+
+def _bitwise_crc32c(data: bytes) -> int:
+    crc = 0xFFFFFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0x82F63B78 if crc & 1 else crc >> 1
+    return crc ^ 0xFFFFFFFF
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (b"", 0x00000000),
+        (b"123456789", 0xE3069283),
+        (bytes(32), 0x8A9136AA),
+        (b"\xff" * 32, 0x62A8AB43),
+        (bytes(range(32)), 0x46DD794E),
+        (bytes(range(31, -1, -1)), 0x113FDB5C),
+    ],
+)
+def test_crc32c_matches_published_check_values(data, expected):
+    # "123456789" is the standard check input; the 32-byte vectors are RFC 3720's.
+    assert _crc32c(data) == expected
+
+
+def test_crc32c_matches_a_bitwise_reference_at_every_length_and_alignment():
+    data = random.Random(3720).randbytes(80)
+    for start in range(4):
+        for end in range(start, len(data) + 1):
+            expected = _bitwise_crc32c(data[start:end])
+            assert _crc32c(data[start:end]) == expected
+            assert _crc32c(memoryview(data)[start:end]) == expected
+
+
+def _new_file_edit(file_no: int, smallest: bytes, largest: bytes) -> bytes:
+    return (
+        _varint(_TAG_NEW_FILE) + _varint(0) + _varint(file_no) + _varint(100)
+        + _length_prefixed(smallest + struct.pack("<Q", (1 << 8) | _TYPE_VALUE))
+        + _length_prefixed(largest + struct.pack("<Q", (1 << 8) | _TYPE_VALUE))
+    )
+
+
+def test_content_token_changes_exactly_when_a_file_the_reader_uses_changes(tmp_path):
+    db_path = tmp_path / "db"
+    db_path.mkdir()
+    (db_path / "CURRENT").write_text("MANIFEST-000001\n", encoding="utf-8")
+    (db_path / "MANIFEST-000001").write_bytes(_log_record(_varint(_TAG_LOG_NUMBER) + _varint(5) + _new_file_edit(3, b"a", b"z")))
+    table = db_path / "000003.ldb"
+    table.write_bytes(b"table")
+    log = db_path / "000005.log"
+    first_record = _log_record(_write_batch(1, [(b"player", b"one")]))
+    log.write_bytes(first_record)
+
+    def token():
+        reader = ReadonlyLevelDbAdapter(str(db_path))
+        try:
+            return reader.content_token()
+        finally:
+            reader.close()
+
+    first = token()
+    assert token() == first
+    # Files outside the reader's view: an obsolete log, the engine's info log.
+    (db_path / "000004.log").write_bytes(_log_record(_write_batch(9, [(b"player", b"stale")])))
+    (db_path / "LOG").write_text("engine info", encoding="utf-8")
+    assert token() == first
+
+    with log.open("ab") as handle:
+        handle.write(_log_record(_write_batch(2, [(b"player", b"two")])))
+    appended = token()
+    assert appended != first
+    # An engine writing into space it reserved earlier keeps the size and may
+    # keep the modification time; the digest of the parsed bytes still differs.
+    stat = log.stat()
+    log.write_bytes(first_record + _log_record(_write_batch(2, [(b"player", b"TWO")])))
+    os.utime(log, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert log.stat().st_size == stat.st_size
+    rewritten = token()
+    assert rewritten != appended
+    appended = rewritten
+    (db_path / "000006.log").write_bytes(_log_record(_write_batch(3, [(b"other", b"x")])))
+    new_log = token()
+    assert new_log != appended
+    table.write_bytes(b"a replaced table")
+    assert token() != new_log
 
 
 def test_fragmented_log_record_requires_first_fragment():
@@ -525,6 +614,67 @@ class ServiceReadonlyIntegrationTests(unittest.TestCase):
         self.assertTrue(loaded["success"])
 
         self.assertEqual(_snapshot_dir(db_dir), before, "Lesepfade dürfen die Welt nicht verändern")
+
+    def _counting_player_scans(self):
+        from unittest import mock
+
+        from mcbe_editor.players import PlayerScanner
+
+        return mock.patch.object(PlayerScanner, "list_players", autospec=True, side_effect=PlayerScanner.list_players)
+
+    def test_player_list_is_reused_until_the_database_changes(self):
+        from mcbe_editor.players import encode_player_key
+        from mcbe_editor.services import BedrockEditorService
+        from mcbe_editor.world import LOCAL_PLAYER_KEY
+
+        service = BedrockEditorService({}, {})
+        with self._counting_player_scans() as scans:
+            listed = service.list_players(self.world_path)
+            listed["players"][0]["label"] = "changed by the caller"
+            self.assertTrue(service.load_player(self.world_path, encode_player_key(LOCAL_PLAYER_KEY))["success"])
+            again = service.list_players(self.world_path)
+            self.assertEqual(scans.call_count, 1)
+            self.assertNotEqual(again["players"][0]["label"], "changed by the caller")
+            again["players"][0]["label"] = "changed by the caller"
+            self.assertNotEqual(service.list_players(self.world_path)["players"][0]["label"], "changed by the caller")
+            self.assertEqual(scans.call_count, 1)
+
+            db = leveldb.LevelDB(os.path.join(self.world_path, "db"))
+            try:
+                db.put(b"player_server_11111111-2222-3333-4444-555555555555", db.get(b"~local_player"))
+            finally:
+                db.close()
+            changed = service.list_players(self.world_path)
+            self.assertEqual(scans.call_count, 2)
+            self.assertEqual(len(changed["players"]), 2)
+
+    def test_readers_that_cannot_identify_their_state_are_scanned_every_time(self):
+        from mcbe_editor.leveldb_readonly import ReadonlyLevelDbAdapter as RealReadonlyAdapter
+        from mcbe_editor.services import BedrockEditorService
+
+        class ReaderWithoutToken:
+            def __init__(self, db_path):
+                self._reader = RealReadonlyAdapter(db_path)
+
+            def get(self, key):
+                return self._reader.get(key)
+
+            def iter_items(self):
+                return self._reader.iter_items()
+
+            def close(self):
+                self._reader.close()
+
+        class ReaderWhoseTokenFails(RealReadonlyAdapter):
+            def content_token(self):
+                raise PermissionError("simulated stat failure")
+
+        for factory in (ReaderWithoutToken, ReaderWhoseTokenFails):
+            service = BedrockEditorService({}, {}, readonly_db_factory=factory)
+            with self._counting_player_scans() as scans:
+                self.assertEqual(len(service.list_players(self.world_path)["players"]), 1)
+                self.assertEqual(len(service.list_players(self.world_path)["players"]), 1)
+            self.assertEqual(scans.call_count, 2, factory.__name__)
 
     def _db_content_digest(self):
         """Hash every db file by content, not just size/mtime.

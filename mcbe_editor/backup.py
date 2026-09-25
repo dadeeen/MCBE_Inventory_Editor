@@ -56,6 +56,9 @@ BACKUP_KIND_LABELS = {
 }
 STALE_BACKUP_ARTIFACT_SECONDS = 24 * 60 * 60
 _MIN_FREE_SPACE_RESERVE = 64 * 1024 * 1024
+# Bedrock's LevelDB tables are already deflate-compressed block by block.
+# Deflating them again took most of the backup time for a few percent of size.
+_STORED_BACKUP_SUFFIXES = (".ldb", ".sst")
 BACKUP_INTEGRITY_CACHE_FILENAME = ".backup_integrity_cache.json"
 BACKUP_INTEGRITY_CACHE_VERSION = 1
 RESTORE_TRANSACTION_VERSION = 1
@@ -1019,7 +1022,8 @@ def create_backup(
                         continue
                     arcname = os.path.relpath(file_path, world_path)
                     try:
-                        zipf.write(file_path, arcname)
+                        compress_type = zipfile.ZIP_STORED if file.lower().endswith(_STORED_BACKUP_SUFFIXES) else None
+                        zipf.write(file_path, arcname, compress_type=compress_type)
                     except PermissionError as exc:
                         raise ValueError(
                             t(

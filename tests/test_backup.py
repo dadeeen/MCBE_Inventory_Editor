@@ -237,6 +237,39 @@ def test_backup_at_restore_limits_can_be_created_and_restored(tmp_path, monkeypa
     assert (world / "db" / "CURRENT").read_bytes() == b"manifest"
 
 
+def test_backup_stores_leveldb_tables_without_recompressing_them(tmp_path, monkeypatch):
+    from mcbe_editor import backup
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    files = {
+        "db/000005.ldb": os.urandom(4096),
+        "db/000006.SST": os.urandom(4096),
+        "db/000007.log": b"log " * 1024,
+        "db/CURRENT": b"MANIFEST-000004\n",
+        "level.dat": b"level " * 512,
+    }
+    for name, data in files.items():
+        (world / name).write_bytes(data)
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+
+    created = Path(backup.create_backup(str(world)))
+    with zipfile.ZipFile(created) as archive:
+        compression = {info.filename: info.compress_type for info in archive.infolist() if not info.is_dir()}
+    assert compression == {
+        "db/000005.ldb": zipfile.ZIP_STORED,
+        "db/000006.SST": zipfile.ZIP_STORED,
+        "db/000007.log": zipfile.ZIP_DEFLATED,
+        "db/CURRENT": zipfile.ZIP_DEFLATED,
+        "level.dat": zipfile.ZIP_DEFLATED,
+    }
+
+    for name in files:
+        (world / name).write_bytes(b"changed")
+    backup.restore_backup(str(world), created.name)
+    assert {name: (world / name).read_bytes() for name in files} == files
+
+
 class TestValidateZipMembers(unittest.TestCase):
     def test_accepts_valid_members(self):
         data = io.BytesIO()

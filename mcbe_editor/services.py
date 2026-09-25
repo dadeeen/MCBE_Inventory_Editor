@@ -1,7 +1,10 @@
 import contextlib
+import copy
 import hashlib
 import logging
 import os
+import threading
+from collections import OrderedDict
 
 from mcbe_editor import nbt
 from mcbe_editor.item_availability import item_availability_client_payload
@@ -103,6 +106,8 @@ from .world_locks import get_world_lock, lock_key, locked_world
 from .write_transaction import WritePlan, WriteState
 
 LOGGER = logging.getLogger(__name__)
+# Worlds whose last player list is kept for reuse while their database is unchanged.
+_PLAYER_LIST_CACHE_WORLDS = 8
 
 
 class BedrockEditorService:
@@ -117,6 +122,8 @@ class BedrockEditorService:
         self.enchantments_db = enchantments_db
         self.db_factory = db_factory
         self.readonly_db_factory = readonly_db_factory
+        self._player_lists: OrderedDict[str, tuple[tuple, list[dict]]] = OrderedDict()
+        self._player_lists_guard = threading.Lock()
 
     @staticmethod
     def _lock_key(world_path: str) -> str:
@@ -195,9 +202,40 @@ class BedrockEditorService:
             target_revision_stale=True,
         )
 
+    def _scan_players(self, db) -> list[dict]:
+        """Return the world's player list, reused while its database is unchanged.
+
+        Finding players reads every record of the world, and listing, loading
+        and saving each need the list.  A reader that can identify its on-disk
+        state (``content_token``) lets later calls reuse the list; any change by
+        Minecraft, a server or this editor changes the token and scans again.
+        """
+
+        token_of = getattr(db, "content_token", None)
+        try:
+            token = token_of() if callable(token_of) else None
+        except OSError:
+            # The cache is an optimization only; never let it fail a listing.
+            LOGGER.warning("Datenbankzustand nicht bestimmbar; Spielerliste wird ohne Cache gelesen.", exc_info=True)
+            token = None
+        if token is not None:
+            with self._player_lists_guard:
+                cached = self._player_lists.get(token[0])
+                if cached is not None and cached[0] == token:
+                    self._player_lists.move_to_end(token[0])
+                    return copy.deepcopy(cached[1])
+        players = PlayerScanner(db).list_players()
+        if token is not None:
+            with self._player_lists_guard:
+                self._player_lists[token[0]] = (token, copy.deepcopy(players))
+                self._player_lists.move_to_end(token[0])
+                while len(self._player_lists) > _PLAYER_LIST_CACHE_WORLDS:
+                    self._player_lists.popitem(last=False)
+        return players
+
     def _get_player_info(self, db, player_key, *, players=None):
         if players is None:
-            players = PlayerScanner(db).list_players()
+            players = self._scan_players(db)
         encoded_key = encode_player_key(player_key)
         for player in players:
             if player["player_key"] == encoded_key:
@@ -351,7 +389,7 @@ class BedrockEditorService:
         with self._locked_world(world_path):
             try:
                 db = self._open_db_readonly(world_path)
-                players = PlayerScanner(db).list_players()
+                players = self._scan_players(db)
                 capabilities = self._capabilities_for_players(world_path, players)
                 compatibility = analyze_world_structure(world_path)
                 return {
@@ -373,7 +411,7 @@ class BedrockEditorService:
             try:
                 db = self._open_db_readonly(world_path)
                 player_key = decode_player_key(encoded_player_key)
-                players = PlayerScanner(db).list_players()
+                players = self._scan_players(db)
                 player_info = self._get_player_info(db, player_key, players=players)
                 if not player_info["editable"]:
                     raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")
@@ -782,7 +820,7 @@ class BedrockEditorService:
 
         source_key = decode_player_key(encoded_source_player_key)
         target_key = decode_player_key(encoded_target_player_key)
-        players = PlayerScanner(db).list_players()
+        players = self._scan_players(db)
         source_info = self._get_player_info(db, source_key, players=players)
         target_info = self._get_player_info(db, target_key, players=players)
         if not source_info.get("editable"):
