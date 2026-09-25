@@ -14,10 +14,14 @@ log the next time it opens the world, exactly as after an unclean shutdown:
   record at the end of the new log, which recovery ignores: the batch applies
   completely or not at all.
 
-Opening a database for writing takes the locks the native engine takes and
-fails while Minecraft, a server or another editor process holds the world:
+Opening a database for writing takes the locks the native engine takes.  It
+fails while another editor process or a LevelDB engine that locks ``LOCK``
+holds the world, and on Windows also while Minecraft or a server holds it:
 
 * POSIX: an exclusive ``fcntl`` lock on ``LOCK``, as in LevelDB's POSIX env.
+  Bedrock Dedicated Server 1.26.51.1 on Linux takes no lock at all and only
+  keeps its files open, which POSIX cannot detect.  There the server-status
+  gate is the only protection against a running server.
 * Windows: Mojang's Windows env does not lock an empty ``LOCK`` file.  A running
   engine keeps write access to ``CURRENT``, its MANIFEST and its log; opening
   them for reading without write sharing therefore fails while it runs.  During

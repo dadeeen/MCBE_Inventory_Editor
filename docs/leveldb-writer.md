@@ -58,11 +58,18 @@ the resulting bytes with the native engine's own log for identical batches.
 ## Exclusive access
 
 The writable adapter must fail while Minecraft, a Bedrock server or another
-editor process has the world open.
+editor process has the world open. On Linux this holds only for processes that
+lock `LOCK`; a running Bedrock server is not detected there.
 
 - POSIX: an exclusive `fcntl` lock on `LOCK` (`F_SETLK`, whole file), the lock
   LevelDB's POSIX environment uses. A process-wide registry refuses a second
-  session in the same process, because `fcntl` locks are per process.
+  session in the same process, because `fcntl` locks are per process. This
+  excludes other editor processes and native LevelDB engines such as
+  `amulet-leveldb`. Bedrock Dedicated Server 1.26.51.1 on Linux creates no
+  `LOCK` file and holds no lock (`/proc/locks` stays empty); it only keeps its
+  MANIFEST, log and tables open, which POSIX cannot detect. A second container
+  opened the writer on its live world without refusal. Against a running Linux
+  server, the server-status gate is therefore the only protection.
 - Windows: Mojang's Windows environment (`util/env_win.cc`) only calls
   `LockFileEx` when `LOCK` is not empty, and LevelDB creates it empty. A running
   engine is excluded by share modes instead: it keeps write handles on
@@ -72,7 +79,9 @@ editor process has the world open.
   and a starting engine fails on it before recovery. Before writing, it also
   opens the MANIFEST and the replayed logs without write sharing; this fails if
   another process is writing to them. An exclusive `LockFileEx` over the whole
-  `LOCK` file additionally excludes engines that lock that file.
+  `LOCK` file additionally excludes engines that lock that file. The same
+  server, bind-mounted through Docker Desktop, was refused while running and
+  accepted after it stopped.
 - "In use" is reported as `LevelDbInUseError`, never as a permission problem.
 
 These checks complement the app's server-status gate and interprocess world
