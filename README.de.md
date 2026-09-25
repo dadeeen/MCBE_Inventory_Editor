@@ -121,7 +121,7 @@ Lege beim ersten Öffnen ein Passwort fest oder bestätige ausdrücklich den pas
 Wichtiges Docker-Verhalten:
 
 - Welten werden unter `/worlds` gelesen; dauerhafte App-Daten und Backups liegen unter `/data`.
-- `MCBE_REQUIRE_SERVER_OFFLINE=true` ist Standard. Ein erreichbarer konfigurierter Bedrock-Server blockiert Schreibvorgänge; ein unbekannter Status verlangt eine Bestätigung.
+- `MCBE_REQUIRE_SERVER_OFFLINE=true` ist Standard. Ein erreichbarer konfigurierter Bedrock-Server blockiert Schreibvorgänge; ein unbekannter Status verlangt eine Bestätigung. Die Prüfung erkennt beide Server-Transporte auf `MCBE_SERVER_PORT`: RakNet am UDP-Ping und NetherNet (`transport=nethernet`) an einer HTTP-Anfrage an `/v1/join` über TCP. Bei NetherNet muss der Editor diesen TCP-Port erreichen können, sonst bleibt der Status unbekannt.
 - `MCBE_READ_ONLY=true` schaltet die App in den schreibgeschützten Viewer-Modus. Binde für eine echte Viewer-Instanz zusätzlich `/worlds:ro` ein; Docker `read_only: true` schützt eingebundene Welten nicht.
 - Binde bei schreibfähigen Instanzen den gemeinsamen übergeordneten Weltordner unter `/worlds` ein, nicht nur eine einzelne Welt. Restore-Staging und Rollback benötigen Zugriff auf Geschwisterpfade.
 - Der Container läuft ohne Root-Rechte als UID/GID `10001`; der Hostordner muss die erforderlichen Rechte gewähren. Ein `:rw`-Mount allein genügt nicht — richte das **vor** dem ersten Speichern ein, siehe [Schreibrechte für Docker-Welten](#schreibrechte-für-docker-welten).

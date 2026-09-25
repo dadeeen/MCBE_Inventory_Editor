@@ -52,7 +52,7 @@ Every editor-created world backup compares source metadata before and after crea
 
 - Enable password protection for LAN use.
 - Leave `MCBE_TRUST_PROXY_HEADERS=false` unless a trusted reverse proxy is the only route to the app.
-- Leave `MCBE_REQUIRE_SERVER_OFFLINE=true` for real server worlds and configure `MCBE_SERVER_HOST`.
+- Leave `MCBE_REQUIRE_SERVER_OFFLINE=true` for real server worlds and configure `MCBE_SERVER_HOST`. For a NetherNet server, the editor also needs TCP access to the server port.
 - Treat `MCBE_REQUIRE_SERVER_OFFLINE=false` as an explicit unsafe override for stopped copies or archives only.
 - For viewer deployments, use both `MCBE_READ_ONLY=true` and a `/worlds:ro` volume. Docker's `read_only: true` protects only the container root filesystem.
 - Mount only the required worlds parent folder, never `/`, `/home`, or an entire NAS.

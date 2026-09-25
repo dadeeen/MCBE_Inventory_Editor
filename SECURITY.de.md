@@ -52,7 +52,7 @@ Jedes vom Editor erstellte Welt-Backup vergleicht die Quellmetadaten vor und nac
 
 - Aktiviere für LAN-Nutzung den Passwortschutz.
 - Belasse `MCBE_TRUST_PROXY_HEADERS=false`, sofern ein vertrauenswürdiger Reverse Proxy nicht der einzige Weg zur App ist.
-- Belasse `MCBE_REQUIRE_SERVER_OFFLINE=true` für echte Serverwelten und konfiguriere `MCBE_SERVER_HOST`.
+- Belasse `MCBE_REQUIRE_SERVER_OFFLINE=true` für echte Serverwelten und konfiguriere `MCBE_SERVER_HOST`. Bei einem NetherNet-Server braucht der Editor zusätzlich TCP-Zugriff auf den Serverport.
 - Behandle `MCBE_REQUIRE_SERVER_OFFLINE=false` als ausdrückliche unsichere Ausnahme ausschließlich für beendete Kopien oder Archive.
 - Verwende für Viewer sowohl `MCBE_READ_ONLY=true` als auch ein `/worlds:ro`-Volume. Docker `read_only: true` schützt nur das Root-Dateisystem des Containers.
 - Binde nur den erforderlichen übergeordneten Weltordner ein, niemals `/`, `/home` oder ein gesamtes NAS.

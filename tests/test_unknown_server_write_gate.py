@@ -5,6 +5,18 @@ from types import SimpleNamespace
 import pytest
 
 
+@pytest.fixture
+def no_nethernet(monkeypatch):
+    """Keep RakNet-focused status tests off the network: nothing answers on TCP."""
+
+    from mcbe_editor import server_status
+
+    def refuse(_host, _port):
+        raise ConnectionRefusedError("no NetherNet listener")
+
+    monkeypatch.setattr(server_status, "_nethernet_join_probe", refuse)
+
+
 def test_unknown_server_status_requires_explicit_confirmation_before_write():
     from mcbe_editor.server_status import write_gate
 
@@ -77,6 +89,7 @@ def test_confirmed_online_server_status_still_blocks_write():
     assert "Server läuft noch" in gate["reason"]
 
 
+@pytest.mark.usefixtures("no_nethernet")
 def test_server_status_detects_ipv6_bedrock_pong(monkeypatch):
     from mcbe_editor.server_status import check_server_status
 
@@ -120,6 +133,7 @@ def test_server_status_detects_ipv6_bedrock_pong(monkeypatch):
     assert any(call[0] == "sendto" and call[1] == socket.AF_INET6 for call in calls)
 
 
+@pytest.mark.usefixtures("no_nethernet")
 def test_server_status_tries_next_address_family_before_unknown(monkeypatch):
     from mcbe_editor.server_status import check_server_status
 
@@ -166,6 +180,7 @@ def test_server_status_tries_next_address_family_before_unknown(monkeypatch):
     assert [family for family, _sockaddr in attempts] == [socket.AF_INET, socket.AF_INET6]
 
 
+@pytest.mark.usefixtures("no_nethernet")
 def test_server_status_keeps_timeout_unknown_after_all_addresses_timeout(monkeypatch):
     from mcbe_editor.server_status import check_server_status
 
@@ -207,6 +222,7 @@ def test_server_status_keeps_timeout_unknown_after_all_addresses_timeout(monkeyp
     assert "Keine Antwort" in status["message"]
 
 
+@pytest.mark.usefixtures("no_nethernet")
 def test_server_status_exposes_structured_message_for_dns_failure(monkeypatch):
     from mcbe_editor.server_status import check_server_status
 
@@ -227,6 +243,7 @@ def test_server_status_exposes_structured_message_for_dns_failure(monkeypatch):
     assert status["technical_error"] == "DNS lookup failed"
 
 
+@pytest.mark.usefixtures("no_nethernet")
 def test_every_server_status_observation_gets_a_new_revision(monkeypatch):
     from mcbe_editor import server_status
 

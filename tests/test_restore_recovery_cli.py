@@ -50,8 +50,12 @@ def _mock_server_probe(monkeypatch, status: str) -> list[tuple[str, int]]:
         calls.append((host, port))
         return {"status": status, "message": f"Synthetic server status: {status}"}
 
-    # Keep check_server_status and write_gate real; only replace the UDP probe.
+    def no_nethernet(_host, _port):
+        raise ConnectionRefusedError("no NetherNet listener")
+
+    # Keep check_server_status and write_gate real; only replace the network probes.
     monkeypatch.setattr(server_status, "_bedrock_unconnected_ping", probe)
+    monkeypatch.setattr(server_status, "_nethernet_join_probe", no_nethernet)
     return calls
 
 

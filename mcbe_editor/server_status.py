@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import random
+import re
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from .config import AppConfig
 
 RAKNET_MAGIC = bytes.fromhex("00ffff00fefefefefdfdfdfd12345678")
+NETHERNET_JOIN_PATH = "/v1/join"
+_HTTP_STATUS_LINE = re.compile(rb"HTTP/1\.[01] ([1-5][0-9][0-9])[ \r]")
+_MAX_STATUS_LINE_BYTES = 256
 _TRUE_STRING_VALUES = {"1", "true", "yes", "ja", "on", "confirmed"}
 _STATUS_REVISION_LOCK = threading.Lock()
 _STATUS_REVISION = 0
@@ -124,6 +129,94 @@ def _bedrock_unconnected_ping(host: str, port: int, timeout: float = 1.5) -> dic
     }
 
 
+def _http_authority(host: str, port: int) -> str:
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"{host}:{port}"
+
+
+def _read_status_line(conn: socket.socket, deadline: float) -> bytes:
+    head = b""
+    while b"\n" not in head and len(head) < _MAX_STATUS_LINE_BYTES:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Keine vollständige HTTP-Statuszeile.")
+        conn.settimeout(remaining)
+        chunk = conn.recv(_MAX_STATUS_LINE_BYTES - len(head))
+        if not chunk:
+            break
+        head += chunk
+    return head
+
+
+def _nethernet_join_probe(host: str, port: int, timeout: float = 1.5) -> dict:
+    """Return Bedrock status from a NetherNet server's HTTP signaling endpoint.
+
+    A server with ``transport=nethernet`` ignores RakNet pings. That value is in
+    the server.properties template of current releases; a file without the key
+    keeps RakNet. NetherNet accepts an HTTP signaling handshake on TCP
+    ``server-port`` and answers ``GET /v1/join`` with 2xx while the server runs;
+    the itzg image uses the same request as its health check. Any other HTTP
+    status, such as a reverse proxy's 502 while the server is down, stays
+    unknown. A refused, reset or silent connection raises OSError like the
+    RakNet probe.
+    """
+
+    request = f"GET {NETHERNET_JOIN_PATH} HTTP/1.1\r\nHost: {_http_authority(host, port)}\r\nConnection: close\r\n\r\n"
+    with socket.create_connection((host, port), timeout=timeout) as conn:
+        conn.sendall(request.encode("ascii", errors="replace"))
+        head = _read_status_line(conn, time.monotonic() + timeout)
+    if not head:
+        raise ConnectionResetError("Verbindung ohne Antwort geschlossen.")
+    match = _HTTP_STATUS_LINE.match(head)
+    if match is None:
+        return {"status": "unknown", **_message_fields("Unerwartete Antwort am Serverport.")}
+    code = int(match.group(1))
+    if 200 <= code < 300:
+        return {"status": "online", **_message_fields("Server erreichbar (NetherNet).")}
+    return {
+        "status": "unknown",
+        **_message_fields("Unerwartete HTTP-Antwort am Serverport (Status {status}).", status=code),
+    }
+
+
+def _probe_server(host: str, port: int) -> dict:
+    """Probe both Bedrock transports at once; the first online answer wins.
+
+    Waiting for both would add a full timeout whenever the other transport's
+    port silently drops packets. The losing probe ends on its own timeout.
+    Without an online answer, a RakNet result keeps its previous meaning; an
+    HTTP answer from the server port is reported only when RakNet got none.
+    """
+
+    outcomes: dict[str, dict | Exception] = {}
+    executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bedrock-status")
+    try:
+        futures = {
+            executor.submit(_bedrock_unconnected_ping, host, port): "raknet",
+            executor.submit(_nethernet_join_probe, host, port): "nethernet",
+        }
+        for future in as_completed(futures):
+            transport = futures[future]
+            try:
+                outcome = future.result()
+            except (OSError, UnicodeError) as exc:
+                outcomes[transport] = exc
+                continue
+            if outcome.get("status") == "online":
+                return {**outcome, "transport": transport}
+            outcomes[transport] = outcome
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+    raknet = outcomes["raknet"]
+    if isinstance(raknet, dict):
+        return raknet
+    nethernet = outcomes["nethernet"]
+    if isinstance(nethernet, dict):
+        return nethernet
+    raise raknet
+
+
 def _boolish(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -166,7 +259,7 @@ def check_server_status(config: AppConfig) -> dict:
         )
 
     try:
-        result = _bedrock_unconnected_ping(config.server_host, config.server_port)
+        result = _probe_server(config.server_host, config.server_port)
         status = {**base, **result}
     except TimeoutError:
         status = {**base, "status": "unknown", **_message_fields("Keine Antwort vom Server.")}

@@ -172,6 +172,7 @@ The direct `/api/mount/create` path also performs its initial player checks thro
 - On a presence conflict, the frontend asks the user. After consent, the same payload is re-sent with `confirm_presence_conflict=true`; on decline, the dirty state remains.
 - With unknown server status, the frontend asks the user. After consent, the same payload is re-sent with `confirm_unknown_server_status=true`.
 - A confirmed unknown status is not a permanent override: if the server is detected as online during a repeated or final check, the operation remains blocked.
+- A server is online when it answers the RakNet unconnected ping on UDP `MCBE_SERVER_PORT`, or `GET /v1/join` with 2xx over TCP on the same port (NetherNet). Both probes run concurrently; the first online answer wins. Other HTTP answers, such as a reverse proxy's 502 while the server is down, and silent or refused ports leave the status unknown.
 - The player and workspace endpoints check the write gate before service execution and again immediately before the LevelDB write.
 - A changed or missing `server_guard_token` between preview/load and save blocks the operation. The backend checks it when accepting the request and again at the final LevelDB write boundary.
 - Successful responses update `currentPlayerRevision` from `player_revision`, if present.
