@@ -103,9 +103,11 @@ The session refuses to write, without changing any file, if:
 ## Validation
 
 - `tests/test_leveldb_writer.py`: framing at every block position, batch
-  encoding, session semantics, refusals, rollback after I/O failure, lock
-  behavior across threads and processes, and truncation at every critical
-  offset of a multi-block batch (old state or new state, never partial).
+  encoding, session semantics, refusals (including a stored version with the
+  batch's own sequence), rollback after an I/O failure or a failed read-back,
+  lock behavior across threads and processes, files another program keeps open
+  for writing (Windows), and truncation at every critical offset of a
+  multi-block batch (old state or new state, never partial).
 - Native reference tests (skipped without amulet-leveldb): byte-identical logs
   for identical batches, randomized sessions alternating between the native
   engine and the writer against a model, native reading of torn batches,

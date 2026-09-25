@@ -300,25 +300,62 @@ def test_a_session_of_another_process_is_refused_until_it_closes(tmp_path):
     assert _read_all(path) == {b"a": b"2"}
 
 
-def test_failed_append_is_rolled_back_and_ends_the_session(tmp_path, monkeypatch):
+@pytest.mark.skipif(os.name != "nt", reason="POSIX cannot see open files of other programs")
+@pytest.mark.parametrize("held", ["manifest", "log"])
+def test_a_file_another_program_keeps_open_for_writing_blocks_the_writer(tmp_path, held):
+    path = _new_db(tmp_path)
+    _write(path, {b"a": b"1"})
+    name = next(n for n in os.listdir(path) if n.startswith("MANIFEST-")) if held == "manifest" else _logs(path)[-1]
+    before = _snapshot(path)
+    # A running engine can hold its MANIFEST and log for writing without
+    # holding CURRENT or locking LOCK, e.g. BDS behind a Docker Desktop bind
+    # mount. Share modes apply per handle, so this process can stand in for it.
+    with open(path / name, "ab"):
+        with pytest.raises(LevelDbInUseError):
+            LevelDbWriter(str(path))
+        assert _snapshot(path) == before
+    _write(path, {b"b": b"2"})
+    assert _read_all(path) == {b"a": b"1", b"b": b"2"}
+
+
+def _fail_the_next_fsync(monkeypatch):
+    real_fsync = os.fsync
+    calls = []
+
+    def failing_fsync(descriptor):
+        calls.append(descriptor)
+        if len(calls) == 1:
+            raise OSError("simulated device failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", failing_fsync)
+    return OSError
+
+
+def _corrupt_the_next_append(monkeypatch):
+    # The device reports success but stores a flipped bit; only the read-back
+    # check after the append can notice.
+    real_append = leveldb_writer._SessionLog.append
+
+    def corrupting_append(self, framed):
+        monkeypatch.setattr(leveldb_writer._SessionLog, "append", real_append)
+        real_append(self, framed[:-1] + bytes((framed[-1] ^ 0x01,)))
+
+    monkeypatch.setattr(leveldb_writer._SessionLog, "append", corrupting_append)
+    return CorruptDatabaseError
+
+
+@pytest.mark.parametrize("inject_failure", [_fail_the_next_fsync, _corrupt_the_next_append], ids=["fsync", "read-back"])
+def test_failed_append_is_rolled_back_and_ends_the_session(tmp_path, monkeypatch, inject_failure):
     path = _new_db(tmp_path)
     writer = LevelDbWriter(str(path))
     try:
         writer.put_batch({b"a": b"1"})
         size = (path / "000002.log").stat().st_size
-        real_fsync = os.fsync
-        calls = []
-
-        def failing_fsync(descriptor):
-            calls.append(descriptor)
-            if len(calls) == 1:
-                raise OSError("simulated device failure")
-            real_fsync(descriptor)
-
-        monkeypatch.setattr(os, "fsync", failing_fsync)
-        with pytest.raises(OSError, match="simulated"):
+        expected_error = inject_failure(monkeypatch)
+        with pytest.raises(expected_error):
             writer.put_batch({b"a": b"2", b"b": b"3"})
-        monkeypatch.setattr(os, "fsync", real_fsync)
+        monkeypatch.undo()
 
         assert (path / "000002.log").stat().st_size == size
         with pytest.raises(RuntimeError, match="fehlgeschlagenen Schreibversuch"):
@@ -329,11 +366,14 @@ def test_failed_append_is_rolled_back_and_ends_the_session(tmp_path, monkeypatch
     assert _read_all(path) == {b"a": b"1"}
 
 
-def test_versions_newer_than_the_manifest_sequence_are_not_shadowed(tmp_path, monkeypatch):
+@pytest.mark.parametrize("ahead", [0, 10**6], ids=["same-sequence", "far-ahead"])
+def test_versions_newer_than_the_manifest_sequence_are_not_shadowed(tmp_path, monkeypatch, ahead):
     path = _new_db(tmp_path)
     _write(path, {b"a": b"1"})
     before = _snapshot(path)
-    monkeypatch.setattr(LevelDbWriter, "_newest_sequence", lambda self, key: 10**6)
+    # A stored version with the batch's own sequence would be ambiguous for the
+    # engine, so it must be refused just like a newer one.
+    monkeypatch.setattr(LevelDbWriter, "_newest_sequence", lambda self, key: self._last_sequence + 1 + ahead)
     writer = LevelDbWriter(str(path))
     try:
         with pytest.raises(CorruptDatabaseError, match="neuer als die MANIFEST-Sequenz"):
