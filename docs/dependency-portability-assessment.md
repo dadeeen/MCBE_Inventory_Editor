@@ -8,15 +8,19 @@ free-threaded CPython and alternative interpreters require separate validation.
 - `mcbe_editor/nbt.py` implements the binary NBT types and operations used by
   the editor with the Python standard library. Amulet-NBT, NumPy and
   Amulet-MUTF8 are not runtime dependencies.
-- **Amulet-LevelDB 1.0.6** is the Bedrock-compatible native storage engine.
-  Its unmodified upstream source builds on Python 3.13/3.14 with the locked
-  Cython 3.2.4 toolchain. Write locks, backups, atomic batches and rollback
-  checks surround native database writes.
-- Windows x64 runtime packages include separately built and tested LevelDB
-  wheels for Python 3.13/3.14. Setup validates their provenance, source/build
-  hashes and license notices before installation. Existing supported virtual
-  environments are retained. See [development.md](development.md) for the
-  supported source-build and release procedures.
+- `mcbe_editor/leveldb_readonly.py` and `mcbe_editor/leveldb_writer.py` read
+  and write Bedrock's LevelDB with the standard library. The writer appends
+  atomic batches to a new write-ahead log, which Minecraft integrates when it
+  next opens the world; see [the writer design](leveldb-writer.md). Write locks,
+  backups and rollback checks surround database writes.
+- **Amulet-LevelDB 1.0.6** serves as the native reference engine for tests;
+  application code does not import it at runtime. It is included in the locks.
+  The Windows x64 runtime packages include separately
+  built and tested LevelDB wheels for Python 3.13/3.14. Setup validates their
+  provenance, source/build hashes and license notices before installation.
+  Existing supported virtual environments are retained. See
+  [development.md](development.md) for the supported source-build and release
+  procedures.
 - Requirement sources and hash-locked outputs are under `requirements/`.
   Canonical lock generation uses Python 3.12. Docker uses a pinned
   Python 3.12 base image; CI checks Python 3.12–3.14 on Windows and Linux.

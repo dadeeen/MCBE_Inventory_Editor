@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from .leveldb_readonly import ReadonlyLevelDbAdapter
+from .leveldb_writer import LevelDbWriter
 from .service_errors import LevelDbPermissionError
 
 __all__ = [
@@ -18,32 +19,12 @@ __all__ = [
 LOGGER = logging.getLogger(__name__)
 
 _registered_write_guard: Callable[[str], None] | None = None
-_PERMISSION_ERROR_MARKERS = (
-    "permission denied",
-    "operation not permitted",
-    "access is denied",
-    "access denied",
-    "zugriff verweigert",
-)
-
-
-def _native_error_text(exc: Exception) -> str:
-    """Decode native LevelDB byte messages without leaking their repr syntax."""
-
-    parts = []
-    for value in exc.args or (exc,):
-        if isinstance(value, bytes):
-            parts.append(value.decode("utf-8", errors="replace"))
-        else:
-            parts.append(str(value))
-    return " ".join(parts)
 
 
 def _raise_translated_permission_error(exc: Exception, *, operation: str, db_path: str) -> None:
-    """Raise a stable PermissionError only for native access-denied failures."""
+    """Raise a stable service error for operating-system access-denied failures."""
 
-    message = _native_error_text(exc).casefold()
-    if isinstance(exc, PermissionError) or any(marker in message for marker in _PERMISSION_ERROR_MARKERS):
+    if isinstance(exc, PermissionError) and not isinstance(exc, LevelDbPermissionError):
         raise LevelDbPermissionError(operation=operation, db_path=db_path) from exc
 
 
@@ -75,11 +56,11 @@ def _runtime_app_modules():
 def _run_runtime_leveldb_write_guard(action_label: str = "LevelDB-Schreiben") -> None:
     """Run the Flask app's final write gate before mutating LevelDB access.
 
-    Opening amulet-leveldb is not a pure read operation for Bedrock worlds: the
-    engine can acquire LOCK and replay/refresh LevelDB metadata.  Therefore the
-    web app must run the same final write gate before constructing the mutating
-    adapter as it runs before put().  Non-web tools keep the historical behavior
-    because no runtime Flask app module with the guard is loaded there.
+    Opening the writable adapter takes the database locks, which keeps Minecraft
+    or a server from opening the world during the session.  Therefore the web
+    app must run the same final write gate before constructing the adapter as it
+    runs before put().  Non-web tools keep the historical behavior because no
+    runtime Flask app module with the guard is loaded there.
     """
 
     # Modul-Lookup zuerst: Tests ersetzen sys.modules["main"] gezielt, und der
@@ -128,22 +109,18 @@ def close_db_preserving_active_exception(db: BedrockDb | None, *, context: str) 
 
 
 class LevelDbAdapter:
-    """Thin wrapper around amulet-leveldb (Mojang's custom LevelDB fork).
+    """Write session on a Bedrock world database with the app's write gates.
 
-    Python 3.12 can use published wheels. Windows releases bundle wheels for
-    3.13/3.14; source builds use the project’s hash-locked Cython toolchain.
+    Storage is handled by the pure-Python ``LevelDbWriter``: it locks the
+    database like Mojang's engine and appends each batch atomically to a new
+    write-ahead log that Minecraft integrates on its next open.
     """
 
     def __init__(self, db_path: str):
         _run_runtime_leveldb_write_guard("LevelDB-Öffnen")
-        try:
-            import leveldb
-        except ImportError as exc:
-            raise RuntimeError("Abhängigkeit fehlt: 'amulet-leveldb'. Installiere es mit: pip install amulet-leveldb") from exc
-
         self._db_path = str(db_path)
         try:
-            self._db = leveldb.LevelDB(db_path)
+            self._db = LevelDbWriter(self._db_path)
         except Exception as exc:
             _raise_translated_permission_error(exc, operation="Öffnen", db_path=self._db_path)
             raise
@@ -166,7 +143,7 @@ class LevelDbAdapter:
     def put_batch(self, data: dict[bytes, bytes | None]) -> None:
         _run_runtime_leveldb_write_guard("LevelDB-Batch-Schreiben")
         try:
-            self._db.putBatch(data)
+            self._db.put_batch(data)
         except Exception as exc:
             _raise_translated_permission_error(exc, operation="Batch-Schreiben", db_path=self._db_path)
             raise
@@ -179,4 +156,4 @@ class LevelDbAdapter:
             raise
 
     def iter_items(self):
-        return self._db.items()
+        return self._db.iter_items()

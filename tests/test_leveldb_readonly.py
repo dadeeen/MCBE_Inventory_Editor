@@ -190,10 +190,11 @@ def test_valid_fragmented_log_record_is_joined():
 def test_manifest_tracks_prev_log_number():
     manifest = _log_record(_varint(_TAG_LOG_NUMBER) + _varint(7) + _varint(_TAG_PREV_LOG_NUMBER) + _varint(6))
 
-    _files, log_number, prev_log_number = _parse_manifest(manifest)
+    state = _parse_manifest(manifest)
 
-    assert log_number == 7
-    assert prev_log_number == 6
+    assert state.log_number == 7
+    assert state.prev_log_number == 6
+    assert state.next_file_number is None and state.last_sequence is None
 
 
 def test_prev_log_number_is_replayed(tmp_path):

@@ -1,10 +1,10 @@
 """Pure-Python readonly reader for Mojang's Bedrock LevelDB fork.
 
-Opening a LevelDB with the real engine (amulet-leveldb) always mutates the
-database directory: it acquires the LOCK file, replays the write-ahead log and
-writes a fresh MANIFEST/CURRENT.  This module parses the on-disk format
-directly and never writes a single byte, so worlds can be inspected while the
-Bedrock server is running or on read-only media.
+Opening a LevelDB with a native engine (Minecraft's own or amulet-leveldb)
+always mutates the database directory: it acquires the LOCK file, replays the
+write-ahead log and writes a fresh MANIFEST/CURRENT.  This module parses the
+on-disk format directly and never writes a single byte, so worlds can be
+inspected while the Bedrock server is running or on read-only media.
 
 Supported on-disk features:
 
@@ -23,7 +23,7 @@ Limitations (by design):
 
 * No LOCK handling: reading while another process is actively writing can
   observe a torn state.  Callers should treat results as a best-effort
-  snapshot; the write path of this project keeps using amulet-leveldb.
+  snapshot; the write path (``leveldb_writer``) takes the database locks.
 * Blocks are limited to 64 MiB stored/decompressed; the combined MANIFEST/WAL
   input is limited to 256 MiB per reader. Larger inputs fail explicitly.
 """
@@ -40,6 +40,7 @@ import re
 import struct
 import sys
 import zlib
+from typing import NamedTuple
 
 LOGGER = logging.getLogger(__name__)
 
@@ -170,14 +171,29 @@ def _split_internal_key(internal_key: bytes) -> tuple[bytes, int, int]:
     return user_key, tail >> 8, entry_type
 
 
-def _iter_log_records(data: bytes, *, recover_tail: bool = False):
+class LogTail:
+    """Where a tolerated incomplete or damaged log tail was discarded."""
+
+    def __init__(self) -> None:
+        self.discarded_at: int | None = None
+
+    def discard(self, offset: int, message: str) -> None:
+        LOGGER.warning(message, offset)
+        if self.discarded_at is None:
+            self.discarded_at = offset
+
+
+def _iter_log_records(data: bytes, *, recover_tail: bool = False, tail: LogTail | None = None):
     """Join log fragments; optionally discard a damaged final WAL record.
 
     Unlike native non-paranoid recovery, do not skip damaged blocks to look
     for later records. Only the newest WAL opts in to damaged physical-tail
     recovery. Unfinished logical fragments follow native recovery in every log.
+    ``tail`` records the offset of a discarded tail for callers that must not
+    build on top of it.
     """
 
+    tail = tail if tail is not None else LogTail()
     fragments: list[bytes] = []
     fragment_start = 0
     offset = 0
@@ -198,14 +214,14 @@ def _iter_log_records(data: bytes, *, recover_tail: bool = False):
                 # A partial write can end inside a physical record, but a
                 # record can never legitimately cross a 32 KiB block boundary.
                 if recover_tail and recoverable_type and block_end == length and payload_end <= offset + _LOG_BLOCK_SIZE:
-                    LOGGER.warning("Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.", fragment_start if fragments else pos)
+                    tail.discard(fragment_start if fragments else pos, "Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.")
                     return
                 raise CorruptDatabaseError("Log-Record ragt über die Blockgrenze hinaus.")
             payload = data[payload_start:payload_end]
             actual_crc = _mask_crc32c(_crc32c(bytes((rec_type,)) + payload))
             if expected_crc != actual_crc:
                 if recover_tail and recoverable_type and payload_end == length:
-                    LOGGER.warning("CRC-fehlerhafter WAL-Schlussrecord ab Byte %d verworfen.", fragment_start if fragments else pos)
+                    tail.discard(fragment_start if fragments else pos, "CRC-fehlerhafter WAL-Schlussrecord ab Byte %d verworfen.")
                     return
                 raise CorruptDatabaseError("Log-Record-CRC ist ungültig.")
             if rec_type == _RECORD_FULL:
@@ -231,33 +247,53 @@ def _iter_log_records(data: bytes, *, recover_tail: bool = False):
                 raise CorruptDatabaseError(f"Unbekannter Log-Record-Typ: {rec_type}")
             pos = payload_end
         if recover_tail and block_end == length and 0 < block_end - pos < 7 and any(data[pos:block_end]):
-            LOGGER.warning("Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.", fragment_start if fragments else pos)
+            tail.discard(fragment_start if fragments else pos, "Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.")
             return
         offset += _LOG_BLOCK_SIZE
     if recover_tail and fragments:
-        LOGGER.warning("Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.", fragment_start)
+        tail.discard(fragment_start, "Unvollständiger WAL-Schlussrecord ab Byte %d verworfen.")
 
 
-def _parse_manifest(data: bytes) -> tuple[dict[int, dict[int, tuple[bytes, bytes]]], int, int | None]:
-    """Replay all VersionEdits; return live files per level and the WAL number."""
+class Manifest(NamedTuple):
+    """Database state after replaying every VersionEdit of a MANIFEST.
+
+    Counters that no VersionEdit recorded stay ``None``; the reader does not
+    need them, but a writer must not guess them.
+    """
+
+    files: dict[int, dict[int, tuple[bytes, bytes]]]
+    log_number: int
+    prev_log_number: int | None
+    next_file_number: int | None
+    last_sequence: int | None
+    comparator: bytes | None
+
+
+def _parse_manifest(data: bytes) -> Manifest:
+    """Replay all VersionEdits; return live files per level and the counters."""
 
     files: dict[int, dict[int, tuple[bytes, bytes]]] = {}
     log_number = 0
     prev_log_number = None
+    next_file_number = None
+    last_sequence = None
+    comparator = None
     for record in _iter_log_records(data):
         pos = 0
         while pos < len(record):
             tag, pos = _decode_varint(record, pos)
             if tag == _TAG_COMPARATOR:
-                _, pos = _decode_length_prefixed(record, pos)
+                comparator, pos = _decode_length_prefixed(record, pos)
             elif tag in (_TAG_LOG_NUMBER, _TAG_PREV_LOG_NUMBER):
                 value, pos = _decode_varint(record, pos)
                 if tag == _TAG_LOG_NUMBER:
                     log_number = value
                 else:
                     prev_log_number = value
-            elif tag in (_TAG_NEXT_FILE_NUMBER, _TAG_LAST_SEQUENCE):
-                _, pos = _decode_varint(record, pos)
+            elif tag == _TAG_NEXT_FILE_NUMBER:
+                next_file_number, pos = _decode_varint(record, pos)
+            elif tag == _TAG_LAST_SEQUENCE:
+                last_sequence, pos = _decode_varint(record, pos)
             elif tag == _TAG_COMPACT_POINTER:
                 _, pos = _decode_varint(record, pos)
                 _, pos = _decode_length_prefixed(record, pos)
@@ -274,7 +310,7 @@ def _parse_manifest(data: bytes) -> tuple[dict[int, dict[int, tuple[bytes, bytes
                 files.setdefault(level, {})[file_no] = (smallest, largest)
             else:
                 raise CorruptDatabaseError(f"Unbekannter VersionEdit-Tag: {tag}")
-    return files, log_number, prev_log_number
+    return Manifest(files, log_number, prev_log_number, next_file_number, last_sequence, comparator)
 
 
 def _decompress_block(raw: bytes) -> bytes:
@@ -421,11 +457,21 @@ class _Table:
         return best
 
 
-def _replay_wal(data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, recover_tail: bool = False) -> None:
-    for record in _iter_log_records(data, recover_tail=recover_tail):
+def _replay_wal(
+    data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, recover_tail: bool = False, tail: LogTail | None = None
+) -> int:
+    """Apply every WAL batch to ``memtable``; return the newest sequence used."""
+
+    last_sequence = 0
+    for record in _iter_log_records(data, recover_tail=recover_tail, tail=tail):
         if len(record) < 12:
             raise CorruptDatabaseError("WAL-Batch ist zu kurz.")
         sequence, count = struct.unpack_from("<QI", record, 0)
+        if sequence + count - 1 > _MAX_SEQUENCE:
+            raise CorruptDatabaseError("WAL-Batch überschreitet den Sequenzbereich.")
+        # Native recovery tracks Sequence + Count - 1 per batch, including
+        # empty batches that only move the counter.
+        last_sequence = max(last_sequence, sequence + count - 1)
         pos = 12
         for i in range(count):
             if pos >= len(record):
@@ -445,6 +491,7 @@ def _replay_wal(data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, r
                 memtable[key] = (entry_sequence, entry_type, value)
         if pos != len(record):
             raise CorruptDatabaseError("Ungültige Eintragsanzahl im WAL-Batch.")
+    return last_sequence
 
 
 class ReadonlyLevelDbAdapter:
@@ -469,7 +516,9 @@ class ReadonlyLevelDbAdapter:
             manifest_name = handle.read(4096).decode("utf-8", errors="strict").strip()
         if not re.fullmatch(r"MANIFEST-\d{6,}", manifest_name):
             raise CorruptDatabaseError(f"Ungültiger CURRENT-Inhalt: {manifest_name!r}")
-        self._files, log_number, prev_log_number = _parse_manifest(self._read_metadata(os.path.join(db_path, manifest_name)))
+        self._manifest_name = manifest_name
+        self._manifest = _parse_manifest(self._read_metadata(os.path.join(db_path, manifest_name)))
+        self._files = self._manifest.files
 
         self._memtable: dict[bytes, tuple[int, int, bytes]] = {}
         wal_files = []
@@ -478,13 +527,23 @@ class ReadonlyLevelDbAdapter:
             if not match:
                 continue
             file_number = int(match.group(1))
-            if file_number < log_number and file_number != prev_log_number:
+            if file_number < self._manifest.log_number and file_number != self._manifest.prev_log_number:
                 continue
             wal_files.append((file_number, filename))
-        for index, (_file_number, filename) in enumerate(sorted(wal_files)):
-            _replay_wal(
-                self._read_metadata(os.path.join(db_path, filename)), self._memtable,
-                recover_tail=index == len(wal_files) - 1,
+        wal_files.sort()
+        self._wal_names = [filename for _file_number, filename in wal_files]
+        # Newest sequence in the MANIFEST or any replayed batch; a writer must
+        # continue after it so its values shadow every older version.
+        self._last_sequence = self._manifest.last_sequence or 0
+        self._wal_tail = LogTail()
+        for index, filename in enumerate(self._wal_names):
+            newest = index == len(self._wal_names) - 1
+            self._last_sequence = max(
+                self._last_sequence,
+                _replay_wal(
+                    self._read_metadata(os.path.join(db_path, filename)), self._memtable,
+                    recover_tail=newest, tail=self._wal_tail if newest else None,
+                ),
             )
 
     def _read_metadata(self, path: str) -> bytes:
@@ -573,6 +632,21 @@ class ReadonlyLevelDbAdapter:
                     raise KeyError(key)
                 return best[2]
         raise KeyError(key)
+
+    def _newest_sequence(self, key: bytes) -> int | None:
+        """Return the highest sequence of any stored version or tombstone of ``key``."""
+
+        sequences = []
+        entry = self._memtable.get(key)
+        if entry is not None:
+            sequences.append(entry[0])
+        for files in self._files.values():
+            for file_no, (smallest, largest) in files.items():
+                if _split_internal_key(smallest)[0] <= key <= _split_internal_key(largest)[0]:
+                    found = self._table(file_no).get(key)
+                    if found is not None:
+                        sequences.append(found[0])
+        return max(sequences, default=None)
 
     def put(self, key: bytes, value: bytes) -> None:
         raise RuntimeError("Diese Datenbank ist im Readonly-Modus geöffnet; Schreiben ist nicht möglich.")

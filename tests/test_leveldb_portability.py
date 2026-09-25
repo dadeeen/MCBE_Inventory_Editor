@@ -1,4 +1,4 @@
-"""Real-engine persistence, batch and lock checks on every supported runtime."""
+"""Checks against the native reference engine (amulet-leveldb), when installed."""
 
 import os
 import subprocess
@@ -8,6 +8,8 @@ import pytest
 
 from mcbe_editor.db import LevelDbAdapter
 from mcbe_editor.leveldb_readonly import ReadonlyLevelDbAdapter
+
+leveldb = pytest.importorskip("leveldb", reason="amulet-leveldb reference engine is not installed")
 
 
 @pytest.fixture(autouse=True)
@@ -19,8 +21,6 @@ def _offline_disposable_databases(monkeypatch):
 
 
 def test_native_batch_persists_deletes_and_unrelated_records(tmp_path):
-    import leveldb
-
     path = tmp_path / "db"
     seed = leveldb.LevelDB(str(path), True)
     seed.putBatch({b"untouched": b"\x00\xffopaque", b"deleted": b"old", b"updated": b"old"})
@@ -40,8 +40,6 @@ def test_native_batch_persists_deletes_and_unrelated_records(tmp_path):
 
 
 def test_native_lock_rejects_a_second_process(tmp_path):
-    import leveldb
-
     path = tmp_path / "db"
     db = leveldb.LevelDB(str(path), True)
     try:

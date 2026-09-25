@@ -284,11 +284,11 @@ def test_leveldb_adapter_runs_runtime_final_write_guard_before_open_and_put(monk
         def close(self):
             calls.append(("close",))
 
-        def items(self):
+        def iter_items(self):
             return iter(())
 
     fake_db = FakeDb()
-    monkeypatch.setitem(sys.modules, "leveldb", SimpleNamespace(LevelDB=lambda _path: fake_db))
+    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", lambda _path: fake_db)
     monkeypatch.setitem(
         sys.modules,
         "main",
@@ -322,10 +322,10 @@ def test_leveldb_adapter_uses_dunder_main_runtime_guard(monkeypatch):
         def close(self):
             pass
 
-        def items(self):
+        def iter_items(self):
             return iter(())
 
-    monkeypatch.setitem(sys.modules, "leveldb", SimpleNamespace(LevelDB=lambda _path: FakeDb()))
+    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", lambda _path: FakeDb())
     monkeypatch.delitem(sys.modules, "main", raising=False)
     monkeypatch.setitem(
         sys.modules,
@@ -361,10 +361,10 @@ def test_leveldb_adapter_uses_registered_runtime_guard_without_app_module(monkey
         def close(self):
             pass
 
-        def items(self):
+        def iter_items(self):
             return iter(())
 
-    monkeypatch.setitem(sys.modules, "leveldb", SimpleNamespace(LevelDB=lambda _path: FakeDb()))
+    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", lambda _path: FakeDb())
     # App läuft unter fremdem Modulnamen: weder main noch __main__ tragen den Guard.
     monkeypatch.delitem(sys.modules, "main", raising=False)
     monkeypatch.setitem(sys.modules, "__main__", SimpleNamespace())
@@ -403,14 +403,14 @@ def test_leveldb_adapter_does_not_open_when_runtime_final_write_guard_blocks(mon
         def close(self):
             pass
 
-        def items(self):
+        def iter_items(self):
             return iter(())
 
     def blocked_guard(_label):
         calls.append(("guard",))
         raise ValueError("final gate blocked")
 
-    monkeypatch.setitem(sys.modules, "leveldb", SimpleNamespace(LevelDB=FakeDb))
+    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", FakeDb)
     monkeypatch.setitem(sys.modules, "main", SimpleNamespace(require_final_world_write_allowed=blocked_guard))
 
     with pytest.raises(ValueError, match="final gate blocked"):

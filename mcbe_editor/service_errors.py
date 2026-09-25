@@ -60,6 +60,35 @@ class LevelDbPermissionError(PermissionError):
         )
 
 
+class LevelDbInUseError(RuntimeError):
+    """Another process (or write session) holds the world database."""
+
+    def __init__(self, *, db_path: str) -> None:
+        self.db_path = db_path
+        super().__init__(
+            t(
+                "Die Welt-Datenbank wird gerade von einem anderen Programm verwendet (z. B. Minecraft, einem Bedrock-Server "
+                "oder einer weiteren Editor-Instanz). Schließe die Welt vollständig und versuche es erneut. Datenbank: {db_path}",
+                db_path=db_path,
+            )
+        )
+
+
+class LevelDbUncleanLogError(ValueError):
+    """The newest write-ahead log ends in a record a crash left incomplete."""
+
+    def __init__(self, *, db_path: str) -> None:
+        self.db_path = db_path
+        super().__init__(
+            t(
+                "Die Welt wurde nicht sauber geschlossen: Ihr Schreibprotokoll endet mit einem unvollständigen Eintrag. "
+                "Lade die Welt einmal in Minecraft oder im Bedrock-Server und beende sie sauber, bevor du sie bearbeitest. "
+                "Datenbank: {db_path}",
+                db_path=db_path,
+            )
+        )
+
+
 class PlayerImportPreviewStaleError(ValueError):
     """Signal that an import must obtain a fresh preview token."""
 

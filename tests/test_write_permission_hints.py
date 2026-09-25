@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import ast
+import errno
 import os
-import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from mcbe_editor.db import LevelDbAdapter
-from mcbe_editor.service_errors import LevelDbPermissionError, denied_write_actor, denied_write_permission_hint
+from mcbe_editor.service_errors import LevelDbInUseError, LevelDbPermissionError, denied_write_actor, denied_write_permission_hint
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,17 +47,13 @@ def test_posix_hint_names_the_effective_uid_instead_of_windows() -> None:
     assert "vollständige Befehle" in hint
 
 
-def test_native_leveldb_permission_error_becomes_stable_service_error() -> None:
-    class NativeLevelDbError(Exception):
-        pass
-
+def test_leveldb_permission_error_becomes_stable_service_error() -> None:
     def refuse_open(_path):
-        raise NativeLevelDbError(b"IO error: /worlds/Test/db/LOCK: Permission denied")
+        raise PermissionError(errno.EACCES, "Permission denied", "/worlds/Test/db/LOCK")
 
-    fake_leveldb = SimpleNamespace(LevelDB=refuse_open)
     name_patch, uid_patch, gid_patch = _as_posix_container()
     with (
-        patch.dict(sys.modules, {"leveldb": fake_leveldb}),
+        patch("mcbe_editor.db.LevelDbWriter", refuse_open),
         patch("mcbe_editor.db._run_runtime_leveldb_write_guard"),
         name_patch,
         uid_patch,
@@ -70,39 +65,33 @@ def test_native_leveldb_permission_error_becomes_stable_service_error() -> None:
     message = str(raised.value)
     assert "UID/GID 10001/10001" in message
     assert "/worlds/Test/db" in message
-    assert "b'IO error" not in message
+    assert "Errno" not in message
 
 
-def test_native_leveldb_non_permission_error_keeps_its_original_type() -> None:
-    class NativeLevelDbError(Exception):
-        pass
-
-    expected = NativeLevelDbError(b"IO error: lock already held by process")
+def test_leveldb_in_use_error_is_not_reported_as_a_permission_problem() -> None:
+    expected = LevelDbInUseError(db_path="/worlds/Test/db")
 
     def refuse_open(_path):
         raise expected
 
     with (
-        patch.dict(sys.modules, {"leveldb": SimpleNamespace(LevelDB=refuse_open)}),
+        patch("mcbe_editor.db.LevelDbWriter", refuse_open),
         patch("mcbe_editor.db._run_runtime_leveldb_write_guard"),
-        pytest.raises(NativeLevelDbError) as raised,
+        pytest.raises(LevelDbInUseError) as raised,
     ):
         LevelDbAdapter("/worlds/Test/db")
 
     assert raised.value is expected
 
 
-def test_native_leveldb_permission_error_during_write_uses_the_same_translation() -> None:
-    class NativeLevelDbError(Exception):
-        pass
-
+def test_leveldb_permission_error_during_write_uses_the_same_translation() -> None:
     class FakeDb:
         def put(self, _key, _value):
-            raise NativeLevelDbError("IO error: Access is denied")
+            raise PermissionError(errno.EACCES, "Access is denied", "/worlds/Test/db/000007.log")
 
     name_patch, uid_patch, gid_patch = _as_posix_container()
     with (
-        patch.dict(sys.modules, {"leveldb": SimpleNamespace(LevelDB=lambda _path: FakeDb())}),
+        patch("mcbe_editor.db.LevelDbWriter", lambda _path: FakeDb()),
         patch("mcbe_editor.db._run_runtime_leveldb_write_guard"),
         name_patch,
         uid_patch,
