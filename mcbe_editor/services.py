@@ -77,6 +77,7 @@ from .players import (
     decode_player_key,
     encode_player_key,
     evaluate_player_import_preview,
+    localize_player_labels,
     player_preview_from_bytes,
     read_player_export,
     snapshot_player_export_for_import,
@@ -209,6 +210,7 @@ class BedrockEditorService:
         and saving each need the list.  A reader that can identify its on-disk
         state (``content_token``) lets later calls reuse the list; any change by
         Minecraft, a server or this editor changes the token and scans again.
+        A reused list gets the local player's label in the current language.
         """
 
         token_of = getattr(db, "content_token", None)
@@ -223,7 +225,7 @@ class BedrockEditorService:
                 cached = self._player_lists.get(token[0])
                 if cached is not None and cached[0] == token:
                     self._player_lists.move_to_end(token[0])
-                    return copy.deepcopy(cached[1])
+                    return localize_player_labels(copy.deepcopy(cached[1]))
         players = PlayerScanner(db).list_players()
         if token is not None:
             with self._player_lists_guard:

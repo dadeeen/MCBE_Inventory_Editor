@@ -301,6 +301,28 @@ def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: b
     }
 
 
+def localize_player_labels(players: list[dict]) -> list[dict]:
+    """Label the local player in the active request's language.
+
+    Of all key labels only the local player's is translated (see
+    ``_safe_key_label``); the others are the key itself.  A player list reused
+    across requests passes through here so it does not keep the language of the
+    request that scanned it.
+    """
+
+    local_keys = {encode_player_key(key) for key in LOCAL_PLAYER_KEY_ALIASES}
+    label = _safe_key_label(LOCAL_PLAYER_KEY)
+    for player in players:
+        if player.get("player_key") not in local_keys:
+            continue
+        player["label"] = label
+        player["raw_key_preview"] = label
+        debug = player.get("debug")
+        if isinstance(debug, dict) and "key_label" in debug:
+            debug["key_label"] = label
+    return players
+
+
 class PlayerScanner:
     def __init__(self, db):
         self.db = db

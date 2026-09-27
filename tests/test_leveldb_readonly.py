@@ -648,6 +648,32 @@ class ServiceReadonlyIntegrationTests(unittest.TestCase):
             self.assertEqual(scans.call_count, 2)
             self.assertEqual(len(changed["players"]), 2)
 
+    def test_reused_player_list_speaks_the_language_of_each_request(self):
+        flask = pytest.importorskip("flask")
+        from mcbe_editor.services import BedrockEditorService
+
+        server_key = "player_server_11111111-2222-3333-4444-555555555555"
+        db = leveldb.LevelDB(os.path.join(self.world_path, "db"))
+        try:
+            db.put(server_key.encode("ascii"), db.get(b"~local_player"))
+        finally:
+            db.close()
+        app = flask.Flask(__name__)
+        service = BedrockEditorService({}, {})
+
+        def labels(language):
+            with app.test_request_context("/", headers={"Accept-Language": language}):
+                players = service.list_players(self.world_path)["players"]
+            return [(player["label"], player["raw_key_preview"], player["debug"]["key_label"]) for player in players]
+
+        english = [("Local player",) * 3, (server_key,) * 3]
+        german = [("Lokaler Spieler",) * 3, (server_key,) * 3]
+        with self._counting_player_scans() as scans:
+            self.assertEqual(labels("en"), english)
+            self.assertEqual(labels("de"), german)
+            self.assertEqual(labels("en"), english)
+        self.assertEqual(scans.call_count, 1)
+
     def test_readers_that_cannot_identify_their_state_are_scanned_every_time(self):
         from mcbe_editor.leveldb_readonly import ReadonlyLevelDbAdapter as RealReadonlyAdapter
         from mcbe_editor.services import BedrockEditorService
