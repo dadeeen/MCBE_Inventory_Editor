@@ -197,6 +197,40 @@ def test_writer_view_matches_a_fresh_reader_after_every_batch(tmp_path):
         writer.close()
 
 
+def _reader_token(path: Path) -> tuple:
+    reader = ReadonlyLevelDbAdapter(str(path))
+    try:
+        return reader.content_token()
+    finally:
+        reader.close()
+
+
+def test_every_written_batch_changes_the_state_a_new_reader_reports(tmp_path):
+    # The service reuses its player list while this token is unchanged.
+    path = _new_db(tmp_path)
+    _write(path, {b"player": b"one"})
+    before = _reader_token(path)
+    _write(path)  # a session without batches leaves the world as it was
+    assert _reader_token(path) == before
+    _write(path, {b"player": b"one"})  # same value, new record
+    after_rewrite = _reader_token(path)
+    assert after_rewrite != before
+    _write(path, {b"player": None})
+    assert _reader_token(path) != after_rewrite
+
+
+def test_a_write_session_offers_no_player_list_cache_key(tmp_path):
+    # The inherited reader key would still describe the state before its batches.
+    path = _new_db(tmp_path)
+    writer = LevelDbWriter(str(path))
+    try:
+        assert writer.content_token() is None
+        writer.put_batch({b"player": b"value"})
+        assert writer.content_token() is None
+    finally:
+        writer.close()
+
+
 # --- Refusals -------------------------------------------------------------
 
 

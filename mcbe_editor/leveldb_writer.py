@@ -468,6 +468,11 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
             # checks; the engine that wrote it must recover it first.
             raise LevelDbUncleanLogError(db_path=self._db_path)
 
+    def content_token(self) -> None:  # type: ignore[override]
+        """Offer no cache key: this session's own batches change the state it opened."""
+
+        return None
+
     def put(self, key: bytes, value: bytes) -> None:
         if value is None:
             raise TypeError("LevelDB-Werte müssen Bytes sein.")
