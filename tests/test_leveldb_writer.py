@@ -94,6 +94,111 @@ def _logs(path: Path) -> list[str]:
     return sorted(name for name in os.listdir(path) if name.endswith(".log"))
 
 
+def _content_token(path):
+    reader = ReadonlyLevelDbAdapter(str(path))
+    try:
+        return reader.content_token()
+    finally:
+        reader.close()
+
+
+@pytest.mark.parametrize("value_size", [1, 100_000])
+def test_committed_changes_match_fresh_readers_across_batches_and_sessions(tmp_path, value_size):
+    path = _new_db(tmp_path)
+    _write(path, {b"old": b"original"})
+    before = _content_token(path)
+    for _session in range(2):
+        writer = LevelDbWriter(str(path))
+        try:
+            assert writer.content_token() is None
+            assert writer.committed_change() is None
+            for entries in ({b"new": b"x" * value_size, b"old": None}, {b"old": b"restored"}):
+                writer.put_batch(entries)
+                change = writer.committed_change()
+                assert change.before == before
+                assert dict(change.entries) == entries
+                assert change.after == _content_token(path)
+                assert writer.content_token() is None
+                before = change.after
+        finally:
+            writer.close()
+        assert writer.committed_change() is None
+    assert _read_all(path) == {b"new": b"x" * value_size, b"old": b"restored"}
+
+
+def test_failed_append_cannot_return_previous_successful_change(tmp_path, monkeypatch):
+    path = _new_db(tmp_path)
+    writer = LevelDbWriter(str(path))
+    try:
+        writer.put(b"key", b"old")
+        assert writer.committed_change() is not None
+
+        def fail(_framed):
+            raise OSError("append failed")
+
+        monkeypatch.setattr(writer._resources.log, "append", fail)
+        with pytest.raises(OSError, match="append failed"):
+            writer.put(b"key", b"new")
+        assert writer.committed_change() is None
+    finally:
+        writer.close()
+    assert _read_all(path) == {b"key": b"old"}
+
+
+@pytest.mark.parametrize("error_type", [OSError, MemoryError])
+def test_unavailable_state_evidence_does_not_fail_writes(tmp_path, monkeypatch, error_type):
+    path = _new_db(tmp_path)
+    writer = LevelDbWriter(str(path))
+    try:
+        def unavailable(_reader):
+            raise error_type("state unavailable")
+
+        monkeypatch.setattr(ReadonlyLevelDbAdapter, "content_token", unavailable)
+        writer.put(b"key", b"saved")
+        assert writer.committed_change() is None
+        writer.put(b"key", b"saved again")
+        assert writer.committed_change() is None
+    finally:
+        writer.close()
+    assert _read_all(path) == {b"key": b"saved again"}
+
+
+def test_receipt_allocation_failure_does_not_fail_a_committed_write(tmp_path, monkeypatch):
+    path = _new_db(tmp_path)
+    writer = LevelDbWriter(str(path))
+    try:
+        def exhausted(*_args):
+            raise MemoryError("receipt allocation")
+
+        monkeypatch.setattr(leveldb_writer, "CommittedDbChange", exhausted)
+        writer.put(b"key", b"saved")
+        assert writer.committed_change() is None
+        assert writer.get(b"key") == b"saved"
+    finally:
+        writer.close()
+    assert _read_all(path) == {b"key": b"saved"}
+
+
+def test_wal_digest_allocation_failure_disables_evidence_without_failing_the_write(tmp_path, monkeypatch):
+    path = _new_db(tmp_path)
+    writer = LevelDbWriter(str(path))
+    try:
+        def exhausted(*_args, **_kwargs):
+            raise MemoryError("optional digest allocation")
+
+        with monkeypatch.context() as patcher:
+            patcher.setattr(leveldb_writer.hashlib, "blake2b", exhausted)
+            writer.put(b"key", b"saved")
+        assert writer.committed_change() is None
+        assert writer.get(b"key") == b"saved"
+        writer.put(b"key", b"saved again")
+        # There is no certified pre-state for this batch after the missing digest.
+        assert writer.committed_change() is None
+    finally:
+        writer.close()
+    assert _read_all(path) == {b"key": b"saved again"}
+
+
 def _manifest(*fields: bytes) -> bytes:
     return frame_log_record(b"".join(fields), 0)
 

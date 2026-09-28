@@ -1262,7 +1262,7 @@ class ServiceTests(unittest.TestCase):
             service = BedrockEditorService(ITEMS, ENCHANTMENTS, db_factory=FailingCloseDb)
 
             with (
-                patch.object(service, "_get_player_info", side_effect=ValueError("original read failure")),
+                patch.object(service, "_read_player", side_effect=ValueError("original read failure")),
                 self.assertRaisesRegex(ValueError, "original read failure"),
             ):
                 service.load_player(str(world), encode_player_key(LOCAL_PLAYER_KEY))

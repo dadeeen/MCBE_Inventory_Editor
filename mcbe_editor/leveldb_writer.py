@@ -35,6 +35,7 @@ Nothing is compacted here; the world's own engine does that on its next open.
 from __future__ import annotations
 
 import errno
+import hashlib
 import os
 import re
 import stat
@@ -46,6 +47,7 @@ from contextlib import suppress
 from types import ModuleType
 from typing import BinaryIO, NoReturn
 
+from .db_state import CommittedDbChange
 from .i18n import t
 from .leveldb_readonly import (
     _LOG_BLOCK_SIZE,
@@ -398,8 +400,10 @@ class _SessionLog:
         self._handle: BinaryIO = open(path, "xb", buffering=0)  # noqa: SIM115
         self.size = 0
         self.records: list[bytes] = []
+        self.verified_digest: bytes | None = None
 
     def append(self, framed: bytes) -> None:
+        self.verified_digest = None
         view = memoryview(framed)
         while view:
             written = self._handle.write(view)
@@ -414,6 +418,10 @@ class _SessionLog:
             data = handle.read()
         if len(data) != self.size or list(_iter_log_records(data)) != expected_records:
             raise CorruptDatabaseError("Die geschriebene Log-Datei weicht vom Schreibauftrag ab.")
+        # Optional cache evidence, calculated from the already verified bytes.
+        # Allocation failure must not change the outcome of the actual write.
+        with suppress(MemoryError):
+            self.verified_digest = hashlib.blake2b(data, digest_size=16).digest()
 
     def truncate(self, size: int) -> None:
         self._handle.truncate(size)
@@ -450,6 +458,8 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
         db_path = str(db_path)
         self._write_lock = threading.Lock()
         self._failed = False
+        self._expected_token: tuple | None = None
+        self._last_change: CommittedDbChange | None = None
         resources = _SessionResources(_DatabaseAccess(db_path))
         self._resources = resources
         self._release = weakref.finalize(self, resources.release)
@@ -509,6 +519,12 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
 
         return None
 
+    def committed_change(self) -> CommittedDbChange | None:
+        """Evidence for the last successful batch, never a live reader token."""
+
+        with self._write_lock:
+            return None if self._failed or self._closed else self._last_change
+
     def put(self, key: bytes, value: bytes) -> None:
         if value is None:
             raise TypeError("LevelDB-Werte müssen Bytes sein.")
@@ -524,6 +540,7 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
                 self._append(entries)
 
     def _append(self, entries: list[tuple[bytes, bytes | None]]) -> None:
+        self._last_change = None
         if self._closed:
             raise RuntimeError("Datenbank ist geschlossen.")
         if self._failed:
@@ -554,6 +571,10 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
         framed = frame_log_record(record, start % _LOG_BLOCK_SIZE)
         if self._metadata_bytes + start + len(framed) > _MAX_METADATA_BYTES:
             raise ValueError(t("Die Änderung ist zu groß für das Schreibprotokoll der Welt."))
+        before = self._expected_token
+        if self._resources.log is None:
+            with suppress(OSError, MemoryError):
+                before = super().content_token()
         # Stays set from log creation through in-memory bookkeeping: a failure
         # can leave an unsynced log or durable records the session does not see.
         # Either way, the caller must reopen before attempting another write.
@@ -574,6 +595,17 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
                 self._memtable[key] = (sequence + offset, _TYPE_VALUE, value)
         self._last_sequence = last_sequence
         self._failed = False
+        self._expected_token = None
+        # Derive the expected state solely from the opened state and this WAL.
+        # Never reread a global fingerprint here: an unrelated external change
+        # could then be incorrectly certified as part of our batch.
+        if before is not None and log.verified_digest is not None:
+            with suppress(MemoryError):
+                name = os.path.basename(log.path)
+                metadata = tuple(entry for entry in before[1] if entry[0] != name)
+                after = (before[0], (*metadata, (name, log.size, log.verified_digest)), before[2])
+                self._last_change = CommittedDbChange(before, after, tuple(entries))
+                self._expected_token = after
 
     def _open_log(self) -> _SessionLog:
         next_file_number = self._manifest.next_file_number

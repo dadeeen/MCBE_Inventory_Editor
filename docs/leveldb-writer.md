@@ -108,6 +108,40 @@ The largest workload retains about 54.5 MiB; adjacent keys retain about 1.1 MiB.
 Single-write times of 4.3–4.9 ms show no comparable benefit. The 64 MiB limit
 applies per active writer, so concurrent worlds can use multiples of that budget.
 
+## Evidence for derived player metadata
+
+`content_token()` returns `None` on a writer. Instead, `committed_change()`
+optionally reports the last successfully committed batch as `CommittedDbChange`:
+its original reader token, expected resulting token, and immutable byte entries.
+The resulting token is derived from the original metadata/table identities and
+the digest of the new WAL bytes already checked by read-back. It never adopts
+an independently observed later world state. Failed appends offer no receipt;
+failure to allocate optional evidence does not fail an otherwise committed write.
+
+The service's separate `PlayerDirectory` can carry a discovered list forward
+only when its token matches the receipt's original state and an ordinary save
+updates one existing, recognizable player. It reclassifies that record and
+retains unchanged entries, including unusual player keys. The next reader must
+match the expected resulting token before using the list. External changes,
+recovery, restore, unknown-key saves and combined writes trigger a new discovery.
+Table tokens include file identity so replacing a table with preserved size and
+timestamps cannot reuse a list from the previous file.
+
+This metadata is only an optimization. Selected records are read and validated
+directly; revisions, write gates, backups and locked pre-write comparisons remain
+authoritative. Imports and multi-record operations do not promote the directory.
+The cache is bounded to eight worlds per service process and is not persisted.
+
+The service comparison uses CPython 3.12.14, three changed-stat saves per
+temporary world copy, and a control that disables only directory promotion.
+The OS page cache is retained. For 777,893-record worlds, median reload after
+save is 13,770 ms versus 219 ms with WAL-heavy data and 17,283 ms versus 89 ms
+with table-heavy data. The control performs one discovery scan after every save;
+the maintained directory performs none. Save time including backup is about
+1.4–1.7 seconds in both variants, without a consistent difference. Small-world reloads
+measure 46 ms versus 20 ms. Complete directory contents and unrelated records
+agree with fresh discovery and the Amulet-LevelDB 1.0.6 reference.
+
 ## Exclusive access
 
 The writable adapter must fail while Minecraft, a Bedrock server or another
@@ -162,6 +196,42 @@ empty `LOCK` file:
 
 Oversized batch payloads are rejected before encoding copies and checksum work;
 the final size check also accounts for physical record framing.
+
+## Architectural boundary
+
+This is a narrow offline editor backend, not a replacement for a general-purpose
+LevelDB engine. Keep Minecraft responsible for recovery and compaction. The
+benefit is a portable runtime and a write path that does not rewrite existing
+tables or metadata. The cost is ownership of format compatibility, corruption
+handling and regression tests; Python alone does not make storage safer.
+
+A maintained Bedrock-compatible native engine is a reasonable alternative when
+its distribution and opening behavior meet the product requirements. Performance
+alone does not justify owning another writer. The Amulet-LevelDB 1.0.6 constructor
+can invoke automatic repair after corruption, so using it requires an explicit
+repair policy and a backup boundary. If independent reference tests and Minecraft
+acceptance cannot be maintained, prefer a supported native writer with a narrower
+runtime matrix over expanding this implementation's scope.
+
+Keep the writer cache and state-checked player directory. They address repeated
+block work and repeated whole-world discovery independently. Larger caches do
+not remove first discovery, WAL replay or backup costs. Each session replays the
+WAL, and each write session adds a log until Minecraft next recovers the world.
+The 256 MiB limit applies to combined MANIFEST/WAL input, not total world size;
+Python objects and temporary buffers can use substantially more RAM. Table blocks
+have a separate 64 MiB stored/decompressed limit. These are explicit refusals,
+not silent partial reads.
+
+Do not add a second production backend, a persistent player index or a custom
+compactor without measured need. If large-WAL replay remains the dominant cost,
+profile that workload and compare an isolated native prototype using the same
+correctness tests. Moving everything to C++ or C# would retain the format and
+locking obligations while adding a new integration and distribution surface.
+
+Before merging, require the full CI matrix, native comparisons and real BDS
+reload tests; before release, repeat a Minecraft client load/save/reload on a
+disposable copy. Tests reduce risk but cannot certify every future Bedrock format.
+
 ## Validation
 
 - `tests/test_leveldb_writer.py`: framing at every block position, batch

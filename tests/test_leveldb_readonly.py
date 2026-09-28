@@ -142,6 +142,11 @@ def test_content_token_changes_exactly_when_a_file_the_reader_uses_changes(tmp_p
 
     first = token()
     assert token() == first
+    replacement = db_path / "replacement-table"
+    shutil.copy2(table, replacement)
+    os.replace(replacement, table)
+    assert token() != first  # Restore can retain file size and modification time.
+    first = token()
     # Files outside the reader's view: an obsolete log, the engine's info log.
     (db_path / "000004.log").write_bytes(_log_record(_write_batch(9, [(b"player", b"stale")])))
     (db_path / "LOG").write_text("engine info", encoding="utf-8")

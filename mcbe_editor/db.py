@@ -157,3 +157,6 @@ class LevelDbAdapter:
 
     def iter_items(self):
         return self._db.iter_items()
+
+    def committed_change(self):
+        return self._db.committed_change()

@@ -80,6 +80,12 @@ especially for large arrays. The [benchmark](nbt-performance.md) records the
 method and measured workloads; it is not an application latency guarantee.
 Template discovery filters impossible identifiers before full NBT decoding.
 
+For LevelDB, the writer's bounded block cache and the state-checked player
+directory avoid repeated block work and full player discovery after ordinary
+saves. They do not remove initial discovery, WAL replay or backups. The
+[writer design](leveldb-writer.md#architectural-boundary) describes the size
+limits, maintenance tradeoffs and criteria for considering a native backend.
+
 A separate [Minecraft acceptance experiment](mount-game-validation.md) checks
 sampled game behavior. Byte agreement between codecs alone cannot establish all
 Minecraft semantics. Finite tests do not prove every future world format,

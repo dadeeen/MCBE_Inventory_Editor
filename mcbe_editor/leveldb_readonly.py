@@ -626,7 +626,8 @@ class ReadonlyLevelDbAdapter:
         The MANIFEST and the replayed logs can change while an engine runs, so
         they count by the digest of the bytes this reader parsed.  Tables are
         immutable in LevelDB (new content gets a new file number); they count
-        by number, size and modification time.
+        by number, identity, size and modification time. File identity also
+        distinguishes a restored/replaced table whose timestamps were retained.
         """
 
         if self._content_token is None:
@@ -637,7 +638,7 @@ class ReadonlyLevelDbAdapter:
                         stat = os.stat(os.path.join(self._db_path, f"{file_no:06d}.{extension}"))
                     except FileNotFoundError:
                         continue
-                    tables.append((file_no, extension, stat.st_size, stat.st_mtime_ns))
+                    tables.append((file_no, extension, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino))
                     break
                 else:
                     tables.append((file_no, None, None, None))

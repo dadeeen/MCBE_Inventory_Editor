@@ -1,10 +1,7 @@
 import contextlib
-import copy
 import hashlib
 import logging
 import os
-import threading
-from collections import OrderedDict
 
 from mcbe_editor import nbt
 from mcbe_editor.item_availability import item_availability_client_payload
@@ -63,6 +60,7 @@ from .inventory import (
     protected_player_nbt_flags,
 )
 from .leveldb_readonly import ReadonlyLevelDbAdapter
+from .player_directory import PlayerDirectory
 from .player_state_transfer import (
     PLAYER_STATE_TRANSFER_SCHEMA_VERSION,
     build_player_state_transfer_plan,
@@ -71,13 +69,11 @@ from .player_state_transfer import (
     validate_player_state_transfer,
 )
 from .players import (
-    PlayerScanner,
     classify_player_record,
     create_player_export,
     decode_player_key,
     encode_player_key,
     evaluate_player_import_preview,
-    localize_player_labels,
     player_preview_from_bytes,
     read_player_export,
     snapshot_player_export_for_import,
@@ -107,8 +103,6 @@ from .world_locks import get_world_lock, lock_key, locked_world
 from .write_transaction import WritePlan, WriteState
 
 LOGGER = logging.getLogger(__name__)
-# Worlds whose last player list is kept for reuse while their database is unchanged.
-_PLAYER_LIST_CACHE_WORLDS = 8
 
 
 class BedrockEditorService:
@@ -123,8 +117,7 @@ class BedrockEditorService:
         self.enchantments_db = enchantments_db
         self.db_factory = db_factory
         self.readonly_db_factory = readonly_db_factory
-        self._player_lists: OrderedDict[str, tuple[tuple, list[dict]]] = OrderedDict()
-        self._player_lists_guard = threading.Lock()
+        self._player_directory = PlayerDirectory()
 
     @staticmethod
     def _lock_key(world_path: str) -> str:
@@ -204,43 +197,26 @@ class BedrockEditorService:
         )
 
     def _scan_players(self, db) -> list[dict]:
-        """Return the world's player list, reused while its database is unchanged.
+        """Get complete discovery metadata for this reader's database state."""
 
-        Finding players reads every record of the world, and listing, loading
-        and saving each need the list.  A reader that can identify its on-disk
-        state (``content_token``) lets later calls reuse the list; any change by
-        Minecraft, a server or this editor changes the token and scans again.
-        A reused list gets the local player's label in the current language.
-        """
+        return self._player_directory.list_players(db)
 
-        token_of = getattr(db, "content_token", None)
-        try:
-            token = token_of() if callable(token_of) else None
-        except OSError:
-            # The cache is an optimization only; never let it fail a listing.
-            LOGGER.warning("Datenbankzustand nicht bestimmbar; Spielerliste wird ohne Cache gelesen.", exc_info=True)
-            token = None
-        if token is not None:
-            with self._player_lists_guard:
-                cached = self._player_lists.get(token[0])
-                if cached is not None and cached[0] == token:
-                    self._player_lists.move_to_end(token[0])
-                    return localize_player_labels(copy.deepcopy(cached[1]))
-        players = PlayerScanner(db).list_players()
-        if token is not None:
-            with self._player_lists_guard:
-                self._player_lists[token[0]] = (token, copy.deepcopy(players))
-                self._player_lists.move_to_end(token[0])
-                while len(self._player_lists) > _PLAYER_LIST_CACHE_WORLDS:
-                    self._player_lists.popitem(last=False)
-        return players
-
-    def _get_player_info(self, db, player_key, *, players=None):
+    def _get_player_info(self, db, player_key, *, players=None, raw_bytes=None):
+        # Revalidate the selected record itself. Familiar player keys do not
+        # require whole-world discovery just to validate a save/export/import.
+        if raw_bytes is None:
+            raw_bytes = self._read_player(db, player_key)
+        player = classify_player_record(player_key, raw_bytes)
+        if player is not None:
+            return player
+        # Preserve bounded discovery membership for unfamiliar keys; accepting
+        # arbitrary candidate-shaped records directly would broaden selection.
         if players is None:
             players = self._scan_players(db)
         encoded_key = encode_player_key(player_key)
-        for player in players:
-            if player["player_key"] == encoded_key:
+        if any(entry["player_key"] == encoded_key for entry in players):
+            player = classify_player_record(player_key, raw_bytes, allow_unknown_key=True)
+            if player is not None:
                 return player
         raise ValueError("Der ausgewählte Datensatz wurde nicht als Spieler erkannt.")
 
@@ -413,11 +389,13 @@ class BedrockEditorService:
             try:
                 db = self._open_db_readonly(world_path)
                 player_key = decode_player_key(encoded_player_key)
-                players = self._scan_players(db)
-                player_info = self._get_player_info(db, player_key, players=players)
+                player_bytes = self._read_player(db, player_key)
+                player_info = self._get_player_info(db, player_key, raw_bytes=player_bytes)
                 if not player_info["editable"]:
                     raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")
-                player_bytes = self._read_player(db, player_key)
+                # The API still returns complete world-wide capabilities. Keep
+                # their discovery separate from validation of the chosen record.
+                players = self._scan_players(db)
                 player_named_tag = load_player_nbt(player_bytes)
                 player_tag = player_named_tag.tag
                 inventory_data, _ = nbt_to_json(player_tag)
@@ -511,10 +489,10 @@ class BedrockEditorService:
                 # initialization/locks, and back up before opening any writer.
                 db = self._open_db_readonly(world_path)
                 player_key = decode_player_key(encoded_player_key)
-                player_info = self._get_player_info(db, player_key)
+                player_bytes = self._read_player(db, player_key)
+                player_info = self._get_player_info(db, player_key, raw_bytes=player_bytes)
                 if not player_info["editable"]:
                     raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")
-                player_bytes = self._read_player(db, player_key)
                 self._assert_player_revision_current(player_bytes, base_revision)
                 player_named_tag = load_player_nbt(player_bytes)
                 player_tag = player_named_tag.tag
@@ -715,6 +693,8 @@ class BedrockEditorService:
                 # Post-Write-Grenze meldet jede Ausnahme strukturiert.
                 try:
                     post_write_errors: list[str] = []
+                    if extra_batch_builder is None:
+                        self._player_directory.accept_committed_write(db)
                     if extra_batch_builder and extra_batch_validator:
                         try:
                             extra_batch_validator(db, extra_batch)
