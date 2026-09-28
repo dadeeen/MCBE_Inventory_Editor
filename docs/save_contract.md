@@ -115,6 +115,9 @@ A missing field always means: "Do not modify this NBT section." This applies to 
 - Only send `abilities` if a non-null object with actual changes exists.
 - With `protectedNbt.abilities_opaque` or `playerAbilities._opaque`, never send `abilities`.
 - Marker-only or unknown-only ability objects are no-ops at the backend too; they must not require creation confirmation, create an empty compound, or trigger a backup.
+- The editable fields are speeds: `fly_speed` (`flySpeed`, horizontal flight, 0–1), `vertical_fly_speed` (`verticalFlySpeed`, climbing and descending, 0–20), `walk_speed` (`walkSpeed`, 0–1) and `movement_speed` (`Base` and `Current` of the `minecraft:movement` attribute, 0–1). Bedrock derives `mayfly`, `flying`, `invulnerable`, `instabuild` and the permission flags such as `build` from the game mode and the player permission level when the player loads. The editor neither shows nor writes them, and the backend ignores such keys.
+- In Bedrock, `walkSpeed` only sets the reference for the field of view; `minecraft:movement` is the walking speed. A movement edit in the form also sets `walk_speed` to the same value, which keeps the field of view normal. The backend stores both independently.
+- `movement_speed` never creates the attribute or the `abilities` compound. `protected_nbt.movement_speed_locked` names why it is not editable: `missing`, `modifiers` (a non-empty `Modifiers` list, for example from sprinting or an effect, makes `Current` differ from `Base`) or `value` (duplicate entries, a non-float type, a non-finite value, `Base` outside 0–1 or `Base` ≠ `Current`). The frontend omits a locked field and shows the reason; the backend rejects it.
 
 ## No-op behavior
 
@@ -129,7 +132,7 @@ Confirmations happen after payload construction and before the save review view:
 - A missing `Inventory` with a non-empty `inventory` requires `allow_create_inventory=true`.
 - A missing `EnderChestInventory` with a non-empty `ender_chest` requires `allow_create_ender_chest=true`.
 - A missing `ActiveEffects` with non-empty `effects` requires `allow_create_effects=true`.
-- A missing `abilities` with at least one key other than `_opaque` requires `allow_create_abilities=true`.
+- A missing `abilities` with `fly_speed`, `walk_speed` or `vertical_fly_speed` requires `allow_create_abilities=true`. The frontend asks for any ability key other than `_opaque`, because it always sends the complete speed set.
 - Declining ends the operation before review and network request.
 - Empty lists or pure marker objects do not create missing tags.
 
@@ -201,7 +204,7 @@ Import and migration rollback recheck the target through the same exclusive nati
 
 XP progress must satisfy `0 <= xp < 1` both before and after Float32 conversion. Root tags and synchronized attributes receive the same rounded value; an input that rounds to `1.0` is rejected.
 
-Unrelated ability edits retain truthy boolean bytes and their existing aliases. Non-finite or out-of-range ability speeds remain protected instead of being replaced with display defaults. Populated item/effect lists with non-compound elements are protected; empty inventory and ender chest lists retain their declared element type on an unchanged save, so no backup or write is needed.
+Ability edits leave boolean ability tags, legacy aliases and the other fields of the `minecraft:movement` attribute untouched; an echoed speed keeps its stored bits and tag type. Non-finite or out-of-range ability speeds remain protected instead of being replaced with display defaults. Populated item/effect lists with non-compound elements are protected; empty inventory and ender chest lists retain their declared element type on an unchanged save, so no backup or write is needed.
 
 Item serialization removes pure frontend metadata:
 

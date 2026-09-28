@@ -309,6 +309,13 @@
         });
     }
 
+    const ABILITY_SPEED_INPUT_IDS = Object.freeze({
+        movement_speed: "abMovementSpeed",
+        walk_speed: "abWalkSpeed",
+        fly_speed: "abFlySpeed",
+        vertical_fly_speed: "abVerticalFlySpeed",
+    });
+
     function createEffectsAbilitiesController({
         doc = document,
         statsFormElements,
@@ -368,13 +375,15 @@
             const models = abilityView.abilityControlModels({
                 disabled,
                 protectedFields: protectedAbilityFields(),
+                movementLock: abilityState.movementSpeedLock(protectedNbt()),
             }).map(model => ({ ...model, blocked: isEditingBlocked() }));
             abilityView.applyAbilityControlModels(doc, models);
             const resetButton = doc.getElementById("btnResetAbilitySpeeds");
             if (resetButton) {
-                const fields = protectedAbilityFields();
+                // Der Reset betrifft nur die editierbaren Felder; ein gesperrtes
+                // Feld allein deaktiviert ihn nicht.
                 abilityView.applyControlState(resetButton, {
-                    disabled: Boolean(disabled || fields.fly_speed || fields.walk_speed),
+                    disabled: models.every(model => model.disabled),
                     blocked: isEditingBlocked(),
                 });
             }
@@ -413,42 +422,30 @@
             return abilityState.removeProtectedStatsFromPayload(statsPayload, protectedNbt());
         }
 
-        function currentAbilityFormValues() {
-            return abilityView.readAbilityFormValues(doc);
-        }
-
-        function renderAbilityRiskNote() {
-            const note = doc.getElementById("abilityRiskNote");
-            const nbt = protectedNbt();
-            const abilities = playerAbilities();
-            const model = abilityView.abilityRiskNoteModel({
-                abilitiesOpaque: nbt.abilities_opaque === true,
-                playerAbilitiesOpaque: abilities?._opaque === true,
-                warnings: abilityState.abilityRiskWarnings(currentAbilityFormValues()),
-            });
-            abilityView.applyAbilityRiskNoteModel(note, model);
-        }
-
         function loadAbilitiesUI() {
             let abilities = playerAbilities();
             if (!abilities || typeof abilities !== "object") abilities = {};
             const nbt = protectedNbt();
             const abilitiesOpaque = nbt.abilities_opaque === true || abilities._opaque === true;
             setAbilityControlsDisabled(abilitiesOpaque);
+            const defaults = abilityState.ABILITY_SPEED_DEFAULTS;
             const model = abilityView.abilityFormModel({
-                abilities,
-                flySpeedValue: formatAbilitySpeed(abilities.fly_speed, 0.05),
-                walkSpeedValue: formatAbilitySpeed(abilities.walk_speed, 0.1),
+                movementSpeedValue: formatAbilitySpeed(abilities.movement_speed, defaults.movement_speed),
+                walkSpeedValue: formatAbilitySpeed(abilities.walk_speed, defaults.walk_speed),
+                flySpeedValue: formatAbilitySpeed(abilities.fly_speed, defaults.fly_speed),
+                verticalFlySpeedValue: formatAbilitySpeed(abilities.vertical_fly_speed, defaults.vertical_fly_speed),
             });
             abilityView.applyAbilityFormModel(doc, model);
-            renderAbilityRiskNote();
+            abilityView.applyMovementLockNoteModel(doc.getElementById("abilityMovementLockNote"), abilityView.movementLockNoteModel({
+                abilitiesOpaque,
+                reason: abilityState.movementSpeedLock(nbt),
+            }));
         }
 
         function collectAbilitiesFromUI() {
             return abilityState.collectAbilitiesFromValues(
                 playerAbilities(),
                 protectedNbt(),
-                currentAbilityFormValues(),
                 abilityView.readAbilitySpeedValues(doc),
             );
         }
@@ -597,7 +594,6 @@
             captureLiveAbilityUndo();
             setPlayerAbilities?.(collected);
             setAbilitiesTouched?.(true);
-            renderAbilityRiskNote();
             setDirty?.(true);
             return true;
         }
@@ -673,16 +669,17 @@
         function wireAbilitySpeedReset() {
             doc.getElementById("btnResetAbilitySpeeds")?.addEventListener("click", () => {
                 if (isEditingBlocked()) return;
-                const flyInput = doc.getElementById("abFlySpeed");
-                const walkInput = doc.getElementById("abWalkSpeed");
-                if (!flyInput || !walkInput || flyInput.disabled || walkInput.disabled) return;
-                if (Number(flyInput.value) === 0.05 && Number(walkInput.value) === 0.1) {
+                const defaults = abilityState.ABILITY_SPEED_DEFAULTS;
+                const inputs = Object.entries(ABILITY_SPEED_INPUT_IDS)
+                    .map(([fieldName, id]) => [doc.getElementById(id), defaults[fieldName]])
+                    .filter(([input]) => input && !input.disabled);
+                if (!inputs.length) return;
+                if (inputs.every(([input, value]) => Number(input.value) === value)) {
                     showToast?.(t("Die Geschwindigkeiten entsprechen bereits den Vanilla-Standardwerten."), "info", 2200);
                     return;
                 }
                 pushUndo?.();
-                flyInput.value = "0.05";
-                walkInput.value = "0.1";
+                inputs.forEach(([input, value]) => { input.value = String(value); });
                 const collected = collectAbilitiesFromUI();
                 if (collected === null) return;
                 setPlayerAbilities?.(collected);
@@ -721,12 +718,20 @@
                 if (outcome.applyAbilities) {
                     setPlayerAbilities?.(outcome.collectedAbilities);
                     setAbilitiesTouched?.(true);
-                    renderAbilityRiskNote();
                 }
                 setDirty?.(true);
                 logStatus?.(t("Effekte & Fähigkeiten aktualisiert (Speichern zum Bestätigen)"), "success");
                 recordAction?.(t("Effekte & Fähigkeiten aktualisiert"), "edit");
             });
+        }
+
+        // Bedrock nutzt walkSpeed nur als Bezug für das Sichtfeld. Stimmt es mit
+        // minecraft:movement überein, bleibt das Sichtfeld beim Laufen normal;
+        // deshalb zieht eine Änderung der Laufgeschwindigkeit das Feld mit.
+        function syncWalkSpeedWithMovement(input) {
+            if (input.id !== ABILITY_SPEED_INPUT_IDS.movement_speed) return;
+            const walkInput = doc.getElementById(ABILITY_SPEED_INPUT_IDS.walk_speed);
+            if (walkInput && !walkInput.disabled) walkInput.value = input.value;
         }
 
         function wireLiveAbilityInputs() {
@@ -742,10 +747,12 @@
                 });
                 input.addEventListener("input", () => {
                     logic.clampInputToDeclaredRange(input);
+                    syncWalkSpeedWithMovement(input);
                     applyLiveAbilityInputChange(captureLiveAbilityUndo);
                 });
                 input.addEventListener("change", () => {
                     logic.clampInputToDeclaredRange(input);
+                    syncWalkSpeedWithMovement(input);
                     applyLiveAbilityInputChange(captureLiveAbilityUndo);
                 });
             });
@@ -765,7 +772,6 @@
             protectedAbilityFields,
             protectedStatFields,
             removeProtectedStatsFromPayload,
-            renderAbilityRiskNote,
             renderEffectsList,
             setStatsProtectionUI,
             syncEffectsFromUI,

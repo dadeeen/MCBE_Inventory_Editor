@@ -124,6 +124,7 @@ PLAYER_IDENTITY_ROOT_KEYS = frozenset(
 # state because their nested metadata belongs to the transferred item/effect.
 TRANSFERABLE_ABILITY_FIELD_ORDER = (
     "flySpeed",
+    "verticalFlySpeed",
     "walkSpeed",
     "mayfly",
     "flying",

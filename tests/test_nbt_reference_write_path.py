@@ -137,6 +137,21 @@ def _synthetic_player(*, ender_chest: bool) -> bytes:
             "foodSaturationLevel": nbt.FloatTag(4.5),
             "DimensionId": nbt.IntTag(0),
             "UniqueID": nbt.LongTag(-4294967296),
+            "Attributes": nbt.ListTag(
+                [
+                    nbt.CompoundTag(
+                        {
+                            "Name": nbt.StringTag("minecraft:movement"),
+                            "Base": nbt.FloatTag(0.1),
+                            "Current": nbt.FloatTag(0.1),
+                            "DefaultMax": nbt.FloatTag(3.4028234663852886e38),
+                            "DefaultMin": nbt.FloatTag(0.0),
+                            "Max": nbt.FloatTag(3.4028234663852886e38),
+                            "Min": nbt.FloatTag(0.0),
+                        }
+                    )
+                ]
+            ),
             # Unknown top-level data: must survive the save byte for byte.
             "FutureSection": nbt.CompoundTag({"longs": nbt.LongArrayTag([2**62, -1]), "bytes": nbt.ByteArrayTag([1, 2, 3])}),
         }
@@ -237,9 +252,13 @@ def _untouched_player_nbt(raw: bytes, payload: dict) -> dict:
                     attributes.remove(name)
 
     if payload.get("abilities") and isinstance(root.get("abilities"), reference.CompoundTag):
-        omit(root["abilities"], ("mayfly", "flySpeed"))
+        omit(root["abilities"], ("flySpeed", "verticalFlySpeed"))
         if not root["abilities"]:
             del root["abilities"]
+    if "movement_speed" in (payload.get("abilities") or {}) and isinstance(root.get("Attributes"), reference.ListTag):
+        for entry in root["Attributes"]:
+            if isinstance(entry, reference.CompoundTag) and entry.get("Name") == reference.StringTag("minecraft:movement"):
+                omit(entry, ("Base", "Current"))
     if payload.get("effects") and isinstance(root.get("ActiveEffects"), reference.ListTag):
         changed_effect = payload["effects"][0]["id"]
         for effect in root["ActiveEffects"]:
@@ -315,7 +334,9 @@ def test_synthetic_world_edit_is_byte_identical_across_nbt_backends(tmp_path: Pa
         assert after["inventory"]["1"]["display_name"] == "Differential"
         assert after["inventory"]["2"]["name"] == "minecraft:diamond_pickaxe"
         assert after["effects"][0]["duration"] == 1234
-        assert after["abilities"]["mayfly"] is True
+        assert after["abilities"]["fly_speed"] == pytest.approx(0.1)
+        assert after["abilities"]["vertical_fly_speed"] == 2.5
+        assert after["abilities"]["movement_speed"] == pytest.approx(0.2)
     assert local["after"]["ender_chest"]["0"]["count"] == 3
     assert server["after"]["has_ender_chest"] is False
 

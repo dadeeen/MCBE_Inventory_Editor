@@ -228,7 +228,11 @@ async function openPlayerSwitchFixture(page, { fromProtected = false, toProtecte
     stats: { pos: [0, 64, 0], dimension_id: 0, health: 20, xp_level: 0, xp_progress: 0, food_level: 20, food_saturation: 5, gamemode: 0 },
     protected_nbt: { has_inventory_tag: true, has_ender_chest_tag: true,
       ...((key === "a" ? fromProtected : toProtected)
-        ? { stat_fields_opaque: { health: "Health" }, ability_fields_opaque: { fly_speed: "flySpeed" } } : {}) },
+        ? {
+          stat_fields_opaque: { health: "Health" },
+          ability_fields_opaque: { walk_speed: "walkSpeed", fly_speed: "flySpeed", vertical_fly_speed: "verticalFlySpeed" },
+          movement_speed_locked: "value",
+        } : {}) },
     hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
     items_db: { "minecraft:stone": ["Stein", "Stone"] }, ench_db: {},
     stack_limits: { __default__: 64 }, max_damage: { __default__: 0 },
@@ -315,7 +319,7 @@ for (const protectedFields of [true, false]) {
   test(`player load restores the new player's ${protectedFields ? "protected" : "editable"} controls`, async ({ page }) => {
     const browserErrors = collectBrowserErrors(page);
     const fixture = await openPlayerSwitchFixture(page, { fromProtected: !protectedFields, toProtected: protectedFields });
-    for (const selector of ["#statHealth", "#abFlySpeed", "#btnResetAbilitySpeeds", "#effectsContainer .eff-level"]) {
+    for (const selector of ["#statHealth", "#abMovementSpeed", "#abFlySpeed", "#btnResetAbilitySpeeds", "#effectsContainer .eff-level"]) {
       await expect(page.locator(selector)).toHaveJSProperty("disabled", !protectedFields);
     }
     const request = page.waitForRequest("**/api/player/load");
@@ -323,9 +327,20 @@ for (const protectedFields of [true, false]) {
     await request;
     await fixture.finishLoad(true);
     await expect(page.locator("#loadingOverlay")).toBeHidden();
-    for (const selector of ["#statHealth", "#abFlySpeed", "#btnResetAbilitySpeeds", "#effectsContainer .eff-level"]) {
+    for (const selector of ["#statHealth", "#abMovementSpeed", "#abFlySpeed", "#btnResetAbilitySpeeds", "#effectsContainer .eff-level"]) {
       await expect(page.locator(selector)).toHaveJSProperty("disabled", protectedFields);
       await expect(page.locator(selector)).not.toHaveAttribute("title", "Bearbeitung ist während des Ladens gesperrt.");
+    }
+    await expect(page.locator("#abilityMovementLockNote")).toHaveJSProperty("hidden", !protectedFields);
+    if (!protectedFields) {
+      // walkSpeed ist in Bedrock nur der Bezug für das Sichtfeld und folgt
+      // deshalb der Laufgeschwindigkeit. Der Effekte-Reiter ist in diesem
+      // Aufbau nicht geöffnet, deshalb läuft die Eingabe direkt über das DOM.
+      await page.locator("#abMovementSpeed").evaluate(element => {
+        element.value = "0.3";
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await expect(page.locator("#abWalkSpeed")).toHaveValue("0.3");
     }
     expect(browserErrors).toEqual([]);
   });
@@ -1085,12 +1100,13 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
           food_saturation: 5,
         },
         effects: [],
-        abilities: { mayfly: true, instabuild: true, invulnerable: true },
+        abilities: { movement_speed: 0.13, walk_speed: 0.1, fly_speed: 0.05, vertical_fly_speed: 1 },
         protected_nbt: {
           has_inventory_tag: true,
           has_ender_chest_tag: false,
           has_active_effects_tag: false,
           has_abilities_tag: true,
+          movement_speed_locked: "modifiers",
         },
         hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
         items_db: {
@@ -1231,24 +1247,25 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
   await expect(page.locator("body")).toHaveAttribute("data-workflow-view", "player");
   await page.locator("#themeSelect").selectOption("light");
   await page.locator('.tab-btn-dash[data-tab-dash="dashEffects"]').click();
-  await expect(page.locator("#abilityRiskNote")).toBeVisible();
+  await expect(page.locator("#abilityMovementLockNote")).toBeVisible();
+  await expect(page.locator("#abilityMovementLockNote")).toContainText("Modifikatoren");
+  await expect(page.locator("#abMovementSpeed")).toBeDisabled();
+  await expect(page.locator("#abMovementSpeed")).toHaveValue("0.13");
   const abilityTheme = await page.evaluate(() => {
     const well = getComputedStyle(document.querySelector(".abilities-section"));
-    const row = getComputedStyle(document.querySelector(".ability-toggle"));
-    const warning = getComputedStyle(document.querySelector("#abilityRiskNote"));
+    const warning = getComputedStyle(document.querySelector("#abilityMovementLockNote"));
     return {
       wellBackground: well.backgroundColor,
-      rowBackground: row.backgroundColor,
       warningColor: warning.color,
       warningBackground: warning.backgroundColor,
     };
   });
   expect(colorComponents(abilityTheme.wellBackground).a).toBe(1);
-  expect(colorComponents(abilityTheme.rowBackground).a).toBe(1);
   expect(contrastRatio(abilityTheme.warningColor, compositeColor(abilityTheme.warningBackground, abilityTheme.wellBackground))).toBeGreaterThanOrEqual(4.5);
-  const instantBreakControl = page.locator("label:has(#abInstabuild)");
-  await expect(instantBreakControl).toContainText("Blöcke sofort abbauen");
-  await expect(instantBreakControl).toHaveAttribute("title", /ohne normale Abbauzeit.*instabuild/i);
+  await expect(page.locator("#abilityScopeNote")).toContainText("Spielmodus und Spielerberechtigung");
+  await expect(page.locator("#abWalkSpeedNote")).toContainText("nur auf das Sichtfeld");
+  await expect(page.locator("#abVerticalFlySpeed")).toHaveValue("1");
+  await expect(page.locator("#abMayfly, #abInstabuild, #abMaybuild")).toHaveCount(0);
   await expect(page.locator("details.state-transfer-panel")).toBeVisible();
   await page.locator("details.state-transfer-panel summary").click();
   await expect(page.locator("#stateTransferSourcePlayerSelect")).toHaveValue("local");
@@ -1335,9 +1352,11 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
 
   await page.locator("#abFlySpeed").fill("0.2");
   await page.locator("#abWalkSpeed").fill("0.3");
+  await page.locator("#abVerticalFlySpeed").fill("5");
   await page.locator("#btnResetAbilitySpeeds").click();
   await expect(page.locator("#abFlySpeed")).toHaveValue("0.05");
   await expect(page.locator("#abWalkSpeed")).toHaveValue("0.1");
+  await expect(page.locator("#abVerticalFlySpeed")).toHaveValue("1");
 
   await page.locator('.app-section-nav button[data-workflow-view="save"]').click();
   await page.evaluate(() => {

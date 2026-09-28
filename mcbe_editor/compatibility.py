@@ -344,6 +344,8 @@ def _protected_nbt_issue_details(protected: dict[str, Any]) -> list[str]:
 
     for field_name, tag_name in sorted((protected.get("ability_fields_opaque") or {}).items()):
         details.append(t("abilities.{tag} für {field} hat einen unerwarteten Typ", tag=tag_name, field=field_name))
+    if protected.get("movement_speed_locked") == "value":
+        details.append(t("Attributes.minecraft:movement hat einen unerwarteten Aufbau"))
     for field_name, tag_name in sorted((protected.get("stat_fields_opaque") or {}).items()):
         details.append(t("{tag} für {field} hat einen unerwarteten Typ", tag=tag_name, field=field_name))
 

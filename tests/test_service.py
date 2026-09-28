@@ -653,7 +653,7 @@ class ServiceTests(unittest.TestCase):
                     encode_player_key(LOCAL_PLAYER_KEY),
                     None,
                     {},
-                    abilities_dict={"mayfly": True},
+                    abilities_dict={"fly_speed": 0.2},
                     base_revision=loaded["player_revision"],
                 )
 
@@ -677,14 +677,14 @@ class ServiceTests(unittest.TestCase):
                 encode_player_key(LOCAL_PLAYER_KEY),
                 None,
                 {},
-                abilities_dict={"mayfly": True},
+                abilities_dict={"fly_speed": 0.2},
                 base_revision=loaded["player_revision"],
                 allow_create_abilities=True,
             )
 
             saved = nbt.load(FakeDb._shared_store[LOCAL_PLAYER_KEY], compressed=False, little_endian=True).tag
             self.assertIn("abilities", saved)
-            self.assertEqual(saved["abilities"]["mayfly"].py_data, 1)
+            self.assertAlmostEqual(saved["abilities"]["flySpeed"].py_data, 0.2)
 
     def test_save_world_preserves_unknown_item_nbt_via_service_layer(self):
         import tempfile

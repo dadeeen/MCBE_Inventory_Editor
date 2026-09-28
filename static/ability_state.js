@@ -25,9 +25,9 @@
         return Number(safeValue.toFixed(4)).toString();
     }
 
-    // Das Eingabefeld zeigt nur vier Nachkommastellen. Eine Checkbox-Änderung sammelt
-    // den gesamten Fähigkeitssatz ein, also auch dieses Feld; ohne den Rückgriff auf
-    // den exakten Ausgangswert würde sie eine ungerundete Geschwindigkeit kürzen.
+    // Das Eingabefeld zeigt nur vier Nachkommastellen. Die Änderung eines Feldes
+    // sammelt den gesamten Fähigkeitssatz ein, also auch die übrigen Felder; ohne den
+    // Rückgriff auf den exakten Ausgangswert würde sie deren ungerundete Werte kürzen.
     function abilitySpeedFromFormValue(inputValue, currentValue, fallback) {
         const parsed = parseFloat(inputValue);
         const value = Number.isFinite(parsed) ? parsed : fallback;
@@ -214,41 +214,53 @@
         return { changed, nextStats };
     }
 
-    function abilityRiskWarnings(values = {}) {
-        const warnings = [];
-        if (values.flying && !values.mayfly) warnings.push(t("Schweben ist aktiv, aber Fliegen ist nicht erlaubt. Minecraft kann diesen Zustand beim Laden korrigieren."));
-        if (values.mayfly || values.instabuild || values.invulnerable) warnings.push(t("Flugerlaubnis, sofortiger Blockabbau und Unverwundbarkeit sind spielerbezogene, cheat-nahe Zustände. Sofortiger Blockabbau entfernt Blöcke ohne normale Abbauzeit. Diese Werte ändern keine level.dat-Achievement-Flags, können aber vom Spiel oder Server anders bewertet werden."));
-        return warnings;
+    // Vanilla-Standardwerte der editierbaren Geschwindigkeiten. movement_speed ist
+    // das Attribut minecraft:movement, die übrigen liegen im abilities-Compound.
+    const ABILITY_SPEED_DEFAULTS = Object.freeze({
+        movement_speed: 0.1,
+        walk_speed: 0.1,
+        fly_speed: 0.05,
+        vertical_fly_speed: 1.0,
+    });
+
+    // Grund, aus dem das Backend minecraft:movement schützt ("missing",
+    // "modifiers" oder "value"), sonst ein leerer Text.
+    function movementSpeedLock(protectedNbt = {}) {
+        const reason = protectedNbt?.movement_speed_locked;
+        return typeof reason === "string" ? reason : "";
     }
 
-    function collectAbilitiesFromValues(playerAbilities = {}, protectedNbt = {}, values = {}, speeds = {}) {
+    function isAbilitySpeedLocked(fieldName, protectedNbt = {}) {
+        return fieldName === "movement_speed"
+            ? movementSpeedLock(protectedNbt) !== ""
+            : isFieldProtected(protectedAbilityFields(protectedNbt), fieldName);
+    }
+
+    function collectAbilitiesFromValues(playerAbilities = {}, protectedNbt = {}, speeds = {}) {
         if (protectedNbt.abilities_opaque === true || playerAbilities?._opaque === true) return null;
         const next = { ...(playerAbilities || {}) };
         delete next._opaque;
-        const abilityFields = protectedAbilityFields(protectedNbt);
-        Object.keys(abilityFields).forEach(fieldName => { delete next[fieldName]; });
-        if (!isFieldProtected(abilityFields, "mayfly")) next.mayfly = values.mayfly === true;
-        if (!isFieldProtected(abilityFields, "flying")) next.flying = values.flying === true;
-        if (!isFieldProtected(abilityFields, "invulnerable")) next.invulnerable = values.invulnerable === true;
-        if (!isFieldProtected(abilityFields, "maybuild")) next.maybuild = values.maybuild === true;
-        if (!isFieldProtected(abilityFields, "instabuild")) next.instabuild = values.instabuild === true;
-        if (!isFieldProtected(abilityFields, "fly_speed")) {
-            next.fly_speed = abilitySpeedFromFormValue(speeds.fly_speed, playerAbilities?.fly_speed, 0.05);
-        }
-        if (!isFieldProtected(abilityFields, "walk_speed")) {
-            next.walk_speed = abilitySpeedFromFormValue(speeds.walk_speed, playerAbilities?.walk_speed, 0.1);
-        }
+        Object.keys(protectedAbilityFields(protectedNbt)).forEach(fieldName => { delete next[fieldName]; });
+        Object.entries(ABILITY_SPEED_DEFAULTS).forEach(([fieldName, fallback]) => {
+            if (isAbilitySpeedLocked(fieldName, protectedNbt)) {
+                delete next[fieldName];
+                return;
+            }
+            next[fieldName] = abilitySpeedFromFormValue(speeds[fieldName], playerAbilities?.[fieldName], fallback);
+        });
         return next;
     }
 
     window.MCBEAbilityState = {
-        abilityRiskWarnings,
+        ABILITY_SPEED_DEFAULTS,
         applyStatsUpdate,
         collectAbilitiesFromValues,
         convertPositionBetweenDimensions,
         formatAbilitySpeed,
         formatPositionForDisplay,
+        isAbilitySpeedLocked,
         isFieldProtected,
+        movementSpeedLock,
         protectedAbilityFields,
         protectedStatFields,
         removeProtectedStatsFromPayload,

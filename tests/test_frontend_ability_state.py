@@ -337,13 +337,13 @@ def test_frontend_ability_state_dimension_switch_keeps_exact_position() -> None:
     )
 
 
-def test_frontend_ability_state_checkbox_change_keeps_exact_speeds() -> None:
-    """Eine Checkbox-Änderung darf die Fluggeschwindigkeit nicht kürzen.
+def test_frontend_ability_state_speed_change_keeps_the_other_exact_speeds() -> None:
+    """Eine Tempoänderung darf die übrigen Geschwindigkeiten nicht kürzen.
 
     collectAbilitiesFromValues sammelt bei jeder Fähigkeitsänderung den gesamten
-    Satz ein, also auch die Tempofelder. Weil deren Anzeige auf vier
-    Nachkommastellen kürzt, muss ein unverändert aussehendes Feld auf den exakten
-    Ausgangswert zurückfallen -- wie bei den Positionskoordinaten.
+    Satz ein. Weil die Anzeige auf vier Nachkommastellen kürzt, muss ein
+    unverändert aussehendes Feld auf den exakten Ausgangswert zurückfallen --
+    wie bei den Positionskoordinaten.
     """
 
     _run_node(
@@ -357,35 +357,72 @@ def test_frontend_ability_state_checkbox_change_keeps_exact_speeds() -> None:
             vm.runInNewContext(code, context, { filename: "static/ability_state.js" });
 
             const state = context.window.MCBEAbilityState;
-            const exactFly = 0.1234567;
-            const exactWalk = 0.33333333;
-            const abilities = { fly_speed: exactFly, walk_speed: exactWalk, mayfly: false };
-            const displayed = {
-                fly_speed: state.formatAbilitySpeed(exactFly, 0.05),
-                walk_speed: state.formatAbilitySpeed(exactWalk, 0.1),
+            const abilities = {
+                movement_speed: 0.10000000149011612,
+                walk_speed: 0.33333333,
+                fly_speed: 0.1234567,
+                vertical_fly_speed: 1.0,
             };
+            const displayed = Object.fromEntries(Object.entries(abilities).map(
+                ([field, value]) => [field, state.formatAbilitySpeed(value, state.ABILITY_SPEED_DEFAULTS[field])],
+            ));
             assert.strictEqual(displayed.fly_speed, "0.1235");
+            assert.strictEqual(displayed.movement_speed, "0.1");
 
-            // Nur die Checkbox angefasst: beide Tempi bleiben bitgenau.
-            const toggled = state.collectAbilitiesFromValues(abilities, {}, { mayfly: true }, displayed);
-            assert.strictEqual(toggled.mayfly, true);
-            assert.strictEqual(toggled.fly_speed, exactFly);
-            assert.strictEqual(toggled.walk_speed, exactWalk);
+            const unchanged = state.collectAbilitiesFromValues(abilities, {}, displayed);
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(unchanged)), abilities);
 
-            // Eine echte Tempoänderung wird weiterhin übernommen.
-            const retyped = state.collectAbilitiesFromValues(
-                abilities,
-                {},
-                { mayfly: true },
-                { fly_speed: "0.2", walk_speed: displayed.walk_speed },
+            const retyped = state.collectAbilitiesFromValues(abilities, {}, { ...displayed, vertical_fly_speed: "12" });
+            assert.strictEqual(retyped.vertical_fly_speed, 12);
+            assert.strictEqual(retyped.fly_speed, abilities.fly_speed);
+            assert.strictEqual(retyped.walk_speed, abilities.walk_speed);
+            assert.strictEqual(retyped.movement_speed, abilities.movement_speed);
+
+            // Ohne Ausgangswert greift der Vanilla-Standard.
+            const fresh = state.collectAbilitiesFromValues({}, {}, {});
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(fresh)), {
+                movement_speed: 0.1,
+                walk_speed: 0.1,
+                fly_speed: 0.05,
+                vertical_fly_speed: 1,
+            });
+            """
+        )
+    )
+
+
+def test_frontend_ability_state_omits_locked_speeds_and_legacy_flags() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/ability_state.js", "utf8");
+            const context = { window: {} };
+            vm.runInNewContext(code, context, { filename: "static/ability_state.js" });
+
+            const state = context.window.MCBEAbilityState;
+            const protectedNbt = {
+                ability_fields_opaque: { fly_speed: "flySpeed" },
+                movement_speed_locked: "modifiers",
+            };
+            assert.strictEqual(state.movementSpeedLock(protectedNbt), "modifiers");
+            assert.strictEqual(state.movementSpeedLock({ movement_speed_locked: null }), "");
+            assert.strictEqual(state.isAbilitySpeedLocked("movement_speed", protectedNbt), true);
+            assert.strictEqual(state.isAbilitySpeedLocked("fly_speed", protectedNbt), true);
+            assert.strictEqual(state.isAbilitySpeedLocked("walk_speed", protectedNbt), false);
+
+            const collected = state.collectAbilitiesFromValues(
+                { movement_speed: 0.13, walk_speed: 0.1, fly_speed: 0.05, vertical_fly_speed: 1 },
+                protectedNbt,
+                { movement_speed: "0.5", walk_speed: "0.5", fly_speed: "0.5", vertical_fly_speed: "2" },
             );
-            assert.strictEqual(retyped.fly_speed, 0.2);
-            assert.strictEqual(retyped.walk_speed, exactWalk);
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(collected)), { walk_speed: 0.5, vertical_fly_speed: 2 });
 
-            // Ohne Ausgangswert greift weiterhin der Standardwert.
-            const fresh = state.collectAbilitiesFromValues({}, {}, { mayfly: true }, { fly_speed: "", walk_speed: "" });
-            assert.strictEqual(fresh.fly_speed, 0.05);
-            assert.strictEqual(fresh.walk_speed, 0.1);
+            assert.strictEqual(state.collectAbilitiesFromValues({ _opaque: true }, {}, {}), null);
+            assert.strictEqual(state.collectAbilitiesFromValues({}, { abilities_opaque: true }, {}), null);
+            assert.strictEqual(state.abilityRiskWarnings, undefined);
             """
         )
     )

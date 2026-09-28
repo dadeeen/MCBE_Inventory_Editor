@@ -72,7 +72,9 @@ def edit_payload(before: dict) -> dict:
     abilities = None
     current = before.get("abilities") or {}
     if current and "_opaque" not in current:
-        abilities = {"mayfly": not current.get("mayfly", False), "fly_speed": 0.1}
+        abilities = {"fly_speed": 0.1, "vertical_fly_speed": 2.5}
+        if "movement_speed" in current and not (before.get("protected_nbt") or {}).get("movement_speed_locked"):
+            abilities["movement_speed"] = 0.2
     return {
         "inventory": [inventory[slot] for slot in sorted(inventory)],
         "ender_chest": ender_chest,

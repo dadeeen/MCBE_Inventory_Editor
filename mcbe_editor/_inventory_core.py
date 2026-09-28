@@ -308,14 +308,13 @@ ATTRIBUTE_STAT_TAGS = {
     "food_saturation": "minecraft:player.saturation",
 }
 
+# Only the speeds are editable. Bedrock derives mayfly, flying, invulnerable,
+# instabuild and the build/mine permissions from the game mode and the player
+# permission level when the player loads, so the editor leaves them alone.
 ABILITY_TAG_FIELDS = {
     "fly_speed": ("flySpeed", (nbt.FloatTag,)),
     "walk_speed": ("walkSpeed", (nbt.FloatTag,)),
-    "mayfly": ("mayfly", (nbt.ByteTag,)),
-    "flying": ("flying", (nbt.ByteTag,)),
-    "invulnerable": ("invulnerable", (nbt.ByteTag,)),
-    "maybuild": ("mayBuild", (nbt.ByteTag,), ("maybuild",)),
-    "instabuild": ("instabuild", (nbt.ByteTag,)),
+    "vertical_fly_speed": ("verticalFlySpeed", (nbt.FloatTag,)),
 }
 
 # The value the editor shows for a missing ability tag. Writing exactly this
@@ -324,12 +323,22 @@ ABILITY_TAG_FIELDS = {
 ABILITY_DEFAULTS = {
     "fly_speed": 0.05,
     "walk_speed": 0.1,
-    "mayfly": False,
-    "flying": False,
-    "invulnerable": False,
-    "maybuild": True,
-    "instabuild": False,
+    "vertical_fly_speed": 1.0,
 }
+
+# Editable ranges. Stored values outside them stay protected instead of being
+# replaced with a form default on an unrelated edit.
+ABILITY_SPEED_RANGES = {
+    "fly_speed": (0.0, 1.0),
+    "walk_speed": (0.0, 1.0),
+    "vertical_fly_speed": (0.0, 20.0),
+}
+
+# The player's walking speed is the Base of this attribute. walkSpeed in the
+# abilities compound is only the reference Bedrock uses for the field of view;
+# the form copies a movement edit into it so the view stays normal.
+MOVEMENT_ATTRIBUTE_NAME = "minecraft:movement"
+MOVEMENT_SPEED_RANGE = (0.0, 1.0)
 
 
 def _ability_tag_spec(field_name: str):
@@ -474,7 +483,8 @@ def _ability_tag_is_opaque(tag, field_name, expected_types) -> bool:
         return True
     # Form defaults cannot faithfully represent invalid or out-of-range speeds.
     # Preserve the original bits rather than echoing a fallback on another edit.
-    return field_name in {"fly_speed", "walk_speed"} and (not math.isfinite(tag.py_data) or not 0 <= tag.py_data <= 1)
+    low, high = ABILITY_SPEED_RANGES[field_name]
+    return not math.isfinite(tag.py_data) or not low <= tag.py_data <= high
 
 
 def _ability_field_opaque_fields(player_tag):
@@ -513,6 +523,77 @@ def _is_ability_field_opaque(player_tag, field_name: str) -> bool:
         )
     except (AttributeError, TypeError):
         return False
+
+
+def _movement_attribute_entries(player_tag):
+    try:
+        attributes = player_tag.get("Attributes")
+    except AttributeError:
+        return []
+    if not _is_list_tag(attributes):
+        return []
+    return [
+        entry
+        for entry in attributes
+        if _is_compound_tag(entry) and str(get_tag_value(entry.get("Name"), "")).strip() == MOVEMENT_ATTRIBUTE_NAME
+    ]
+
+
+def movement_speed_lock_reason(player_tag) -> str | None:
+    """Why the movement attribute must not be edited, or None if it can be.
+
+    The editor writes Base and Current together. That is only faithful while
+    no modifier (sprinting, a speed or slowness effect) makes Current differ
+    from Base. A missing attribute is never synthesized.
+    """
+
+    entries = _movement_attribute_entries(player_tag)
+    if not entries:
+        return "missing"
+    if len(entries) > 1:
+        return "value"
+    entry = entries[0]
+    modifiers = entry.get("Modifiers")
+    if modifiers is not None and not (_is_list_tag(modifiers) and len(modifiers) == 0):
+        return "modifiers"
+    base = entry.get("Base")
+    current = entry.get("Current")
+    if not all(isinstance(tag, nbt.FloatTag | nbt.DoubleTag) and math.isfinite(tag.py_data) for tag in (base, current)):
+        return "value"
+    low, high = MOVEMENT_SPEED_RANGE
+    if not low <= base.py_data <= high or base.py_data != current.py_data:
+        return "value"
+    return None
+
+
+def _movement_speed_display_value(player_tag) -> float | None:
+    entries = _movement_attribute_entries(player_tag)
+    base = entries[0].get("Base") if len(entries) == 1 else None
+    if isinstance(base, NUMERIC_TAG_TYPES) and math.isfinite(base.py_data):
+        return float(base.py_data)
+    return None
+
+
+def _apply_movement_speed(player_tag, value) -> None:
+    if movement_speed_lock_reason(player_tag) is not None:
+        raise ValueError(
+            t(
+                "Die Laufgeschwindigkeit kann für diesen Spieler nicht geändert werden: "
+                "Das Attribut minecraft:movement fehlt, trägt Modifikatoren oder hat einen unerwarteten Wert."
+            )
+        )
+    val = _finite_float(value, -1.0)
+    low, high = MOVEMENT_SPEED_RANGE
+    if not low <= val <= high:
+        raise ValueError(t("Laufgeschwindigkeit außerhalb des Bereichs (0.0-1.0): {value}", value=val))
+    entry = _movement_attribute_entries(player_tag)[0]
+    base = entry["Base"]
+    candidate = _numeric_tag_for_type(type(base), val)
+    if candidate is None or candidate.py_data == base.py_data:
+        # The form echoes the stored value on unrelated edits; keep its bits.
+        return
+    entry["Base"] = candidate
+    entry["Current"] = _numeric_tag_for_type(type(entry["Current"]), val)
 
 
 def _effect_control_fields_opaque(effect_tag):
@@ -1859,6 +1940,7 @@ def protected_player_nbt_flags(player_tag):
         "active_effects_opaque": "ActiveEffects" in player_tag and not _is_editable_item_list(player_tag["ActiveEffects"]),
         "abilities_opaque": "abilities" in player_tag and not _is_compound_tag(player_tag["abilities"]),
         "ability_fields_opaque": _ability_field_opaque_fields(player_tag),
+        "movement_speed_locked": movement_speed_lock_reason(player_tag),
         "dimension_id_missing": "DimensionId" not in player_tag,
         "dimension_id_opaque": _dimension_id_tag_opaque(player_tag),
         "pos_opaque": _position_tag_opaque(player_tag),
@@ -2200,21 +2282,20 @@ def parse_effects(player_tag):
 
 
 def parse_abilities(player_tag):
+    # The movement attribute lives outside the abilities compound, so it is
+    # reported even for a player without one.
+    movement_speed = _movement_speed_display_value(player_tag)
+    movement = {} if movement_speed is None else {"movement_speed": movement_speed}
     if "abilities" not in player_tag:
-        return {}
+        return movement
     ab = player_tag["abilities"]
     if not _is_compound_tag(ab):
         return {"_opaque": True}
-    defaults = ABILITY_DEFAULTS
-    return {
-        "fly_speed": _finite_float(_ability_read_value(ab, "fly_speed", defaults["fly_speed"]), defaults["fly_speed"]),
-        "walk_speed": _finite_float(_ability_read_value(ab, "walk_speed", defaults["walk_speed"]), defaults["walk_speed"]),
-        "mayfly": bool(_ability_read_value(ab, "mayfly", defaults["mayfly"])),
-        "flying": bool(_ability_read_value(ab, "flying", defaults["flying"])),
-        "invulnerable": bool(_ability_read_value(ab, "invulnerable", defaults["invulnerable"])),
-        "maybuild": bool(_ability_read_value(ab, "maybuild", defaults["maybuild"])),
-        "instabuild": bool(_ability_read_value(ab, "instabuild", defaults["instabuild"])),
+    speeds = {
+        field_name: _finite_float(_ability_read_value(ab, field_name, default), default)
+        for field_name, default in ABILITY_DEFAULTS.items()
     }
+    return {**speeds, **movement}
 
 
 def validate_effect(effect_data):
@@ -3405,40 +3486,46 @@ def apply_abilities(player_tag, abilities_dict):
         return
     if not isinstance(abilities_dict, dict):
         raise ValueError("Fähigkeiten-Daten müssen ein Objekt sein.")
-    if not any(field in abilities_dict for field in ABILITY_TAG_FIELDS):
-        # UI markers and unknown keys are not ability edits. In particular,
-        # they must not create an empty abilities compound on a normal save.
-        return
+    # UI markers and unknown keys are not ability edits. In particular, they
+    # must not create an empty abilities compound on a normal save.
+    if any(field in abilities_dict for field in ABILITY_TAG_FIELDS):
+        _apply_ability_speeds(player_tag, abilities_dict)
+    if "movement_speed" in abilities_dict:
+        _apply_movement_speed(player_tag, abilities_dict["movement_speed"])
+
+
+def _apply_ability_speeds(player_tag, abilities_dict):
     ab_tag = player_tag.get("abilities")
     if ab_tag is not None and not _is_compound_tag(ab_tag):
         # Preserve opaque/future ability data on normal saves.  Replacing it with
-        # the standard compound from default checkboxes would be silent data loss.
-        if abilities_dict:
-            raise ValueError("abilities hat einen unbekannten NBT-Typ und kann nicht bearbeitet werden, ohne Datenverlust zu riskieren.")
-        return
+        # the standard compound built from form defaults would be silent data loss.
+        raise ValueError("abilities hat einen unbekannten NBT-Typ und kann nicht bearbeitet werden, ohne Datenverlust zu riskieren.")
+    candidates = {}
+    for field_name in ABILITY_TAG_FIELDS:
+        if field_name not in abilities_dict:
+            continue
+        _reject_if_ability_field_opaque(player_tag, field_name)
+        val = _finite_float(abilities_dict[field_name], -1.0)
+        low, high = ABILITY_SPEED_RANGES[field_name]
+        if not low <= val <= high:
+            raise ValueError(_ability_speed_range_error(field_name, val))
+        # Ability fields are read type-tolerantly, but explicit edits normalize
+        # the editor-owned values to the tag class Bedrock uses.
+        candidates[field_name] = nbt.FloatTag(val)
     compound_is_new = ab_tag is None
     if compound_is_new:
         ab_tag = nbt.CompoundTag()
         player_tag["abilities"] = ab_tag
-    # Ability fields are read type-tolerantly, but explicit edits normalize the
-    # editor-owned values to the vanilla tag classes used by Bedrock.
-    if "fly_speed" in abilities_dict:
-        _reject_if_ability_field_opaque(player_tag, "fly_speed")
-        val = _finite_float(abilities_dict["fly_speed"], -1.0)
-        if not (0.0 <= val <= 1.0):
-            raise ValueError(t("Fluggeschwindigkeit außerhalb des Bereichs (0.0-1.0): {value}", value=val))
-        _set_ability_tag_if_changed(ab_tag, "fly_speed", nbt.FloatTag(val), compound_is_new=compound_is_new)
-    if "walk_speed" in abilities_dict:
-        _reject_if_ability_field_opaque(player_tag, "walk_speed")
-        val = _finite_float(abilities_dict["walk_speed"], -1.0)
-        if not (0.0 <= val <= 1.0):
-            raise ValueError(t("Laufgeschwindigkeit außerhalb des Bereichs (0.0-1.0): {value}", value=val))
-        _set_ability_tag_if_changed(ab_tag, "walk_speed", nbt.FloatTag(val), compound_is_new=compound_is_new)
-    for field_name, default in (("mayfly", False), ("flying", False), ("invulnerable", False), ("maybuild", True), ("instabuild", False)):
-        if field_name not in abilities_dict:
-            continue
-        _reject_if_ability_field_opaque(player_tag, field_name)
-        _set_ability_tag_if_changed(ab_tag, field_name, nbt.ByteTag(_parse_bool_input(abilities_dict[field_name], default)), compound_is_new=compound_is_new)
+    for field_name, candidate in candidates.items():
+        _set_ability_tag_if_changed(ab_tag, field_name, candidate, compound_is_new=compound_is_new)
+
+
+def _ability_speed_range_error(field_name: str, value: float) -> str:
+    if field_name == "fly_speed":
+        return t("Fluggeschwindigkeit außerhalb des Bereichs (0.0-1.0): {value}", value=value)
+    if field_name == "walk_speed":
+        return t("Lauf-Sichtfeld (walkSpeed) außerhalb des Bereichs (0.0-1.0): {value}", value=value)
+    return t("Vertikale Fluggeschwindigkeit außerhalb des Bereichs (0.0-20.0): {value}", value=value)
 
 
 def _set_ability_tag_if_changed(ab_tag, field_name: str, candidate, *, compound_is_new: bool = False) -> None:
@@ -3465,15 +3552,9 @@ def _set_ability_tag_if_changed(ab_tag, field_name: str, candidate, *, compound_
             existing = None
         if existing is None:
             continue
-        if type(existing) is type(candidate):
-            unchanged = (
-                bool(get_tag_value(existing)) == bool(get_tag_value(candidate))
-                if isinstance(candidate, nbt.ByteTag)
-                else get_tag_value(existing) == get_tag_value(candidate)
-            )
-            if unchanged:
-                # Preserve truthy byte values and legacy aliases on an echo.
-                return
+        if type(existing) is type(candidate) and get_tag_value(existing) == get_tag_value(candidate):
+            # Preserve the stored tag and any legacy alias on an echo.
+            return
         break
     else:
         default_tag = _numeric_tag_for_type(type(candidate), ABILITY_DEFAULTS[field_name])

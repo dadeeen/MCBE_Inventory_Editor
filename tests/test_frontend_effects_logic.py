@@ -523,13 +523,10 @@ def test_effects_controller_keeps_dynamic_controls_read_only_when_editing_is_blo
             };
 
             const abilityIds = [
-                "abMayfly",
-                "abFlying",
-                "abInvulnerable",
-                "abMaybuild",
-                "abInstabuild",
-                "abFlySpeed",
+                "abMovementSpeed",
                 "abWalkSpeed",
+                "abFlySpeed",
+                "abVerticalFlySpeed",
             ];
             const elements = Object.fromEntries(abilityIds.map(id => [id, {
                 checked: false,
@@ -582,6 +579,110 @@ def test_effects_controller_keeps_dynamic_controls_read_only_when_editing_is_blo
             assert.strictEqual(effects[0].amplifier, 0);
             assert.strictEqual(dirtyCalls, 0);
             assert.strictEqual(undoCalls, 0);
+            """
+        )
+    )
+
+
+def test_effects_controller_couples_walk_speed_and_resets_only_editable_speeds() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            // Im Browser stellt static/i18n.js die globale Funktion t bereit.
+            const context = { window: {}, t: text => text };
+            for (const path of [
+                "static/ability_state.js",
+                "static/ability_view.js",
+                "static/effects_logic.js",
+            ]) {
+                vm.runInNewContext(fs.readFileSync(path, "utf8"), context, { filename: path });
+            }
+
+            const input = (id, value, max) => {
+                const element = { id, value, min: "0", max, disabled: false, title: "", dataset: {}, listeners: {} };
+                element.addEventListener = (name, callback) => { element.listeners[name] = callback; };
+                return element;
+            };
+            const elements = {
+                abMovementSpeed: input("abMovementSpeed", "", "1"),
+                abWalkSpeed: input("abWalkSpeed", "", "1"),
+                abFlySpeed: input("abFlySpeed", "", "1"),
+                abVerticalFlySpeed: input("abVerticalFlySpeed", "", "20"),
+                btnResetAbilitySpeeds: input("btnResetAbilitySpeeds", "", ""),
+                abilityMovementLockNote: { hidden: true, textContent: "" },
+            };
+            const doc = {
+                getElementById: id => elements[id] || null,
+                querySelectorAll: selector => selector === "#dashEffects .abilities-section input"
+                    ? ["abMovementSpeed", "abWalkSpeed", "abFlySpeed", "abVerticalFlySpeed"].map(id => elements[id])
+                    : [],
+            };
+            let protectedNbt = {};
+            let abilities = { movement_speed: 0.1, walk_speed: 0.1, fly_speed: 0.05, vertical_fly_speed: 1 };
+            let undoCalls = 0;
+            const controller = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+                doc,
+                statsFormElements: () => ({}),
+                getProtectedNbt: () => protectedNbt,
+                getPlayerAbilities: () => abilities,
+                setPlayerAbilities: value => { abilities = value; },
+                setAbilitiesTouched: () => {},
+                setDirty: () => {},
+                pushUndo: () => { undoCalls += 1; },
+                showToast: () => {},
+                recordAction: () => {},
+            });
+            controller.wire();
+            controller.loadAbilitiesUI();
+            assert.strictEqual(elements.abMovementSpeed.value, "0.1");
+            assert.strictEqual(elements.abVerticalFlySpeed.value, "1");
+            assert.strictEqual(elements.abilityMovementLockNote.hidden, true);
+
+            // Die Laufgeschwindigkeit zieht das Lauf-Sichtfeld mit, damit das
+            // Sichtfeld beim Laufen normal bleibt.
+            elements.abMovementSpeed.value = "0.4";
+            elements.abMovementSpeed.listeners.input();
+            assert.strictEqual(elements.abWalkSpeed.value, "0.4");
+            assert.strictEqual(abilities.movement_speed, 0.4);
+            assert.strictEqual(abilities.walk_speed, 0.4);
+
+            // Das Lauf-Sichtfeld allein lässt die Laufgeschwindigkeit unverändert.
+            elements.abWalkSpeed.value = "0.3";
+            elements.abWalkSpeed.listeners.change();
+            assert.strictEqual(abilities.walk_speed, 0.3);
+            assert.strictEqual(abilities.movement_speed, 0.4);
+
+            elements.abVerticalFlySpeed.value = "50";
+            elements.abVerticalFlySpeed.listeners.input();
+            assert.strictEqual(elements.abVerticalFlySpeed.value, "20");
+            assert.strictEqual(abilities.vertical_fly_speed, 20);
+
+            // Gesperrte Laufgeschwindigkeit: sichtbarer Grund, kein Mitziehen,
+            // der Reset setzt nur die editierbaren Felder zurück.
+            protectedNbt = { movement_speed_locked: "modifiers" };
+            abilities = { movement_speed: 0.13, walk_speed: 0.3, fly_speed: 0.5, vertical_fly_speed: 20 };
+            controller.loadAbilitiesUI();
+            assert.strictEqual(elements.abMovementSpeed.disabled, true);
+            assert.strictEqual(elements.abMovementSpeed.value, "0.13");
+            assert.strictEqual(elements.abilityMovementLockNote.hidden, false);
+            assert.match(elements.abilityMovementLockNote.textContent, /Modifikatoren/);
+            assert.strictEqual(elements.btnResetAbilitySpeeds.disabled, false);
+
+            undoCalls = 0;
+            elements.btnResetAbilitySpeeds.listeners.click();
+            assert.strictEqual(undoCalls, 1);
+            assert.strictEqual(elements.abMovementSpeed.value, "0.13");
+            assert.strictEqual(elements.abWalkSpeed.value, "0.1");
+            assert.strictEqual(elements.abFlySpeed.value, "0.05");
+            assert.strictEqual(elements.abVerticalFlySpeed.value, "1");
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(abilities)), { walk_speed: 0.1, fly_speed: 0.05, vertical_fly_speed: 1 });
+
+            // Schon auf Standard: kein weiterer Undo-Schritt.
+            elements.btnResetAbilitySpeeds.listeners.click();
+            assert.strictEqual(undoCalls, 1);
             """
         )
     )

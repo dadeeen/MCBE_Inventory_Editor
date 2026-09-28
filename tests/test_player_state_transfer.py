@@ -123,6 +123,7 @@ def test_merge_player_state_serializes_new_fields_in_stable_policy_order() -> No
             "abilities": nbt.CompoundTag(
                 {
                     "instabuild": nbt.ByteTag(1),
+                    "verticalFlySpeed": nbt.FloatTag(3.0),
                     "mayfly": nbt.ByteTag(1),
                     "flySpeed": nbt.FloatTag(0.05),
                 }
@@ -144,6 +145,7 @@ def test_merge_player_state_serializes_new_fields_in_stable_policy_order() -> No
 
     expected_ability_order = [field for field in TRANSFERABLE_ABILITY_FIELD_ORDER if field in source["abilities"]]
     assert [str(field) for field in merged["abilities"]] == expected_ability_order
+    assert merged["abilities"]["verticalFlySpeed"].py_data == 3.0
 
 
 def test_merge_player_state_preserves_empty_list_types_and_is_byte_exact_when_state_is_identical() -> None:

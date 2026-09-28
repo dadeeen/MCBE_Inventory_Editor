@@ -408,23 +408,22 @@ def _player_with(**fields):
 
 
 def test_editing_one_ability_does_not_synthesize_the_others() -> None:
-    tag = _player_with(abilities=nbt.CompoundTag({"mayfly": nbt.ByteTag(0)}))
+    tag = _player_with(abilities=nbt.CompoundTag({"mayfly": nbt.ByteTag(0), "flySpeed": nbt.FloatTag(0.05)}))
     echoed = inventory.parse_abilities(tag)
-    echoed["mayfly"] = True
+    echoed["fly_speed"] = 0.2
 
     inventory.apply_abilities(tag, echoed)
 
-    assert int(tag["abilities"]["mayfly"].py_data) == 1
-    assert set(tag["abilities"].keys()) == {"mayfly"}
+    assert tag["abilities"]["flySpeed"].py_data == pytest.approx(0.2)
+    assert set(tag["abilities"].keys()) == {"mayfly", "flySpeed"}
 
 
 def test_creating_the_abilities_compound_still_writes_the_requested_set() -> None:
     tag = _player_with()
 
-    inventory.apply_abilities(tag, {"mayfly": True, "maybuild": True})
+    inventory.apply_abilities(tag, {"fly_speed": 0.05, "walk_speed": 0.1, "vertical_fly_speed": 1.0})
 
-    assert int(tag["abilities"]["mayfly"].py_data) == 1
-    assert int(tag["abilities"]["mayBuild"].py_data) == 1
+    assert set(tag["abilities"].keys()) == {"flySpeed", "walkSpeed", "verticalFlySpeed"}
 
 
 def test_an_unchanged_legacy_ability_alias_is_not_canonicalized() -> None:

@@ -486,7 +486,8 @@
 
             const abilityLabels = {
                 flySpeed: "Fluggeschwindigkeit",
-                walkSpeed: "Laufgeschwindigkeit",
+                verticalFlySpeed: "Vertikale Fluggeschwindigkeit",
+                walkSpeed: "Lauf-Sichtfeld",
                 mayfly: "Fliegen erlaubt",
                 flying: "Flugstatus",
                 invulnerable: "Unverwundbar",
@@ -503,7 +504,7 @@
                 "minecraft:player.exhaustion": "Erschöpfung",
                 "minecraft:follow_range": "Sichtweite",
                 "minecraft:knockback_resistance": "Rückstoßresistenz",
-                "minecraft:movement": "Bewegungsgeschwindigkeit",
+                "minecraft:movement": "Laufgeschwindigkeit",
                 "minecraft:underwater_movement": "Unterwasserbewegung",
                 "minecraft:lava_movement": "Lavabewegung",
                 "minecraft:attack_damage": "Angriffsschaden",

@@ -52,7 +52,7 @@ Diese Herkunft erklärt den Zuschnitt: ein geprüfter Satz von Spielerfeldern, b
 |---|---|
 | Inventar | Hotbar, Rucksack, Rüstung, Schildhand, Verschieben, Kopieren und Sammelaktionen |
 | Endertruhe | Anzeigen und Bearbeiten einschließlich Transfers zwischen sichtbaren Bereichen |
-| Spielerwerte | Gesundheit, Spielmodus, XP, Hunger, Sättigung, Position, Effekte und Fähigkeiten |
+| Spielerwerte | Gesundheit, Spielmodus, XP, Hunger, Sättigung, Position, Effekte sowie Lauf- und Fluggeschwindigkeit |
 | Sicherheit | Backups vor Schreibvorgängen, Restore-Prüfungen, Revisionen, Schreibsperren und Welt-Locks |
 | Spielertransfer | Versionierte Migration lokal ↔ Multiplayer sowie vollständiger `.mcbe-player.zip`-Import/-Export |
 | Icons | Vanilla-Icon-Download, lokale Ressourcenpakete, `.mcpack`, `.zip` und eigene Icon-Ordner |

@@ -10,15 +10,28 @@
         return window.MCBEAbilityState.formatPositionForDisplay(value);
     }
 
+    // Nur die Geschwindigkeiten sind editierbar. Fliegen, Unverwundbarkeit,
+    // sofortigen Blockabbau und Baurechte berechnet Minecraft beim Laden aus
+    // Spielmodus und Spielerberechtigung neu.
     const ABILITY_CONTROLS = [
-        ["abMayfly", "mayfly", "mayfly"],
-        ["abFlying", "flying", "flying"],
-        ["abInvulnerable", "invulnerable", "invulnerable"],
-        ["abMaybuild", "maybuild", "mayBuild"],
-        ["abInstabuild", "instabuild", "instabuild"],
-        ["abFlySpeed", "fly_speed", "flySpeed"],
+        ["abMovementSpeed", "movement_speed", "minecraft:movement"],
         ["abWalkSpeed", "walk_speed", "walkSpeed"],
+        ["abFlySpeed", "fly_speed", "flySpeed"],
+        ["abVerticalFlySpeed", "vertical_fly_speed", "verticalFlySpeed"],
     ];
+
+    function movementSpeedLockText(reason) {
+        if (reason === "missing") {
+            return t("Dieser Spieler hat kein Attribut minecraft:movement. Die Laufgeschwindigkeit wird sicherheitshalber nicht neu angelegt.");
+        }
+        if (reason === "modifiers") {
+            return t("Auf die Laufgeschwindigkeit wirken gespeicherte Modifikatoren, etwa durch Sprinten oder einen Effekt. Sie bleibt deshalb unverändert erhalten.");
+        }
+        if (reason) {
+            return t("Das Attribut minecraft:movement hat einen unerwarteten Aufbau und wird geschützt erhalten.");
+        }
+        return "";
+    }
 
     const STAT_CONTROLS = [
         ["health", "health", "Health"],
@@ -32,12 +45,17 @@
     function abilityControlModels({
         disabled = false,
         protectedFields = {},
+        movementLock = "",
     } = {}) {
         return ABILITY_CONTROLS.map(([id, fieldName, tagName]) => {
-            const fieldProtected = Object.prototype.hasOwnProperty.call(protectedFields || {}, fieldName);
+            const fieldProtected = fieldName === "movement_speed"
+                ? Boolean(movementLock)
+                : Object.prototype.hasOwnProperty.call(protectedFields || {}, fieldName);
             let title = "";
             if (disabled) {
                 title = t("abilities-Tag hat einen unbekannten NBT-Typ und wird geschützt erhalten.");
+            } else if (fieldProtected && fieldName === "movement_speed") {
+                title = movementSpeedLockText(movementLock);
             } else if (fieldProtected) {
                 title = t("{tag}-Tag hat einen unerwarteten NBT-Typ und wird geschützt erhalten.", { tag: protectedFields[fieldName] || tagName });
             }
@@ -50,21 +68,17 @@
     }
 
     function abilityFormModel({
-        abilities = {},
-        flySpeedValue = "",
+        movementSpeedValue = "",
         walkSpeedValue = "",
+        flySpeedValue = "",
+        verticalFlySpeedValue = "",
     } = {}) {
         return {
-            checks: {
-                abMayfly: abilities?.mayfly === true,
-                abFlying: abilities?.flying === true,
-                abInvulnerable: abilities?.invulnerable === true,
-                abMaybuild: abilities?.maybuild !== false,
-                abInstabuild: abilities?.instabuild === true,
-            },
             values: {
-                abFlySpeed: String(flySpeedValue),
+                abMovementSpeed: String(movementSpeedValue),
                 abWalkSpeed: String(walkSpeedValue),
+                abFlySpeed: String(flySpeedValue),
+                abVerticalFlySpeed: String(verticalFlySpeedValue),
             },
         };
     }
@@ -182,11 +196,6 @@
     }
 
     function applyAbilityFormModel(doc = document, model = {}) {
-        Object.entries(model.checks || {}).forEach(([id, checked]) => {
-            const element = doc.getElementById?.(id);
-            if (!element) return;
-            element.checked = Boolean(checked);
-        });
         Object.entries(model.values || {}).forEach(([id, value]) => {
             const element = doc.getElementById?.(id);
             if (!element) return;
@@ -194,21 +203,8 @@
         });
     }
 
-    function readAbilityFormValues(doc = document) {
-        return {
-            mayfly: doc.getElementById?.("abMayfly")?.checked === true,
-            flying: doc.getElementById?.("abFlying")?.checked === true,
-            invulnerable: doc.getElementById?.("abInvulnerable")?.checked === true,
-            maybuild: doc.getElementById?.("abMaybuild")?.checked !== false,
-            instabuild: doc.getElementById?.("abInstabuild")?.checked === true,
-        };
-    }
-
     function readAbilitySpeedValues(doc = document) {
-        return {
-            fly_speed: doc.getElementById?.("abFlySpeed")?.value,
-            walk_speed: doc.getElementById?.("abWalkSpeed")?.value,
-        };
+        return Object.fromEntries(ABILITY_CONTROLS.map(([id, fieldName]) => [fieldName, doc.getElementById?.(id)?.value]));
     }
 
     function readStatsFormValues(elements = {}) {
@@ -313,20 +309,20 @@
         element.textContent = model.label || "";
     }
 
-    function abilityRiskNoteModel({
+    // Browser zeigen den title eines deaktivierten Feldes nicht an. Der Grund für
+    // eine gesperrte Laufgeschwindigkeit steht deshalb sichtbar unter den Feldern.
+    function movementLockNoteModel({
         abilitiesOpaque = false,
-        playerAbilitiesOpaque = false,
-        warnings = [],
+        reason = "",
     } = {}) {
-        const visibleWarnings = (Array.isArray(warnings) ? warnings : []).filter(Boolean);
-        const hidden = abilitiesOpaque || playerAbilitiesOpaque || visibleWarnings.length === 0;
+        const text = abilitiesOpaque ? "" : movementSpeedLockText(reason);
         return {
-            hidden,
-            text: hidden ? "" : visibleWarnings.join(" "),
+            hidden: !text,
+            text,
         };
     }
 
-    function applyAbilityRiskNoteModel(element, model = {}) {
+    function applyMovementLockNoteModel(element, model = {}) {
         if (!element) return;
         element.hidden = Boolean(model.hidden);
         element.textContent = model.text || "";
@@ -335,18 +331,17 @@
     window.MCBEAbilityView = {
         abilityControlModels,
         abilityFormModel,
-        abilityRiskNoteModel,
         applyAbilityControlModels,
         applyAbilityFormModel,
-        applyAbilityRiskNoteModel,
         applyControlState,
         applyLocationConversionModel,
         applyLocationConversionNote,
+        applyMovementLockNoteModel,
         applyStatProtectionControlModels,
         applyStatsFormModel,
         gamemodeDisplayModel,
         locationConversionModel,
-        readAbilityFormValues,
+        movementLockNoteModel,
         readAbilitySpeedValues,
         readStatsFormValues,
         statsFormModel,

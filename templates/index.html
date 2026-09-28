@@ -599,40 +599,31 @@
                                 <h3>{{ t("Fähigkeiten 🦸") }}</h3>
                                 <div class="ability-scope-note" id="abilityScopeNote">
                                     {{ t("Diese Werte gelten nur für den ausgewählten Spieler. Der Welt-Standardspielmodus und Achievement-Flags in level.dat werden hier nicht geändert.") }}
-                                </div>
-                                <div class="ability-risk-note" id="abilityRiskNote" hidden></div>
-                                <div class="abilities-grid">
-                                    <label class="ability-toggle">
-                                        <span>{{ t("Fliegen (mayfly)") }}</span>
-                                        <input type="checkbox" id="abMayfly" />
-                                    </label>
-                                    <label class="ability-toggle">
-                                        <span>{{ t("Schweben (flying)") }}</span>
-                                        <input type="checkbox" id="abFlying" />
-                                    </label>
-                                    <label class="ability-toggle">
-                                        <span>{{ t("Unverwundbar") }}</span>
-                                        <input type="checkbox" id="abInvulnerable" />
-                                    </label>
-                                    <label class="ability-toggle">
-                                        <span>{{ t("Blöcke setzen (mayBuild)") }}</span>
-                                        <input type="checkbox" id="abMaybuild" checked />
-                                    </label>
-                                    <label class="ability-toggle" title="{{ t('Blöcke werden ohne normale Abbauzeit sofort zerstört, ähnlich wie im Kreativmodus. Technischer NBT-Name: instabuild.') }}">
-                                        <span>{{ t("Blöcke sofort abbauen") }}</span>
-                                        <input type="checkbox" id="abInstabuild" aria-describedby="abilityRiskNote" />
-                                    </label>
+                                    {{ t("Fliegen, Unverwundbarkeit, sofortigen Blockabbau und Baurechte leitet Minecraft aus Spielmodus und Spielerberechtigung ab. Diese Einstellungen werden in Minecraft vorgenommen.") }}
                                 </div>
                                 <div class="row" style="margin-top: 8px;">
                                     <div class="field-group col">
-                                        <label for="abFlySpeed">{{ t("Flug-Geschwindigkeit (0–1)") }}</label>
-                                        <input type="number" id="abFlySpeed" step="0.01" min="0" max="1" value="0.05" aria-describedby="abFlySpeedNote" />
-                                        <small class="field-note" id="abFlySpeedNote">{{ t("Vanilla-Standard: 0,05") }}</small>
+                                        <label for="abMovementSpeed">{{ t("Laufgeschwindigkeit (0–1)") }}</label>
+                                        <input type="number" id="abMovementSpeed" step="0.01" min="0" max="1" value="0.1" aria-describedby="abMovementSpeedNote abilityMovementLockNote" />
+                                        <small class="field-note" id="abMovementSpeedNote">{{ t("Vanilla-Standard: 0,1 · Attribut minecraft:movement. Passt das Lauf-Sichtfeld mit an.") }}</small>
                                     </div>
                                     <div class="field-group col">
-                                        <label for="abWalkSpeed">{{ t("Lauf-Geschwindigkeit (0–1)") }}</label>
+                                        <label for="abWalkSpeed">{{ t("Lauf-Sichtfeld (walkSpeed, 0–1)") }}</label>
                                         <input type="number" id="abWalkSpeed" step="0.01" min="0" max="1" value="0.1" aria-describedby="abWalkSpeedNote" />
-                                        <small class="field-note" id="abWalkSpeedNote">{{ t("Vanilla-Standard: 0,1") }}</small>
+                                        <small class="field-note" id="abWalkSpeedNote">{{ t("Vanilla-Standard: 0,1 · Wirkt in Bedrock nur auf das Sichtfeld, nicht auf die Geschwindigkeit.") }}</small>
+                                    </div>
+                                </div>
+                                <div class="ability-risk-note" id="abilityMovementLockNote" hidden></div>
+                                <div class="row" style="margin-top: 8px;">
+                                    <div class="field-group col">
+                                        <label for="abFlySpeed">{{ t("Flug-Geschwindigkeit (flySpeed, 0–1)") }}</label>
+                                        <input type="number" id="abFlySpeed" step="0.01" min="0" max="1" value="0.05" aria-describedby="abFlySpeedNote" />
+                                        <small class="field-note" id="abFlySpeedNote">{{ t("Vanilla-Standard: 0,05 · Waagerechtes Fliegen.") }}</small>
+                                    </div>
+                                    <div class="field-group col">
+                                        <label for="abVerticalFlySpeed">{{ t("Vertikale Flug-Geschwindigkeit (verticalFlySpeed, 0–20)") }}</label>
+                                        <input type="number" id="abVerticalFlySpeed" step="0.1" min="0" max="20" value="1" aria-describedby="abVerticalFlySpeedNote" />
+                                        <small class="field-note" id="abVerticalFlySpeedNote">{{ t("Vanilla-Standard: 1 · Steigen und Sinken beim Fliegen.") }}</small>
                                     </div>
                                 </div>
                                 <div class="ability-speed-actions">

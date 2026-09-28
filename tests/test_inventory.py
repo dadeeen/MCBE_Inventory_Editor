@@ -3303,38 +3303,35 @@ class AbilitiesTests(unittest.TestCase):
             {
                 "mayfly": nbt.ByteTag(1),
                 "invulnerable": nbt.ByteTag(1),
-                "mayBuild": nbt.ByteTag(1),
                 "flySpeed": nbt.FloatTag(0.1),
                 "walkSpeed": nbt.FloatTag(0.2),
+                "verticalFlySpeed": nbt.FloatTag(3.0),
             }
         )
         result = parse_abilities(tag)
-        self.assertTrue(result["mayfly"])
-        self.assertTrue(result["invulnerable"])
-        self.assertTrue(result["maybuild"])
+        self.assertEqual(set(result), {"fly_speed", "walk_speed", "vertical_fly_speed"})
         self.assertAlmostEqual(result["fly_speed"], 0.1)
         self.assertAlmostEqual(result["walk_speed"], 0.2)
+        self.assertAlmostEqual(result["vertical_fly_speed"], 3.0)
 
-    def test_parse_abilities_accepts_legacy_lowercase_maybuild(self):
+    def test_parse_abilities_reports_defaults_for_missing_speeds(self):
         tag = make_minimal_player_tag()
-        tag["abilities"] = nbt.CompoundTag({"maybuild": nbt.ByteTag(0)})
-        result = parse_abilities(tag)
-        self.assertFalse(result["maybuild"])
+        tag["abilities"] = nbt.CompoundTag({"mayfly": nbt.ByteTag(0)})
+        self.assertEqual(parse_abilities(tag), {"fly_speed": 0.05, "walk_speed": 0.1, "vertical_fly_speed": 1.0})
 
     def test_apply_abilities_creates_tag(self):
         tag = make_minimal_player_tag()
-        apply_abilities(tag, {"mayfly": True, "invulnerable": True, "maybuild": True})
+        apply_abilities(tag, {"fly_speed": 0.05, "walk_speed": 0.1, "vertical_fly_speed": 2.0})
         self.assertIn("abilities", tag)
-        self.assertEqual(tag["abilities"]["mayfly"].py_data, 1)
-        self.assertEqual(tag["abilities"]["mayBuild"].py_data, 1)
-        self.assertNotIn("maybuild", tag["abilities"])
+        self.assertEqual(set(tag["abilities"].keys()), {"flySpeed", "walkSpeed", "verticalFlySpeed"})
+        self.assertAlmostEqual(tag["abilities"]["verticalFlySpeed"].py_data, 2.0)
 
-    def test_apply_abilities_canonicalizes_legacy_lowercase_maybuild(self):
+    def test_apply_abilities_ignores_game_mode_derived_flags(self):
         tag = make_minimal_player_tag()
-        tag["abilities"] = nbt.CompoundTag({"maybuild": nbt.ByteTag(0)})
-        apply_abilities(tag, {"maybuild": True})
-        self.assertEqual(tag["abilities"]["mayBuild"].py_data, 1)
-        self.assertNotIn("maybuild", tag["abilities"])
+        tag["abilities"] = nbt.CompoundTag({"mayfly": nbt.ByteTag(0), "build": nbt.ByteTag(1)})
+        before = tag.save_to()
+        apply_abilities(tag, {"mayfly": True, "maybuild": False, "instabuild": True})
+        self.assertEqual(tag.save_to(), before)
 
     def test_apply_abilities_rejects_invalid_fly_speed(self):
         tag = make_minimal_player_tag()
@@ -3603,21 +3600,21 @@ class TestFutureNbtEdgeCases(unittest.TestCase):
             }
         )
         flags = protected_player_nbt_flags(player)
-        self.assertEqual(flags["ability_fields_opaque"], {"fly_speed": "flySpeed", "mayfly": "mayfly"})
+        self.assertEqual(flags["ability_fields_opaque"], {"fly_speed": "flySpeed"})
         apply_abilities(player, {"flying": True, "walk_speed": 0.3})
         self.assertIsInstance(player["abilities"]["mayfly"], nbt.IntTag)
         self.assertEqual(player["abilities"]["mayfly"].py_data, 1)
         self.assertIsInstance(player["abilities"]["flySpeed"], nbt.DoubleTag)
         self.assertEqual(player["abilities"]["flySpeed"].py_data, 0.05)
-        self.assertEqual(player["abilities"]["flying"].py_data, 1)
+        self.assertEqual(player["abilities"]["flying"].py_data, 0)
         self.assertAlmostEqual(player["abilities"]["walkSpeed"].py_data, 0.3)
 
     def test_opaque_ability_subfield_write_is_rejected(self):
-        player = nbt.CompoundTag({"abilities": nbt.CompoundTag({"mayfly": nbt.IntTag(1), "flying": nbt.ByteTag(0)})})
-        with self.assertRaisesRegex(ValueError, "mayfly.*unbekannten NBT-Typ"):
-            apply_abilities(player, {"mayfly": False})
-        self.assertIsInstance(player["abilities"]["mayfly"], nbt.IntTag)
-        self.assertEqual(player["abilities"]["mayfly"].py_data, 1)
+        player = nbt.CompoundTag({"abilities": nbt.CompoundTag({"verticalFlySpeed": nbt.IntTag(1), "flying": nbt.ByteTag(0)})})
+        with self.assertRaisesRegex(ValueError, "verticalFlySpeed.*unbekannten NBT-Typ"):
+            apply_abilities(player, {"vertical_fly_speed": 2.0})
+        self.assertIsInstance(player["abilities"]["verticalFlySpeed"], nbt.IntTag)
+        self.assertEqual(player["abilities"]["verticalFlySpeed"].py_data, 1)
 
     def test_known_effect_with_opaque_field_type_is_preserved(self):
         player = nbt.CompoundTag(

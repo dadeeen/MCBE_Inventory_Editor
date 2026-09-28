@@ -17,7 +17,7 @@ def _run_node(source: str) -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
-def test_frontend_ability_view_risk_note_model_and_applier() -> None:
+def test_frontend_ability_view_movement_lock_note_model_and_applier() -> None:
     _run_node(
         textwrap.dedent(
             r"""
@@ -29,29 +29,29 @@ def test_frontend_ability_view_risk_note_model_and_applier() -> None:
             vm.runInNewContext(code, context, { filename: "static/ability_view.js" });
 
             const view = context.window.MCBEAbilityView;
-            const model = view.abilityRiskNoteModel({
-                warnings: ["Warnung A", "Warnung B"],
-            });
-            assert.strictEqual(model.hidden, false);
-            assert.strictEqual(model.text, "Warnung A Warnung B");
-
             const element = { hidden: true, textContent: "" };
-            view.applyAbilityRiskNoteModel(element, model);
+
+            const modifiers = view.movementLockNoteModel({ reason: "modifiers" });
+            assert.strictEqual(modifiers.hidden, false);
+            assert.match(modifiers.text, /Modifikatoren, etwa durch Sprinten/);
+            view.applyMovementLockNoteModel(element, modifiers);
             assert.strictEqual(element.hidden, false);
-            assert.strictEqual(element.textContent, "Warnung A Warnung B");
+            assert.strictEqual(element.textContent, modifiers.text);
 
-            const empty = view.abilityRiskNoteModel({ warnings: [] });
-            view.applyAbilityRiskNoteModel(element, empty);
-            assert.strictEqual(element.hidden, true);
-            assert.strictEqual(element.textContent, "");
+            assert.match(view.movementLockNoteModel({ reason: "missing" }).text, /kein Attribut minecraft:movement/);
+            assert.match(view.movementLockNoteModel({ reason: "value" }).text, /unerwarteten Aufbau/);
 
-            const opaque = view.abilityRiskNoteModel({
-                abilitiesOpaque: true,
-                warnings: ["Wird ausgeblendet"],
-            });
-            view.applyAbilityRiskNoteModel(element, opaque);
-            assert.strictEqual(element.hidden, true);
-            assert.strictEqual(element.textContent, "");
+            // Ein insgesamt geschützter abilities-Tag erklärt sich über die
+            // Feld-Titel; der Hinweis zur Laufgeschwindigkeit bleibt dann aus.
+            for (const model of [
+                view.movementLockNoteModel({ reason: "" }),
+                view.movementLockNoteModel({ abilitiesOpaque: true, reason: "modifiers" }),
+            ]) {
+                view.applyMovementLockNoteModel(element, model);
+                assert.strictEqual(element.hidden, true);
+                assert.strictEqual(element.textContent, "");
+            }
+            assert.strictEqual(view.abilityRiskNoteModel, undefined);
             """
         )
     )
@@ -71,14 +71,17 @@ def test_frontend_ability_view_control_models_and_applier() -> None:
             const view = context.window.MCBEAbilityView;
             const models = view.abilityControlModels({
                 protectedFields: { fly_speed: "flySpeedOverride" },
+                movementLock: "modifiers",
             });
-            const mayfly = models.find(model => model.id === "abMayfly");
-            const flySpeed = models.find(model => model.id === "abFlySpeed");
+            assert.deepStrictEqual(Array.from(models, model => model.id), ["abMovementSpeed", "abWalkSpeed", "abFlySpeed", "abVerticalFlySpeed"]);
+            const byId = Object.fromEntries(models.map(model => [model.id, model]));
 
-            assert.strictEqual(mayfly.disabled, false);
-            assert.strictEqual(mayfly.title, "");
-            assert.strictEqual(flySpeed.disabled, true);
-            assert.strictEqual(flySpeed.title, "flySpeedOverride-Tag hat einen unerwarteten NBT-Typ und wird geschützt erhalten.");
+            assert.strictEqual(byId.abWalkSpeed.disabled, false);
+            assert.strictEqual(byId.abWalkSpeed.title, "");
+            assert.strictEqual(byId.abFlySpeed.disabled, true);
+            assert.strictEqual(byId.abFlySpeed.title, "flySpeedOverride-Tag hat einen unerwarteten NBT-Typ und wird geschützt erhalten.");
+            assert.strictEqual(byId.abMovementSpeed.disabled, true);
+            assert.match(byId.abMovementSpeed.title, /Modifikatoren/);
 
             const elements = {};
             for (const model of models) elements[model.id] = { disabled: false, title: "stale" };
@@ -88,10 +91,13 @@ def test_frontend_ability_view_control_models_and_applier() -> None:
                 },
             };
             view.applyAbilityControlModels(doc, models);
-            assert.strictEqual(elements.abMayfly.disabled, false);
-            assert.strictEqual(elements.abMayfly.title, "");
+            assert.strictEqual(elements.abVerticalFlySpeed.disabled, false);
+            assert.strictEqual(elements.abVerticalFlySpeed.title, "");
             assert.strictEqual(elements.abFlySpeed.disabled, true);
             assert.strictEqual(elements.abFlySpeed.title, "flySpeedOverride-Tag hat einen unerwarteten NBT-Typ und wird geschützt erhalten.");
+
+            const unlocked = view.abilityControlModels({});
+            assert.strictEqual(unlocked.every(model => model.disabled === false), true);
 
             const disabledModels = view.abilityControlModels({ disabled: true });
             assert.strictEqual(disabledModels.every(model => model.disabled === true), true);
@@ -117,27 +123,21 @@ def test_frontend_ability_view_form_model_and_applier() -> None:
 
             const view = context.window.MCBEAbilityView;
             const model = view.abilityFormModel({
-                abilities: {
-                    mayfly: true,
-                    flying: false,
-                    invulnerable: true,
-                    maybuild: false,
-                    instabuild: true,
-                },
-                flySpeedValue: "0.07",
+                movementSpeedValue: "0.2",
                 walkSpeedValue: "0.12",
+                flySpeedValue: "0.07",
+                verticalFlySpeedValue: "3",
+            });
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(model)), {
+                values: {
+                    abMovementSpeed: "0.2",
+                    abWalkSpeed: "0.12",
+                    abFlySpeed: "0.07",
+                    abVerticalFlySpeed: "3",
+                },
             });
 
-            assert.strictEqual(model.checks.abMayfly, true);
-            assert.strictEqual(model.checks.abFlying, false);
-            assert.strictEqual(model.checks.abInvulnerable, true);
-            assert.strictEqual(model.checks.abMaybuild, false);
-            assert.strictEqual(model.checks.abInstabuild, true);
-            assert.strictEqual(model.values.abFlySpeed, "0.07");
-            assert.strictEqual(model.values.abWalkSpeed, "0.12");
-
             const elements = {};
-            for (const id of Object.keys(model.checks)) elements[id] = { checked: null };
             for (const id of Object.keys(model.values)) elements[id] = { value: "" };
             const doc = {
                 getElementById(id) {
@@ -145,23 +145,18 @@ def test_frontend_ability_view_form_model_and_applier() -> None:
                 },
             };
             view.applyAbilityFormModel(doc, model);
-            assert.strictEqual(elements.abMayfly.checked, true);
-            assert.strictEqual(elements.abFlying.checked, false);
-            assert.strictEqual(elements.abInvulnerable.checked, true);
-            assert.strictEqual(elements.abMaybuild.checked, false);
-            assert.strictEqual(elements.abInstabuild.checked, true);
-            assert.strictEqual(elements.abFlySpeed.value, "0.07");
+            assert.strictEqual(elements.abMovementSpeed.value, "0.2");
             assert.strictEqual(elements.abWalkSpeed.value, "0.12");
+            assert.strictEqual(elements.abFlySpeed.value, "0.07");
+            assert.strictEqual(elements.abVerticalFlySpeed.value, "3");
 
-            const defaults = view.abilityFormModel({});
-            assert.strictEqual(defaults.checks.abMaybuild, true);
-            assert.strictEqual(defaults.values.abFlySpeed, "");
+            assert.strictEqual(view.abilityFormModel({}).values.abFlySpeed, "");
             """
         )
     )
 
 
-def test_frontend_ability_view_reads_form_and_speed_values() -> None:
+def test_frontend_ability_view_reads_speed_values() -> None:
     _run_node(
         textwrap.dedent(
             r"""
@@ -174,13 +169,10 @@ def test_frontend_ability_view_reads_form_and_speed_values() -> None:
 
             const view = context.window.MCBEAbilityView;
             const elements = {
-                abMayfly: { checked: true },
-                abFlying: { checked: false },
-                abInvulnerable: { checked: true },
-                abMaybuild: { checked: false },
-                abInstabuild: { checked: true },
-                abFlySpeed: { value: "0.08" },
+                abMovementSpeed: { value: "0.2" },
                 abWalkSpeed: { value: "0.14" },
+                abFlySpeed: { value: "0.08" },
+                abVerticalFlySpeed: { value: "2.5" },
             };
             const doc = {
                 getElementById(id) {
@@ -188,22 +180,16 @@ def test_frontend_ability_view_reads_form_and_speed_values() -> None:
                 },
             };
 
-            const values = view.readAbilityFormValues(doc);
-            assert.strictEqual(values.mayfly, true);
-            assert.strictEqual(values.flying, false);
-            assert.strictEqual(values.invulnerable, true);
-            assert.strictEqual(values.maybuild, false);
-            assert.strictEqual(values.instabuild, true);
-
-            const speeds = view.readAbilitySpeedValues(doc);
-            assert.strictEqual(speeds.fly_speed, "0.08");
-            assert.strictEqual(speeds.walk_speed, "0.14");
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(view.readAbilitySpeedValues(doc))), {
+                movement_speed: "0.2",
+                walk_speed: "0.14",
+                fly_speed: "0.08",
+                vertical_fly_speed: "2.5",
+            });
 
             const missingDoc = { getElementById() { return null; } };
-            const missingValues = view.readAbilityFormValues(missingDoc);
-            assert.strictEqual(missingValues.mayfly, false);
-            assert.strictEqual(missingValues.maybuild, true);
             assert.strictEqual(view.readAbilitySpeedValues(missingDoc).fly_speed, undefined);
+            assert.strictEqual(view.readAbilityFormValues, undefined);
             """
         )
     )

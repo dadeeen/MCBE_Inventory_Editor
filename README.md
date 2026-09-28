@@ -52,7 +52,7 @@ That origin explains the scope: a reviewed set of player fields, edited with the
 |---|---|
 | Inventory | Hotbar, backpack, armor, offhand, moving, copying, and bulk actions |
 | Ender chest | Viewing and editing, including transfers between visible areas |
-| Player values | Health, game mode, XP, hunger, saturation, position, effects, and abilities |
+| Player values | Health, game mode, XP, hunger, saturation, position, effects, and walking and flying speeds |
 | Safety | Pre-write backups, restore checks, revision checks, write gates, and world locks |
 | Player transfer | Versioned local ↔ multiplayer migration and complete `.mcbe-player.zip` import/export |
 | Icons | Vanilla icon download, local resource packs, `.mcpack`, `.zip`, and custom icon folders |
