@@ -105,23 +105,9 @@ def remove_backup_after_aborted_write(backup_file: str | None, operation_error: 
 
 
 def _fsync_directory(path: str) -> None:
-    """Best-effort durability barrier for directory entry changes."""
+    """Persist restore directory changes with the same I/O policy as backups."""
 
-    if os.name == "nt" or not hasattr(os, "O_DIRECTORY"):
-        return
-    fd = None
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        os.fsync(fd)
-    except OSError:
-        # Some bind, network, and virtual filesystems do not support directory
-        # fsync. The restore remains usable there, but durability is determined
-        # by the backing filesystem.
-        pass
-    finally:
-        if fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(fd)
+    _sync_backup_directory(path)
 
 
 def _sync_backup_directory(path: str) -> None:
@@ -321,6 +307,9 @@ def recover_restore_transaction(journal_path: str, *, recovery_gate_check: Calla
         # the world may have been recreated externally after the first rename.
         # Never delete either candidate automatically in that ambiguous state.
         if world_valid and not os.path.lexists(staging_path):
+            # The process may have stopped after the replacement rename and
+            # before its sync. Persist that entry before removing the original.
+            _fsync_directory(parent_dir)
             if os.path.lexists(rollback_path):
                 if is_linklike(rollback_path) or not os.path.isdir(rollback_path):
                     raise RuntimeError(f"Restore-Rollback ist kein regulärer Ordner: {rollback_path}")
@@ -1381,7 +1370,7 @@ def safe_extract_zip(zipf: zipfile.ZipFile, target_dir: str) -> None:
     validate_zip_members(zipf, target_dir)
     target_dir = os.path.abspath(target_dir)
     os.makedirs(target_dir, exist_ok=True)
-    created_dirs = {os.path.normcase(target_dir)}
+    created_dirs = {os.path.normcase(target_dir): target_dir}
     for member in zipf.infolist():
         safe_name = _safe_zip_member_name(member.filename)
         parts = PurePosixPath(safe_name).parts
@@ -1395,15 +1384,24 @@ def safe_extract_zip(zipf: zipfile.ZipFile, target_dir: str) -> None:
                     # Only reuse directories created under the same spelling.
                     # DOS 8.3 aliases can otherwise merge unrelated ZIP trees.
                     os.mkdir(directory)
-                    created_dirs.add(normalized)
+                    created_dirs[normalized] = directory
             if member.is_dir():
                 continue
             # Lexically distinct names may alias on the target filesystem.
             # Never overwrite an earlier member in the private staging tree.
             with zipf.open(member, "r") as src, open(target_path, "xb") as dst:
                 shutil.copyfileobj(src, dst)
+                # Closing alone can leave dirty pages and deferred I/O errors.
+                # Persist each staged file before the current world is renamed
+                # and its rollback directory can be removed.
+                dst.flush()
+                os.fsync(dst.fileno())
         except FileExistsError as exc:
             raise ValueError(t("Backup enthält kollidierende Dateisystempfade: {path}", path=member.filename)) from exc
+    # Children were created after their parents. Persist their entries first;
+    # real sync errors must abort while the original world is still in place.
+    for directory in reversed(created_dirs.values()):
+        _sync_backup_directory(directory)
 
 
 @_world_locked
