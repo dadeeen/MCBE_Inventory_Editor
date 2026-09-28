@@ -7,18 +7,18 @@ free-threaded CPython and alternative interpreters require separate validation.
 
 - `mcbe_editor/nbt.py` implements the binary NBT types and operations used by
   the editor with the Python standard library. Amulet-NBT, NumPy and
-  Amulet-MUTF8 are no longer runtime dependencies.
-- **Amulet-LevelDB 1.0.6** remains the Bedrock-compatible native storage engine.
-  Its unchanged source builds on Python 3.13/3.14 with the locked Cython 3.2.4
-  toolchain. Existing write locks, backups, atomic batches and rollback checks
-  continue to surround native database writes.
+  Amulet-MUTF8 are not runtime dependencies.
+- **Amulet-LevelDB 1.0.6** is the Bedrock-compatible native storage engine.
+  Its unmodified upstream source builds on Python 3.13/3.14 with the locked
+  Cython 3.2.4 toolchain. Write locks, backups, atomic batches and rollback
+  checks surround native database writes.
 - Windows x64 runtime packages include separately built and tested LevelDB
   wheels for Python 3.13/3.14. Setup validates their provenance, source/build
   hashes and license notices before installation. Existing supported virtual
   environments are retained. See [development.md](development.md) for the
   supported source-build and release procedures.
-- Requirement sources and hash-locked outputs remain under `requirements/`.
-  Canonical lock generation uses Python 3.12. Docker retains its pinned
+- Requirement sources and hash-locked outputs are under `requirements/`.
+  Canonical lock generation uses Python 3.12. Docker uses a pinned
   Python 3.12 base image; CI checks Python 3.12–3.14 on Windows and Linux.
 
 ## Codec contract
@@ -56,8 +56,9 @@ Reference comparisons cover:
   cloning and synthetic fallback. Actor bytes, identifiers, stored positions,
   owner references and `digp` entries are independently checked.
 - Player transfer in both directions, including target identity preservation.
-- Export/import across all old/new codec combinations, with original player NBT
-  bytes, manifests, previews and service rereads checked independently.
+- Export/import with every exporter/importer pairing of the two codecs, with
+  original player NBT bytes, manifests, previews and service rereads checked
+  independently.
 
 The workflow worker selects the codec before importing application services.
 It compares the current service layer under both codecs, not an entire historical

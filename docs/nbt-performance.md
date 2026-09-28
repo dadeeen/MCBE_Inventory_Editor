@@ -1,8 +1,9 @@
 # NBT codec performance measurement
 
-Measured on Windows for v0.5.21. This measures the current project
-codec against Amulet-NBT 2.1.8 with NumPy 1.26.4, not overall editor response
-time. LevelDB, backups, HTTP and browser rendering are outside the timed region.
+Measured on Windows for v0.5.21. This compares the project codec, identified by
+the hash below, with Amulet-NBT 2.1.8 and NumPy 1.26.4; it does not measure
+overall editor response time. LevelDB, backups, HTTP and browser rendering are
+outside the timed region.
 
 Measured `mcbe_editor/nbt.py` SHA-256:
 `b7a79d3d298d1bb8f7fc10743928ba24af0edac5406ada9ced31d2968a2b5356`.
@@ -16,7 +17,7 @@ Measured `mcbe_editor/nbt.py` SHA-256:
   integer and byte arrays were synthetic stress cases, not observed player
   record sizes.
 - Before timing, both implementations had to read and write every input
-  byte-for-byte. Inputs were already in memory. Save-only timings used previously
+  byte-for-byte. Inputs were already in memory. Save-only timings used already
   loaded objects; roundtrip timings included parsing and serialization together.
 - Seven warmed `timeit` samples per operation; median reported. Codec order
   alternated using a seeded shuffle. GC was disabled during timed batches.
@@ -46,8 +47,8 @@ For these real records, the project codec was approximately 19–20 times slower
 to load and 3 times slower to save; complete roundtrips were about 9 times
 slower. Large packed arrays show a much greater relative difference because
 NumPy/native bulk conversion is replaced by Python element-by-element work.
-The change also replaces a compiled Cython parser, so these differences cannot
-be attributed to removing NumPy alone.
+The project codec also has no compiled Cython parser, so these differences
+cannot be attributed to NumPy alone.
 
 ## Memory results on Python 3.12
 
@@ -76,42 +77,43 @@ array roundtrips were 43.8 ms and 105.4 ms. The animal batch had a noisy initial
 iterations per sample and a 150 ms target measured 27.2 ms. These runs are not
 sufficient to rank Python 3.12 against 3.14 precisely.
 
-The migration is therefore not performance-neutral. Individual measured player
-roundtrips remain in the low-millisecond range, but repeated parsing and large
-arrays can make the difference significant. Actual UI impact requires timing
-the relevant application operation; multiplying these ratios by total save
-time would be incorrect because database and backup work did not change.
+The project codec is therefore not performance-neutral. Individual measured
+player roundtrips are in the low-millisecond range, but repeated parsing and
+large arrays can make the difference significant. Actual UI impact requires
+timing the relevant application operation; multiplying these ratios by total
+save time would be incorrect because database and backup work do not depend on
+the codec.
 
-A reasonable follow-up is targeted optimization of bulk arrays and measured
-hot paths using standard-library facilities, with the existing preservation
-tests retained. This benchmark does not implement or promise that optimization.
+Codec optimizations should target bulk arrays and measured hot paths with
+standard-library facilities and keep the preservation tests unchanged.
 
-## Implemented equine-template prefilter
+## Equine-template prefilter
 
-`find_equine_template` now checks for the literal UTF-8 bytes of its three
-accepted identifiers before decoding an actor record. Possible matches still
-undergo full NBT decoding, identifier validation and the existing priority
-selection. Incidental strings and malformed records cannot become templates
-through the prefilter. Regression tests cover false positives and all five
-supported identifier field names for horses, donkeys and mules.
+`find_equine_template` checks for the literal UTF-8 bytes of its three accepted
+identifiers before decoding an actor record. Possible matches undergo full NBT
+decoding, identifier validation and the priority selection. Incidental strings
+and malformed records cannot become templates through the prefilter. Regression
+tests cover false positives and all five supported identifier field names for
+horses, donkeys and mules.
 
-The following measurements compare the project codec with and without this
-prefilter, on standard CPython 3.14.4. They do not compare against Amulet-NBT.
-Both paths used the same disposable copy of the approximately 247 MB private
-server world. Each timing includes adapter creation, complete database
+The following measurements for v0.5.21 compare the project codec with and
+without this prefilter, on standard CPython 3.14.4. They do not compare against
+Amulet-NBT. Both paths used the same disposable copy of the approximately
+247 MB private server world. Each timing includes adapter creation, complete database
 iteration, template selection and close. Three samples per mode were taken in
 alternating order; the table reports medians. Build/test processes were not
 running during these measurements. The native adapter uses the locally built
 LevelDB wheel and is the adapter used by the application's write path.
 
-| Template-scan adapter | Before, seconds | After, seconds | Speedup |
+| Template-scan adapter | Without prefilter, seconds | With prefilter, seconds | Speedup |
 | --- | ---: | ---: | ---: |
 | Native `LevelDbAdapter` | 9.753 | 5.790 | 1.68× |
 | `ReadonlyLevelDbAdapter` | 6.446 | 2.857 | 2.26× |
 
-Both adapters decoded **6,821 records before and 78 after**. Every run selected
-the exact same identifier and raw template bytes. The native timings ranged
-from 9.383–9.779 seconds before and 5.780–5.926 seconds after; timings depend
+Both adapters decoded **6,821 records without the prefilter and 78 with it**.
+Every run selected the exact same identifier and raw template bytes. The native
+timings ranged from 9.383–9.779 seconds without and 5.780–5.926 seconds with
+the prefilter; timings depend
 on the world and the machine. Native LevelDB opens can change database
 bookkeeping, so these runs accessed only the disposable copy.
 

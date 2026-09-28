@@ -84,7 +84,7 @@ Results have three classes:
 | `unchecked` | Data is missing or cannot be decoded unambiguously | Requires explicit confirmation and a save-time re-check |
 | `unsafe` | Support, clearance, or liquid checks fail | Rejected server-side |
 
-The block probe currently supports paletted subchunks v8 and v9.
+The block probe supports paletted subchunks v8 and v9.
 
 Block indexes are read in Bedrock's fixed XZY order, `(x << 8) | (z << 4) | y`. That order is a property of the format, not something to infer per world: alternative orderings exist in the module for diagnostics only and must never take part in a placement verdict. Selecting whichever ordering produces the most placeable-looking result resolves every ambiguous read towards `safe`, which is the opposite of the guarantee below.
 
@@ -139,8 +139,8 @@ A confirmation for unknown status never overrides a later `online` result. `MCBE
 - Add-ons, future Bedrock formats, unusual terrain, and ambiguous subchunks may remain `unchecked`.
 - Compatibility across all Bedrock versions and repeated Minecraft load/save cycles cannot be guaranteed.
 - Tamed donkey and mule ownership uses the world-internal player actor identity; it does not transfer external account identity or pet ownership from another player.
-- Manual in-game load tests are still pending for synthetically created tamed donkeys and mules.
-- Not all non-default horse colors and markings have been visually confirmed in game. The reference fixture currently pins the definitions mapping for colors 3, 5 and 6 and markings 1 to 4 against real Minecraft records; the remaining combinations rest on the lookup tables alone.
+- Tamed donkeys and mules created by the editor have no manual in-game load test.
+- Not all non-default horse colors and markings have been visually confirmed in game. The reference fixture pins the definitions mapping for colors 3, 5 and 6 and markings 1 to 4 against real Minecraft records; the remaining combinations rest on the lookup tables alone.
 
 Open product work belongs in the issue tracker. Historical experiments and one-off world observations belong in private diagnostics, not in this contract.
 

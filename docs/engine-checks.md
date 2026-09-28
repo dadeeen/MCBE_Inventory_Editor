@@ -194,19 +194,19 @@ persistence, not actual singleplayer `~local_player` saves, online authenticatio
 or UI editing flows. A Windows client may require its documented local-loopback
 access; the runner does not change system networking permissions.
 
-## First verified build
+## Verified builds
 
-For v0.5.23, the complete item suite passed against **BDS 1.26.50.5**:
-1,623 registry IDs, 6,040 item cases in 233 generated carriers, two engine
-save/reload cycles, and 6,492 rejected invalid creation amounts. There were no
-registry differences or unresolved limits with the reviewed candidate catalog.
-The bundled catalog now contains that exact tested snapshot. The measured
+All results below are for editor v0.5.23. They come from local Docker runs,
+not from the manually dispatched workflow. The scope exclusions above apply.
+
+**BDS 1.26.50.5, item suite:** 1,623 registry IDs, 6,040 item cases in 233
+generated carriers, two engine save/reload cycles, and 6,492 rejected invalid
+creation amounts. There were no registry differences or unresolved limits with
+the reviewed candidate catalog, which became the bundled catalog. The measured
 values and archive/catalog hashes are documented in [item-stack-limits.md](item-stack-limits.md).
-This was a local Docker run; the manual GitHub workflow has not yet been run.
-The scope exclusions above still apply.
 
-The expanded profiles subsequently passed on **BDS 1.26.51.1** on the
-same date, with the reviewed bundled durability corrections:
+**BDS 1.26.51.1, all profiles**, with the reviewed durability values in the
+bundled catalog:
 
 | Profile | Completed checks |
 | --- | --- |
@@ -221,16 +221,14 @@ same date, with the reviewed bundled durability corrections:
 
 The official Linux archive SHA-256 was
 `ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`,
-and the raw catalog snapshot SHA-256 was
+and the tested raw catalog snapshot SHA-256 was
 `f7cdb1d9da1348e856920f7b66539339e3c7792c15b769b5267179f518003ad9`.
-Raw file hashes are line-ending sensitive. The real-client result came from its
-own successful `client` run, with the Beta API and local offline-server profile
-described above. A fresh complete run passed after correcting account-index
-discovery; earlier failed diagnostic runs remain failures and were not combined
-with the successful run.
-The subsequent intermediate-state assertions have separate evidence from the
-automated service suite and an offline copy of the generated client seed; the
-three-connection real-client test has not been repeated with those assertions.
+Raw file hashes are line-ending sensitive. The real-client row comes from one
+complete `client` run with the Beta API and local offline-server profile
+described above; results of failed runs are not combined with it. The
+intermediate-state checks for cross-container moves are covered by the
+automated service suite and an offline copy of the generated client seed, not
+by a three-connection real-client run.
 
 ## Local use
 
@@ -293,7 +291,8 @@ The optional manually dispatched `Engine checks` workflow runs the same suite
 and uploads only the allowlisted summary. It publishes no application release.
 
 Also run the real-client profile when testing actual player persistence. Mount
-gameplay, singleplayer persistence and version migrations remain future domains.
+gameplay, singleplayer persistence and version migrations are not covered by
+these suites.
 Regression tests deliberately inject lost metadata, wrong counts/variants,
 duplicate/missing slots and observations to verify that observers reject them.
 Finite passing tests provide scoped evidence, not universal proof.

@@ -63,7 +63,7 @@ The app is not a public hosting service, server administration panel, or unrestr
 
 ## Local Windows setup
 
-Local Mode supports **Python 3.12–3.14**. NBT is handled by the project’s standard-library Python codec; NumPy and Amulet-NBT are no longer runtime dependencies. The Bedrock LevelDB engine remains native. Setup retains an existing supported `.venv` and prefers the newest installed Python with a compatible wheel for new environments. Bundled Windows x64 wheels are checked against their provenance, hashes and license notices. Source builds require a detected compiler and SDK; missing prerequisites are reported before package installation. The Docker image remains on Python 3.12.
+Local Mode supports **Python 3.12–3.14**. NBT is handled by the project’s own codec, which uses only the Python standard library; NumPy and Amulet-NBT are not runtime dependencies. LevelDB access uses the native Amulet-LevelDB engine. Setup retains an existing supported `.venv` and prefers the newest installed Python with a compatible wheel for new environments. Bundled Windows x64 wheels are checked against their provenance, hashes and license notices. Source builds require a detected compiler and SDK; missing prerequisites are reported before package installation. The Docker image uses Python 3.12.
 
 From the source tree or an extracted runtime package:
 
@@ -74,7 +74,7 @@ start.bat
 
 `setup.bat` creates `.venv` inside the project folder, installs no global Python packages, verifies the dependency hashes, and accepts only prebuilt wheels. The editor listens on `127.0.0.1:5000`; app data is stored under `data/`.
 
-The local HTTP server uses Waitress with four worker threads and persistent HTTP connections. Closing the browser still triggers automatic shutdown; active operations finish first. Blocked response transfers are disconnected after a grace period. Docker continues to use Gunicorn, with its unused control socket disabled to support the read-only container filesystem.
+The local HTTP server uses Waitress with four worker threads and persistent HTTP connections. Closing the browser shuts the editor down automatically once active operations have finished. Blocked response transfers are disconnected after a grace period. Docker uses Gunicorn, with its unused control socket disabled to support the read-only container filesystem.
 
 Administrator rights should not normally be needed. If a safely stopped world cannot be saved because of Windows permissions, running `start.bat` as administrator can be used as a diagnostic test. It does not make editing a running world safe.
 
@@ -160,7 +160,7 @@ sudo setfacl -R -m u:10001:rwX "$WORLDS_ROOT"
 sudo find "$WORLDS_ROOT" -type d -exec setfacl -m d:u:10001:rwX {} +
 ```
 
-The default ACL on each directory lets newly created files and subdirectories inherit editor access. Continue to mount the common worlds directory rather than one individual world so restore and rollback can create their safe temporary sibling paths.
+The default ACL on each directory lets newly created files and subdirectories inherit editor access. Mount the common worlds directory rather than one individual world so restore and rollback can create their safe temporary sibling paths.
 
 Verify the actual world directory afterwards. `ls /worlds` prints the real folder names, so set `WORLD` to one of them rather than leaving the placeholder in place:
 
@@ -314,7 +314,7 @@ Contributor instructions, tests, fixtures, and release hygiene are in [docs/deve
 
 The source repository also includes optional [checks against the real Bedrock engine](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md). These developer tools check item limits, enchantments, variants, stack merging, selected gameplay operations, the player save service and a controlled add-on against an explicitly chosen server build. A separate local client test covers actual Inventory/Ender Chest persistence using the experimental API. Results state their tested scope and remaining gaps. Mojang's server binaries and generated test worlds are not distributed; the tools are excluded from application runtime bundles.
 
-The project's own code is licensed under the [MIT license](LICENSE). The application depends on `amulet_leveldb`, which uses the Amulet Team License 1.0.0 (PolyForm Shield and Noncommercial terms, with a limited exception for commercial use exclusively for educational purposes). This is not a conventional open-source license and restricts permitted use; the upstream license texts are authoritative. Amulet-NBT and its dependencies are used only in the separate Python 3.12 reference tests; their upstream licenses still apply to that test environment.
+The project's own code is licensed under the [MIT license](LICENSE). The application depends on `amulet_leveldb`, which uses the Amulet Team License 1.0.0 (PolyForm Shield and Noncommercial terms, with a limited exception for commercial use exclusively for educational purposes). This is not a conventional open-source license and restricts permitted use; the upstream license texts are authoritative. Amulet-NBT and its dependencies are used only in the separate Python 3.12 reference tests; their upstream licenses apply to that test environment.
 
 Minecraft content is not covered by this project's license. The repository includes an item-data snapshot generated from `Mojang/bedrock-samples` and Microsoft Learn; vanilla icons are downloaded only on request and are not shipped. The origin of the locally maintained enchantment maximum levels is documented in [docs/development.md on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#bundled-item-database-and-enchantment-max-levels). Minecraft and its content belong to Mojang Studios/Microsoft and remain subject to their terms.
 
