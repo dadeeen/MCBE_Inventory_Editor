@@ -1,6 +1,6 @@
 # Mount creation: Minecraft acceptance validation
 
-Acceptance experiment on **2026-09-13**, with Windows Store Minecraft Bedrock
+Acceptance experiment for v0.5.21, with Windows Store Minecraft Bedrock
 **26.45** and the application's native storage backend under CPython **3.14.4**.
 This extends the [dependency portability assessment](dependency-portability-assessment.md).
 

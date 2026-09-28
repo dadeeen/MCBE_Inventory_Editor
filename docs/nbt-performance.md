@@ -1,6 +1,6 @@
 # NBT codec performance measurement
 
-Measured locally on Windows on 2026-09-13. This measures the current project
+Measured on Windows for v0.5.21. This measures the current project
 codec against Amulet-NBT 2.1.8 with NumPy 1.26.4, not overall editor response
 time. LevelDB, backups, HTTP and browser rendering are outside the timed region.
 
@@ -86,7 +86,7 @@ A reasonable follow-up is targeted optimization of bulk arrays and measured
 hot paths using standard-library facilities, with the existing preservation
 tests retained. This benchmark does not implement or promise that optimization.
 
-## Implemented equine-template prefilter (2026-09-13)
+## Implemented equine-template prefilter
 
 `find_equine_template` now checks for the literal UTF-8 bytes of its three
 accepted identifiers before decoding an actor record. Possible matches still

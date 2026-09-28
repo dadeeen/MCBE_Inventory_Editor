@@ -196,7 +196,7 @@ access; the runner does not change system networking permissions.
 
 ## First verified build
 
-On 2026-09-16, the complete item suite passed against **BDS 1.26.50.5**:
+For v0.5.23, the complete item suite passed against **BDS 1.26.50.5**:
 1,623 registry IDs, 6,040 item cases in 233 generated carriers, two engine
 save/reload cycles, and 6,492 rejected invalid creation amounts. There were no
 registry differences or unresolved limits with the reviewed candidate catalog.
