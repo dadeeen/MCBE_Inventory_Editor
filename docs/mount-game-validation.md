@@ -4,9 +4,9 @@ Acceptance experiment for v0.5.21, with Windows Store Minecraft Bedrock
 **26.45** and the application's native storage backend under CPython **3.14.4**.
 This extends the [dependency portability assessment](dependency-portability-assessment.md).
 
-This result covers the native backend in v0.5.21. Minecraft client acceptance
-of the pure-Python WAL writer requires a separate test; its evidence
-is described in [BDS and storage validation](leveldb-writer.md#validation).
+This result covers the native backend in v0.5.21. The Minecraft client checks
+of the pure-Python writer, including a horse, are described in
+[the writer design](leveldb-writer.md#minecraft-client-evidence).
 
 ## Scope and result
 

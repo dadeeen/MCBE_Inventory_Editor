@@ -1,10 +1,9 @@
 # Pure-Python LevelDB write path
 
-Status: experimental branch. The editor writes Bedrock world databases without
-the native `amulet-leveldb` engine. `mcbe_editor.leveldb_writer` provides the
-write session; `mcbe_editor.db.LevelDbAdapter` wraps it with the app's final
-write gates and error translation. Reads use
-`mcbe_editor.leveldb_readonly`, which the writer extends.
+The editor reads and writes Bedrock world databases with the Python standard
+library. `mcbe_editor.leveldb_writer` provides the write session and extends the
+reader in `mcbe_editor.leveldb_readonly`; `mcbe_editor.db.LevelDbAdapter` wraps
+it with the app's final write gates and error translation.
 
 ## Design: append a write-ahead log, never rewrite
 
@@ -51,24 +50,17 @@ the resulting bytes with the native engine's own log for identical batches.
 - After each append, the session rereads its log strictly and compares every
   record. If an append or that check fails, it attempts to truncate the log to
   its last verified length and accepts no further writes. Rollback I/O can also
-  fail, so the caller records an unconfirmed write and keeps the backup. Reopen
-  and inspect the actual state before retrying; an error does not prove that no
-  bytes were persisted.
+  fail, so an error does not prove that no bytes were persisted.
 - `last_write_reached_log()` tells whether the last `put`/`put_batch` began
   appending its batch. `False` proves that none of its bytes were written:
   type, size and sequence checks, log creation and directory sync all come
-  first. The service/API reports only a raised call that reached the log as
-  `write_outcome_unknown`, retaining its backup; the UI then requires reload
-  before another write, including mount-only batches whose player revision has
-  not changed. A final gate rejection and failures before the first append are
-  ordinary rejections with their own cause, for example a permission error when
-  the database folder does not allow a new log file. See the
-  [save contract](save_contract.md) for the distinction from post-write failure.
+  first. Only a failed call that reached the log counts as an unknown outcome;
+  the [save contract](save_contract.md) describes the resulting API and UI
+  behavior.
 - Errors during log creation, directory synchronization or in-memory commit
   bookkeeping also end the write session; only the last of these can follow a
-  durable batch. A verified batch may already be durable even if updating the
-  session's view failed; close and reopen to read the actual state instead of
-  retrying with a stale sequence counter.
+  durable batch. Close and reopen to read the actual state instead of retrying
+  with a stale sequence counter.
 - Opening a world, reading it and closing it without writing changes no file.
   The only exception is a missing `LOCK` file, which is created empty, as the
   native engine does.
@@ -76,81 +68,6 @@ the resulting bytes with the native engine's own log for identical batches.
   `DBImpl::NewDB`: `MANIFEST-000001` and `CURRENT`. A directory with other
   files but no `CURRENT` is refused. The native engine would create a new
   database there and later delete the unknown files.
-
-## Writer block cache
-
-Each writer session shares one LRU cache between all of its table readers.
-It retains at most **64 MiB of decompressed block data** and at most 4,096
-entries; Python bookkeeping adds some memory overhead. This is a lazy upper
-bound, not a reservation. It is not multiplied by the number of table files.
-Blocks larger than the cache budget are read normally without being retained.
-Cache allocation failure clears retained entries and returns the validated read.
-
-Only successfully checked/decompressed immutable table blocks enter the cache.
-An entry uses its table instance's unique identity plus block offset and stored
-length, so matching filenames in different worlds cannot alias. Cached blocks
-pass through the same internal-key/version processing as uncached ones; WAL
-values and deletions keep their precedence. Closing the database clears the
-cache. Ordinary readonly sessions read blocks afresh because they can inspect
-a running world. Writer cache reuse assumes exclusive offline access and does
-not replace the server-status gate. The cache does not affect WAL
-synchronization or read-back.
-
-The main benefit is avoiding repeated block reads, CRC checks and decompression
-while validating batches of nearby keys. A cold full-world player scan and WAL
-replay remain separate costs.
-
-The sizing comparison uses CPython 3.12.14 and Amulet-LevelDB 1.0.6 as the
-independent recovery reference. Synthetic databases contain 20,000 or 60,000
-roughly 1 KiB records. Each value is the median of three fresh copies, with
-cache-size order shuffled between repetitions and full native comparison after
-recovery. Timings describe these workloads, not a general latency guarantee.
-
-| Cache limit | 1,000 adjacent keys / 20k records | 1,000 scattered keys / 20k records | 1,000 scattered keys / 60k records |
-| --- | ---: | ---: | ---: |
-| Disabled | 813 ms | 878 ms | 984 ms |
-| 8 MiB | 150 ms | 588 ms | 885 ms |
-| 16 MiB | 148 ms | 326 ms | 749 ms |
-| 32 MiB | 151 ms | 231 ms | 574 ms |
-| 64 MiB | 150 ms | 236 ms | 406 ms |
-
-The largest workload retains about 54.5 MiB; adjacent keys retain about 1.1 MiB.
-Single-write times of 4.3–4.9 ms show no comparable benefit. The 64 MiB limit
-applies per active writer, so concurrent worlds can use multiples of that budget.
-
-## Evidence for derived player metadata
-
-`content_token()` returns `None` on a writer. Instead, `committed_change()`
-optionally reports the last successfully committed batch as `CommittedDbChange`:
-its original reader token, expected resulting token, and immutable byte entries.
-The resulting token is derived from the original metadata/table identities and
-the digest of the new WAL bytes already checked by read-back. It never adopts
-an independently observed later world state. Failed appends offer no receipt;
-failure to allocate optional evidence does not fail an otherwise committed write.
-
-The service's separate `PlayerDirectory` can carry a discovered list forward
-only when its token matches the receipt's original state and an ordinary save
-updates one existing, recognizable player. It reclassifies that record and
-retains unchanged entries, including unusual player keys. The next reader must
-match the expected resulting token before using the list. External changes,
-recovery, restore, unknown-key saves and combined writes trigger a new discovery.
-Table tokens include file identity so replacing a table with preserved size and
-timestamps cannot reuse a list from the previous file.
-
-This metadata is only an optimization. Selected records are read and validated
-directly; revisions, write gates, backups and locked pre-write comparisons remain
-authoritative. Imports and multi-record operations do not promote the directory.
-The cache is bounded to eight worlds per service process and is not persisted.
-
-The service comparison uses CPython 3.12.14, three changed-stat saves per
-temporary world copy, and a control that disables only directory promotion.
-The OS page cache is retained. For 777,893-record worlds, median reload after
-save is 13,770 ms versus 219 ms with WAL-heavy data and 17,283 ms versus 89 ms
-with table-heavy data. The control performs one discovery scan after every save;
-the maintained directory performs none. Save time including backup is about
-1.4–1.7 seconds in both variants, without a consistent difference. Small-world reloads
-measure 46 ms versus 20 ms. Complete directory contents and unrelated records
-agree with fresh discovery and the Amulet-LevelDB 1.0.6 reference.
 
 ## Exclusive access
 
@@ -207,40 +124,76 @@ empty `LOCK` file:
 Oversized batch payloads are rejected before encoding copies and checksum work;
 the final size check also accounts for physical record framing.
 
+## Writer block cache
+
+Each write session shares one LRU cache between all of its table readers: at
+most 64 MiB of decompressed block data and 4,096 entries per active writer,
+independent of the number of table files. Blocks larger than the budget are read
+without being retained, and an allocation failure clears the cache and returns
+the validated read. Only checked and decompressed immutable table blocks enter
+the cache, keyed by table instance, offset and stored length, so matching
+filenames in different worlds cannot alias. Cached blocks pass through the same
+internal-key and version processing as uncached ones; WAL values and deletions
+keep their precedence. Closing the database clears the cache. Readonly sessions
+read blocks afresh because they can inspect a running world. Cache reuse assumes
+exclusive offline access; it does not replace the server-status gate and does not
+affect WAL synchronization or read-back.
+
+The cache avoids repeated block reads, CRC checks and decompression while a
+batch of nearby keys is validated. With CPython 3.12.14, validating and writing
+1,000 scattered keys in a synthetic database of 60,000 records of about 1 KiB
+takes a median of 984 ms without the cache and 406 ms with the 64 MiB limit;
+smaller limits gain less on that workload. Single writes show no comparable
+benefit, and a cold full-world scan and WAL replay remain separate costs.
+
+## Player list after saves
+
+`content_token()` returns `None` on a writer, so a write session never feeds the
+reader-token player list cache. Instead, `committed_change()` reports the last
+committed batch as `CommittedDbChange`: its original reader token, the expected
+resulting token and the written entries. The resulting token is derived from the
+original metadata and table identities and the digest of the new WAL bytes
+already checked by read-back, never from a later observed world state. Failed
+appends produce no receipt, and failing to allocate one does not fail a
+committed write.
+
+The service's `PlayerDirectory` uses this receipt to keep a discovered player
+list across an ordinary save of one existing player; the
+[save contract](save_contract.md) describes when it applies. The list is only an
+optimization: selected records, revisions, write gates and backups stay
+authoritative. With CPython 3.12.14 and worlds of 777,893 records, reloading after
+a save takes 0.1–0.2 seconds with the kept list instead of 14–17 seconds for a new
+discovery; the save itself, including its backup, takes the same 1.4–1.7 seconds
+either way.
+
 ## Architectural boundary
 
-This is a narrow offline editor backend, not a replacement for a general-purpose
-LevelDB engine. Keep Minecraft responsible for recovery and compaction. The
-benefit is a portable runtime and a write path that does not rewrite existing
-tables or metadata. The cost is ownership of format compatibility, corruption
-handling and regression tests; Python alone does not make storage safer.
+This is a narrow offline editor backend, not a general-purpose LevelDB engine.
+Minecraft stays responsible for recovery and compaction; the editor never
+compacts, repairs or rewrites existing files. The benefit is a portable runtime
+without native builds and a write path that leaves existing tables and metadata
+untouched. The cost is owning format compatibility, corruption handling and the
+reference tests; Python alone does not make storage safer.
 
-A maintained Bedrock-compatible native engine is a reasonable alternative when
-its distribution and opening behavior meet the product requirements. Performance
-alone does not justify owning another writer. The Amulet-LevelDB 1.0.6 constructor
-can invoke automatic repair after corruption, so using it requires an explicit
-repair policy and a backup boundary. If independent reference tests and Minecraft
-acceptance cannot be maintained, prefer a supported native writer with a narrower
-runtime matrix over expanding this implementation's scope.
+Each write session adds a log until Minecraft next opens the world, and every
+session replays the existing logs. The 256 MiB limit applies to the combined
+MANIFEST/WAL input, not to the world size; table blocks have a separate 64 MiB
+stored/decompressed limit. Python objects and temporary buffers can use
+substantially more RAM. Exceeding a limit is an explicit refusal, not a silent
+partial read.
 
-Keep the writer cache and state-checked player directory. They address repeated
-block work and repeated whole-world discovery independently. Larger caches do
-not remove first discovery, WAL replay or backup costs. Each session replays the
-WAL, and each write session adds a log until Minecraft next recovers the world.
-The 256 MiB limit applies to combined MANIFEST/WAL input, not total world size;
-Python objects and temporary buffers can use substantially more RAM. Table blocks
-have a separate 64 MiB stored/decompressed limit. These are explicit refusals,
-not silent partial reads.
+A second production backend, a persistent player index or a custom compactor
+needs a measured reason. If replaying large logs becomes the dominant cost,
+profile that workload and compare a native prototype against the same
+correctness tests. A maintained Bedrock-compatible native engine is an
+alternative when its distribution and opening behavior fit. The Amulet-LevelDB
+1.0.6 constructor can invoke automatic repair after corruption, so writing with
+it requires an explicit repair policy and a backup boundary.
 
-Do not add a second production backend, a persistent player index or a custom
-compactor without measured need. If large-WAL replay remains the dominant cost,
-profile that workload and compare an isolated native prototype using the same
-correctness tests. Moving everything to C++ or C# would retain the format and
-locking obligations while adding a new integration and distribution surface.
-
-Before merging, require the full CI matrix, native comparisons and real BDS
-reload tests; before release, repeat a Minecraft client load/save/reload on a
-disposable copy. Tests reduce risk but cannot certify every future Bedrock format.
+Changes to the log format, locking or recovery assumptions need the native
+reference tests, the BDS engine checks and a Minecraft client load, save and
+reload on a disposable world copy. Tests reduce risk but cannot certify every
+future Bedrock format.
 
 ## Validation
 
@@ -270,7 +223,7 @@ disposable copy. Tests reduce risk but cannot certify every future Bedrock forma
   pure-Python adapter. BDS then loads, verifies and saves the world across
   reload cycles.
 
-### Bedrock engine evidence and acceptance boundary
+### Bedrock Dedicated Server evidence
 
 The engine reference is the official BDS **1.26.51.1** archive with SHA-256
 `ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`.
@@ -278,28 +231,39 @@ With CPython 3.12.14 and no Amulet runtime, the extended profile covers
 13,037 cases across 1,623 item IDs in 502 carriers. The service profile covers
 37 cases and ten backed-up saves on two synthetic player records; the add-on
 profile covers twelve cases across six item IDs. All three profiles pass two
-engine save/reload cycles.
+engine save/reload cycles. These carriers and synthetic players do not cover
+real-player login, client saving or mount gameplay; the client checks below
+cover them for the tested worlds.
 
-These carriers and synthetic players do not establish real-player login,
-Minecraft client saving, Ender Chest persistence after login, or mount gameplay.
-The separate [Minecraft client experiment](mount-game-validation.md) describes
-v0.5.21 with the native backend. Acceptance of this writer requires its own
-client load/join, inventory/Ender Chest/equipment/effects/abilities checks,
-mount interactions, save/exit/reload and backup restoration on disposable copies.
-Run the complete CI matrix for the candidate revision before promotion.
+### Minecraft client evidence
+
+The Minecraft client **1.26.52** on Windows and the editor on CPython 3.12.14,
+on a new creative world and on a copy of an older survival world, over four
+rounds of editor save, game load, play and game save:
+
+- A save while the world was open in Minecraft was refused as "in use"; after
+  leaving the world, the same save succeeded.
+- Minecraft integrated each editor log when it opened the world and wrote its
+  own MANIFEST and tables. An editor log written next to a log that Minecraft
+  had left behind after closing the world took precedence as intended.
+- Inventory items, Ender Chest contents, an effect and a newly created horse
+  appeared in the game as written. The horse could be tamed and ridden, and
+  Minecraft saved that state.
+- Each editor batch contained only the intended records. Unchanged player
+  fields and untouched slots stayed byte-identical, and the native reference
+  read the same records as the editor after every round.
+- Restoring an editor backup produced a world byte-identical to that backup,
+  and the game showed the restored state.
+
+The client checks used a horse. The
+[mount acceptance experiment](mount-game-validation.md) covers all supported
+mount types with v0.5.21 and the native backend.
 
 ## Dependency separation
 
-Runtime and normal development environments use the project reader/writer without
-Amulet-LevelDB. The independent native oracle is pinned in
-`requirements/leveldb-reference.lock`, separately from `requirements/nbt-reference.lock`.
-A required Windows Python 3.12 CI job installs both from wheels and runs the full
-suite with `--require-references`; missing or unloadable imports fail the job.
-Amulet-LevelDB 1.0.6 publishes no Linux wheels, so a required macOS Python 3.12
-job runs the LevelDB suites against it for the POSIX lock path. The regular
-Windows/Linux Python 3.12–3.14 matrix runs without either reference.
-
-Windows setup, Docker and the runtime ZIP use the project's Python storage code.
-Installation relies on hash-locked pip bootstrapping, offline Docker wheel
-installation and release manifests. Setup leaves existing developer environments
-unchanged; validate minimal installations in a fresh `.venv`. See [development.md](development.md).
+Runtime, Docker and normal development environments use the project
+reader/writer without Amulet-LevelDB. The independent native oracle is pinned
+separately in `requirements/leveldb-reference.lock`; the
+[requirements README](../requirements/README.md) describes its installation and
+the Windows and macOS CI jobs that require it. The regular Windows/Linux
+Python 3.12–3.14 matrix runs without it.
