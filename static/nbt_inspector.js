@@ -126,7 +126,6 @@
         item = null,
         inspectableDetails = [],
         nbtViewText = "",
-        inspectorText = "",
     } = {}) {
         const rows = protectedKnown
             ? [
@@ -162,10 +161,6 @@
             <div class="slot-inspector-table">
                 ${rows.map(([k, v]) => `<div><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`).join("")}
             </div>
-            <details class="diagnostic-details slot-inspector-raw">
-                <summary>${t("Detail-Log anzeigen")}</summary>
-                <pre>${escapeHtml(inspectorText)}</pre>
-            </details>
         `;
     }
 
@@ -177,7 +172,6 @@
         item = null,
         inspectableDetails = [],
         nbtViewText = "",
-        inspectorText = "",
     } = {}) {
         return {
             visible: true,
@@ -190,7 +184,6 @@
                 item,
                 inspectableDetails,
                 nbtViewText,
-                inspectorText,
             }),
         };
     }
@@ -266,6 +259,8 @@
             const item = sourceFor(containerName)?.[slotId] || null;
             const protectedKnown = reason === "protected_known_slot" || isProtectedKnownSlot(slotId, containerName);
             const inspectableDetails = itemProtectedNbtDetails(item, { visible: itemIsVisiblePresent(item) });
+            // Der vollständige Text mit Spieler und Weltpfad wird nur kopiert;
+            // das Panel zeigt dieselben Angaben bereits als Tabelle und NBT-Ansicht.
             lastText = protectedKnown ? protectedText(slotId, containerName) : itemText(slotId, containerName, item);
             const model = slotInspectorPanelModel({
                 label,
@@ -275,7 +270,6 @@
                 item,
                 inspectableDetails,
                 nbtViewText: !protectedKnown ? itemNbtViewText(item) : "",
-                inspectorText: lastText,
             });
             applySlotInspectorPanelModel({ panel, title, body }, model);
             if (panel) {

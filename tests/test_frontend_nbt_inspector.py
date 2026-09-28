@@ -42,7 +42,6 @@ def test_frontend_nbt_inspector_body_html_formats_editable_slot_details() -> Non
                 },
                 inspectableDetails: ["CustomName <Name>", "Enchantments & Lore"],
                 nbtViewText: '{"tag":"<unsafe>"}',
-                inspectorText: "Detail <Log>",
             });
 
             assert.ok(html.includes("slot-inspector-callout info"));
@@ -53,7 +52,11 @@ def test_frontend_nbt_inspector_body_html_formats_editable_slot_details() -> Non
             assert.ok(html.includes("Originalquelle: Inventory Slot 1"));
             assert.ok(html.includes("Roh-NBT Slot-Feld: 1"));
             assert.ok(html.includes('{&quot;tag&quot;:&quot;&lt;unsafe&gt;&quot;}'));
-            assert.ok(html.includes("Detail &lt;Log&gt;"));
+            assert.ok(html.includes("Experten-NBT anzeigen"));
+            // Der kopierbare Detailtext wiederholt Tabelle und NBT und wird
+            // deshalb nicht zusätzlich im Panel angezeigt.
+            assert.ok(!html.includes("Detail-Log"));
+            assert.ok(!html.includes("slot-inspector-raw"));
             assert.ok(!html.includes("Inventar <Slot>"));
             """
         )
@@ -80,16 +83,16 @@ def test_frontend_nbt_inspector_body_html_formats_protected_slot_details() -> No
                 item: { name: "minecraft:apple" },
                 inspectableDetails: ["Should not render"],
                 nbtViewText: "Should not render",
-                inspectorText: "Read-only details",
             });
 
             assert.ok(html.includes("slot-inspector-callout warning"));
             assert.ok(html.includes("Enderchest bleibt geschützt."));
             assert.ok(html.includes("Read-only"));
             assert.ok(html.includes("Nicht darstellbarer/future NBT-Eintrag"));
-            assert.ok(html.includes("Read-only details"));
+            assert.ok(html.includes("Unverändert lassen oder Diagnose kopieren"));
             assert.ok(!html.includes("Should not render"));
             assert.ok(!html.includes("slot-inspector-json"));
+            assert.ok(!html.includes("Detail-Log"));
             """
         )
     )
@@ -114,13 +117,12 @@ def test_frontend_nbt_inspector_panel_model_and_applier() -> None:
                 containerName: "inventory",
                 item: { name: "minecraft:stone" },
                 inspectableDetails: ["Preserved"],
-                inspectorText: "Detail log",
             });
 
             assert.strictEqual(model.visible, true);
             assert.strictEqual(model.titleText, "Hotbar 1: NBT-Details");
             assert.ok(model.bodyHtml.includes("Hotbar 1 enthält Zusatzdaten."));
-            assert.ok(model.bodyHtml.includes("Detail log"));
+            assert.ok(model.bodyHtml.includes("<li>Preserved</li>"));
 
             const elements = {
                 panel: { style: { display: "" } },
@@ -137,7 +139,6 @@ def test_frontend_nbt_inspector_panel_model_and_applier() -> None:
                 protectedKnown: true,
                 slotId: 103,
                 containerName: "inventory",
-                inspectorText: "Read-only log",
             });
             view.applySlotInspectorPanelModel(elements, protectedModel);
             assert.strictEqual(elements.title.textContent, "Helm ist read-only");
@@ -145,6 +146,55 @@ def test_frontend_nbt_inspector_panel_model_and_applier() -> None:
 
             view.applySlotInspectorPanelModel(elements, { visible: false });
             assert.strictEqual(elements.panel.style.display, "none");
+            """
+        )
+    )
+
+
+def test_frontend_nbt_inspector_copy_keeps_the_full_detail_text() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const inspectorCode = fs.readFileSync("static/nbt_inspector.js", "utf8");
+            const context = { window: {}, setTimeout: () => {} };
+            vm.runInNewContext(inspectorCode, context, { filename: "static/nbt_inspector.js" });
+
+            const listeners = {};
+            const button = name => ({ addEventListener: (event, callback) => { listeners[name] = callback; } });
+            const elements = {
+                panel: { style: { display: "none" } },
+                title: { textContent: "" },
+                body: { innerHTML: "" },
+                closeButton: button("close"),
+                copyButton: button("copy"),
+            };
+            const copied = [];
+            const item = {
+                name: "minecraft:diamond_sword",
+                protected_nbt_summary: ["CustomName"],
+                nbt_view: { value: { Slot: { value: 0 } } },
+            };
+            const controller = context.window.MCBENbtInspector.createSlotInspectorController({
+                elements,
+                getInventory: () => ({ 0: item }),
+                itemIsVisiblePresent: () => true,
+                currentPlayerLabel: () => "Spieler A",
+                getCurrentPlayerKey: () => "a",
+                getWorldPath: () => "C:/Welten/Test",
+                copyTextToClipboard: text => copied.push(text),
+            });
+            controller.wire();
+            controller.show(0, "inventory", "item_nbt");
+            assert.ok(!elements.body.innerHTML.includes("Weltpfad"));
+
+            listeners.copy();
+            assert.strictEqual(copied.length, 1);
+            for (const expected of ["Slot-Zusatzdaten", "- CustomName", "Experten-NBT:", "Auswirkung:", "Spieler: Spieler A", "Weltpfad: C:/Welten/Test"]) {
+                assert.ok(copied[0].includes(expected), expected);
+            }
             """
         )
     )

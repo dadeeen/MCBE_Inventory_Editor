@@ -7412,7 +7412,6 @@ body[data-workflow-view="mounts"] .right-panel {
     font-weight: 600;
 }
 
-.slot-inspector-raw pre,
 .slot-inspector-json pre {
     white-space: pre-wrap;
     word-break: break-word;

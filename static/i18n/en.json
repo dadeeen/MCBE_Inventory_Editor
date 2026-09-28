@@ -1501,7 +1501,6 @@
   "{label} enthält Zusatzdaten.": "{label} contains extra data.",
   "Das ist kein UI-Fehler: Der Editor kann diesen Roh-NBT-Eintrag nicht verlustfrei als normales Item-Formular darstellen.": "This is not a UI bug: the editor cannot losslessly display this raw NBT entry as a normal item form.",
   "Diese Daten werden lesbar angezeigt, aber nicht frei editiert. Der Zielslot und der Roh-NBT-Ursprung können nach Verschieben/Kopieren verschieden sein.": "This data is shown readably but not freely edited. The target slot and the raw NBT origin can differ after moving/copying.",
-  "Detail-Log anzeigen": "Show detail log",
   "{label} ist read-only": "{label} is read-only",
   "{label}: NBT-Details": "{label}: NBT details",
   "Enderchest-Slot {slot} ist read-only. Öffne die Slot-Details für weitere Informationen.": "Ender chest slot {slot} is read-only. Open the slot details for more information.",
