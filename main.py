@@ -1295,7 +1295,12 @@ def request_json_object() -> dict:
         return {}
     if not request.is_json:
         raise InvalidJsonBodyError("Der Anfragekörper muss als JSON gesendet werden.")
-    data = request.get_json(silent=True)
+    try:
+        data = request.get_json(silent=True)
+    except RecursionError as exc:
+        # Flask's silent mode handles malformed syntax, but the JSON decoder's
+        # nesting limit raises separately. Reject it before any handler runs.
+        raise InvalidJsonBodyError("Der Anfragekörper muss ein gültiges JSON-Objekt sein.") from exc
     if not isinstance(data, dict):
         raise InvalidJsonBodyError("Der Anfragekörper muss ein gültiges JSON-Objekt sein.")
     return data

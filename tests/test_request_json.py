@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 import main
 
 
@@ -10,11 +12,16 @@ def _client():
     return main.app.test_client()
 
 
-def test_malformed_json_does_not_start_vanilla_icon_update():
+@pytest.mark.parametrize("body", [
+    '{"force":',
+    '{"force":' + '[' * 10000 + '0' + ']' * 10000 + '}',
+    '{"force":' + '{"x":' * 10000 + '0' + '}' * 10000 + '}',
+], ids=["truncated", "deep-list", "deep-object"])
+def test_malformed_json_does_not_start_vanilla_icon_update(body):
     with patch.object(main, "CSRF_TOKEN", "json-token"), patch.object(main, "run_update_icons", return_value=(0, "called")) as runner:
         response = _client().post(
             "/api/icons/vanilla/update",
-            data='{"force":',
+            data=body,
             content_type="application/json",
             headers={"X-CSRF-Token": "json-token"},
         )
@@ -23,7 +30,13 @@ def test_malformed_json_does_not_start_vanilla_icon_update():
     payload = response.get_json()
     assert payload["success"] is False
     assert payload["code"] == "invalid_request"
-    assert payload["message_key"] == "Der Anfragekörper muss ein gültiges JSON-Objekt sein."
+    # Decoder nesting limits differ across supported CPython versions. A
+    # decoder accepting this depth still rejects the non-boolean option before
+    # starting the update; a recursion failure is also an ordinary client error.
+    assert payload["message_key"] in {
+        "Der Anfragekörper muss ein gültiges JSON-Objekt sein.",
+        "Feld 'force' muss ein boolescher Wert sein.",
+    }
     assert payload["error"] == payload["message"] == payload["message_key"]
     runner.assert_not_called()
 
