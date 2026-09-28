@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import browser_smoke
 
 
@@ -64,6 +66,40 @@ def test_browser_smoke_runtime_paths_stay_in_external_run_root(tmp_path, monkeyp
     assert Path(env["MCBE_DATA_ROOT"]).is_relative_to(run_root)
     for key in browser_smoke.PROFILE_DIRS:
         assert Path(env[key]).is_relative_to(run_root)
+
+
+def test_browser_smoke_read_quota_is_isolated_from_production_and_write_limits(monkeypatch):
+    import main
+    from mcbe_editor import local_server
+
+    original = dict(main._RATE_CONFIG)
+    calls = []
+
+    class Server:
+        def __init__(self, app, host, port):
+            assert app is main.app
+            assert (host, port) == ("127.0.0.1", 8765)
+
+        def serve_forever(self):
+            assert dict(main._RATE_CONFIG) == {**original, "read": (10_000, 60.0)}
+            calls.append("served")
+            raise RuntimeError("test server stopped")
+
+    monkeypatch.setattr(main, "APP_CONFIG", SimpleNamespace(host="127.0.0.1", port=8765))
+    monkeypatch.setattr(main, "validate_startup_security", calls.append)
+    monkeypatch.setattr(local_server, "LocalServer", Server)
+    with pytest.raises(RuntimeError, match="test server stopped"):
+        browser_smoke._serve_test_app()
+    assert calls == ["127.0.0.1", "served"]
+    assert dict(main._RATE_CONFIG) == original
+
+
+def test_browser_smoke_server_rejects_non_loopback_binding(monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "APP_CONFIG", SimpleNamespace(host="0.0.0.0", port=8765))
+    with pytest.raises(RuntimeError, match="loopback"):
+        browser_smoke._serve_test_app()
 
 
 def test_browser_smoke_prunes_stale_runs_before_playwright(tmp_path, monkeypatch):

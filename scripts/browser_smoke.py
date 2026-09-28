@@ -145,6 +145,28 @@ def _server_env(spec: ServerSpec) -> dict[str, str]:
     return env
 
 
+def _serve_test_app() -> None:
+    """Serve the normal app with room for many fresh browser sessions per minute."""
+
+    import main as editor
+    from mcbe_editor.local_server import LocalServer
+
+    host, port = editor.APP_CONFIG.host, editor.APP_CONFIG.port
+    if host not in {"127.0.0.1", "::1"}:
+        raise RuntimeError("Browser smoke servers must bind to loopback.")
+    editor.validate_startup_security(host)
+    original_read_limit = editor._RATE_CONFIG["read"]
+    # Independent browser tests share one client IP. Their combined startup
+    # reads must not exhaust another test's quota. Keep all write/auth limits;
+    # the production entry points do not import or call this test harness.
+    editor._RATE_CONFIG["read"] = (10_000, 60.0)
+    try:
+        server = LocalServer(editor.app, host, port)
+        server.serve_forever()
+    finally:
+        editor._RATE_CONFIG["read"] = original_read_limit
+
+
 def _start_server(spec: ServerSpec) -> tuple[subprocess.Popen, object, Path]:
     if _port_is_open(spec.port):
         print(f"Port {spec.port} is already in use; stop the existing server or choose a free smoke-test port.", file=sys.stderr)
@@ -158,12 +180,8 @@ def _start_server(spec: ServerSpec) -> tuple[subprocess.Popen, object, Path]:
     log_file = log_path.open("w", encoding="utf-8")
     cmd = [
         sys.executable,
-        str(ROOT / "main.py"),
-        "--host",
-        SERVER_HOST,
-        "--port",
-        str(spec.port),
-        "--no-browser",
+        "-c",
+        "from scripts.browser_smoke import _serve_test_app; _serve_test_app()",
     ]
     kwargs: dict[str, object] = {}
     if os.name == "nt":
