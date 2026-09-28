@@ -4,15 +4,6 @@
 #
 #    pip-compile --allow-unsafe --generate-hashes --output-file=requirements/dev.txt --strip-extras requirements/dev.in
 #
-amulet-leveldb==1.0.6 \
-    --hash=sha256:11fac659f9a910a08b4b43138a0c598be898f0bd4891ff8a54f9d7706280ff33 \
-    --hash=sha256:4bffb368c4ddde4fec8e8dda0e02ed05886167b26cd96c3fe8572df135a04551 \
-    --hash=sha256:608344316cb1246612307edc0d03ee968849cac34f81ef55a727313ce838bf78 \
-    --hash=sha256:62a4e8e172d7a48483dd352b777906e08530049f0a95f85eee84e14cde743ee7 \
-    --hash=sha256:63a463140826a0825e1d11693980980e6108ac735142ceffdf447fd82058d8b0 \
-    --hash=sha256:6653e956fd6dba44909629e741fad53a5d91b5c4baddf39946cc78b835a74608 \
-    --hash=sha256:6e53a04b2571b80cdd115da85ba03034c165feca7271fa1ae96578bf6fbee7c8
-    # via -r requirements/runtime.in
 blinker==1.9.0 \
     --hash=sha256:b4ce2265a7abece45e7cc896e98dbebe6cead56bcf805a3d23136d145f5445bf \
     --hash=sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc

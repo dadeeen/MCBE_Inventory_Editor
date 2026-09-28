@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure backend branch coverage with the same native dependency gate as CI tests."""
+"""Measure backend branch coverage with the same core dependency gate as CI tests."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(
-            "Use Python 3.12–3.14 and install the locked build and dev requirements before running release/CI checks.",
+            "Use Python 3.12–3.14 and install the locked dev requirements before running release/CI checks.",
             file=sys.stderr,
         )
         return 2

@@ -507,13 +507,8 @@ class BedrockEditorService:
             write_state = WriteState()
             try:
                 # Phase 1 (read-only): read, validate and serialize entirely in
-                # memory.  Opening the mutating adapter is never free -- the
-                # engine acquires LOCK, replays the write-ahead log into a fresh
-                # SST and rewrites CURRENT/MANIFEST on every open.  Doing that
-                # here would touch the world for saves that turn out to be a
-                # no-op or that get rejected during validation, and it would
-                # happen before create_backup() runs.  The readonly reader never
-                # writes a byte, so phase 1 leaves the world untouched.
+                # memory. Keep no-ops and rejected edits independent of writer
+                # initialization/locks, and back up before opening any writer.
                 db = self._open_db_readonly(world_path)
                 player_key = decode_player_key(encoded_player_key)
                 player_info = self._get_player_info(db, player_key)
@@ -682,7 +677,7 @@ class BedrockEditorService:
                     db = self._open_db(world_path)
                     # The readonly reader is a best-effort snapshot and can see a
                     # torn state while another process writes.  Re-reading through
-                    # the real engine and comparing against phase 1 makes any such
+                    # the locked writer and comparing against phase 1 makes any such
                     # drift -- and any external change during backup creation --
                     # fail closed instead of overwriting it.
                     current_player_bytes = self._read_player(db, player_key)
@@ -910,7 +905,7 @@ class BedrockEditorService:
                 close_db_preserving_active_exception(db, context="Spielermigration prüfen")
 
     def _restore_player_record(self, db, target_key, target_before_raw, written_raw):
-        """Recheck and restore using the same exclusive native write handle."""
+        """Recheck and restore using the same locked write session."""
         current = self._read_optional_player(db, target_key)
         if current == target_before_raw:
             return False

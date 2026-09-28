@@ -3,7 +3,7 @@
 Status: experimental branch. The editor writes Bedrock world databases without
 the native `amulet-leveldb` engine. `mcbe_editor.leveldb_writer` provides the
 write session; `mcbe_editor.db.LevelDbAdapter` wraps it with the app's final
-write gates and error translation. Reads still use
+write gates and error translation. Reads use
 `mcbe_editor.leveldb_readonly`, which the writer extends.
 
 ## Design: append a write-ahead log, never rewrite
@@ -67,9 +67,8 @@ lock `LOCK`; a running Bedrock server is not detected there.
   excludes other editor processes and native LevelDB engines such as
   `amulet-leveldb`. Bedrock Dedicated Server 1.26.51.1 on Linux creates no
   `LOCK` file and holds no lock (`/proc/locks` stays empty); it only keeps its
-  MANIFEST, log and tables open, which POSIX cannot detect. A second container
-  opened the writer on its live world without refusal. Against a running Linux
-  server, the server-status gate is therefore the only protection.
+  MANIFEST, log and tables open, which this advisory lock cannot detect. Against
+  a running Linux server, the server-status gate is therefore the only protection.
 - Windows: Mojang's Windows environment (`util/env_win.cc`) only calls
   `LockFileEx` when `LOCK` is not empty, and LevelDB creates it empty. A running
   engine is excluded by share modes instead: it keeps write handles on
@@ -79,9 +78,9 @@ lock `LOCK`; a running Bedrock server is not detected there.
   and a starting engine fails on it before recovery. Before writing, it also
   opens the MANIFEST and the replayed logs without write sharing; this fails if
   another process is writing to them. An exclusive `LockFileEx` over the whole
-  `LOCK` file additionally excludes engines that lock that file. The same
-  server, bind-mounted through Docker Desktop, was refused while running and
-  accepted after it stopped.
+  `LOCK` file additionally excludes engines that lock that file. This also
+  excludes BDS 1.26.51.1 through Docker Desktop's Windows bind mount while its
+  database write handles are open.
 - "In use" is reported as `LevelDbInUseError`, never as a permission problem.
 
 These checks complement the app's server-status gate and interprocess world
@@ -111,9 +110,10 @@ The session refuses to write, without changing any file, if:
 - Native reference tests (skipped without amulet-leveldb): byte-identical logs
   for identical batches, randomized sessions alternating between the native
   engine and the writer against a model, native reading of torn batches,
-  and mutual exclusion in both directions.
-- The existing suite (service saves, imports, mount creation, backups and
-  rollbacks) runs unchanged on the pure-Python writer.
+  and mutual exclusion in both directions. CI runs them on Windows and, for the
+  POSIX `fcntl` lock, on macOS.
+- The regular suite (service saves, imports, mount creation, backups and
+  rollbacks) runs against the pure-Python writer.
 - Private worlds (manual, temporary copies): each world is written by the
   writer, then compared key by key with the native engine. Existing files must
   stay byte-identical, and the native engine must fold the new log into its
@@ -123,43 +123,36 @@ The session refuses to write, without changing any file, if:
   pure-Python adapter. BDS then loads, verifies and saves the world across
   reload cycles.
 
-A manual in-game check in the Minecraft client (load, verify, save, reload)
-is still recommended before release.
+### Bedrock engine evidence and acceptance boundary
 
-### Results on this branch (2026-09-25, Windows, Python 3.12)
+The engine reference is the official BDS **1.26.51.1** archive with SHA-256
+`ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`.
+With CPython 3.12.14 and no Amulet runtime, the extended profile covers
+13,037 cases across 1,623 item IDs in 502 carriers. The service profile covers
+37 cases and ten backed-up saves on two synthetic player records; the add-on
+profile covers twelve cases across six item IDs. All three profiles pass two
+engine save/reload cycles.
 
-- Full suite: 3222 passed, 17 skipped. With every in-process
-  `import leveldb` blocked: 3182 passed, 55 skipped (native reference tests
-  and reader tests whose table fixtures are built with the native engine).
-- Private worlds, temporary copies: 9 of 9 worlds (up to 777,893 records and
-  a log number of 635,552) matched the native engine before writing, after
-  writing, and after the native engine had folded the new log into its tables.
-  Existing files stayed byte-identical; each session added one log (plus an
-  empty `LOCK` where a copy had none). `tests/test_private_world_integration.py`
-  with both write flags and all worlds selected: 5 passed.
-- Bedrock Dedicated Server 1.26.51.1 in Docker: `extended`, `service` and
-  `addons` passed, including 13,037 item cases in 502 containers written in one
-  batch, and 10 backed-up player-service saves. The official archive was no
-  longer stored locally. The run used the files extracted from it on
-  2026-09-16, repacked; the recorded `bedrock_server` SHA-256 matches that
-  earlier run.
+These carriers and synthetic players do not establish real-player login,
+Minecraft client saving, Ender Chest persistence after login, or mount gameplay.
+The separate [Minecraft client experiment](mount-game-validation.md) describes
+v0.5.21 with the native backend. Acceptance of this writer requires its own
+client load/join, inventory/Ender Chest/equipment/effects/abilities checks,
+mount interactions, save/exit/reload and backup restoration on disposable copies.
+Run the complete CI matrix for the candidate revision before promotion.
 
-## Remaining work to drop the dependency
+## Dependency separation
 
-This branch no longer imports `amulet-leveldb` at runtime. The package stays
-installed only as the reference engine for tests. Removing it from the
-distribution means:
+Runtime and normal development environments use the project reader/writer without
+Amulet-LevelDB. The independent native oracle is pinned in
+`requirements/leveldb-reference.lock`, separately from `requirements/nbt-reference.lock`.
+A required Windows Python 3.12 CI job installs both from wheels and runs the full
+suite with `--require-references`; missing or unloadable imports fail the job.
+Amulet-LevelDB 1.0.6 publishes no Linux wheels, so a required macOS Python 3.12
+job runs the LevelDB suites against it for the POSIX lock path. The regular
+Windows/Linux Python 3.12–3.14 matrix runs without either reference.
 
-1. Move `amulet-leveldb` from `pyproject.toml`/`requirements/runtime.in` to an
-   optional reference lock (like `requirements/nbt-reference.in`), recompile the
-   locks and install the oracle in one CI job (Python 3.12, published wheels).
-2. Remove the native build chain: `requirements/build.in`,
-   `requirements/bootstrap.in`, `requirements/build-constraints.txt`, the
-   Docker builder stage, `--no-build-isolation` installs and Cython checks.
-3. Remove the Windows wheel bundles: `scripts/build_windows_wheel.py`,
-   `scripts/windows_wheels.py`, the wheel and MSVC runtime logic in
-   `scripts/windows_setup.py`, the `windows-wheels` CI job and its packaging
-   hand-off, `tests/test_windows_setup.py` parts, and the LevelDB/zlib license
-   notices under `requirements/licenses/`.
-4. Update README/SECURITY (both languages), `docs/development.md`,
-   `docs/dependency-portability-assessment.md` and the setup scripts.
+Windows setup, Docker and the runtime ZIP use the project's Python storage code.
+Installation relies on hash-locked pip bootstrapping, offline Docker wheel
+installation and release manifests. Setup leaves existing developer environments
+unchanged; validate minimal installations in a fresh `.venv`. See [development.md](development.md).

@@ -28,8 +28,8 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
    - Windows: `Get-FileHash <runtime.zip> -Algorithm SHA256`
    - Linux: `sha256sum <runtime.zip>`
 4. Beende Minecraft oder den Server und kopiere den vollständigen Weltordner an einen unabhängigen Ort.
-5. Installiere bei Bedarf [Python für Windows](https://www.python.org/downloads/windows/). Für das Runtime-ZIP auf Windows x64 empfehlen wir **Python 3.14**; 3.12 und 3.13 werden ebenfalls unterstützt. Das ZIP enthält geprüfte LevelDB-Wheels für 3.13/3.14, deshalb brauchst du dort keine C++ Build Tools. Aktiviere den Python Launcher oder **Add Python to PATH**. Bei einem Quellcode-Checkout ohne mitgelieferte Wheels bevorzugt das Setup ein vorhandenes Python 3.12 mit veröffentlichtem Wheel; erst danach kommt ein Quellbau mit bereits installierten Microsoft C++ Build Tools und Windows SDK infrage. Python 3.15 ist noch nicht freigegeben.
-6. Entpacke das Runtime-ZIP, führe einmal `setup.bat` aus und starte den Editor danach mit `start.bat`. Meldet das Setup eine fehlende C++-Laufzeit, installiere das aktuelle [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) für deine Python-Architektur und wiederhole das Setup. Diese Laufzeit ist separat vom Compiler und den Build Tools.
+5. Installiere bei Bedarf [Python für Windows](https://www.python.org/downloads/windows/). Für Windows x64 empfehlen wir **Python 3.14**; 3.12 und 3.13 werden ebenfalls unterstützt. Aktiviere den Python Launcher oder **Add Python to PATH**. Runtime-ZIP und Quellcode-Checkout verwenden dieselbe Installation ohne Compiler. Python 3.15 ist noch nicht freigegeben.
+6. Entpacke das Runtime-ZIP, führe einmal `setup.bat` aus und starte den Editor danach mit `start.bat`.
 7. Folge beim ersten Start dem Einrichtungsdialog und lade **Item-DB** und **Vanilla-Icons**. Du kannst den Schritt aufschieben und später über den Einrichtungshinweis oder unter **Werkzeuge** nachholen. Der Editor bringt nur einen mitgelieferten Item-Stand und keine Icons mit — ohne diesen Schritt fehlen Items neuerer Minecraft-Versionen und jeder Slot zeigt ein Ersatzsymbol.
 
 Während eines Updates zeigt die Fortschrittsanzeige die geladenen MB und bei bekannter Gesamtgröße einen Prozentwert. Danach wechselt sie zu Archivprüfung, Datenverarbeitung bzw. Icon-Erstellung und Abschluss. Ein beendeter Download bedeutet noch kein abgeschlossenes Update; passende Downloads aus dem Cache werden gesondert angezeigt.
@@ -63,7 +63,7 @@ Die App ist kein öffentlicher Hostingdienst, kein Server-Administrationspanel u
 
 ## Lokaler Windows-Start
 
-Der lokale Modus unterstützt **Python 3.12–3.14**. NBT verarbeitet der eigene Codec ausschließlich mit der Python-Standardbibliothek; NumPy und Amulet-NBT sind keine Laufzeitabhängigkeiten. Für LevelDB nutzt der Editor die native Engine Amulet-LevelDB. Das Setup behält eine vorhandene unterstützte `.venv` bei und bevorzugt bei einer neuen Umgebung die neueste installierte Python-Version mit passendem Wheel. Mitgelieferte Windows-x64-Wheels werden samt Herkunftsangaben, Hashes und Lizenztexten geprüft. Ein Quellbau ist nur mit geprüftem Compiler und SDK möglich; fehlende Voraussetzungen werden vor der Paketinstallation gemeldet. Das Docker-Image verwendet Python 3.12.
+Der lokale Modus unterstützt **Python 3.12–3.14**. NBT und Bedrock-LevelDB verarbeitet der eigene Python-Code ausschließlich mit der Standardbibliothek. Amulet-LevelDB, Amulet-NBT und NumPy sind keine Laufzeitabhängigkeiten. Das Setup behält eine vorhandene unterstützte `.venv` bei und wählt für neue Umgebungen die neueste installierte unterstützte Python-Version. Abhängigkeiten werden ausschließlich als hashgeprüfte vorgefertigte Wheels installiert. Das Docker-Image verwendet Python 3.12.
 
 Im Source-Verzeichnis oder entpackten Runtime-Paket:
 
@@ -247,7 +247,7 @@ Ein vollständiger `.mcbe-player.zip`-Import ist etwas anderes: Er schreibt den 
 
 Spielerexporte enthalten rohe, nicht anonymisierte NBT-Daten. Behandle sie als privat und hänge sie weder an öffentliche Issues noch an Commits.
 
-Für private CLI-Diagnosen. Die Befehle rufen den Interpreter aus `.venv` auf, da die Amulet-Abhängigkeiten nicht global installiert sind:
+Für private CLI-Diagnosen. Die Befehle rufen den Interpreter aus `.venv` auf, da die Laufzeitabhängigkeiten lokal im Projekt installiert werden:
 
 ```bash
 .venv/Scripts/python scripts/export_player_raws.py list --world "/PFAD/ZUR/WELT"
@@ -314,7 +314,7 @@ Hinweise für Mitwirkende, Tests, Fixtures und Release-Hygiene stehen in [docs/d
 
 Das Quellrepository enthält außerdem optionale [Prüfungen mit der echten Bedrock-Engine](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md). Diese Entwicklerwerkzeuge prüfen Itemgrenzen, Verzauberungen, Varianten, das Zusammenlegen von Stapeln, ausgewählte Spielaktionen, den Spieler-Speicherdienst und ein kontrolliertes Add-on mit einer ausdrücklich gewählten Serverversion. Ein separater lokaler Client-Test prüft die tatsächliche Speicherung von Inventar und Endertruhe über die experimentelle API. Ergebnisse benennen ihren Prüfumfang und verbleibende Lücken. Mojangs Serverprogramme und erzeugte Testwelten werden nicht verteilt; die Werkzeuge sind von den App-Runtime-Paketen ausgeschlossen.
 
-Der eigene Projektcode steht unter der [MIT-Lizenz](LICENSE). Die Anwendung verwendet `amulet_leveldb` unter der Amulet Team License 1.0.0 (PolyForm-Shield- und Noncommercial-Bedingungen mit einer begrenzten Ausnahme für kommerzielle Nutzung ausschließlich zu Bildungszwecken). Dies ist keine klassische Open-Source-Lizenz und schränkt die zulässige Nutzung ein; maßgeblich sind die Lizenztexte der vorgelagerten Pakete. Amulet-NBT und seine Abhängigkeiten werden nur für die separaten Referenztests unter Python 3.12 verwendet; ihre vorgelagerten Lizenzen gelten für diese Testumgebung.
+Der eigene Projektcode steht unter der [MIT-Lizenz](LICENSE). Für die Laufzeitabhängigkeiten gelten deren jeweilige vorgelagerte Lizenzen. Amulet-LevelDB, Amulet-NBT und ihre Abhängigkeiten werden ausschließlich in der separat installierten Python-3.12-Referenztestumgebung verwendet und nicht mit der Runtime ausgeliefert; ihre vorgelagerten Lizenzbedingungen gelten für diese Testumgebung.
 
 Minecraft-Inhalte fallen nicht unter die Lizenz dieses Projekts. Das Repository enthält einen aus `Mojang/bedrock-samples` und Microsoft Learn erzeugten Item-Datenstand; Vanilla-Icons werden nur auf Anforderung heruntergeladen und nicht mitgeliefert. Die Herkunft der lokal gepflegten Verzauberungs-Maximalstufen ist in [docs/development.md auf GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#bundled-item-database-and-enchantment-max-levels) dokumentiert. Minecraft und seine Inhalte gehören Mojang Studios/Microsoft und unterliegen deren Bedingungen.
 

@@ -28,8 +28,8 @@ The editor is intended for local use and trusted home networks. Do not expose it
    - Windows: `Get-FileHash <runtime.zip> -Algorithm SHA256`
    - Linux: `sha256sum <runtime.zip>`
 4. Stop Minecraft or the server and copy the complete world folder to an independent location.
-5. Install [Python for Windows](https://www.python.org/downloads/windows/) if needed. For the runtime ZIP on Windows x64 we recommend **Python 3.14**; 3.12 and 3.13 are also supported. The ZIP includes validated LevelDB wheels for 3.13/3.14, so C++ Build Tools are not needed there. Enable the Python launcher or **Add Python to PATH**. For a source checkout without bundled wheels, setup prefers an installed Python 3.12 with a published wheel; only then does it consider a source build with Microsoft C++ Build Tools and the Windows SDK already installed. Python 3.15 is not approved yet.
-6. Extract the runtime ZIP, run `setup.bat` once, then start the editor with `start.bat`. If setup reports a missing C++ runtime, install the current [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) for your Python architecture and rerun setup. This runtime is separate from the compiler/Build Tools.
+5. Install [Python for Windows](https://www.python.org/downloads/windows/) if needed. For Windows x64 we recommend **Python 3.14**; 3.12 and 3.13 are also supported. Enable the Python launcher or **Add Python to PATH**. Runtime ZIPs and source checkouts use the same installation without a compiler. Python 3.15 is not approved yet.
+6. Extract the runtime ZIP, run `setup.bat` once, then start the editor with `start.bat`.
 7. On first start, follow the setup dialog and load **Item DB** and **Vanilla icons**. You can postpone this and return through the setup notice or **Tools** later. The editor ships with a bundled item snapshot and no icons, so without this step items from newer Minecraft versions are missing and every slot shows a placeholder symbol.
 
 During updates, the progress display shows downloaded MB and a percentage when the total size is known. It then switches to archive checks, data processing or icon creation, and finishing. A completed download is not yet a completed update; matching cached downloads are shown separately.
@@ -63,7 +63,7 @@ The app is not a public hosting service, server administration panel, or unrestr
 
 ## Local Windows setup
 
-Local Mode supports **Python 3.12–3.14**. NBT is handled by the project’s own codec, which uses only the Python standard library; NumPy and Amulet-NBT are not runtime dependencies. LevelDB access uses the native Amulet-LevelDB engine. Setup retains an existing supported `.venv` and prefers the newest installed Python with a compatible wheel for new environments. Bundled Windows x64 wheels are checked against their provenance, hashes and license notices. Source builds require a detected compiler and SDK; missing prerequisites are reported before package installation. The Docker image uses Python 3.12.
+Local Mode supports **Python 3.12–3.14**. The project handles NBT and Bedrock LevelDB using the Python standard library. Amulet-LevelDB, Amulet-NBT and NumPy are not runtime dependencies. Setup retains an existing supported `.venv` and selects the newest installed supported Python for new environments. Dependencies are installed exclusively from hash-checked prebuilt wheels. The Docker image uses Python 3.12.
 
 From the source tree or an extracted runtime package:
 
@@ -247,7 +247,7 @@ A complete `.mcbe-player.zip` import is different: it writes the exported player
 
 Player exports contain raw, non-anonymized NBT data. Treat them as private and do not attach them to public issues or commit them to a repository.
 
-For private CLI diagnostics. The commands call the interpreter from `.venv`, because the Amulet dependencies are not installed globally:
+For private CLI diagnostics. The commands call the interpreter from `.venv`, where the runtime dependencies are installed locally for this project:
 
 ```bash
 .venv/Scripts/python scripts/export_player_raws.py list --world "/PATH/TO/WORLD"
@@ -314,7 +314,7 @@ Contributor instructions, tests, fixtures, and release hygiene are in [docs/deve
 
 The source repository also includes optional [checks against the real Bedrock engine](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md). These developer tools check item limits, enchantments, variants, stack merging, selected gameplay operations, the player save service and a controlled add-on against an explicitly chosen server build. A separate local client test covers actual Inventory/Ender Chest persistence using the experimental API. Results state their tested scope and remaining gaps. Mojang's server binaries and generated test worlds are not distributed; the tools are excluded from application runtime bundles.
 
-The project's own code is licensed under the [MIT license](LICENSE). The application depends on `amulet_leveldb`, which uses the Amulet Team License 1.0.0 (PolyForm Shield and Noncommercial terms, with a limited exception for commercial use exclusively for educational purposes). This is not a conventional open-source license and restricts permitted use; the upstream license texts are authoritative. Amulet-NBT and its dependencies are used only in the separate Python 3.12 reference tests; their upstream licenses apply to that test environment.
+The project's own code is licensed under the [MIT license](LICENSE). Runtime dependencies are subject to their respective upstream licenses. Amulet-LevelDB, Amulet-NBT and their dependencies are used only in the separately installed Python 3.12 reference-test environment and are not shipped with the runtime; their upstream license terms apply to that test environment.
 
 Minecraft content is not covered by this project's license. The repository includes an item-data snapshot generated from `Mojang/bedrock-samples` and Microsoft Learn; vanilla icons are downloaded only on request and are not shipped. The origin of the locally maintained enchantment maximum levels is documented in [docs/development.md on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#bundled-item-database-and-enchantment-max-levels). Minecraft and its content belong to Mojang Studios/Microsoft and remain subject to their terms.
 

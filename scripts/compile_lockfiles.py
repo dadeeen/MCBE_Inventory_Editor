@@ -11,26 +11,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / ".pip-tools-cache"
 REQUIREMENTS_DIR = ROOT / "requirements"
-BUILD_CONSTRAINTS = REQUIREMENTS_DIR / "build-constraints.txt"
 LOCK_TARGETS = [
     (REQUIREMENTS_DIR / "bootstrap.in", REQUIREMENTS_DIR / "bootstrap.txt"),
-    (REQUIREMENTS_DIR / "build.in", REQUIREMENTS_DIR / "build.txt"),
     (REQUIREMENTS_DIR / "runtime.in", REQUIREMENTS_DIR / "runtime.txt"),
     (REQUIREMENTS_DIR / "docker.in", REQUIREMENTS_DIR / "docker.txt"),
     (REQUIREMENTS_DIR / "dev.in", REQUIREMENTS_DIR / "dev.txt"),
+]
+REFERENCE_LOCK_TARGETS = [
+    (REQUIREMENTS_DIR / "leveldb-reference.in", REQUIREMENTS_DIR / "leveldb-reference.txt"),
     (REQUIREMENTS_DIR / "nbt-reference.in", REQUIREMENTS_DIR / "nbt-reference.txt"),
 ]
 
 
-def _piptools_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env["PIP_BUILD_CONSTRAINT"] = str(BUILD_CONSTRAINTS)
-    return env
-
-
 def run(cmd: list[str]) -> None:
     print("+", " ".join(cmd))
-    subprocess.run(cmd, cwd=ROOT, check=True, env=_piptools_env())
+    subprocess.run(cmd, cwd=ROOT, check=True)
 
 
 def _rel(path: Path) -> str:
@@ -47,9 +42,9 @@ def _is_piptools_comment_noise(line: str) -> bool:
     return line.startswith("#    pip-compile ") or stripped.startswith("# via") or stripped.startswith("#   ")
 
 
-def _sync_compatibility_locks(*, check: bool) -> bool:
+def _sync_compatibility_locks(targets: list[tuple[Path, Path]], *, check: bool) -> bool:
     ok = True
-    for _, target in LOCK_TARGETS:
+    for _, target in targets:
         wrapper = target.with_suffix(".lock")
         expected = f"-r {target.name}\n"
         if check:
@@ -68,17 +63,27 @@ def main() -> int:
         action="store_true",
         help="Validate committed lockfiles without opportunistically upgrading already-pinned transitive dependencies.",
     )
+    parser.add_argument(
+        "--include-references",
+        action="store_true",
+        help="Also compile the independent test oracles; requires Windows Python 3.12 with published wheels.",
+    )
     args = parser.parse_args()
 
     if not ((3, 12) <= sys.version_info[:2] < (3, 13)):
         print("ERROR: Generate the shared Python 3.12–3.14 lockfiles with the canonical Python 3.12 compiler.", file=sys.stderr)
         return 2
 
+    if args.include_references and sys.platform != "win32":
+        print("ERROR: Compile reference locks on Windows Python 3.12, where the pinned oracle wheels are available.", file=sys.stderr)
+        return 2
+    targets = LOCK_TARGETS + (REFERENCE_LOCK_TARGETS if args.include_references else [])
+
     tmp_dir = ROOT / ".lockcheck" if args.check else ROOT
     if args.check:
         tmp_dir.mkdir(exist_ok=True)
 
-    for source, target in LOCK_TARGETS:
+    for source, target in targets:
         output = tmp_dir / target.name if args.check else target
         if args.check:
             if not target.exists():
@@ -104,17 +109,19 @@ def main() -> int:
             _rel(output),
             _rel(source),
         ]
+        if (source, target) in REFERENCE_LOCK_TARGETS:
+            cmd.insert(-1, "--pip-args=--only-binary=:all:")
         run(cmd)
         if args.check and _normalized_lockfile_text(output) != _normalized_lockfile_text(target):
             print(f"ERROR: Lockfile is out of date: {_rel(target)}. Run python scripts/compile_lockfiles.py", file=sys.stderr)
             return 1
     if args.check:
-        for _, target in LOCK_TARGETS:
+        for _, target in targets:
             (tmp_dir / target.name).unlink(missing_ok=True)
         with os.scandir(tmp_dir) as entries:
             if not any(True for _ in entries):
                 tmp_dir.rmdir()
-    if not _sync_compatibility_locks(check=args.check):
+    if not _sync_compatibility_locks(targets, check=args.check):
         return 1
     return 0
 

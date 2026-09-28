@@ -7,20 +7,18 @@ free-threaded CPython and alternative interpreters require separate validation.
 
 - `mcbe_editor/nbt.py` implements the binary NBT types and operations used by
   the editor with the Python standard library. Amulet-NBT, NumPy and
-  Amulet-MUTF8 are not runtime dependencies.
+  Amulet-MUTF8 belong only to the optional reference-test environment.
 - `mcbe_editor/leveldb_readonly.py` and `mcbe_editor/leveldb_writer.py` read
   and write Bedrock's LevelDB with the standard library. The writer appends
   atomic batches to a new write-ahead log, which Minecraft integrates when it
   next opens the world; see [the writer design](leveldb-writer.md). Write locks,
   backups and rollback checks surround database writes.
-- **Amulet-LevelDB 1.0.6** serves as the native reference engine for tests;
-  application code does not import it at runtime. It is included in the locks.
-  The Windows x64 runtime packages include separately
-  built and tested LevelDB wheels for Python 3.13/3.14. Setup validates their
-  provenance, source/build hashes and license notices before installation.
+- **Amulet-LevelDB 1.0.6** is an optional, independent test reference in
+  `requirements/leveldb-reference.lock`. Runtime and regular dev installations
+  exclude it. Windows setup uses hash-checked wheels for the remaining packages;
+  no LevelDB bundles, compiler detection or native source builds are needed.
   Existing supported virtual environments are retained. See
-  [development.md](development.md) for the supported source-build and release
-  procedures.
+  [development.md](development.md) for fresh-install and reference-test procedures.
 - Requirement sources and hash-locked outputs are under `requirements/`.
   Canonical lock generation uses Python 3.12. Docker uses a pinned
   Python 3.12 base image; CI checks Python 3.12–3.14 on Windows and Linux.
@@ -42,13 +40,13 @@ See [the upstream comparison](nbt-source-comparison.md) for deliberate differenc
 ## Executable validation
 
 The normal suite checks preservation, malformed inputs, boundaries, copy and
-mutation semantics, native database writes/reopens, cross-process locking and
-process-exit recovery. The optional Amulet-NBT 2.1.8 reference environment is
-restricted to Python 3.12 and is installed from `requirements/nbt-reference.lock`.
-CI installs that reference in its Windows Python 3.12 job, where the pinned
-binary distributions are available; the full suite then includes the oracle
-comparisons. The application test matrix covers all three versions on both
-Windows and Linux.
+mutation semantics, database writes/reopens, cross-process locking and
+process-exit recovery on all three Python versions on Windows and Linux.
+A separate required CI job on Windows Python 3.12 installs the LevelDB and NBT
+reference locks using published wheels. It runs `scripts/test_full.py
+--require-references` so missing or unloadable references cannot silently skip.
+That job covers independent native recovery and codec/workflow comparisons;
+normal runtime tests explicitly verify the references are absent.
 
 Reference comparisons cover:
 

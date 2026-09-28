@@ -16,7 +16,7 @@ def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
 
     assert "pip install --upgrade pip" not in workflow
     assert "pip install --upgrade pip" not in dockerfile
-    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 8
+    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 9
     docker_bootstrap = (
         "pip install --no-cache-dir --no-index --only-binary=:all: "
         "--find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
@@ -36,10 +36,6 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "bootstrap.in",
         "bootstrap.lock",
         "bootstrap.txt",
-        "build.in",
-        "build.lock",
-        "build.txt",
-        "build-constraints.txt",
         "dev.in",
         "dev.lock",
         "dev.txt",
@@ -50,6 +46,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "runtime.lock",
         "runtime.txt",
         "nbt-reference.in", "nbt-reference.txt", "nbt-reference.lock",
+        "leveldb-reference.in", "leveldb-reference.txt", "leveldb-reference.lock",
     }
     actual = {path.name for path in (_base.ROOT / "requirements").iterdir() if path.is_file()}
 
@@ -66,7 +63,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
     ]
     assert runtime_dependencies == project_dependencies
 
-    for name in ("bootstrap", "build", "runtime", "docker", "dev", "nbt-reference"):
+    for name in ("bootstrap", "runtime", "docker", "dev", "nbt-reference", "leveldb-reference"):
         assert _base._read(f"requirements/{name}.lock") == f"-r {name}.txt\n"
 
     # Dependabot cannot run pip-compile, so it can only widen version ceilings
@@ -98,7 +95,6 @@ def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path: Path, monke
 
     monkeypatch.setattr(compile_lockfiles, "ROOT", tmp_path)
     monkeypatch.setattr(compile_lockfiles, "CACHE_DIR", tmp_path / ".pip-tools-cache")
-    monkeypatch.setattr(compile_lockfiles, "BUILD_CONSTRAINTS", requirements_dir / "build-constraints.txt")
     monkeypatch.setattr(compile_lockfiles, "LOCK_TARGETS", [(source, target)])
     monkeypatch.setattr(compile_lockfiles, "run", fake_run)
     monkeypatch.setattr(compile_lockfiles.sys, "version_info", (3, 12, 14))
@@ -107,3 +103,12 @@ def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path: Path, monke
     assert compile_lockfiles.main() == 0
     assert observed["seeded_output"] == "example==1.0.0\n"
     assert not (tmp_path / ".lockcheck").exists()
+
+
+def test_reference_lock_generation_requires_supported_wheel_platform(monkeypatch, capsys):
+    from scripts import compile_lockfiles
+    monkeypatch.setattr(compile_lockfiles.sys, "version_info", (3, 12, 14))
+    monkeypatch.setattr(compile_lockfiles.sys, "platform", "linux")
+    monkeypatch.setattr(sys, "argv", ["compile_lockfiles.py", "--include-references"])
+    assert compile_lockfiles.main() == 2
+    assert "Windows Python 3.12" in capsys.readouterr().err

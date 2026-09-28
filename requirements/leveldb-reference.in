@@ -1,0 +1,3 @@
+# Independent Bedrock LevelDB oracle for explicit tests on Windows Python 3.12.
+# Never install this into application/runtime environments.
+amulet-leveldb==1.0.6

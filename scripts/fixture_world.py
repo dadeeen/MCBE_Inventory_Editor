@@ -172,7 +172,7 @@ def inspect_world_zip(path: Path, *, include_private: bool = False) -> dict[str,
                 "Public scanner fixture: safe to commit, but not usable for real player/NBT integration tests."
                 if is_public_scanner
                 else (
-                    "Treat this archive as private. Without amulet-leveldb/amulet_nbt this script cannot anonymize player NBT in LevelDB."
+                    "Treat this archive as private. This script does not anonymize player NBT in LevelDB."
                     if effective_db_files
                     else "No LevelDB files were present; this may be a scanner-only fixture."
                 )

@@ -1,8 +1,8 @@
 """Transport production item NBT through disposable engine-created carriers.
 
 This adapter deliberately makes no claim to exercise player login or the full
-player service. It uses the real item builder, codec, backup and native write
-batch. It accepts only the runner's fresh world, never a user world argument.
+player service. It uses the real item builder, codec, backup and pure-Python WAL
+write batch. It accepts only the runner's fresh world, never a user world argument.
 """
 
 from __future__ import annotations

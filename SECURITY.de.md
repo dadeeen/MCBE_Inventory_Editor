@@ -84,20 +84,19 @@ Private Fixture-Welten gehören ausschließlich unter `fixtures/private/`; diese
 
 Lokale und Release-Umgebungen verwenden hashgebundene Abhängigkeiten für Python 3.12–3.14. Maßgeblich sind `pyproject.toml` und die Lockfiles; Versionen werden in dieser Richtlinie nicht dupliziert.
 
-Runtime-ZIPs enthalten vom Projekt gebaute Windows-x64-LevelDB-Wheels für neuere unterstützte Python-Versionen. CI baut das unveränderte, hashgebundene Quellarchiv mit festgeschriebenen Python-Build-Werkzeugen, prüft jedes Wheel in einer frischen Umgebung ohne Quellbau und legt Herkunftsangaben sowie die vorgelagerten Lizenztexte bei. Das Setup prüft Wheel und Lizenzdateien vor der Installation. Die Herkunfts-Hashes belegen die Konsistenz mit dem Release; prüfe zusätzlich die Prüfsumme des Release-ZIPs. Ein Quellcode-Checkout verwendet entweder ein veröffentlichtes Wheel oder nach Compiler-/SDK-Prüfung einen lokalen Quellbau.
+Runtime-ZIPs enthalten den Python-Code für NBT und Bedrock-LevelDB ohne Amulet-Bibliotheken oder gebündelte LevelDB-Wheels. Windows-Setup und Docker installieren ausschließlich hashgeprüfte vorgefertigte Abhängigkeiten. CI prüft frische Umgebungen ohne native Referenzbibliotheken sowie separat die unabhängigen Amulet-Vergleichstests. Prüfe zusätzlich die veröffentlichte Prüfsumme des Release-ZIPs.
 
 Vollständige lokale Sicherheitsprüfung. Führe zuerst einmal `setup.bat` aus, falls `.venv` noch nicht existiert; das erstellt die Umgebung mit Python 3.12–3.14. Die Befehle rufen diesen Interpreter direkt auf, da ein globaler die Entwicklungsabhängigkeiten systemweit installieren würde:
 
 ```bash
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
-.venv/Scripts/python -m pip install --no-build-isolation --require-hashes -r requirements/dev.lock
+.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
 .venv/Scripts/python scripts/security_check.py --require-pip-audit
 ```
 
 Unter Linux und macOS lautet der Interpreter `.venv/bin/python`.
 
-Native Amulet-Source-Distributionen werden ausschließlich mit der hashgebundenen Werkzeugkette aus `build.lock` gebaut; die deaktivierte Build-Isolation verhindert, dass pip ungeprüfte Build-Abhängigkeiten nachlädt. Das Windows-Runtime-Setup bricht stattdessen sicher ab, wenn keine kompatiblen vorgefertigten Wheels verfügbar sind.
+Es gibt keinen automatischen Quellbau als Ersatz für fehlende Wheels. Docker lädt Abhängigkeiten in einer separaten Stufe mit Hashprüfung herunter und installiert sie im Runtime-Image ohne Netzwerkzugriff. Die zusätzlichen Referenz-Lockfiles sind nicht Teil der Runtime; ihr verpflichtender CI-Lauf prüft die tatsächlichen Imports und auditiert beide Lockfiles.
 
 Abhängigkeitsfunde sind Release-Signale, kein Laufzeitschutz. Aktualisiere betroffene Pakete gezielt und wiederhole die vollständigen Test- und Release-Prüfungen; führe keine breiten automatischen Upgrades aus.
 
@@ -109,4 +108,4 @@ Offizielle Runtime-Pakete werden ausschließlich über die [GitHub Releases](htt
 
 App-Backups werden vor einem Restore auf technische Lesbarkeit geprüft. Diese Prüfung kann nicht bestätigen, dass eine Welt semantisch korrekt oder mit einer bestimmten Minecraft-Version kompatibel ist. Die unabhängige Weltkopie bleibt die letzte Wiederherstellungsgrenze.
 
-Gewährleistung und Haftung richten sich für den eigenen Projektcode nach dem genauen Text der [MIT-Lizenz](LICENSE). Gebündelte Amulet-Komponenten besitzen eigene, restriktivere Lizenzbedingungen.
+Gewährleistung und Haftung richten sich für den eigenen Projektcode nach dem genauen Text der [MIT-Lizenz](LICENSE). Abhängigkeiten, einschließlich der optionalen Amulet-Testreferenzen, besitzen eigene Lizenzbedingungen.

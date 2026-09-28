@@ -1,17 +1,24 @@
 # Dependencies
 
-This folder bundles the Python dependencies for Python 3.12–3.14 (generated on the canonical Python 3.12 runtime):
+The editor supports Python 3.12–3.14. Shared locks are generated on Python 3.12.
 
-- `runtime.in` contains the directly required runtime dependencies and must stay consistent with `pyproject.toml`.
-- `docker.in` and `dev.in` extend the runtime dependencies for Docker and for development and CI, respectively.
-- `bootstrap.in` pins the pip version that evaluates the build constraints before native builds.
-- `nbt-reference.in` is an independent Amulet-NBT oracle for Python 3.12 only; it is not included in runtime or dev installs. CI explicitly installs and runs it.
-- `build.in` pins the complete toolchain used for native source builds. Its compiled lock is installed from wheels with hashes before build isolation is disabled.
-- `*.txt` are fully resolved, hash-pinned `pip-compile` outputs. Dependabot updates these files together with their matching `.in` sources.
-- `*.lock` are compatibility includes that point existing install, CI, and Docker commands at the matching `.txt` file.
-- `build-constraints.txt` exactly pins Cython as a fail-safe for unsupported isolated build paths; supported builds use `build.lock`.
+- `runtime.in` contains the direct runtime dependencies and matches `pyproject.toml`.
+- `docker.in` and `dev.in` extend runtime for Docker and development/CI.
+- `bootstrap.in` pins pip for reproducible setup, CI and offline Docker installation.
+- `leveldb-reference.in` and `nbt-reference.in` contain independent test oracles.
+  They are excluded from runtime and ordinary dev installs. A required Windows
+  Python 3.12 CI job installs their published wheels, audits both locks and runs
+  the full suite with `--require-references`. A macOS Python 3.12 job installs
+  the LevelDB reference wheel for the POSIX lock tests; there are no Linux wheels.
+- `*.txt` are resolved, hash-pinned `pip-compile` outputs. `*.lock` are generated
+  one-line compatibility includes. Change `.in` sources deliberately, then
+  regenerate and validate; do not edit the generated files or broadly upgrade pins.
 
-All lockfiles and compatibility includes are generated and verified from the project root:
+Colorama is an explicit pin because Click needs it on Windows. Keeping it
+in the shared inputs makes the same hash-locked requirements installable on both
+Windows and Linux without maintaining separate platform locks.
+
+Generate and check normal locks on Python 3.12:
 
 ```bash
 python scripts/compile_lockfiles.py
@@ -19,15 +26,32 @@ python scripts/compile_lockfiles.py --check
 python scripts/check_lockfiles.py
 ```
 
-Installation examples remain stable through the compatibility includes:
+To include the reference locks, run on Windows Python 3.12, where their pinned
+binary distributions are available:
 
 ```bash
-python -m pip install --require-hashes -r requirements/runtime.lock
-python -m pip install --require-hashes -r requirements/bootstrap.lock
-python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
-python -m pip install --no-build-isolation --require-hashes -r requirements/dev.lock
+python scripts/compile_lockfiles.py --include-references
+python scripts/compile_lockfiles.py --check --include-references
+python scripts/check_lockfiles.py
 ```
 
-Windows runtime release ZIPs include CI-built LevelDB wheels for standard CPython 3.13/3.14 on x64. The setup validates their provenance and hashes before installing them by an exact local file URL; the remaining packages use the canonical runtime lock. Python 3.12 uses published wheels. A source checkout without a matching bundle first prefers an installed Python 3.12; a 3.13/3.14 source build is used only after finding Microsoft C++ Build Tools and the Windows SDK. That path installs the locked build tools and builds only Amulet-LevelDB from its hash-verified source. See [Windows wheel maintenance](../docs/development.md#windows-wheel-bundles).
+Install inside the selected project virtual environment:
 
-NumPy and Amulet-NBT are absent from the runtime and build locks. All other packages are installed from wheels. Linux CI and Docker builds verify every downloaded runtime archive against the normal lock, use only the hash-locked build toolchain, and install the resulting runtime wheels without network access. The runtime package contains only the lock, compatibility, and constraint files needed for installation, the Docker build, and the audit. The `.in` source files and this maintainer documentation stay in the full Git source tree. [License sources](licenses/README.md) document the notices included with locally built Windows wheels.
+```bash
+python -m pip install --only-binary=:all: --require-hashes -r requirements/bootstrap.lock
+python -m pip install --only-binary=:all: --require-hashes -r requirements/runtime.lock
+# Development, in a separate environment if desired:
+python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
+# Explicit independent references, Windows Python 3.12 only:
+python -m pip install --only-binary=:all: --require-hashes -r requirements/leveldb-reference.lock -r requirements/nbt-reference.lock
+python scripts/test_full.py --require-references -q
+```
+
+Normal environments contain no Amulet, NumPy or Cython. Windows setup installs
+only prebuilt hash-checked wheels; no compiler, SDK or LevelDB bundle is needed.
+Docker verifies downloads in a separate stage and installs runtime wheels offline.
+The runtime ZIP includes only bootstrap/runtime/docker/dev lockfiles needed for
+installation and auditing. Reference locks, requirement sources and maintainer
+documentation stay in the full Git source tree. Setup does not remove optional
+packages from existing environments; validate minimal runtime installs in fresh
+environments.

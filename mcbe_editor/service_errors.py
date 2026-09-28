@@ -44,7 +44,7 @@ def denied_write_permission_hint() -> str:
 
 
 class LevelDbPermissionError(PermissionError):
-    """Expose a native LevelDB permission failure as a stable service error."""
+    """Expose a LevelDB filesystem permission failure as a stable service error."""
 
     def __init__(self, *, operation: str, db_path: str) -> None:
         self.operation = operation

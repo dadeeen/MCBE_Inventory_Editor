@@ -319,7 +319,7 @@ def write_gate(config: AppConfig, status: dict | None = None, *, unknown_status_
         reason = "Server läuft noch. Bitte Server stoppen."
 
     # LevelDB read endpoints are always allowed because they must use the pure
-    # readonly reader and never fall back to the mutating Amulet/LevelDbAdapter.
+    # readonly reader and never fall back to the writable LevelDbAdapter.
     # Server state is enforced at every write boundary instead.
     read_allowed = True
     read_only = bool(getattr(config, "read_only", False))

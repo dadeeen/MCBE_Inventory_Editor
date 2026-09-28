@@ -68,7 +68,8 @@ IDs whose measured catalog limits have not yet been promoted.
 
 The server stops cleanly before the offline worker opens LevelDB. A small carrier
 adapter uses the **production item builder, Bedrock codec, backup creation and
-native write batch**. It freezes reference bytes before passing mutable NBT to
+LevelDB write batch** through the pure-Python WAL writer. It freezes reference
+bytes before passing mutable NBT to
 the builder, then verifies preserved/control items byte for byte and every
 unrelated database record. Two engine reload/save cycles follow. The script only
 observes stored items in those phases; it never reconstructs them. Engine-visible

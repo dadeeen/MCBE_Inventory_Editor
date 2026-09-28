@@ -39,28 +39,33 @@ on exit. This check also runs on ordinary Docker build jobs.
 
 ## Python portability
 
-Python 3.12, 3.13 and 3.14 are supported. CI runs the complete application suite on
-all three versions on Windows and Linux. Docker intentionally retains its pinned
-3.12 base image. Runtime release ZIPs include Windows x64 LevelDB wheels for
-3.13/3.14, built and tested by CI. A source checkout without those wheels first
-prefers an installed Python 3.12 with a published wheel. A local 3.13/3.14 source
-build requires Microsoft C++ Build Tools, the Windows SDK, and Cython 3.2.4
-from the hash-locked build requirements. Python 3.15 is not enabled implicitly.
+Python 3.12, 3.13 and 3.14 are supported. CI runs the application suite on all
+three versions on Windows and Linux without Amulet libraries. Docker uses a
+pinned Python 3.12 base image. Python 3.15 is not enabled implicitly.
 
-The project-owned `mcbe_editor.nbt` codec uses only the standard library.
-Amulet-NBT, Amulet-MUTF8 and NumPy are absent from runtime and build requirements.
-The separate `requirements/nbt-reference.lock` keeps Amulet-NBT as an independent
-oracle for explicit tests on Python 3.12; do not install it in runtime environments.
-Generate shared locks with Python 3.12, then validate installations on all supported
-interpreters. See [the validation record](dependency-portability-assessment.md).
+The project-owned NBT codec and Bedrock LevelDB reader/writer use only the standard
+library. Runtime and ordinary dev installs contain no Amulet, NumPy or Cython.
+A separate Windows Python 3.12 CI job installs `requirements/leveldb-reference.lock`
+and `requirements/nbt-reference.lock` from published wheels and runs the full suite
+with `--require-references`. Missing or unloadable references fail that job before
+optional tests can silently skip. The reference engine has no Linux wheels, so a
+macOS Python 3.12 job runs the LevelDB suites against it to cover the POSIX `fcntl`
+lock and recovery. Release packaging and Docker publication depend on both jobs as
+well as the application matrix and fresh runtime setup checks.
+
+Generate normal locks with Python 3.12 on Windows or Linux. To also regenerate or
+check the reference locks, use Windows Python 3.12 and add `--include-references`;
+no source build tools are needed. See [requirements](../requirements/README.md)
+and [the validation record](dependency-portability-assessment.md).
 
 For codec changes, run the standard suite on every supported interpreter and,
 from an isolated Python 3.12 reference environment on Windows, where the pinned
-Amulet binary packages are available (CI uses its Windows Python 3.12 job):
+Amulet binary packages are available (CI uses its dedicated reference job):
 
 ```bash
-python -m pip install --only-binary=:all: --require-hashes -r requirements/nbt-reference.lock
-python -c "import amulet_nbt"
+python -m pip install --only-binary=:all: --require-hashes -r requirements/leveldb-reference.lock -r requirements/nbt-reference.lock
+python scripts/test_full.py --require-references -q
+# For a focused codec comparison after the full suite:
 python -m pytest tests/test_nbt_reference.py tests/test_nbt_reference_write_path.py tests/test_nbt_reference_workflows.py tests/test_nbt_codec.py -q
 ```
 
@@ -108,64 +113,28 @@ When running multiple local interpreter suites concurrently, give each process
 its own `MCBE_DATA_ROOT` before Python starts. Some tests import the app during
 collection, before session fixtures can isolate persisted server-guard state.
 
-### Windows wheel bundles
+### Windows runtime installation
 
-`setup.bat` retains a supported existing `.venv`. For a new environment it checks
-installed versions in descending order for a bundled or published wheel before
-considering source builds. `scripts/windows_setup.py` checks the compiler and
-SDK before installing anything when a source build is necessary. Its `--no-build`
-option rejects source builds explicitly; installation is restricted to the
-project's `.venv`.
+`setup.bat` retains a supported existing `.venv`. For a new environment it selects
+the newest installed standard CPython 3.12–3.14. `scripts/windows_setup.py`
+restricts installation to the project's `.venv`, installs the pinned pip and
+runtime wheels with hashes, runs `pip check`, and verifies imports in a fresh
+process. Setup uses published wheels without source builds or LevelDB bundles.
 
-The native wheel still dynamically links the Microsoft C++ runtime
-(`MSVCP140.dll`). Setup checks that DLL before invoking pip and verifies a
-real LevelDB import after installation. If the runtime is missing or outdated,
-install or repair the current Microsoft Visual C++ Redistributable for the
-Python architecture. No compiler is needed for this. A clean virtual
-environment on a build machine does not prove deployment on a clean Windows
-installation; keep that distinction in validation reports.
-
-CI builds unchanged, hash-verified `amulet-leveldb==1.0.6` source separately on
-standard CPython 3.13 and 3.14 for Windows x64. The build Python must contain
-the exact tools from `requirements/build.lock`. For each version, use an
-isolated build environment and run:
-
-```powershell
-python -m pip install --require-hashes -r requirements/bootstrap.lock
-python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
-# Use cp313 when running the corresponding Python 3.13 interpreter.
-python scripts/build_windows_wheel.py --output wheels/cp314
-```
-
-The builder optionally accepts `--source <locked-sdist.tar.gz>` for a cached
-source archive; it still verifies its hash. `wheels/` is ignored by Git and
-excluded from Docker. Each bundle contains the wheel, a provenance manifest,
-and the upstream Amulet-LevelDB, LevelDB and zlib license notices. Provenance
-records the source hash, build lock hash, tool versions, Python, wheel and
-notice hashes, and CI identifiers when available. The upstream source archive
-already includes a precompiled Windows zlib static library; the manifest
-records this fact. These are traceable builds, not a claim of bit-for-bit
-reproducibility or a cryptographic attestation of the build host.
-
-CI installs each resulting wheel in a fresh `.venv` with source builds disabled,
-then runs the complete application suite before making it available to the
-runtime packaging job. To repeat the installation test, use a separate source
-copy or extracted runtime ZIP that contains the appropriate `wheels/` bundle:
+CI creates a runtime ZIP, extracts it, and installs it in a fresh environment on
+each supported Python version. It checks that Amulet, NumPy and Cython are absent
+and that the app imports with an intact release manifest. Repeat using an extracted
+runtime ZIP or a separate clean checkout:
 
 ```powershell
 py -3.14 -m venv .venv
-.venv/Scripts/python.exe scripts/windows_setup.py install --no-build
+.venv/Scripts/python.exe scripts/windows_setup.py install
 ```
 
-`make_release_zip.py` validates every present bundle and includes it in
-`RELEASE_MANIFEST.json`. The installer verifies provenance, metadata and hashes
-before using a bundle, then installs the wheel by an exact local file URL with
-pip hash checking. Other dependencies retain the canonical runtime lock.
-Release downloads must still be checked against the separately published ZIP
-checksum. Local runtime packaging includes bundles only when they have been
-built; without them its source-build/Python-3.12 fallback applies. A deliberate
-LevelDB upgrade must update the locks, the wheel-version constant, both builds,
-license notices, and the installation/native-database checks together.
+Setup never uninstalls development or reference packages from an existing
+environment. Use a fresh project copy and `.venv` to
+verify the minimal runtime. Preserve runtime data separately when replacing an
+installation. Check release downloads against their published ZIP checksums.
 
 ## Local check round
 
@@ -179,8 +148,7 @@ Recommended local check round on Windows:
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
-.venv/Scripts/python -m pip install --no-build-isolation --require-hashes -r requirements/dev.lock
+.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
 .venv/Scripts/python scripts/smoke_check.py
 .venv/Scripts/python -m pytest tests -q
 .venv/Scripts/python -m ruff check
@@ -188,7 +156,7 @@ python -m venv .venv
 .venv/Scripts/python scripts/release_check.py --path .
 ```
 
-For release/CI runs, `scripts/test_full.py` is authoritative because it hard-fails on missing native core dependencies:
+For release/CI runs, use `scripts/test_full.py`. The regular suite requires the project modules; the separate reference job additionally passes `--require-references`:
 
 ```bash
 python scripts/test_full.py -v
@@ -196,7 +164,7 @@ python scripts/test_full.py -v
 
 The GitHub Actions workflow runs on pull requests, pushes to `main`, version tags, a weekly schedule, and manually via **Actions → CI → Run workflow**. Pull requests, `main`, scheduled runs, and manual runs execute the full validation including a Docker build, but never publish. Only a version-tag push may publish the Docker image and create a GitHub Release; a separate publish workflow without tests does not exist. External actions are immutably pinned to full commit SHAs, with the corresponding release tag documented as a comment.
 
-The remaining native Amulet-LevelDB dependency has no Linux wheels for the supported versions. Its source archives remain covered by the normal requirement hashes; CI and Docker additionally install the complete build toolchain from `requirements/build.lock` using wheels and hashes, then disable pip build isolation. This prevents an isolated build subprocess from resolving untracked build dependencies. `requirements/build-constraints.txt` is an exact fallback constraint, not the primary security boundary.
+Docker uses a wheel-download stage with hash verification and installs those wheels offline in the runtime stage. The pinned pip bootstrap is shared with setup and CI. The runtime uses the project's Python storage implementation and contains neither native compilers nor LevelDB-specific system packages. Independent reference libraries stay outside this image.
 
 Both Docker stages use the same multi-architecture digest for `python:3.12-slim`. During a deliberate dependency or release refresh, inspect the current official digest with `docker buildx imagetools inspect python:3.12-slim`, review the reported Python/Debian version, update the single `PYTHON_BASE_IMAGE` argument in `Dockerfile`, and run the complete Docker and release checks. A digest update is a reviewed dependency change, not an automatic side effect of an ordinary build.
 

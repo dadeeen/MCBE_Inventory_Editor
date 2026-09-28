@@ -440,7 +440,7 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                 if suite == "client":
                     report["client"]["completed_connections"] += 1
             report["roundtrip"] = {"status": "pass", "cases": len(cases), "item_ids": len({case['id'] for case in cases}), "save_reload_cycles": 2,
-                                   "write_path": "production item builder, codec, backup and native batch; test carrier adapter"}
+                                   "write_path": "production item builder, codec, backup and pure-Python WAL batch; test carrier adapter"}
             if suite == "extended":
                 validate_behavior_events(phase("behavior"), plan)
                 report["behavior_disk"] = nbt_worker(run_dir, "verify")
@@ -451,7 +451,7 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
             if suite == "addons":
                 report["addon"]["status"] = "pass"
             if suite in {"service", "client"}:
-                report["roundtrip"]["write_path"] = "production player service, codec, backup and native batch"
+                report["roundtrip"]["write_path"] = "production player service, codec, backup and pure-Python WAL batch"
                 report["not_covered"].remove("complete player service")
                 report["not_covered"].append("player service fields outside Inventory and EnderChestInventory editing")
             if suite == "client":

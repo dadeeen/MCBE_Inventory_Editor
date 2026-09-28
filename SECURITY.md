@@ -84,20 +84,19 @@ Private fixture worlds belong only under `fixtures/private/`, which is ignored a
 
 Local and release environments use hash-pinned dependencies for Python 3.12–3.14. The authoritative versions are in `pyproject.toml` and the lockfiles rather than duplicated in this policy.
 
-Runtime ZIPs include project-built Windows x64 LevelDB wheels for newer supported Python versions. CI builds the unchanged hash-locked upstream archive with locked Python build tools, tests each wheel in a fresh environment without source builds, and packages provenance and upstream license notices. Setup verifies the wheel and notices before installation. Provenance hashes establish consistency with the release; verify the release ZIP checksum as well. A source checkout uses either a published wheel or a local build after a compiler/SDK preflight.
+Runtime ZIPs contain the Python NBT and Bedrock LevelDB implementations without Amulet libraries or bundled LevelDB wheels. Windows setup and Docker install only hash-checked prebuilt dependencies. CI checks fresh environments without native reference libraries and separately runs the independent Amulet comparisons. Also verify the published release ZIP checksum.
 
 For a full local security check. Run `setup.bat` once first if `.venv` does not exist yet; it creates the environment on Python 3.12–3.14. The commands call that interpreter directly, because a global one would install the development dependencies system-wide:
 
 ```bash
 .venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/build.lock
-.venv/Scripts/python -m pip install --no-build-isolation --require-hashes -r requirements/dev.lock
+.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
 .venv/Scripts/python scripts/security_check.py --require-pip-audit
 ```
 
 On Linux and macOS the interpreter is `.venv/bin/python`.
 
-Native Amulet source distributions are built only with the hash-locked toolchain from `build.lock`; disabling build isolation prevents pip from downloading unchecked build-time dependencies. Windows runtime setup instead fails closed unless compatible prebuilt wheels are available.
+Missing wheels never trigger an automatic source-build fallback. Docker downloads dependencies with hash verification in a separate stage and installs them in the runtime image without network access. The additional reference locks are excluded from the runtime; their mandatory CI job checks actual imports and audits both locks.
 
 Dependency findings are release signals, not runtime protection. Update affected packages deliberately and rerun the complete test and release checks; do not apply broad automatic upgrades.
 
@@ -109,4 +108,4 @@ Official runtime packages are published only through the original repository's [
 
 App-created backups are checked for archive readability before restore. That check cannot prove that a world is semantically valid or compatible with a particular Minecraft version. The independent world copy remains the final recovery boundary.
 
-Warranty and liability are governed by the exact text of the [MIT license](LICENSE) for this project's own code. Bundled Amulet components have separate, more restrictive license terms.
+Warranty and liability are governed by the exact text of the [MIT license](LICENSE) for this project's own code. Dependencies, including the optional Amulet test references, have their own license terms.

@@ -32,6 +32,7 @@ done
 [[ "$ready" == true ]] || { echo "Container did not become ready." >&2; exit 1; }
 
 timeout 5 docker exec "$container" python -c 'from pathlib import Path; assert not Path("/app/.gunicorn").exists()'
+timeout 5 docker exec "$container" python -c 'import importlib.util; assert all(importlib.util.find_spec(name) is None for name in ("leveldb", "amulet_nbt", "numpy", "Cython"))'
 if timeout 10 docker logs "$container" 2>&1 | grep -F 'Control server error'; then
     echo "Gunicorn control socket failed on the read-only root." >&2
     exit 1

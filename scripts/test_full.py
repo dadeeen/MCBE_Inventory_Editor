@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run the release/full test suite and fail if core native dependencies are missing."""
+"""Run the application suite, optionally requiring independent native references."""
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import shutil
 import subprocess
@@ -14,7 +15,8 @@ if __package__ in {None, ""}:
 else:
     from .test_artifacts import prune_stale_test_artifacts, test_artifact_root, unique_test_artifact_path
 
-CORE_TEST_DEPENDENCIES = ("mcbe_editor.nbt", "leveldb")
+CORE_TEST_DEPENDENCIES = ("mcbe_editor.nbt", "mcbe_editor.leveldb_writer")
+REFERENCE_DEPENDENCIES = ("leveldb", "amulet_nbt")
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -24,6 +26,16 @@ DEFAULT_FAULTHANDLER_TIMEOUT_SECONDS = 120
 
 def _missing_core_dependencies() -> list[str]:
     return [name for name in CORE_TEST_DEPENDENCIES if importlib.util.find_spec(name) is None]
+
+
+def _missing_reference_dependencies() -> list[str]:
+    missing = []
+    for name in REFERENCE_DEPENDENCIES:
+        try:
+            importlib.import_module(name)
+        except (ImportError, OSError):
+            missing.append(name)
+    return missing
 
 
 def _has_pytest_ini_override(args: list[str], name: str) -> bool:
@@ -68,6 +80,8 @@ def _run_pytest(cmd: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(argv or sys.argv[1:])
+    require_references = "--require-references" in args
+    args = [arg for arg in args if arg != "--require-references"]
     default_basetemp: Path | None = None
     missing = _missing_core_dependencies()
     if missing:
@@ -76,9 +90,13 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(
-            "Use Python 3.12–3.14 and install the locked build and dev requirements before running release/CI tests.",
+            "Use Python 3.12–3.14 and install the locked dev requirements before running release/CI tests.",
             file=sys.stderr,
         )
+        return 2
+    if require_references and (missing := _missing_reference_dependencies()):
+        print("Reference suite requires loadable modules: " + ", ".join(missing), file=sys.stderr)
+        print("Install requirements/leveldb-reference.lock and requirements/nbt-reference.lock on Windows Python 3.12.", file=sys.stderr)
         return 2
     if not any(arg == "--basetemp" or arg.startswith("--basetemp=") for arg in args):
         default_basetemp = _prepare_default_basetemp()

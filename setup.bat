@@ -11,7 +11,7 @@ echo Transparency notes:
 echo - The installation happens exclusively in the project folder .\.venv.
 echo - No global Python packages are installed or updated.
 echo - Dependencies are installed from the hash-checked lockfile.
-echo - Compatible verified wheels are preferred; C++ builds require a compiler and SDK.
+echo - Only hash-checked prebuilt wheels are installed; no compiler is required.
 echo - Pip may store downloads in the user cache under AppData.
 echo   That is only a download cache, not a global package installation.
 echo.
@@ -27,7 +27,7 @@ if not exist ".venv\Scripts\python.exe" (
     if not errorlevel 1 (
         for %%V in (3.14 3.13 3.12) do (
             if not defined PYTHON_CMD (
-                py -%%V scripts\windows_setup.py probe-wheel >nul 2>nul
+                py -%%V scripts\windows_setup.py preflight >nul 2>nul
                 if "!errorlevel!"=="0" set "PYTHON_CMD=py -%%V"
             )
         )
@@ -36,20 +36,7 @@ if not exist ".venv\Scripts\python.exe" (
     if not defined PYTHON_CMD (
         where python >nul 2>nul
         if not errorlevel 1 (
-            python scripts\windows_setup.py probe-wheel >nul 2>nul
-            if "!errorlevel!"=="0" set "PYTHON_CMD=python"
-        )
-    )
-
-    if not defined PYTHON_CMD (
-        for %%V in (3.14 3.13 3.12) do (
-            if not defined PYTHON_CMD (
-                py -%%V scripts\windows_setup.py probe-build >nul 2>nul
-                if "!errorlevel!"=="0" set "PYTHON_CMD=py -%%V"
-            )
-        )
-        if not defined PYTHON_CMD (
-            python scripts\windows_setup.py probe-build >nul 2>nul
+            python scripts\windows_setup.py preflight >nul 2>nul
             if "!errorlevel!"=="0" set "PYTHON_CMD=python"
         )
     )
@@ -59,11 +46,10 @@ if not exist ".venv\Scripts\python.exe" (
         where python >nul 2>nul
         if "!errorlevel!"=="0" (
             echo Reason reported for the default python command:
-            python scripts\windows_setup.py probe-build
+            python scripts\windows_setup.py preflight
             echo.
         )
-        echo Use the runtime release ZIP with bundled wheels for Python 3.13/3.14 on Windows x64.
-        echo A source checkout needs Python 3.12 or Microsoft C++ Build Tools with the Windows SDK.
+        echo Source checkouts and runtime ZIPs both support standard CPython 3.12, 3.13 and 3.14.
         echo Install a supported Python from https://www.python.org/downloads/windows/
         echo Important: enable "Add Python to PATH" or the Python launcher during installation.
         pause

@@ -17,7 +17,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENT_FILES = [
     ROOT / "requirements" / "bootstrap.txt",
-    ROOT / "requirements" / "build.txt",
     ROOT / "requirements" / "runtime.txt",
     ROOT / "requirements" / "docker.txt",
     ROOT / "requirements" / "dev.txt",
@@ -53,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if importlib.util.find_spec("pip_audit") is None:
         print(
-            "pip-audit is not installed. Install the locked build and dev requirements or run inside the dependency-audit Docker target.",
+            "pip-audit is not installed. Install the locked dev requirements or run inside the dependency-audit Docker target.",
             file=sys.stderr,
         )
         return 2 if args.require_pip_audit else (1 if failures else 0)

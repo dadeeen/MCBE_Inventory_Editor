@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from scripts import test_artifacts, test_full
 
 
@@ -78,3 +80,34 @@ def test_full_runner_reports_retained_failure_diagnostics(tmp_path, monkeypatch,
     assert test_full.main(["-q"]) == 7
     assert basetemp.is_dir()
     assert str(basetemp) in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failure", [ImportError("missing oracle"), OSError("unloadable DLL")])
+def test_reference_runner_rejects_missing_or_broken_oracles(monkeypatch, capsys, failure):
+    monkeypatch.setattr(test_full, "_missing_core_dependencies", lambda: [])
+    def unavailable(_name):
+        raise failure
+    monkeypatch.setattr(test_full.importlib, "import_module", unavailable)
+    monkeypatch.setattr(test_full, "_run_pytest", lambda _command: pytest.fail("Must fail before optional tests can skip"))
+    assert test_full.main(["--require-references", "-q"]) == 2
+    assert "leveldb, amulet_nbt" in capsys.readouterr().err
+
+
+def test_reference_runner_checks_oracles_and_forwards_only_pytest_arguments(monkeypatch):
+    imports, commands = [], []
+    monkeypatch.setattr(test_full, "_missing_core_dependencies", lambda: [])
+    monkeypatch.setattr(test_full.importlib, "import_module", lambda name: imports.append(name))
+    monkeypatch.setattr(test_full, "prune_stale_test_artifacts", lambda **kwargs: [])
+    monkeypatch.setattr(test_full, "_run_pytest", lambda command: commands.append(command) or 0)
+    assert test_full.main(["--require-references", "--basetemp=custom", "-q"]) == 0
+    assert imports == ["leveldb", "amulet_nbt"]
+    assert "--require-references" not in commands[0]
+    assert "-q" in commands[0]
+
+
+def test_default_runner_does_not_require_native_oracles(monkeypatch):
+    monkeypatch.setattr(test_full, "_missing_core_dependencies", lambda: [])
+    monkeypatch.setattr(test_full, "_missing_reference_dependencies", lambda: pytest.fail("Native references are opt-in"))
+    monkeypatch.setattr(test_full, "prune_stale_test_artifacts", lambda **kwargs: [])
+    monkeypatch.setattr(test_full, "_run_pytest", lambda _command: 0)
+    assert test_full.main(["--basetemp=custom", "-q"]) == 0

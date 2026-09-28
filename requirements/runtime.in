@@ -2,6 +2,6 @@
 # Compile lockfiles in the Python 3.12 target runtime with:
 #   python scripts/compile_lockfiles.py
 Flask==3.1.3
-amulet-leveldb==1.0.6
+# Click needs colorama on Windows; keep shared cross-platform locks complete.
 colorama==0.4.6
 waitress==3.0.2

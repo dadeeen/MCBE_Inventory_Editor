@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import re
-import sys
 import tomllib
 from pathlib import Path
 
@@ -230,7 +229,7 @@ def test_ci_enforces_typed_core_and_publishes_coverage():
 
     assert "typecheck:" in workflow
     assert "python -m mypy" in workflow
-    assert "needs: [lint, typecheck, integrity, tests, browser-smoke]" in workflow
+    assert "needs: [lint, typecheck, integrity, tests, browser-smoke, native-reference, posix-reference, windows-setup]" in workflow
     assert "python-coverage-${{ github.sha }}" in workflow
     assert "path: coverage.xml" in workflow
     assert mypy["strict"] is True
@@ -324,61 +323,6 @@ def test_ci_external_actions_are_immutably_pinned_with_version_comments():
     assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in workflow
 
 
-def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
-    workflow = _read(".github/workflows/ci.yml")
-    dockerfile = _read("Dockerfile")
-    bootstrap_source = _read("requirements/bootstrap.txt")
-    bootstrap_wrapper = _read("requirements/bootstrap.lock")
-
-    assert "pip install --upgrade pip" not in workflow
-    assert "pip install --upgrade pip" not in dockerfile
-    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 8
-    docker_bootstrap = (
-        "pip install --no-cache-dir --no-index --only-binary=:all: "
-        "--find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
-    )
-    assert docker_bootstrap in dockerfile
-    assert "pip==26.1.2" in bootstrap_source
-    assert bootstrap_source.count("--hash=sha256:") == 2
-    assert bootstrap_wrapper == "-r bootstrap.txt\n"
-    assert '"bootstrap.lock"' in _read("scripts/check_lockfiles.py")
-
-
-def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
-    expected = {
-        "README.md",
-        "bootstrap.in",
-        "bootstrap.lock",
-        "bootstrap.txt",
-        "build.in",
-        "build.lock",
-        "build.txt",
-        "build-constraints.txt",
-        "dev.in",
-        "dev.lock",
-        "dev.txt",
-        "docker.in",
-        "docker.lock",
-        "docker.txt",
-        "runtime.in",
-        "runtime.lock",
-        "runtime.txt",
-        "nbt-reference.in", "nbt-reference.txt", "nbt-reference.lock",
-    }
-    actual = {path.name for path in (ROOT / "requirements").iterdir() if path.is_file()}
-
-    assert actual == expected
-    assert not list(ROOT.glob("requirements*.txt"))
-    assert not list(ROOT.glob("requirements*.in"))
-    assert not list(ROOT.glob("requirements*.lock"))
-
-    project_dependencies = tomllib.loads(_read("pyproject.toml"))["project"]["dependencies"]
-    runtime_dependencies = [line.strip() for line in _read("requirements/runtime.in").splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    assert runtime_dependencies == project_dependencies
-
-    dockerignore = _read(".dockerignore")
-    assert "requirements/*.in" in dockerignore
-    assert "requirements/README.md" in dockerignore
 
 
 def test_docker_runtime_uses_an_explicit_allowlist_and_validated_manifest():
@@ -485,7 +429,8 @@ def test_windows_entrypoints_are_portable_and_use_reproducible_setup():
     setup = sources["setup.bat"]
     assert "pip install --upgrade pip" not in setup
     assert 'scripts\\windows_setup.py install' in setup
-    assert setup.index("probe-wheel") < setup.index("probe-build")
+    assert "preflight" in setup
+    assert "probe-build" not in setup
     assert "pip install -r requirements.txt" not in setup
 
     release = sources["scripts/release_windows.bat"]
@@ -532,43 +477,27 @@ def test_gitignore_uses_explicit_runtime_and_local_tool_patterns():
     assert "settings.json" not in lines
 
 
-def test_lockfile_compiler_uses_project_build_constraints(monkeypatch):
-    from scripts import compile_lockfiles
-
-    monkeypatch.setenv("PIP_BUILD_CONSTRAINT", "outside-constraints.txt")
-
-    assert compile_lockfiles.BUILD_CONSTRAINTS == ROOT / "requirements" / "build-constraints.txt"
-    assert compile_lockfiles._piptools_env()["PIP_BUILD_CONSTRAINT"] == str(ROOT / "requirements" / "build-constraints.txt")
-    assert "Cython==3.2.4" in _read("requirements/build-constraints.txt")
-
-
-def test_native_dependency_builds_are_hash_locked_and_offline_at_runtime():
+def test_runtime_dependencies_are_hash_locked_wheels_and_offline_at_runtime():
     workflow = _read(".github/workflows/ci.yml")
     dockerfile = _read("Dockerfile")
-    build_source = _read("requirements/build.txt")
-
-    for package in (
-        "cython==3.2.4",
-        "packaging==26.2",
-        "setuptools==83.0.0",
-        "versioneer==0.29",
-        "wheel==0.47.0",
-    ):
-        assert package in build_source
-    assert build_source.count("--hash=sha256:") >= 10
-    assert workflow.count("pip install --only-binary=:all: --require-hashes -r requirements/build.lock") == 8
-    assert workflow.count("pip install --no-build-isolation --require-hashes -r requirements/dev.lock") == 7
-    assert "PIP_BUILD_CONSTRAINT" not in workflow
-    assert "PIP_BUILD_CONSTRAINT" not in dockerfile
-    assert "pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements/build.lock" in dockerfile
-    assert "pip wheel --no-cache-dir --no-build-isolation --require-hashes --wheel-dir /wheelhouse/runtime" in dockerfile
+    for removed in ("requirements/build.lock", "--no-build-isolation", "build-essential", "zlib1g-dev", "libstdc++6"):
+        assert removed not in workflow
+        assert removed not in dockerfile
+    assert "pip download --no-cache-dir --only-binary=:all: --require-hashes --dest /wheelhouse/runtime" in dockerfile
     assert "pip install --no-cache-dir --no-index --only-binary=:all: --no-deps /wheelhouse/runtime/*.whl" in dockerfile
-    assert "Locked native build toolchain: Cython" in dockerfile
     security_check = _read("scripts/security_check.py")
     assert '"pip_audit",' in security_check
     assert '"--disable-pip",' in security_check
     assert '"--require-hashes",' in security_check
     assert 'ROOT / "requirements" / "runtime.txt"' in security_check
+    assert "--require-references -v" in workflow
+    assert "requirements/leveldb-reference.lock -r requirements/nbt-reference.lock" in workflow
+    assert "--check --include-references" in workflow
+    for name in ("runtime", "docker", "dev"):
+        text = _read(f"requirements/{name}.txt").lower()
+        assert "amulet" not in text
+        assert "numpy==" not in text
+        assert "cython==" not in text
 
 
 def test_docker_base_image_is_pinned_once_by_multiarch_digest():
@@ -593,33 +522,6 @@ def test_docker_disables_unused_control_socket_on_read_only_root():
     publish = workflow.split("  docker-publish:", 1)[1]
     assert publish.index("bash scripts/docker/smoke_image.sh") < publish.index("- name: Publish runtime image")
 
-
-def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path, monkeypatch):
-    from scripts import compile_lockfiles
-
-    requirements_dir = tmp_path / "requirements"
-    requirements_dir.mkdir()
-    source = requirements_dir / "runtime.in"
-    target = requirements_dir / "runtime.lock"
-    source.write_text("example>=1\n", encoding="utf-8")
-    target.write_text("example==1.0.0\n", encoding="utf-8")
-    observed = {}
-
-    def fake_run(cmd):
-        output_path = compile_lockfiles.ROOT / cmd[cmd.index("--output-file") + 1]
-        observed["seeded_output"] = output_path.read_text(encoding="utf-8")
-
-    monkeypatch.setattr(compile_lockfiles, "ROOT", tmp_path)
-    monkeypatch.setattr(compile_lockfiles, "CACHE_DIR", tmp_path / ".pip-tools-cache")
-    monkeypatch.setattr(compile_lockfiles, "BUILD_CONSTRAINTS", requirements_dir / "build-constraints.txt")
-    monkeypatch.setattr(compile_lockfiles, "LOCK_TARGETS", [(source, target)])
-    monkeypatch.setattr(compile_lockfiles, "run", fake_run)
-    monkeypatch.setattr(compile_lockfiles.sys, "version_info", (3, 12, 14))
-    monkeypatch.setattr(sys, "argv", ["compile_lockfiles.py", "--check"])
-
-    assert compile_lockfiles.main() == 0
-    assert observed["seeded_output"] == "example==1.0.0\n"
-    assert not (tmp_path / ".lockcheck").exists()
 
 
 def test_lockfile_check_ignores_platform_specific_piptools_annotations(tmp_path):

@@ -6,11 +6,6 @@ import os
 from collections.abc import Iterator
 from pathlib import Path, PurePath
 
-try:
-    from scripts.windows_wheels import OPTIONAL_WHEEL_PATHS
-except ModuleNotFoundError:
-    from windows_wheels import OPTIONAL_WHEEL_PATHS
-
 RUNTIME_ROOT_FILES = frozenset(
     {
         ".dockerignore",
@@ -42,9 +37,6 @@ RUNTIME_REQUIREMENT_PATHS = frozenset(
     {
         "requirements/bootstrap.lock",
         "requirements/bootstrap.txt",
-        "requirements/build.lock",
-        "requirements/build.txt",
-        "requirements/build-constraints.txt",
         "requirements/dev.lock",
         "requirements/dev.txt",
         "requirements/docker.lock",
@@ -71,7 +63,6 @@ RUNTIME_SCRIPT_PATHS = frozenset(
         "scripts/update_db.py",
         "scripts/update_icons.py",
         "scripts/windows_setup.py",
-        "scripts/windows_wheels.py",
     }
 )
 
@@ -101,7 +92,7 @@ def is_runtime_relative_path(path: PurePath) -> bool:
     if parts[0] in RUNTIME_TREE_DIRS:
         return True
     relative = path.as_posix()
-    return relative in RUNTIME_EXACT_PATHS or relative in OPTIONAL_WHEEL_PATHS
+    return relative in RUNTIME_EXACT_PATHS
 
 
 def iter_runtime_files(root: Path) -> Iterator[Path]:
@@ -116,7 +107,7 @@ def iter_runtime_files(root: Path) -> Iterator[Path]:
     from mcbe_editor.path_safety import is_linklike
 
     root = root.expanduser().resolve()
-    for relative in sorted(RUNTIME_EXACT_PATHS | OPTIONAL_WHEEL_PATHS):
+    for relative in sorted(RUNTIME_EXACT_PATHS):
         candidate = root / Path(relative)
         if candidate.is_file() and not any(is_linklike(parent) for parent in (candidate, *candidate.parents) if parent.is_relative_to(root)):
             yield candidate

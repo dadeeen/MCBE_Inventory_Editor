@@ -12,25 +12,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     ca-certificates \
-    zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
 RUN python -m venv /opt/build-venv
-COPY requirements/bootstrap.lock requirements/bootstrap.txt requirements/build.lock requirements/build.txt requirements/runtime.lock requirements/runtime.txt requirements/docker.lock requirements/docker.txt ./requirements/
+COPY requirements/bootstrap.lock requirements/bootstrap.txt requirements/runtime.lock requirements/runtime.txt requirements/docker.lock requirements/docker.txt ./requirements/
 RUN mkdir -p /wheelhouse/bootstrap /wheelhouse/runtime \
  && python -m pip download --no-cache-dir --only-binary=:all: --require-hashes --dest /wheelhouse/bootstrap -r requirements/bootstrap.lock \
  && python -m pip install --no-cache-dir --no-index --only-binary=:all: --find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock \
- && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements/build.lock \
- && python -c "import Cython; version = Cython.__version__; print(f'Locked native build toolchain: Cython {version}'); assert version == '3.2.4', version" \
- && python -m pip wheel --no-cache-dir --no-build-isolation --require-hashes --wheel-dir /wheelhouse/runtime -r requirements/docker.lock
+ && python -m pip download --no-cache-dir --only-binary=:all: --require-hashes --dest /wheelhouse/runtime -r requirements/docker.lock
 
 FROM builder AS dependency-audit
 COPY requirements/dev.lock requirements/dev.txt ./requirements/
 COPY scripts/security_check.py scripts/security_check.py
 RUN python -m pip install --no-cache-dir --no-index --only-binary=:all: --no-deps /wheelhouse/runtime/*.whl \
- && python -m pip install --no-cache-dir --no-build-isolation --require-hashes -r requirements/dev.lock \
+ && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements/dev.lock \
  && python scripts/security_check.py --require-pip-audit
 
 FROM ${PYTHON_BASE_IMAGE}
@@ -66,7 +62,6 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    libstdc++6 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app
