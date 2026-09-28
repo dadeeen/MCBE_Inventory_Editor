@@ -4,6 +4,7 @@ Tests marked ``native`` use amulet-leveldb (Mojang's LevelDB fork) as an
 independent reference engine when it is installed.
 """
 
+import errno
 import os
 import random
 import shutil
@@ -19,7 +20,9 @@ from mcbe_editor.leveldb_readonly import (
     _TAG_COMPARATOR,
     _TAG_LAST_SEQUENCE,
     _TAG_LOG_NUMBER,
+    _TAG_NEW_FILE,
     _TAG_NEXT_FILE_NUMBER,
+    _TAG_PREV_LOG_NUMBER,
     CorruptDatabaseError,
     ReadonlyLevelDbAdapter,
     _iter_log_records,
@@ -54,11 +57,22 @@ def _read_all(path: Path) -> dict[bytes, bytes]:
 
 
 def _native_items(path: Path) -> dict[bytes, bytes]:
-    db = leveldb.LevelDB(str(path))
+    db = _open_native(path)
     try:
         return dict(db.items())
     finally:
         db.close()
+
+
+def _open_native(path: Path, create_if_missing: bool = False):
+    # Amulet calls RepairDB automatically on corruption. A repaired database
+    # is not evidence that the writer produced a normally recoverable database.
+    assert not (path / "lost").exists(), "Native reference has a repair archive"
+    db = leveldb.LevelDB(str(path), create_if_missing)
+    if (path / "lost").exists():
+        db.close()
+        raise AssertionError("Native reference silently repaired the database")
+    return db
 
 
 def _write(path: Path, *batches: dict[bytes, bytes | None]) -> None:
@@ -257,9 +271,14 @@ def test_torn_newest_log_blocks_writes_until_the_engine_recovers(tmp_path, caplo
           + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Comparator"),
         ((_varint(_TAG_LOG_NUMBER) + _varint(0) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Sequenzzähler"),
         ((_varint(_TAG_LOG_NUMBER) + _varint(0) + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2)), "Sequenzzähler"),
+        ((_varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Sequenzzähler"),
+        ((_varint(_TAG_LOG_NUMBER) + _varint(100) + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2)
+          + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Dateizähler"),
+        ((_varint(_TAG_LOG_NUMBER) + _varint(0) + _varint(_TAG_PREV_LOG_NUMBER) + _varint(100)
+          + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Dateizähler"),
     ],
 )
-def test_manifests_the_engine_would_reject_are_not_written(tmp_path, fields, message):
+def test_incomplete_or_inconsistent_manifests_are_not_written(tmp_path, fields, message):
     path = _new_db(tmp_path)
     (path / "MANIFEST-000001").write_bytes(_manifest(fields))
     (path / "CURRENT").write_bytes(b"MANIFEST-000001\n")
@@ -268,6 +287,51 @@ def test_manifests_the_engine_would_reject_are_not_written(tmp_path, fields, mes
         LevelDbWriter(str(path))
 
     assert _logs(path) == []
+
+
+def test_missing_unrelated_table_blocks_writes_without_repair(tmp_path):
+    path = _new_db(tmp_path)
+    _write(path, {b"player_test": b"before"})
+    smallest = b"a" + ((1 << 8) | 1).to_bytes(8, "little")
+    fields = (_varint(_TAG_NEW_FILE) + _varint(1) + _varint(10) + _varint(100)
+              + leveldb_writer._encode_slice(smallest) + leveldb_writer._encode_slice(smallest))
+    with (path / "MANIFEST-000001").open("ab") as handle:
+        handle.write(_manifest(fields))
+    before = _snapshot(path)
+
+    with pytest.raises(CorruptDatabaseError, match="Tabellendatei 000010 fehlt"):
+        writer = LevelDbWriter(str(path))
+        try:
+            writer.put(b"player_test", b"after")
+        finally:
+            writer.close()
+
+    assert _snapshot(path) == before
+
+
+def test_exhausted_file_numbers_are_refused_without_creating_an_unreadable_log(tmp_path):
+    path = _new_db(tmp_path)
+    _write(path, {b"player_test": b"before"})
+    (path / f"{(1 << 64) - 1}.dbtmp").write_bytes(b"")
+    before = _snapshot(path)
+    writer = LevelDbWriter(str(path))
+    try:
+        with pytest.raises(CorruptDatabaseError, match="Dateinummer"):
+            writer.put(b"player_test", b"after")
+    finally:
+        writer.close()
+    assert _snapshot(path) == before
+    assert _read_all(path) == {b"player_test": b"before"}
+
+
+@native
+def test_native_oracle_detects_automatic_repair(tmp_path):
+    path = _new_db(tmp_path)
+    fields = _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)
+    (path / "MANIFEST-000001").write_bytes(_manifest(fields))
+    (path / "CURRENT").write_bytes(b"MANIFEST-000001\n")
+    with pytest.raises(AssertionError, match="silently repaired"):
+        _native_items(path)
 
 
 def test_a_second_session_of_the_same_process_is_refused(tmp_path):
@@ -400,6 +464,108 @@ def test_failed_append_is_rolled_back_and_ends_the_session(tmp_path, monkeypatch
     assert _read_all(path) == {b"a": b"1"}
 
 
+@pytest.mark.parametrize("failure_at", ["create", "directory-sync"])
+def test_failed_log_setup_ends_the_session(tmp_path, monkeypatch, failure_at):
+    path = _new_db(tmp_path)
+    _write(path, {b"kept": b"old"})
+    before = _snapshot(path)
+    writer = LevelDbWriter(str(path))
+    try:
+        def fail(*_args):
+            raise OSError("simulated log setup failure")
+
+        with monkeypatch.context() as patcher:
+            if failure_at == "create":
+                patcher.setattr(leveldb_writer._SessionLog, "__init__", fail)
+            else:
+                patcher.setattr(leveldb_writer, "_sync_directory", fail)
+            with pytest.raises(OSError, match="simulated log setup failure"):
+                writer.put(b"new", b"uncommitted")
+
+        # Restoring I/O does not make the failed session safe to reuse.
+        with pytest.raises(RuntimeError, match="fehlgeschlagenen Schreibversuch"):
+            writer.put(b"new", b"retry")
+    finally:
+        writer.close()
+
+    after = _snapshot(path)
+    assert all(after[name] == snapshot for name, snapshot in before.items())
+    assert _read_all(path) == {b"kept": b"old"}
+    # Closing releases the lock, including after a created-but-unsynced log.
+    _write(path, {b"new": b"after-reopen"})
+    expected = {b"kept": b"old", b"new": b"after-reopen"}
+    assert _read_all(path) == expected
+    if leveldb is not None:
+        assert _native_items(path) == expected
+
+
+@pytest.mark.parametrize("code,tolerated", [
+    (errno.EINVAL, True), (errno.ENOSYS, True), (getattr(errno, "EOPNOTSUPP", errno.EINVAL), True), (errno.EIO, False), (errno.ENOSPC, False),
+])
+def test_unsupported_directory_sync_continues_but_io_errors_fail(monkeypatch, code, tolerated):
+    # Runs the POSIX branch on every platform with a stand-in descriptor.
+    closed = []
+    monkeypatch.setattr(leveldb_writer, "_WINDOWS", False)
+    monkeypatch.setattr(leveldb_writer.os, "open", lambda _path, _flags: 12345)
+    monkeypatch.setattr(leveldb_writer.os, "close", closed.append)
+
+    def fsync(_descriptor):
+        raise OSError(code, os.strerror(code))
+
+    monkeypatch.setattr(leveldb_writer.os, "fsync", fsync)
+    if tolerated:
+        leveldb_writer._sync_directory("db")
+    else:
+        with pytest.raises(OSError) as raised:
+            leveldb_writer._sync_directory("db")
+        assert raised.value.errno == code
+    assert closed == [12345]
+
+
+@pytest.mark.parametrize("failure_at", ["record-list", "first-entry", "second-entry"])
+def test_failed_commit_bookkeeping_ends_the_session(tmp_path, monkeypatch, failure_at):
+    path = _new_db(tmp_path)
+    writer = LevelDbWriter(str(path))
+    try:
+        writer.put_batch({b"kept": b"old", b"gone": b"old"})
+
+        class FailingRecords(list):
+            def append(self, _record):
+                raise MemoryError("simulated commit bookkeeping failure")
+
+        class FailingMemtable(dict):
+            def __setitem__(self, key, value):
+                failed_key = b"a" if failure_at == "first-entry" else b"gone"
+                if key == failed_key:
+                    raise MemoryError("simulated commit bookkeeping failure")
+                super().__setitem__(key, value)
+
+        with monkeypatch.context() as patcher:
+            if failure_at == "record-list":
+                patcher.setattr(writer._resources.log, "records", FailingRecords(writer._resources.log.records))
+            else:
+                patcher.setattr(writer, "_memtable", FailingMemtable(writer._memtable))
+            with pytest.raises(MemoryError, match="simulated commit bookkeeping failure"):
+                writer.put_batch({b"a": b"first", b"gone": None, b"b": b"second"})
+
+        # The entire batch reached the WAL, even when the session's view did not.
+        expected = {b"kept": b"old", b"a": b"first", b"b": b"second"}
+        assert _read_all(path) == expected
+        log_bytes = {name: (path / name).read_bytes() for name in _logs(path)}
+        with pytest.raises(RuntimeError, match="fehlgeschlagenen Schreibversuch"):
+            writer.put(b"b", b"retry-with-stale-sequence")
+        assert {name: (path / name).read_bytes() for name in _logs(path)} == log_bytes
+    finally:
+        writer.close()
+
+    assert _read_all(path) == expected
+    _write(path, {b"b": b"after-reopen"})
+    expected[b"b"] = b"after-reopen"
+    assert _read_all(path) == expected
+    if leveldb is not None:
+        assert _native_items(path) == expected
+
+
 @pytest.mark.parametrize("ahead", [0, 10**6], ids=["same-sequence", "far-ahead"])
 def test_versions_newer_than_the_manifest_sequence_are_not_shadowed(tmp_path, monkeypatch, ahead):
     path = _new_db(tmp_path)
@@ -424,7 +590,10 @@ def test_batches_beyond_the_reader_budget_are_refused_before_touching_the_world(
     monkeypatch.setattr(leveldb_writer, "_MAX_METADATA_BYTES", sum(len(data) for data, _mtime in before.values()) + 100)
     writer = LevelDbWriter(str(path))
     try:
-        with pytest.raises(ValueError, match="zu groß"):
+        with pytest.raises(ValueError, match="zu groß"), monkeypatch.context() as patcher:
+            def unexpected_encoding(*_args):
+                pytest.fail("Oversized payload must be refused before allocating encoded buffers")
+            patcher.setattr(leveldb_writer, "encode_write_batch", unexpected_encoding)
             writer.put_batch({b"b": b"x" * 1000})
         writer.put_batch({b"b": b"small"})
     finally:
@@ -486,7 +655,7 @@ def _record_len_for(offset: int, target: int) -> int:
 @native
 def test_log_bytes_equal_the_native_engine_for_identical_batches(tmp_path):
     base = _new_db(tmp_path, "base")
-    leveldb.LevelDB(str(base), True).close()
+    _open_native(base, True).close()
     ours = tmp_path / "ours"
     shutil.copytree(base, ours)
 
@@ -502,7 +671,7 @@ def test_log_bytes_equal_the_native_engine_for_identical_batches(tmp_path):
         {b"k": None},
         {b"a": b"1", b"b": b"", b"gone": None, b"c": b"3" * 200},
     ]
-    native_db = leveldb.LevelDB(str(base))
+    native_db = _open_native(base)
     try:
         for batch in batches:
             native_db.putBatch(batch)
@@ -539,7 +708,7 @@ def test_random_sessions_of_both_engines_agree_with_a_model(tmp_path):
     rng = random.Random(20260925)
     path = _new_db(tmp_path)
     model = {b"key%05d" % i: rng.randbytes(rng.randrange(0, 600)) for i in range(4000)}
-    seed = leveldb.LevelDB(str(path), True)
+    seed = _open_native(path, True)
     try:
         seed.putBatch(model)
     finally:
@@ -555,7 +724,7 @@ def test_random_sessions_of_both_engines_agree_with_a_model(tmp_path):
                 batch[key] = None if roll < 0.2 else rng.randbytes(rng.randrange(0, 90_000 if roll > 0.97 else 800))
             batches.append(batch)
         if session % 3 == 2:
-            db = leveldb.LevelDB(str(path))
+            db = _open_native(path)
             try:
                 for batch in batches:
                     db.putBatch(batch)

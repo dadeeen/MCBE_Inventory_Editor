@@ -302,6 +302,8 @@ data/                  # lokaler Modus
 
 - Die Anwendung ist für lokale oder vertrauenswürdige LAN-Nutzung gedacht, nicht für öffentliche Bereitstellung.
 - Echte Welten dürfen nur bearbeitet werden, während Minecraft oder der Server beendet ist.
+- Linux-Bedrock-Server können eine Welt ohne LevelDB-`LOCK` offenhalten; Dateisperren allein beweisen daher nicht, dass der Server beendet ist. Lass die Serverstatus-Prüfung konfiguriert und beende den tatsächlichen Server vor der Bearbeitung.
+- Datenbankzugriffe sind auf zusammen 256 MiB MANIFEST-/WAL-Daten und 64 MiB je gespeichertem/dekomprimiertem Tabellenblock begrenzt. Die 256 MiB begrenzen nicht die gesamte Weltgröße. Der Editor ergänzt Schreibprotokolle, die Minecraft beim nächsten Öffnen der Welt einarbeitet. Fehlende Tabellen, widersprüchliche Dateizähler oder überschrittene Eingabelimits blockieren Schreibvorgänge; der Editor repariert die Datenbank nicht.
 - Bedrock-Updates, Add-ons, undurchsichtige NBT-Daten und ungewöhnliche LevelDB-Strukturen können außerhalb dessen liegen, wofür der Editor ausgelegt ist.
 - Die experimentelle Mount-Platzierung bildet nicht die vollständige Minecraft-Kollisionsphysik ab.
 - Runtime-ZIPs besitzen eine SHA-256-Prüfsumme und ein internes Dateimanifest, aber keine unabhängige kryptografische Signatur.

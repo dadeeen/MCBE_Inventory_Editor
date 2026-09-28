@@ -39,7 +39,9 @@ import os
 import re
 import struct
 import sys
+import threading
 import zlib
+from collections import OrderedDict
 from typing import NamedTuple
 
 LOGGER = logging.getLogger(__name__)
@@ -262,7 +264,7 @@ class Manifest(NamedTuple):
     """
 
     files: dict[int, dict[int, tuple[bytes, bytes]]]
-    log_number: int
+    log_number: int | None
     prev_log_number: int | None
     next_file_number: int | None
     last_sequence: int | None
@@ -273,7 +275,7 @@ def _parse_manifest(data: bytes) -> Manifest:
     """Replay all VersionEdits; return live files per level and the counters."""
 
     files: dict[int, dict[int, tuple[bytes, bytes]]] = {}
-    log_number = 0
+    log_number = None
     prev_log_number = None
     next_file_number = None
     last_sequence = None
@@ -367,17 +369,64 @@ def _iter_block_entries(block: bytes):
         yield key, value
 
 
+class _BlockCache:
+    """Session-local LRU of validated, decompressed table blocks."""
+
+    def __init__(self, max_bytes: int, *, max_entries: int = 4096):
+        self._max_bytes = max_bytes
+        self._max_entries = max_entries
+        self._entries: OrderedDict[tuple[object, int, int], bytes] = OrderedDict()
+        self._size = 0
+        self._guard = threading.Lock()
+
+    def get(self, key: tuple[object, int, int]) -> bytes | None:
+        with self._guard:
+            data = self._entries.get(key)
+            if data is not None:
+                self._entries.move_to_end(key)
+            return data
+
+    def put(self, key: tuple[object, int, int], data: bytes) -> None:
+        with self._guard:
+            try:
+                previous = self._entries.pop(key, None)
+                if previous is not None:
+                    self._size -= len(previous)
+                if len(data) > self._max_bytes or self._max_bytes <= 0 or self._max_entries <= 0:
+                    return
+                # Bound bookkeeping too, even for very small/empty blocks.
+                while self._entries and (self._size + len(data) > self._max_bytes or len(self._entries) >= self._max_entries):
+                    _, evicted = self._entries.popitem(last=False)
+                    self._size -= len(evicted)
+                self._entries[key] = data
+                self._size += len(data)
+            except MemoryError:
+                # Caching is optional; release retained data and use this read.
+                self._entries.clear()
+                self._size = 0
+
+    def clear(self) -> None:
+        with self._guard:
+            self._entries.clear()
+            self._size = 0
+
+
 class _Table:
     """Lazy reader for a single .ldb/.sst table file."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, *, block_cache: _BlockCache | None = None):
         self._path = path
+        self._block_cache = block_cache
+        # No table/path references in cache keys: no cross-world aliasing or
+        # cache -> table -> cache cycle keeping file handles alive.
+        self._cache_identity = object()
         # Handle intentionally stays open for lazy block reads; closed via close().
         self._handle = open(path, "rb")  # noqa: SIM115
         self._size = os.fstat(self._handle.fileno()).st_size
         self._index: list[tuple[bytes, int, int]] | None = None
 
     def close(self) -> None:
+        self._block_cache = None
         self._handle.close()
 
     def _read_at(self, offset: int, size: int) -> bytes:
@@ -420,7 +469,17 @@ class _Table:
         return index
 
     def _read_block(self, offset: int, size: int) -> bytes:
-        return _decompress_block(self._read_at(offset, size + 5))
+        cache = self._block_cache
+        if cache is None:
+            return _decompress_block(self._read_at(offset, size + 5))
+        key = (self._cache_identity, offset, size)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        # Cache only after the original bounds, checksum and decompression checks.
+        data = _decompress_block(self._read_at(offset, size + 5))
+        cache.put(key, data)
+        return data
 
     def iter_entries(self):
         """Yield (internal_key, value) for every entry, in internal-key order."""
@@ -504,6 +563,9 @@ class ReadonlyLevelDbAdapter:
     def __init__(self, db_path: str):
         self._db_path = db_path
         self._tables: dict[int, _Table] = {}
+        # Writers opt in after acquiring exclusive access. Ordinary readers
+        # may inspect a running world, so they keep reading blocks afresh.
+        self._block_cache: _BlockCache | None = None
         self._closed = False
         self._metadata_bytes = 0
         self._metadata_digests: list[tuple[str, int, bytes]] = []
@@ -527,7 +589,7 @@ class ReadonlyLevelDbAdapter:
             if not match:
                 continue
             file_number = int(match.group(1))
-            if file_number < self._manifest.log_number and file_number != self._manifest.prev_log_number:
+            if file_number < (self._manifest.log_number or 0) and file_number != self._manifest.prev_log_number:
                 continue
             wal_files.append((file_number, filename))
         wal_files.sort()
@@ -592,7 +654,7 @@ class ReadonlyLevelDbAdapter:
             for extension in ("ldb", "sst"):
                 path = os.path.join(self._db_path, f"{file_no:06d}.{extension}")
                 if os.path.isfile(path):
-                    table = _Table(path)
+                    table = _Table(path, block_cache=self._block_cache)
                     break
             else:
                 raise CorruptDatabaseError(f"Tabellendatei {file_no:06d} fehlt.")
@@ -683,6 +745,8 @@ class ReadonlyLevelDbAdapter:
 
     def close(self) -> None:
         self._closed = True
+        if self._block_cache is not None:
+            self._block_cache.clear()
         for table in self._tables.values():
             table.close()
         self._tables.clear()

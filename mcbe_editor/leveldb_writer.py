@@ -37,6 +37,7 @@ from __future__ import annotations
 import errno
 import os
 import re
+import stat
 import struct
 import threading
 import weakref
@@ -62,6 +63,7 @@ from .leveldb_readonly import (
     _TYPE_VALUE,
     CorruptDatabaseError,
     ReadonlyLevelDbAdapter,
+    _BlockCache,
     _crc32c,
     _iter_log_records,
     _mask_crc32c,
@@ -82,9 +84,16 @@ _WINDOWS = os.name == "nt"
 _LOG_HEADER_SIZE = 7
 _BYTEWISE_COMPARATOR = b"leveldb.BytewiseComparator"
 _MAX_SLICE_BYTES = 0xFFFFFFFF
+_MAX_FILE_NUMBER = (1 << 64) - 1
+# Lazy upper bound shared by all tables in one session, not a preallocation.
+_WRITE_BLOCK_CACHE_BYTES = 64 * 1024 * 1024
 _NUMBERED_FILE_RE = re.compile(r"(?:(\d+)\.(?:log|ldb|sst|dbtmp)|MANIFEST-(\d+))")
 # Files a native engine may leave in a directory it never finished creating.
 _BLANK_DATABASE_NAMES = frozenset({"LOCK", "LOG", "LOG.old"})
+# Same policy as backups: these mean "not supported here", not an I/O failure.
+_UNSUPPORTED_SYNC_ERRNOS = frozenset(
+    code for code in (errno.EINVAL, errno.ENOSYS, getattr(errno, "ENOTSUP", None), getattr(errno, "EOPNOTSUPP", None)) if code is not None
+)
 
 _OPEN_DATABASES: set[str] = set()
 _OPEN_DATABASES_GUARD = threading.Lock()
@@ -180,13 +189,21 @@ def _new_database_edit() -> bytes:
 
 
 def _sync_directory(path: str) -> None:
-    """Persist new directory entries; Windows journals them with the file."""
+    """Sync directory entries on POSIX; no directory flush is provided on Windows.
+
+    Filesystems without directory sync report it as unsupported. Native
+    LevelDB does not sync the directory for a new log at all, so continuing
+    there is no weaker than the engine. Real I/O errors still fail.
+    """
 
     if _WINDOWS:
         return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
+    except OSError as exc:
+        if exc.errno not in _UNSUPPORTED_SYNC_ERRNOS:
+            raise
     finally:
         os.close(descriptor)
 
@@ -449,6 +466,7 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
             resources.access.ensure_unused(
                 os.path.join(db_path, name) for name in (self._manifest_name, *self._wal_names)
             )
+            self._block_cache = _BlockCache(_WRITE_BLOCK_CACHE_BYTES)
         except BaseException:
             try:
                 for table in getattr(self, "_tables", {}).values():
@@ -461,8 +479,26 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
         manifest = self._manifest
         if manifest.comparator not in (None, _BYTEWISE_COMPARATOR):
             raise CorruptDatabaseError(f"Nicht unterstützter LevelDB-Comparator: {manifest.comparator!r}")
-        if manifest.next_file_number is None or manifest.last_sequence is None:
+        if manifest.log_number is None or manifest.next_file_number is None or manifest.last_sequence is None:
             raise CorruptDatabaseError("Das MANIFEST enthält keine vollständigen Datei- und Sequenzzähler.")
+        if manifest.next_file_number <= max(manifest.log_number, manifest.prev_log_number or 0):
+            # Otherwise a new WAL can be below the recovery cutoff: the write
+            # succeeds in this session but vanishes when the world is reopened.
+            raise CorruptDatabaseError(t("Das MANIFEST enthält widersprüchliche Dateizähler."))
+        for files in manifest.files.values():
+            for file_no in files:
+                for extension in ("ldb", "sst"):
+                    try:
+                        mode = os.stat(os.path.join(self._db_path, f"{file_no:06d}.{extension}")).st_mode
+                    except FileNotFoundError:
+                        continue
+                    if not stat.S_ISREG(mode):
+                        raise CorruptDatabaseError(t("Tabellendatei {number} ist keine reguläre Datei.", number=f"{file_no:06d}"))
+                    break
+                else:
+                    # Validate presence even when all edited keys live in the
+                    # WAL or another table. Never build on a partial world copy.
+                    raise CorruptDatabaseError(t("Tabellendatei {number} fehlt.", number=f"{file_no:06d}"))
         if self._wal_tail.discarded_at is not None:
             # A new log after a torn one would hide the damage from recovery
             # checks; the engine that wrote it must recover it first.
@@ -496,19 +532,33 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
         last_sequence = sequence + len(entries) - 1
         if last_sequence > _MAX_SEQUENCE:
             raise CorruptDatabaseError("Der LevelDB-Sequenzbereich ist erschöpft.")
+        start = self._resources.log.size if self._resources.log is not None else 0
+        # Refuse oversized payloads before copying them into encoded/framed
+        # buffers or computing their CRCs. Framing overhead is checked below.
+        record_size = 12
+        for key, value in entries:
+            record_size += 1
+            for part in (key, value):
+                if part is not None:
+                    size = len(part)
+                    if size > _MAX_SLICE_BYTES:
+                        raise ValueError("LevelDB-Schlüssel und -Werte sind auf 4 GiB begrenzt.")
+                    record_size += size + max(1, (size.bit_length() + 6) // 7)
+            if self._metadata_bytes + start + record_size > _MAX_METADATA_BYTES:
+                raise ValueError(t("Die Änderung ist zu groß für das Schreibprotokoll der Welt."))
         for key, _value in entries:
             newest = self._newest_sequence(key)
             if newest is not None and newest >= sequence:
                 raise CorruptDatabaseError("Ein gespeicherter Eintrag ist neuer als die MANIFEST-Sequenz; die Welt wird nicht beschrieben.")
         record = encode_write_batch(sequence, entries)
-        start = self._resources.log.size if self._resources.log is not None else 0
         framed = frame_log_record(record, start % _LOG_BLOCK_SIZE)
         if self._metadata_bytes + start + len(framed) > _MAX_METADATA_BYTES:
             raise ValueError(t("Die Änderung ist zu groß für das Schreibprotokoll der Welt."))
-        log = self._resources.log or self._open_log()
-        # Stays set if anything below fails: the caller cannot know whether
-        # the batch reached the disk, so the session takes no further writes.
+        # Stays set from log creation through in-memory bookkeeping: a failure
+        # can leave an unsynced log or durable records the session does not see.
+        # Either way, the caller must reopen before attempting another write.
         self._failed = True
+        log = self._resources.log or self._open_log()
         try:
             log.append(framed)
             log.verify([*log.records, record])
@@ -517,18 +567,21 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
                 log.truncate(start)
             raise
         log.records.append(record)
-        self._failed = False
         for offset, (key, value) in enumerate(entries):
             if value is None:
                 self._memtable[key] = (sequence + offset, _TYPE_DELETION, b"")
             else:
                 self._memtable[key] = (sequence + offset, _TYPE_VALUE, value)
         self._last_sequence = last_sequence
+        self._failed = False
 
     def _open_log(self) -> _SessionLog:
         next_file_number = self._manifest.next_file_number
         assert next_file_number is not None  # Checked when the session opened.
         number = max(next_file_number, _highest_file_number(self._db_path) + 1)
+        if number >= _MAX_FILE_NUMBER:
+            # Native recovery must still be able to increment this uint64.
+            raise CorruptDatabaseError(t("Der LevelDB-Dateinummernbereich ist erschöpft."))
         log = _SessionLog(os.path.join(self._db_path, f"{number:06d}.log"))
         self._resources.log = log
         _sync_directory(self._db_path)

@@ -302,6 +302,8 @@ data/                  # Local Mode
 
 - The application is for local or trusted-LAN use, not public deployment.
 - Real world edits must happen while Minecraft or the server is stopped.
+- Linux Bedrock servers can keep a world open without taking LevelDB's `LOCK`; file locks alone do not prove that the server is stopped. Keep the server-status guard configured and stop the actual server before editing.
+- Database reads are limited to 256 MiB of combined MANIFEST/WAL data and 64 MiB per stored/decompressed table block. The 256 MiB limit is not a limit on total world size. The editor adds write-ahead logs; Minecraft integrates them when it next opens the world. Missing tables, inconsistent file counters or an exceeded input limit block writes; the editor does not repair the database.
 - Bedrock updates, add-ons, opaque NBT, and unusual LevelDB structures can fall outside what the editor is designed to handle.
 - Experimental mount placement is not full Minecraft collision physics.
 - Runtime ZIPs have a SHA-256 checksum and an internal file manifest, but no independent cryptographic signature.

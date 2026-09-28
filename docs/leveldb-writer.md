@@ -38,15 +38,27 @@ the resulting bytes with the native engine's own log for identical batches.
 
 ## Atomicity and durability
 
-- One batch is one logical record. A crash can only leave an incomplete record
-  at the end of the new log. Recovery (native and `leveldb_readonly`) ignores
-  it, so a batch is applied completely or not at all.
+- One batch is one logical record. For a torn append that leaves an incomplete
+  record at EOF, recovery (native and `leveldb_readonly`) ignores that record:
+  the batch is applied completely or not at all. The truncation tests cover this
+  failure model, not arbitrary storage corruption or every power-loss scenario.
 - Every append is followed by `fsync`. On POSIX the directory is synced after
-  the log is created.
+  the log is created; filesystems that report directory sync as unsupported
+  (`EINVAL`, `ENOSYS`, `ENOTSUP`) continue, as backups do, while other I/O errors
+  fail. Native LevelDB does not sync the directory for a new log at all. Windows
+  has no directory flush in this implementation; durability also depends on the
+  operating system, filesystem and storage device.
 - After each append, the session rereads its log strictly and compares every
-  record. If an append or that check fails, the log is truncated to its last
-  verified length and the session accepts no further writes. The caller treats
-  such a batch as attempted but not committed and keeps the backup.
+  record. If an append or that check fails, it attempts to truncate the log to
+  its last verified length and accepts no further writes. Rollback I/O can also
+  fail, so the caller records an unconfirmed write and keeps the backup. Reopen
+  and inspect the actual state before retrying; an error does not prove that no
+  bytes were persisted.
+- Errors during log creation, directory synchronization or in-memory commit
+  bookkeeping also end the write session; only the last of these can follow a
+  durable batch. A verified batch may already be durable even if updating the
+  session's view failed; close and reopen to read the actual state instead of
+  retrying with a stale sequence counter.
 - Opening a world, reading it and closing it without writing changes no file.
   The only exception is a missing `LOCK` file, which is created empty, as the
   native engine does.
@@ -54,6 +66,47 @@ the resulting bytes with the native engine's own log for identical batches.
   `DBImpl::NewDB`: `MANIFEST-000001` and `CURRENT`. A directory with other
   files but no `CURRENT` is refused. The native engine would create a new
   database there and later delete the unknown files.
+
+## Writer block cache
+
+Each writer session shares one LRU cache between all of its table readers.
+It retains at most **64 MiB of decompressed block data** and at most 4,096
+entries; Python bookkeeping adds some memory overhead. This is a lazy upper
+bound, not a reservation. It is not multiplied by the number of table files.
+Blocks larger than the cache budget are read normally without being retained.
+Cache allocation failure clears retained entries and returns the validated read.
+
+Only successfully checked/decompressed immutable table blocks enter the cache.
+An entry uses its table instance's unique identity plus block offset and stored
+length, so matching filenames in different worlds cannot alias. Cached blocks
+pass through the same internal-key/version processing as uncached ones; WAL
+values and deletions keep their precedence. Closing the database clears the
+cache. Ordinary readonly sessions read blocks afresh because they can inspect
+a running world. Writer cache reuse assumes exclusive offline access and does
+not replace the server-status gate. The cache does not affect WAL
+synchronization or read-back.
+
+The main benefit is avoiding repeated block reads, CRC checks and decompression
+while validating batches of nearby keys. A cold full-world player scan and WAL
+replay remain separate costs.
+
+The sizing comparison uses CPython 3.12.14 and Amulet-LevelDB 1.0.6 as the
+independent recovery reference. Synthetic databases contain 20,000 or 60,000
+roughly 1 KiB records. Each value is the median of three fresh copies, with
+cache-size order shuffled between repetitions and full native comparison after
+recovery. Timings describe these workloads, not a general latency guarantee.
+
+| Cache limit | 1,000 adjacent keys / 20k records | 1,000 scattered keys / 20k records | 1,000 scattered keys / 60k records |
+| --- | ---: | ---: | ---: |
+| Disabled | 813 ms | 878 ms | 984 ms |
+| 8 MiB | 150 ms | 588 ms | 885 ms |
+| 16 MiB | 148 ms | 326 ms | 749 ms |
+| 32 MiB | 151 ms | 231 ms | 574 ms |
+| 64 MiB | 150 ms | 236 ms | 406 ms |
+
+The largest workload retains about 54.5 MiB; adjacent keys retain about 1.1 MiB.
+Single-write times of 4.3–4.9 ms show no comparable benefit. The 64 MiB limit
+applies per active writer, so concurrent worlds can use multiples of that budget.
 
 ## Exclusive access
 
@@ -88,17 +141,27 @@ lock; they do not replace them.
 
 ## Refusals
 
-The session refuses to write, without changing any file, if:
+The session refuses to write, without changing existing database contents, if
+any of the following checks fail. Acquiring access can, however, create an
+empty `LOCK` file:
 
 - the newest log ends in a damaged or incomplete record. Placing a new log
   after it would hide the damage from later strict recovery checks. Loading
   the world once in Minecraft or on the server recovers it
   (`LevelDbUncleanLogError`);
 - the MANIFEST names a comparator other than `leveldb.BytewiseComparator`, or
-  lacks the file-number or sequence counters the native engine requires;
+  lacks the log-number, next-file or sequence counters;
+- its next-file counter is not greater than its current/previous log number.
+  Otherwise a new log could fall below recovery's cutoff and a successful write
+  disappear after reopening;
+- a referenced table is absent or is not a regular file, even when none of the
+  batch's keys would read that table;
 - a stored version of a written key is newer than the continuation sequence;
+- allocating a new log would exhaust the native unsigned 64-bit file numbers;
 - the log would exceed the reader's 256 MiB MANIFEST/WAL budget.
 
+Oversized batch payloads are rejected before encoding copies and checksum work;
+the final size check also accounts for physical record framing.
 ## Validation
 
 - `tests/test_leveldb_writer.py`: framing at every block position, batch
@@ -112,6 +175,10 @@ The session refuses to write, without changing any file, if:
   engine and the writer against a model, native reading of torn batches,
   and mutual exclusion in both directions. CI runs them on Windows and, for the
   POSIX `fcntl` lock, on macOS.
+  The writer's positive recovery comparisons reject a native `lost/` repair
+  archive: [Amulet 1.0.6 automatically calls `RepairDB` on corruption](https://github.com/Amulet-Team/Amulet-LevelDB/blob/1.0.6/src/leveldb/_leveldb.pyx).
+  Merely opening successfully is not sufficient evidence. A deliberately
+  damaged control proves that this test guard detects automatic repair.
 - The regular suite (service saves, imports, mount creation, backups and
   rollbacks) runs against the pure-Python writer.
 - Private worlds (manual, temporary copies): each world is written by the
