@@ -414,6 +414,48 @@ class TestAddableItemIds(unittest.TestCase):
         for item_id, names in expected.items():
             self.assertEqual(ITEMS[item_id], names)
 
+    def test_addable_items_have_distinguishable_labels(self):
+        # Zwei auswählbare Items mit gleichem Namen sind im Browser nicht
+        # unterscheidbar. So fiel minecraft:sandstone auf, das den Namen von
+        # chiseled_sandstone trug. Gleichnamige Items gibt es nur dort, wo
+        # Mojang selbst dieselbe Übersetzung ausliefert.
+        reviewed_homonyms = {
+            ("de", "harzziegel"): {"minecraft:resin_brick", "minecraft:resin_bricks"},
+        }
+        for language, index in (("de", 0), ("en", 1)):
+            groups: dict[str, set[str]] = {}
+            for item_id in ADDABLE_ITEM_IDS:
+                label = " ".join(ITEMS[item_id][index].casefold().split())
+                groups.setdefault(label, set()).add(item_id)
+            shared = {
+                label: sorted(item_ids)
+                for label, item_ids in groups.items()
+                if len(item_ids) > 1 and reviewed_homonyms.get((language, label)) != item_ids
+            }
+            self.assertEqual(shared, {}, language)
+
+    def test_variant_ids_are_not_labelled_as_another_variant(self):
+        # Ältere Generatoren übernahmen den ersten Schlüssel
+        # tile.<id>.<variante>.name oder eine UI-Meldung als Itemnamen.
+        expected = {
+            "minecraft:sandstone": ("Sandstein", "Sandstone"),
+            "minecraft:red_sandstone": ("Roter Sandstein", "Red Sandstone"),
+            "minecraft:quartz_block": ("Quarzblock", "Block of Quartz"),
+            "minecraft:cobblestone_wall": ("Bruchsteinmauer", "Cobblestone Wall"),
+            "minecraft:prismarine": ("Prismarin", "Prismarine"),
+            "minecraft:brown_mushroom_block": ("Brauner Pilzblock", "Brown Mushroom Block"),
+            "minecraft:respawn_anchor": ("Seelenanker", "Respawn Anchor"),
+            "minecraft:disc_fragment_5": ("Plattenbruchstück", "Disc Fragment"),
+            "minecraft:fireworks": ("Feuerwerksrakete", "Firework Rocket"),
+            "minecraft:wool": ("Wolle", "Wool"),
+            "minecraft:concrete": ("Weißer Beton", "White Concrete"),
+        }
+        for item_id, names in expected.items():
+            self.assertEqual(ITEMS[item_id], names, item_id)
+        for item_id, superseded in item_data_module.SUPERSEDED_ITEM_LABELS.items():
+            self.assertIn(item_id, ITEMS, item_id)
+            self.assertNotEqual(ITEMS[item_id], superseded, item_id)
+
 
 class TestBlockItemIds(unittest.TestCase):
     def test_block_item_section_tracks_registry_intersection(self):
@@ -549,6 +591,27 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
         self.assertNotIn(44, db["ENCHANTMENTS"])
         self.assertEqual(db["ENCHANTMENTS"][99][1], "Add-on Enchantment")
         self.assertEqual(db["SCHEMA_VERSION"], 3)
+
+    def test_known_wrong_variant_labels_are_migrated_but_custom_labels_stay(self):
+        persistent_db = {
+            "schema_version": 3,
+            "items": {
+                "minecraft:sandstone": ["Gemeißelter Sandstein", "Chiseled Sandstone"],
+                "minecraft:respawn_anchor": ["Wiederbeleben-Punkt festgelegt", "Respawn point set"],
+                "minecraft:wool": ["Schwarze Wolle", "Black Wool"],
+                "minecraft:red_sandstone": ["Mein roter Sandstein", "My Red Sandstone"],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "item_db.json"
+            db_path.write_text(json.dumps(persistent_db, ensure_ascii=False), encoding="utf-8")
+            items = load_item_database(db_path)["ITEMS"]
+
+        self.assertEqual(items["minecraft:sandstone"], ("Sandstein", "Sandstone"))
+        self.assertEqual(items["minecraft:respawn_anchor"], ("Seelenanker", "Respawn Anchor"))
+        self.assertEqual(items["minecraft:wool"], ("Wolle", "Wool"))
+        # Nur der exakt bekannte Altstand wird ersetzt, eigene Namen bleiben.
+        self.assertEqual(items["minecraft:red_sandstone"], ("Mein roter Sandstein", "My Red Sandstone"))
 
     def test_newer_bundled_behavior_data_replaces_stale_persistent_values(self):
         legacy_db = {

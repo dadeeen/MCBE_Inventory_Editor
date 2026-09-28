@@ -327,14 +327,45 @@ def resolve_item_db_json_path(path: str | os.PathLike | None = None) -> Path:
 
 # Persistente Kopien (z. B. data/item_db.json) bekommen vom Updater nur Ergänzungen,
 # nie kuratierte Korrekturen. Für Labels, die früher falsch ausgeliefert wurden und
-# nicht als Fallback (de == en) erkennbar sind, gilt: exakt bekannter Altstand -> Neuwert.
-LEGACY_ITEM_LABEL_FIXES: dict[str, tuple[tuple[str, str], tuple[str, str]]] = {
+# nicht als Fallback (de == en) erkennbar sind, gilt: exakt bekannter Altstand ->
+# gebündeltes Label. Eigene Umbenennungen weichen vom Altstand ab und bleiben.
+SUPERSEDED_ITEM_LABELS: dict[str, tuple[str, str]] = {
     # Der Legacy-Block minecraft:stonecutter war identisch zur funktionalen
     # minecraft:stonecutter_block beschriftet; im Spiel ist er ohne Funktion.
-    "minecraft:stonecutter": (
-        ("Steinsäge", "Stonecutter"),
-        ("Steinsäge (alt, ohne Funktion)", "Stonecutter (Legacy, No Function)"),
-    ),
+    "minecraft:stonecutter": ("Steinsäge", "Stonecutter"),
+    # Frühere Generatoren übernahmen für Varianten-IDs den ersten Schlüssel
+    # tile.<id>.<variante>.name statt tile.<id>.name oder sogar eine UI-Meldung
+    # wie tile.respawn_anchor.respawnSet.
+    "minecraft:brown_mushroom_block": ("Pilz", "Mushroom"),
+    "minecraft:carpet": ("Schwarzer Teppich", "Black Carpet"),
+    "minecraft:cobblestone_wall": ("Bemooste Bruchsteinmauer", "Mossy Cobblestone Wall"),
+    "minecraft:concrete": ("Schwarzer Beton", "Black Concrete"),
+    "minecraft:concretepowder": ("Schwarzer Trockenbeton", "Black Concrete Powder"),
+    "minecraft:disc_fragment_5": ("Schallplatte – 5", "Music Disc - 5"),
+    "minecraft:double_plant": ("Großer Farn", "Large Fern"),
+    "minecraft:double_stone_slab": ("Ziegelstufe", "Brick Slab"),
+    "minecraft:double_wooden_slab": ("Akazien-Doppelstufe", "Acacia Double Slab"),
+    "minecraft:fireworks": ("Flugdauer:", "Flight Duration:"),
+    "minecraft:fireworkscharge": ("Schwarz", "Black"),
+    "minecraft:log": ("Akazienstamm", "Acacia Log"),
+    "minecraft:monster_egg": ("Befallene Steinziegel", "Infested Stone Bricks"),
+    "minecraft:netherreactor": ("Aktiv!", "Active!"),
+    "minecraft:planks": ("Akazienbretter", "Acacia Planks"),
+    "minecraft:prismarine": ("Prismarinziegel", "Prismarine Bricks"),
+    "minecraft:quartz_block": ("Gemeißelter Quarzblock", "Chiseled Quartz Block"),
+    "minecraft:red_flower": ("Zierlauch", "Allium"),
+    "minecraft:red_sandstone": ("Gemeißelter roter Sandstein", "Chiseled Red Sandstone"),
+    "minecraft:respawn_anchor": ("Wiederbeleben-Punkt festgelegt", "Respawn point set"),
+    "minecraft:sandstone": ("Gemeißelter Sandstein", "Chiseled Sandstone"),
+    "minecraft:sapling": ("Akaziensetzling", "Acacia Sapling"),
+    "minecraft:skull": ("Spielerkopf", "Player Head"),
+    "minecraft:spawn_egg": ("Agenten-Spawn-Ei", "Agent Spawn Egg"),
+    "minecraft:stained_hardened_clay": ("Schwarze Keramik", "Black Terracotta"),
+    "minecraft:standing_banner": ("Schwarzes Banner", "Black Banner"),
+    "minecraft:stonebrick": ("Gemeißelte Steinziegel", "Chiseled Stone Bricks"),
+    "minecraft:tallgrass": ("Farn", "Fern"),
+    "minecraft:wooden_slab": ("Akazienstufe", "Acacia Slab"),
+    "minecraft:wool": ("Schwarze Wolle", "Black Wool"),
 }
 
 
@@ -355,8 +386,9 @@ def _apply_bundled_curation(
     (Lokalisierungsschlüssel, keine gültigen Bedrock-Item-IDs) blieben dadurch in
     Bestandsinstallationen dauerhaft im Katalog. Beim Laden gilt deshalb:
     gebündelte Aliasse gewinnen, wegkuratierte Items werden ausgeblendet,
-    fehlende gebündelte Items ergänzt und Fallback-Labels (de == en) durch
-    gebündelte Übersetzungen ersetzt. Kuratierte Stackgrenzen gelten ebenfalls
+    fehlende gebündelte Items ergänzt und Fallback-Labels (de == en) sowie
+    exakt bekannte Fehl-Labels durch gebündelte Übersetzungen ersetzt.
+    Kuratierte Stackgrenzen gelten ebenfalls
     für persistente Altstände, damit der Editor keine in Vanilla unzulässigen
     Stacks erzeugt. Dasselbe gilt für Haltbarkeitswerte, weil fehlende Einträge
     normales tag.Damage sonst fälschlich als geschützte Zusatz-NBT einstufen.
@@ -395,9 +427,10 @@ def _apply_bundled_curation(
         current = items.get(item_id)
         if current is None or (_looks_like_fallback_pair(current) and not _looks_like_fallback_pair(bundled_pair)):
             items[item_id] = bundled_pair
-    for item_id, (old_pair, new_pair) in LEGACY_ITEM_LABEL_FIXES.items():
-        if items.get(item_id) == old_pair:
-            items[item_id] = new_pair
+    for item_id, superseded_pair in SUPERSEDED_ITEM_LABELS.items():
+        bundled_pair = bundled_items.get(item_id)
+        if bundled_pair is not None and items.get(item_id) == superseded_pair:
+            items[item_id] = bundled_pair
     effects: dict[int, tuple[str, str, str, str]] = db["EFFECTS"]
     current_effects_by_name = {str(values[1] or "").strip().casefold(): values for values in effects.values()}
     bundled_effect_names = {str(values[1] or "").strip().casefold(): effect_id for effect_id, values in bundled_effects.items()}

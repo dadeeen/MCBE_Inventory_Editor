@@ -150,12 +150,54 @@ def test_bed_uses_white_data_value_zero_name_and_repairs_old_black_base_label() 
         de_items={},
         microsoft_items={"bed": "Black Bed"},
         item_localizations={
+            "bed": ("Bett", "Bed"),
             "bed.white": ("Weißes Bett", "White Bed"),
             "bed.black": ("Schwarzes Bett", "Black Bed"),
         },
     )
 
+    # Mojangs Basisname "Bett" verdrängt die geprüfte Datenwert-0-Variante nicht.
     assert merged["minecraft:bed"] == ("Weißes Bett", "White Bed")
+
+
+SANDSTONE_LOCALIZATIONS = {
+    "sandstone": ("Sandstein", "Sandstone"),
+    "sandstone.default": ("Sandstein", "Sandstone"),
+    "sandstone.chiseled": ("Gemeißelter Sandstein", "Chiseled Sandstone"),
+    "sandstone.cut": ("Geschnittener Sandstein", "Cut Sandstone"),
+    "sandstone.smooth": ("Glatter Sandstein", "Smooth Sandstone"),
+}
+
+
+def test_variant_label_is_replaced_by_mojang_base_name() -> None:
+    merged = update_db.merge_items(
+        {"minecraft:sandstone": ("Gemeißelter Sandstein", "Chiseled Sandstone")},
+        en_items={"sandstone": "Sandstone"},
+        de_items={"sandstone": "Sandstein"},
+        item_localizations=SANDSTONE_LOCALIZATIONS,
+    )
+
+    assert merged["minecraft:sandstone"] == ("Sandstein", "Sandstone")
+
+
+def test_base_name_rule_keeps_custom_and_single_variant_labels() -> None:
+    merged = update_db.merge_items(
+        {
+            "minecraft:sandstone": ("Eigener Sandstein", "Custom Sandstone"),
+            "minecraft:yellow_flower": ("Löwenzahn", "Dandelion"),
+        },
+        en_items={"sandstone": "Sandstone", "yellow_flower": "Flower"},
+        de_items={"sandstone": "Sandstein", "yellow_flower": "Blume"},
+        item_localizations={
+            **SANDSTONE_LOCALIZATIONS,
+            "yellow_flower": ("Blume", "Flower"),
+            "yellow_flower.dandelion": ("Löwenzahn", "Dandelion"),
+        },
+    )
+
+    assert merged["minecraft:sandstone"] == ("Eigener Sandstein", "Custom Sandstone")
+    # Die ID hat nur diese eine Variante; der Name ist eindeutig.
+    assert merged["minecraft:yellow_flower"] == ("Löwenzahn", "Dandelion")
 
 
 def test_label_bridge_skips_missing_or_placeholder_german_names() -> None:

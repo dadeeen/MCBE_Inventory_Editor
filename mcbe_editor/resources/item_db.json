@@ -4662,8 +4662,8 @@
       "Brown Mushroom"
     ],
     "minecraft:brown_mushroom_block": [
-      "Pilz",
-      "Mushroom"
+      "Brauner Pilzblock",
+      "Brown Mushroom Block"
     ],
     "minecraft:brown_shulker_box": [
       "Braune Shulker-Kiste",
@@ -4838,8 +4838,8 @@
       "Can be placed on:"
     ],
     "minecraft:carpet": [
-      "Schwarzer Teppich",
-      "Black Carpet"
+      "Teppich",
+      "Carpet"
     ],
     "minecraft:carrot": [
       "Karotte",
@@ -5226,8 +5226,8 @@
       "Cobblestone Slab"
     ],
     "minecraft:cobblestone_wall": [
-      "Bemooste Bruchsteinmauer",
-      "Mossy Cobblestone Wall"
+      "Bruchsteinmauer",
+      "Cobblestone Wall"
     ],
     "minecraft:cocoa": [
       "Kakao",
@@ -5298,16 +5298,16 @@
       "Compound Creator"
     ],
     "minecraft:concrete": [
-      "Schwarzer Beton",
-      "Black Concrete"
+      "Weißer Beton",
+      "White Concrete"
     ],
     "minecraft:concrete_powder": [
       "Concrete Powder",
       "Concrete Powder"
     ],
     "minecraft:concretepowder": [
-      "Schwarzer Trockenbeton",
-      "Black Concrete Powder"
+      "Weißer Trockenbeton",
+      "White Concrete Powder"
     ],
     "minecraft:conduit": [
       "Aquisator",
@@ -6150,8 +6150,8 @@
       "Disc Fragment"
     ],
     "minecraft:disc_fragment_5": [
-      "Schallplatte – 5",
-      "Music Disc - 5"
+      "Plattenbruchstück",
+      "Disc Fragment"
     ],
     "minecraft:dispenser": [
       "Werfer",
@@ -6174,8 +6174,8 @@
       "Cut Copper Double Slab"
     ],
     "minecraft:double_plant": [
-      "Großer Farn",
-      "Large Fern"
+      "Pflanze",
+      "Plant"
     ],
     "minecraft:double_stone_block_slab": [
       "Double Stone Block Slab",
@@ -6194,8 +6194,8 @@
       "Double Stone Block Slab4"
     ],
     "minecraft:double_stone_slab": [
-      "Ziegelstufe",
-      "Brick Slab"
+      "Steinstufe",
+      "Stone Slab"
     ],
     "minecraft:double_stone_slab2": [
       "Rote Sandsteinstufe",
@@ -6210,8 +6210,8 @@
       "Mossy Stone Brick Double Slab"
     ],
     "minecraft:double_wooden_slab": [
-      "Akazien-Doppelstufe",
-      "Acacia Double Slab"
+      "Eichenholz-Doppelstufe",
+      "Oak Double Slab"
     ],
     "minecraft:dragon_breath": [
       "Drachenatem",
@@ -7018,12 +7018,12 @@
       "Firework Star"
     ],
     "minecraft:fireworks": [
-      "Flugdauer:",
-      "Flight Duration:"
+      "Feuerwerksrakete",
+      "Firework Rocket"
     ],
     "minecraft:fireworkscharge": [
-      "Schwarz",
-      "Black"
+      "Feuerwerksstern",
+      "Firework Star"
     ],
     "minecraft:fish": [
       "Roher Kabeljau",
@@ -8458,8 +8458,8 @@
       "Lodestone Compass"
     ],
     "minecraft:log": [
-      "Akazienstamm",
-      "Acacia Log"
+      "Stamm",
+      "Log"
     ],
     "minecraft:loom": [
       "Webstuhl",
@@ -8714,8 +8714,8 @@
       "Thing Banner Pattern"
     ],
     "minecraft:monster_egg": [
-      "Befallene Steinziegel",
-      "Infested Stone Bricks"
+      "Befallener Stein",
+      "Infested Stone"
     ],
     "minecraft:mooshroom_spawn_egg": [
       "Pilzkuh-Spawn-Ei",
@@ -9054,8 +9054,8 @@
       "Netherrack"
     ],
     "minecraft:netherreactor": [
-      "Aktiv!",
-      "Active!"
+      "Netherreaktorkern",
+      "Nether Reactor Core"
     ],
     "minecraft:netherstar": [
       "Netherstern",
@@ -9622,8 +9622,8 @@
       "Pitcher Pod"
     ],
     "minecraft:planks": [
-      "Akazienbretter",
-      "Acacia Planks"
+      "Holzbretter",
+      "Wooden Planks"
     ],
     "minecraft:player_head": [
       "Spielerkopf",
@@ -9966,8 +9966,8 @@
       "Powered Repeater"
     ],
     "minecraft:prismarine": [
-      "Prismarinziegel",
-      "Prismarine Bricks"
+      "Prismarin",
+      "Prismarine"
     ],
     "minecraft:prismarine_brick_double_slab": [
       "Prismarinziegel-Doppelstufe",
@@ -10150,8 +10150,8 @@
       "Nether Quartz"
     ],
     "minecraft:quartz_block": [
-      "Gemeißelter Quarzblock",
-      "Chiseled Quartz Block"
+      "Quarzblock",
+      "Block of Quartz"
     ],
     "minecraft:quartz_bricks": [
       "Quarzziegel",
@@ -10378,8 +10378,8 @@
       "Red Dye"
     ],
     "minecraft:red_flower": [
-      "Zierlauch",
-      "Allium"
+      "Blume",
+      "Flower"
     ],
     "minecraft:red_glazed_terracotta": [
       "Rote glasierte Keramik",
@@ -10426,8 +10426,8 @@
       "Red Sand"
     ],
     "minecraft:red_sandstone": [
-      "Gemeißelter roter Sandstein",
-      "Chiseled Red Sandstone"
+      "Roter Sandstein",
+      "Red Sandstone"
     ],
     "minecraft:red_sandstone_double_slab": [
       "Red Sandstone Double Slab",
@@ -10558,8 +10558,8 @@
       "Resin Clump"
     ],
     "minecraft:respawn_anchor": [
-      "Wiederbeleben-Punkt festgelegt",
-      "Respawn point set"
+      "Seelenanker",
+      "Respawn Anchor"
     ],
     "minecraft:rib_armor_trim_smithing_template": [
       "Rippenrüstung-Zierleiste",
@@ -10598,8 +10598,8 @@
       "Sand"
     ],
     "minecraft:sandstone": [
-      "Gemeißelter Sandstein",
-      "Chiseled Sandstone"
+      "Sandstein",
+      "Sandstone"
     ],
     "minecraft:sandstone_double_slab": [
       "Sandstone Double Slab",
@@ -10618,8 +10618,8 @@
       "Sandstone Wall"
     ],
     "minecraft:sapling": [
-      "Akaziensetzling",
-      "Acacia Sapling"
+      "Eichensetzling",
+      "Oak Sapling"
     ],
     "minecraft:scaffolding": [
       "Gerüstbau",
@@ -10818,8 +10818,8 @@
       "Skeleton Spawn Egg"
     ],
     "minecraft:skull": [
-      "Spielerkopf",
-      "Player Head"
+      "Skelettschädel",
+      "Skeleton Skull"
     ],
     "minecraft:skull_banner_pattern": [
       "Bannermuster: Schädel-Power",
@@ -10982,8 +10982,8 @@
       "Soul Torch"
     ],
     "minecraft:spawn_egg": [
-      "Agenten-Spawn-Ei",
-      "Agent Spawn Egg"
+      "Spawn-Ei",
+      "Spawn Egg"
     ],
     "minecraft:speckled_melon": [
       "Funkelnde Melonenscheibe",
@@ -11118,12 +11118,12 @@
       "White Stained Glass Pane"
     ],
     "minecraft:stained_hardened_clay": [
-      "Schwarze Keramik",
-      "Black Terracotta"
+      "Keramik",
+      "Terracotta"
     ],
     "minecraft:standing_banner": [
-      "Schwarzes Banner",
-      "Black Banner"
+      "Banner",
+      "Banner"
     ],
     "minecraft:standing_sign": [
       "Schild",
@@ -11238,8 +11238,8 @@
       "Stone Sword"
     ],
     "minecraft:stonebrick": [
-      "Gemeißelte Steinziegel",
-      "Chiseled Stone Bricks"
+      "Steinziegel",
+      "Stone Bricks"
     ],
     "minecraft:stonecutter": [
       "Steinsäge (alt, ohne Funktion)",
@@ -11474,8 +11474,8 @@
       "Tall Grass"
     ],
     "minecraft:tallgrass": [
-      "Farn",
-      "Fern"
+      "Niedriges Gras",
+      "Short Grass"
     ],
     "minecraft:target": [
       "Ziel",
@@ -12338,8 +12338,8 @@
       "Wooden Shovel"
     ],
     "minecraft:wooden_slab": [
-      "Akazienstufe",
-      "Acacia Slab"
+      "Holzstufe",
+      "Wood Slab"
     ],
     "minecraft:wooden_spear": [
       "Holzspeer",
@@ -12350,8 +12350,8 @@
       "Wooden Sword"
     ],
     "minecraft:wool": [
-      "Schwarze Wolle",
-      "Black Wool"
+      "Wolle",
+      "Wool"
     ],
     "minecraft:worldbuilder": [
       "Du benötigst Kreativ + Operator, um diesen Block zu platzieren",

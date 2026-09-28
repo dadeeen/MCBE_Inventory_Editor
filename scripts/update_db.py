@@ -1597,6 +1597,43 @@ def _localized_names_for_item_key(
     return None
 
 
+def _base_name_for_variant_label(
+    item_id: str,
+    current: tuple[str, str],
+    localizations: dict[str, tuple[str, str]],
+) -> tuple[str, str] | None:
+    """Return Mojang's base name when ``current`` names one of several variants.
+
+    Legacy IDs such as ``sandstone`` or ``wool`` cover several variants whose
+    names live under ``tile.<id>.<variant>.name``; the data value selects the
+    variant. Earlier generators copied one of those variant names, so
+    ``minecraft:sandstone`` was labelled "Chiseled Sandstone". When Mojang also
+    ships ``tile.<id>.name``, that base name is the only label valid for the ID
+    itself. IDs with an explicit derived key (``bed``) keep their reviewed
+    default variant, and a single variant (``yellow_flower``) is not ambiguous.
+    """
+    if _derived_item_localization_keys(item_id):
+        return None
+    base = localizations.get(item_id)
+    if not base or not base[0] or not base[1] or "%" in base[0] or "%" in base[1]:
+        return None
+    base_de, base_en = (_normalized_display_label(value) for value in base)
+    current_de, current_en = (_normalized_display_label(value) for value in current)
+    if (current_de, current_en) == (base_de, base_en):
+        return None
+    prefix = f"{item_id}."
+    variants = [
+        (_normalized_display_label(de), _normalized_display_label(en))
+        for key, (de, en) in localizations.items()
+        if key.startswith(prefix) and _normalized_display_label(en) != base_en
+    ]
+    if len({en for _de, en in variants}) < 2:
+        return None
+    if not any(current_en == en or (de and current_de == de) for de, en in variants):
+        return None
+    return _normalize_display_name(base[0], base[1]), _normalize_display_name(base[1], item_id)
+
+
 def _candidate_item_keys(item_id: str, serialization_aliases: dict[str, str]) -> list[str]:
     keys = [item_id]
     alias = serialization_aliases.get(item_id, "")
@@ -1692,7 +1729,8 @@ def merge_items(
 
     Existing localized entries stay untouched. Existing English fallbacks may be
     corrected when Mojang's mojang-items.json points the canonical ID at a
-    legacy serialization/localization key.
+    legacy serialization/localization key. A label that names one variant of a
+    multi-variant ID is replaced by Mojang's base name for that ID.
     """
     merged = dict(old)
     microsoft_items = microsoft_items or {}
@@ -1718,8 +1756,11 @@ def merge_items(
         if existing:
             old_de, old_en = existing
             has_authoritative_derived_name = item_id == "bed" and _localized_names_for_item_key(item_id, item_localizations) is not None
+            base_name = _base_name_for_variant_label(item_id, existing, item_localizations)
             if has_authoritative_derived_name and (old_de, old_en) != (de_name, en_name):
                 merged[full_id] = (de_name, en_name)
+            elif base_name is not None:
+                merged[full_id] = base_name
             elif _looks_like_fallback_name(old_de, old_en) and not _looks_like_fallback_name(de_name, en_name):
                 merged[full_id] = (de_name, old_en or en_name)
             continue

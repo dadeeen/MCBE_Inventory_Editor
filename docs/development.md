@@ -241,6 +241,8 @@ A `wiki_*` stamp in `source_version.json` records a comparison made by that upda
 
 Regression tests cover missing local values, table completeness, and wiki-only entries.
 
+Item display names come from Mojang's `de_DE`/`en_US` language files. The updater keeps existing names so reviewed corrections survive an update, with one exception: a legacy ID that covers several variants (`sandstone`, `wool`, `log`, …) must not carry the name of one of its variants. When Mojang ships the base key `tile.<id>.name`, the updater replaces such a variant name with it; `bed` keeps its reviewed data-value-0 name. Persistent copies are corrected at load time only for the exact previous labels listed in `SUPERSEDED_ITEM_LABELS` (`mcbe_editor/item_data.py`), so user-edited names stay. `tests/test_item_db.py` rejects two addable items with the same display name unless Mojang itself ships that homonym.
+
 Inventory icon binding, preview limitations, and before/after verification are
 documented in [Inventory icon resolution](icon-resolution.md).
 
