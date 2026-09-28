@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print a compact local/runtime diagnostic without importing Flask or Amulet.
+"""Print a compact local/runtime diagnostic without importing Flask.
 
 This helps distinguish a developer/source tree from an unpacked release and
 shows where portable state is stored.

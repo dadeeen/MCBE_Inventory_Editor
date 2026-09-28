@@ -102,12 +102,14 @@ Amulet-NBT. Both paths used the same disposable copy of the approximately
 247 MB private server world. Each timing includes adapter creation, complete database
 iteration, template selection and close. Three samples per mode were taken in
 alternating order; the table reports medians. Build/test processes were not
-running during these measurements. The native adapter uses the locally built
-LevelDB wheel and is the adapter used by the application's write path.
+running during these measurements. The native adapter used a locally built
+Amulet-LevelDB wheel; in v0.5.21 it was the application's write adapter. The
+application reads and writes with the project's own
+[Python implementation](leveldb-writer.md), whose reader is the second row.
 
 | Template-scan adapter | Without prefilter, seconds | With prefilter, seconds | Speedup |
 | --- | ---: | ---: | ---: |
-| Native `LevelDbAdapter` | 9.753 | 5.790 | 1.68× |
+| Native adapter (v0.5.21 `LevelDbAdapter`) | 9.753 | 5.790 | 1.68× |
 | `ReadonlyLevelDbAdapter` | 6.446 | 2.857 | 2.26× |
 
 Both adapters decoded **6,821 records without the prefilter and 78 with it**.

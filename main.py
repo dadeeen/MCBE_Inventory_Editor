@@ -972,7 +972,7 @@ def _world_load_hints(exc: Exception) -> list[str]:
                 "Prüfe im Task-Manager, ob Minecraft oder bedrock_server.exe noch läuft, und versuche es danach erneut.",
             ]
         )
-    if "amulet" in text or "module" in text or "import" in text:
+    if "module" in text or "import" in text:
         hints.append("Prüfe die lokale Installation mit setup.bat erneut. Die benötigten Python-Pakete müssen in .\\.venv vorhanden sein.")
     if "permission" in text or "zugriff" in text or "access" in text or "denied" in text:
         hints.append("Prüfe Dateirechte: Der Editor-Prozess muss den Weltordner und den db-Ordner lesen und zum Speichern schreiben können.")
