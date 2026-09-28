@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .api_errors import add_exception_cleanup_details, error_payload
+from .api_errors import add_exception_cleanup_details, error_payload, uncertain_write_payload
 from .i18n import localize_message_record, t
 from .service_errors import (
     PlayerImportPreviewStaleError,
@@ -20,6 +20,7 @@ from .service_errors import (
     PlayerStateTransferPreviewStaleError,
     PlayerStateTransferRollbackError,
     PlayerStateTransferRolledBackError,
+    WriteOutcomeUnknownError,
 )
 
 
@@ -466,6 +467,10 @@ def save_player(data: dict, deps: PlayerRouteDeps):
         )
         response = deps.jsonify(result)
         return (response, 500) if committed_write_failure else response
+    except WriteOutcomeUnknownError as exc:
+        deps.log_api_exception("player.save", exc)
+        deps.audit_event("player.save", "uncertain", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
+        return deps.jsonify(uncertain_write_payload(exc)), 500
     except deps.final_write_gate_blocked_error as exc:
         message = str(exc)
         deps.audit_event(

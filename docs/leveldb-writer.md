@@ -54,6 +54,16 @@ the resulting bytes with the native engine's own log for identical batches.
   fail, so the caller records an unconfirmed write and keeps the backup. Reopen
   and inspect the actual state before retrying; an error does not prove that no
   bytes were persisted.
+- `last_write_reached_log()` tells whether the last `put`/`put_batch` began
+  appending its batch. `False` proves that none of its bytes were written:
+  type, size and sequence checks, log creation and directory sync all come
+  first. The service/API reports only a raised call that reached the log as
+  `write_outcome_unknown`, retaining its backup; the UI then requires reload
+  before another write, including mount-only batches whose player revision has
+  not changed. A final gate rejection and failures before the first append are
+  ordinary rejections with their own cause, for example a permission error when
+  the database folder does not allow a new log file. See the
+  [save contract](save_contract.md) for the distinction from post-write failure.
 - Errors during log creation, directory synchronization or in-memory commit
   bookkeeping also end the write session; only the last of these can follow a
   durable batch. A verified batch may already be durable even if updating the

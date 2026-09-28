@@ -83,6 +83,30 @@ def test_mount_create_serializes_the_public_api_contract() -> None:
     )
 
 
+def test_uncertain_or_committed_mount_response_never_requests_a_retry() -> None:
+    _run_node(_client_source() + r"""
+        (async () => {
+          for (const field of ['write_outcome_unknown', 'write_committed']) {
+            calls.length = 0;
+            responses = [{success: false, [field]: true, error: 'uncertain',
+              write_gate: {requires_unknown_server_confirmation: true}}];
+            let confirmations = 0;
+            await assert.rejects(client.createMountOrThrow({
+              worldPath: '/worlds/w', playerKey: 'player',
+              onUnknownServerStatus: async () => { confirmations++; return true; },
+            }), error => {
+              assert.strictEqual(error.writeOutcomeUnknown, field === 'write_outcome_unknown');
+              assert.strictEqual(error.writeCommitted, field === 'write_committed');
+              return true;
+            });
+            assert.strictEqual(confirmations, 0);
+            assert.strictEqual(calls.length, 1);
+          }
+          console.log('uncertain-mount-checked');
+        })().catch(error => {console.error(error); process.exit(1);});
+    """)
+
+
 def test_unknown_server_status_confirmation_retries_mount_create_with_flag() -> None:
     _run_node(
         _client_source()

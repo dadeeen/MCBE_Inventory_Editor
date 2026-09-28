@@ -156,6 +156,8 @@ def test_unrelated_external_changes_cannot_be_certified_as_our_save(world, servi
 
 
 def test_ambiguous_write_never_promotes_directory(world, scans):
+    from mcbe_editor.service_errors import WriteOutcomeUnknownError
+
     class AmbiguousWriter(LevelDbAdapter):
         def put(self, key, value):
             super().put(key, value)
@@ -163,8 +165,11 @@ def test_ambiguous_write_never_promotes_directory(world, scans):
 
     service = BedrockEditorService(ITEMS, ENCHANTMENTS, db_factory=AmbiguousWriter)
     service.list_players(str(world))
-    with pytest.raises(OSError, match="after durable write"):
+    with pytest.raises(WriteOutcomeUnknownError) as caught:
         _save(service, world)
+    assert isinstance(caught.value.original_error, OSError)
+    assert "after durable write" in str(caught.value.original_error)
+    assert caught.value.backup_file
     loaded = service.load_player(str(world), encode_player_key(LOCAL_PLAYER_KEY))
     assert loaded["stats"]["xp_level"] == 2
     assert scans.call_count == 2

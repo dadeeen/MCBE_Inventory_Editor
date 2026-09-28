@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from mcbe_editor.service_errors import WriteNotAttemptedError
 from mcbe_editor.write_transaction import WritePhase, WritePlan, WriteState
 
 
@@ -35,9 +36,43 @@ def test_failed_attempt_is_not_a_confirmed_commit_and_cannot_be_retried(batch):
     assert state.phase is WritePhase.ATTEMPTED
     assert state.attempted
     assert not state.committed
+    # A database without evidence of its own leaves the outcome open.
+    assert state.outcome_unknown
     with pytest.raises(RuntimeError):
         state.execute(db, plan)
     assert write.call_count == 1
+
+
+class _EvidenceDb:
+    def __init__(self, reached):
+        self.reached = reached
+
+    def put(self, _key, _value):
+        raise OSError("put failed")
+
+    def last_write_reached_log(self):
+        if isinstance(self.reached, BaseException):
+            raise self.reached
+        return self.reached
+
+
+@pytest.mark.parametrize("reached,unknown", [(False, False), (True, True), (None, True), (OSError("no evidence"), True)])
+def test_only_a_definite_negative_rules_out_a_stored_batch(reached, unknown):
+    state = WriteState()
+    with pytest.raises(OSError, match="put failed"):
+        state.execute(_EvidenceDb(reached), WritePlan.single(b"key", b"value"))
+    assert state.attempted and not state.committed
+    assert state.outcome_unknown is unknown
+
+
+def test_a_known_gate_rejection_is_not_an_unknown_outcome():
+    db = Mock()
+    db.put.side_effect = WriteNotAttemptedError("gate closed")
+    state = WriteState()
+    with pytest.raises(WriteNotAttemptedError):
+        state.execute(db, WritePlan.single(b"key", b"value"))
+    assert state.attempted
+    assert not state.outcome_unknown
 
 
 @pytest.mark.parametrize("entries,mode", [({}, "batch"), ({"key": b"value"}, "batch"), ({b"key": "value"}, "batch"),
@@ -56,3 +91,4 @@ def test_single_record_success_uses_put_and_records_commit():
     db.put.assert_called_once_with(b"key", b"value")
     db.put_batch.assert_not_called()
     assert state.phase is WritePhase.COMMITTED
+    assert not state.outcome_unknown

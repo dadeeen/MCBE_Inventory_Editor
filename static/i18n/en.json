@@ -2711,5 +2711,6 @@
   "Live-Fortschritt derzeit nicht verfügbar. Das Update läuft weiter.": "Live progress is currently unavailable. The update is still running.",
   "Download": "Download",
   "Verarbeitung": "Processing",
-  "Abschluss": "Finishing"
+  "Abschluss": "Finishing",
+  "Ob die Änderungen bereits geschrieben wurden, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen.": "It is unknown whether the changes have already been written. Do not save again; reload the world and check the backup."
 }

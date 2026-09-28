@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
     "transport", "presence-error", "committed-invalid", "mount-finalization", "no-op", "success",
     "committed-invalid-presence-error", "no-op-presence-error", "no-op-with-mounts",
     "transport-after-server-confirmation", "transport-after-presence-confirmation",
+    "uncertain-write",
 ])
 def test_save_completion_does_not_modify_a_replaced_context(changed_field, scenario):
     script = r'''
@@ -64,7 +65,7 @@ def test_save_completion_does_not_modify_a_replaced_context(changed_field, scena
                 if (posts === 1 && scenario === "transport-after-presence-confirmation") {
                     return {success: false, error: "Bearbeitungskonflikt", presence_conflict: true};
                 }
-                if (transportFailure) { started(); return pending; }
+                if (transportFailure || scenario === "uncertain-write") { started(); return pending; }
                 return {
                     success: !invalidCommit,
                     write_committed: invalidCommit,
@@ -80,6 +81,7 @@ def test_save_completion_does_not_modify_a_replaced_context(changed_field, scena
             state[changedField] = "new-context";
             state.changed = true;
             if (transportFailure || scenario.endsWith("presence-error")) reject(new Error("connection interrupted"));
+            else if (scenario === "uncertain-write") resolve({success: false, write_outcome_unknown: true, error: "uncertain"});
             else resolve();
             await saving;
             assert.deepEqual(mutations, [], `stale ${scenario} modified current ${changedField}`);
@@ -97,6 +99,9 @@ def test_save_completion_does_not_modify_a_replaced_context(changed_field, scena
                 assert.match(outcome.message, /Speicherausgang.*unklar/);
                 assert.equal(outcome.type, "error");
                 assert.equal(posts, scenario === "transport" ? 1 : 2);
+            } else if (scenario === "uncertain-write") {
+                assert.match(outcome.message, /Speicherausgang.*unklar/);
+                assert.equal(outcome.type, "error");
             } else if (scenario === "no-op-with-mounts") {
                 assert.match(outcome.message, /wurde gespeichert/);
             }

@@ -160,3 +160,8 @@ class LevelDbAdapter:
 
     def committed_change(self):
         return self._db.committed_change()
+
+    def last_write_reached_log(self) -> bool:
+        # A gate rejection returns before the writer runs; its flag is then the
+        # previous call's, which is either correct (False) or conservative.
+        return self._db.last_write_reached_log()

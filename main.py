@@ -49,6 +49,7 @@ from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
 from mcbe_editor.distribution import data_root_snapshot, distribution_snapshot
 from mcbe_editor.presence import WorldPresenceTracker
 from mcbe_editor.server_guard import ServerGuardStore
+from mcbe_editor.service_errors import WriteNotAttemptedError
 from mcbe_editor.setup_state import FirstRunSetup, is_supported_password_hash
 from mcbe_editor.world_locks import locked_operation
 
@@ -1040,7 +1041,7 @@ def _localized_public_write_gate(gate: dict) -> dict:
     return localized_gate
 
 
-class FinalWriteGateBlockedError(ValueError):
+class FinalWriteGateBlockedError(WriteNotAttemptedError):
     def __init__(self, action_label: str, gate: dict):
         payload_gate = {
             **_localized_public_write_gate(gate),

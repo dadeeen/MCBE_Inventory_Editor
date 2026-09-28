@@ -559,10 +559,13 @@ def test_failed_append_is_rolled_back_and_ends_the_session(tmp_path, monkeypatch
         with pytest.raises(expected_error):
             writer.put_batch({b"a": b"2", b"b": b"3"})
         monkeypatch.undo()
+        # The append started: only reopening can tell whether it persisted.
+        assert writer.last_write_reached_log() is True
 
         assert (path / "000002.log").stat().st_size == size
         with pytest.raises(RuntimeError, match="fehlgeschlagenen Schreibversuch"):
             writer.put_batch({b"c": b"4"})
+        assert writer.last_write_reached_log() is False
         assert writer.get(b"a") == b"1"
     finally:
         writer.close()
@@ -586,6 +589,8 @@ def test_failed_log_setup_ends_the_session(tmp_path, monkeypatch, failure_at):
                 patcher.setattr(leveldb_writer, "_sync_directory", fail)
             with pytest.raises(OSError, match="simulated log setup failure"):
                 writer.put(b"new", b"uncommitted")
+        # No byte of the batch was written, so callers may report a rejection.
+        assert writer.last_write_reached_log() is False
 
         # Restoring I/O does not make the failed session safe to reuse.
         with pytest.raises(RuntimeError, match="fehlgeschlagenen Schreibversuch"):
@@ -652,6 +657,7 @@ def test_failed_commit_bookkeeping_ends_the_session(tmp_path, monkeypatch, failu
                 patcher.setattr(writer, "_memtable", FailingMemtable(writer._memtable))
             with pytest.raises(MemoryError, match="simulated commit bookkeeping failure"):
                 writer.put_batch({b"a": b"first", b"gone": None, b"b": b"second"})
+        assert writer.last_write_reached_log() is True
 
         # The entire batch reached the WAL, even when the session's view did not.
         expected = {b"kept": b"old", b"a": b"first", b"b": b"second"}
@@ -683,6 +689,7 @@ def test_versions_newer_than_the_manifest_sequence_are_not_shadowed(tmp_path, mo
     try:
         with pytest.raises(CorruptDatabaseError, match="neuer als die MANIFEST-Sequenz"):
             writer.put_batch({b"a": b"2"})
+        assert writer.last_write_reached_log() is False
     finally:
         writer.close()
     assert _snapshot(path) == before
@@ -700,7 +707,12 @@ def test_batches_beyond_the_reader_budget_are_refused_before_touching_the_world(
                 pytest.fail("Oversized payload must be refused before allocating encoded buffers")
             patcher.setattr(leveldb_writer, "encode_write_batch", unexpected_encoding)
             writer.put_batch({b"b": b"x" * 1000})
+        assert writer.last_write_reached_log() is False
         writer.put_batch({b"b": b"small"})
+        assert writer.last_write_reached_log() is True
+        with pytest.raises(TypeError):
+            writer.put(b"c", None)
+        assert writer.last_write_reached_log() is False
     finally:
         writer.close()
     assert _read_all(path) == {b"a": b"1", b"b": b"small"}

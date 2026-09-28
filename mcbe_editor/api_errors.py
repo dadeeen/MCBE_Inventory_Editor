@@ -7,11 +7,13 @@ display boundary.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping, Sequence
 
 from . import i18n
 from .backup_settings import BackupLimitError
+from .service_errors import WriteOutcomeUnknownError
 
 _ERROR_CODE_RE = re.compile(r"[^a-z0-9_]+")
 _STATUS_ERROR_CODES = {
@@ -71,6 +73,18 @@ def error_payload(
     if request_id:
         payload["request_id"] = request_id
     return payload
+
+
+def uncertain_write_payload(error: WriteOutcomeUnknownError) -> dict[str, object]:
+    """Keep an unconfirmed write distinct from both rejection and success."""
+
+    return {
+        **error_payload(error, code="write_outcome_unknown"),
+        "write_outcome_unknown": True,
+        "reload_required": True,
+        "error_phase": "write",
+        "backup_file": os.path.basename(error.backup_file) if error.backup_file else None,
+    }
 
 
 def add_exception_cleanup_details(payload: dict[str, object], error: BaseException) -> dict[str, object]:

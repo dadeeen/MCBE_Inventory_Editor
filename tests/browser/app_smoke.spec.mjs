@@ -213,6 +213,49 @@ async function openDragFixture(page, overrides = {}) {
   await expect(page.locator("#inventoryContainer")).toBeVisible();
 }
 
+for (const withMounts of [false, true]) {
+  test(`uncertain ${withMounts ? "mount" : "player"} save blocks all retries until reload`, async ({ page }) => {
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.route("**/api/server_status", route => route.fulfill({ json: {
+      success: true, server_status: { status: "offline" }, write_gate: { allowed: true },
+    } }));
+    await page.route("**/api/backups", route => route.fulfill({ json: { success: true, backups: [] } }));
+    let attempts = 0;
+    await page.route(withMounts ? "**/api/workspace/save" : "**/api/player/save", route => {
+      attempts++;
+      return route.fulfill({ status: 500, json: {
+        success: false, write_outcome_unknown: true, reload_required: true,
+        backup_file: "synthetic-backup.zip",
+        error: "Ob die Änderungen bereits geschrieben wurden, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen.",
+      } });
+    });
+    await openDragFixture(page);
+    if (withMounts) {
+      await page.evaluate(() => getMountController().setPendingMounts([{
+        id: "synthetic-mount", mountType: "minecraft:donkey", mountLabel: "Esel",
+        worldPath, playerKey: currentPlayerKey, createMode: "synthetic_full",
+        allowUncheckedPlacement: true, preferredOffset: { x: 2, z: 2 },
+        selectedPosition: { x: 2, y: 64, z: 2 }, safetyStatus: "unchecked",
+      }], { renderPanel: false }));
+    } else {
+      await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
+    }
+    expect(await page.evaluate(() => isDirty)).toBe(true);
+    await page.evaluate(() => saveCurrentPlayer({ skipReview: true }));
+    expect(attempts).toBe(1);
+    await expect(page.locator("#btnSave")).toBeDisabled();
+    await expect(page.locator("#btnSaveWorkflowRun")).toBeDisabled();
+    expect(await page.evaluate(() => currentPlayerStaleReason)).toContain("unbekannt");
+    expect(await page.evaluate(() => currentPlayerRevision)).toBe("drag-revision");
+    expect(await page.evaluate(() => isDirty)).toBe(true);
+    expect(await page.evaluate(() => getMountController().getPendingMounts().length)).toBe(withMounts ? 1 : 0);
+    await page.evaluate(() => saveCurrentPlayer({ skipReview: true }));
+    expect(attempts).toBe(1);
+    expect(errors).toEqual([]);
+  });
+}
+
 async function openPlayerSwitchFixture(page, { fromProtected = false, toProtected = false } = {}) {
   const players = [
     { player_key: "a", label: "Spieler A", editable: true, exportable: true, has_inventory_tag: true },

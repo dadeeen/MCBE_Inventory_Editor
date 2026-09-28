@@ -660,6 +660,32 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
                     assert.ok(!state.primaryDisabled.includes(false));
                 }
 
+                for (const withMounts of [false, true]) {
+                    for (const confirmation of [{}, {presence_conflict: true}, {write_gate: {requires_unknown_server_confirmation: true}}]) {
+                        const { controller, state } = makeController({
+                            payloadHasChanges: !withMounts,
+                            pendingMounts: withMounts ? [{id: "mount-uncertain"}] : [],
+                            postResponses: [{
+                                success: false,
+                                write_outcome_unknown: true,
+                                backup_file: "uncertain.zip",
+                                error: "Speicherausgang unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen.",
+                                ...confirmation,
+                            }],
+                        });
+                        await controller.saveCurrentPlayer({skipReview: true});
+                        assert.strictEqual(state.posts.length, 1);
+                        assert.ok(state.reloadRequiredReason.includes("unbekannt"));
+                        assert.strictEqual(state.cleanCount, 0);
+                        assert.strictEqual(state.revision, "");
+                        assert.strictEqual(state.normalized, 0);
+                        assert.strictEqual(state.committedMounts, 0);
+                        assert.strictEqual(state.pendingMounts.length, withMounts ? 1 : 0);
+                        assert.strictEqual(state.backupsLoaded, 1);
+                        assert.ok(!state.primaryDisabled.includes(false));
+                    }
+                }
+
                 {
                     let resolvePost;
                     const deferredPost = new Promise(resolve => {

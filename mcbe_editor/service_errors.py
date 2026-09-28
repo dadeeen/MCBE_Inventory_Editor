@@ -89,6 +89,21 @@ class LevelDbUncleanLogError(ValueError):
         )
 
 
+class WriteNotAttemptedError(ValueError):
+    """A final gate refused the database call before any storage mutation."""
+
+
+class WriteOutcomeUnknownError(RuntimeError):
+    """A database write raised without proving that its batch was rolled back."""
+
+    def __init__(self, original_error: Exception, *, backup_file: str | None = None) -> None:
+        self.original_error = original_error
+        self.backup_file = backup_file
+        super().__init__(
+            t("Ob die Änderungen bereits geschrieben wurden, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen.")
+        )
+
+
 class PlayerImportPreviewStaleError(ValueError):
     """Signal that an import must obtain a fresh preview token."""
 

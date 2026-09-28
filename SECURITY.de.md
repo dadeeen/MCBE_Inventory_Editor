@@ -63,6 +63,8 @@ Jedes vom Editor erstellte Welt-Backup vergleicht die Quellmetadaten vor und nac
 
 Schreibvorgänge prüfen den Server-Guard unmittelbar vor dem abschließenden Dateisystem- oder LevelDB-Zugriff erneut. Ein unbekannter Status kann eine ausdrückliche Bestätigung verlangen; ein später als online erkannter Server blockiert den Schreibvorgang weiterhin.
 
+Dateisperren sichern den exklusiven Zugriff nicht unabhängig gegen jeden Bedrock-Server ab. Insbesondere hielt BDS 1.26.51.1 unter Linux bei der Prüfung keinen LevelDB-`LOCK`. Ein beendeter Server und die korrekt konfigurierte Statusprüfung bleiben erforderlich. Der Writer lehnt unvollständige oder widersprüchliche Metadaten ab und repariert keine Datenbanken. Nach einem E/A-Fehler das Backup behalten und den Zustand nach erneutem Öffnen prüfen: Ein Speicherversuch mit unbekanntem Ausgang oder ein fehlgeschlagener Rücksetzversuch beweist nicht, dass keine Bytes auf dem Datenträger angekommen sind. Nur Fehler, die nachweislich vor dem ersten Anhängen an das Schreibprotokoll auftreten, meldet der Editor als gewöhnliche Ablehnung.
+
 ## Private Daten und Diagnosen
 
 Echte Welten, Backups, `.mcbe-player.zip`-Dateien, Roh-NBT-Daten, Diagnoseberichte und Audit-Exporte müssen als privat behandelt werden. Das Umbenennen einer Welt oder Löschen ihres Icons anonymisiert keine LevelDB-Datensätze.

@@ -13,6 +13,7 @@
             const error = new Error(buildErrorMessage(data, fallbackMessage));
             error.data = data;
             error.writeCommitted = data?.write_committed === true;
+            error.writeOutcomeUnknown = data?.write_outcome_unknown === true;
             error.validationFailed = data?.validation_failed === true;
             error.errorPhase = data?.error_phase || null;
             Object.assign(error, properties);
@@ -71,6 +72,8 @@
             // confirm_unknown_server_status erneut schreiben.
             if (
                 !data.success &&
+                data.write_outcome_unknown !== true &&
+                data.write_committed !== true &&
                 data.write_gate?.requires_unknown_server_confirmation === true &&
                 options.confirmUnknownServerStatus !== true &&
                 typeof options.onUnknownServerStatus === "function"

@@ -243,7 +243,7 @@
                         ? t("Vorheriger Spieler wurde geschrieben, aber die Nachvalidierung ist fehlgeschlagen. Nicht erneut speichern; Backup prüfen.")
                         : t("Vorheriger Spieler wurde gespeichert; aktuelle Ansicht wurde nicht überschrieben.");
                     type = data.validation_failed === true ? "error" : "warning";
-                } else if (data?.response_unreadable) {
+                } else if (data?.response_unreadable || data?.write_outcome_unknown === true) {
                     message = t("Der Speicherausgang für den vorherigen Spieler ist unklar. Vor weiteren Änderungen die betroffene Welt neu laden und das Backup prüfen. Die aktuelle Ansicht wurde nicht verändert.");
                     type = "error";
                 } else if (data?.error) {
@@ -275,6 +275,11 @@
                     throw new Error(data?.error || t("Unbekannter Fehler"));
                 }
                 lastSaveResponse = data;
+                // Do not retry a batch whose storage outcome is unknown, even
+                // when the response also contains a confirmation request.
+                if (data.write_outcome_unknown === true) {
+                    throw new Error(data.error || t("Ob die Änderungen bereits geschrieben wurden, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen."));
+                }
                 return data;
             };
 
@@ -446,6 +451,12 @@
                     enterReloadRequiredState(message);
                     logSaveOutcome(message, "error");
                     showToast(message, "error", 8000);
+                } else if (lastSaveResponse?.write_outcome_unknown === true) {
+                    const message = e.message;
+                    enterReloadRequiredState(message);
+                    logSaveOutcome(message, "error");
+                    showToast(message, "error", 8000);
+                    loadBackupsList();
                 } else if (pendingMounts.length) {
                     // Bei einem Transport-/Parsingfehler kann der atomare Workspace-
                     // Batch bereits committed worden sein, obwohl keine auswertbare

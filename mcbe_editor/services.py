@@ -95,6 +95,7 @@ from .service_errors import (
     PlayerStateTransferPreviewStaleError,
     PlayerStateTransferRollbackError,
     PlayerStateTransferRolledBackError,
+    WriteOutcomeUnknownError,
     denied_write_actor,
     denied_write_permission_hint,
 )
@@ -759,6 +760,11 @@ class BedrockEditorService:
             except Exception as exc:
                 if backup_file and not write_state.attempted:
                     remove_backup_after_aborted_write(backup_file, exc, operation="player.save")
+                if write_state.outcome_unknown:
+                    # Once the batch reached the log, a raised put does not prove
+                    # a rollback: the WAL may be durable before in-memory
+                    # bookkeeping fails. Earlier failures keep their own message.
+                    raise WriteOutcomeUnknownError(exc, backup_file=backup_file) from exc
                 raise
             finally:
                 close_db_preserving_active_exception(db, context="Spieler-Speichern vor dem Commit")

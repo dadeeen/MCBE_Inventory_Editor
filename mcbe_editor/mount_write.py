@@ -30,7 +30,7 @@ from .mount_profile import (
 )
 from .mounts import MOUNT_TYPE_DEFINITIONS, normalize_mount_position
 from .players import decode_player_key
-from .service_errors import denied_write_actor, denied_write_permission_hint
+from .service_errors import WriteOutcomeUnknownError, denied_write_actor, denied_write_permission_hint
 from .world import ensure_valid_world_path
 from .write_transaction import WritePlan, WriteState
 
@@ -1411,6 +1411,8 @@ def create_horse_mount_with_service(
         except Exception as exc:
             if backup_file and not write_state.attempted:
                 remove_backup_after_aborted_write(backup_file, exc, operation="mount.create")
+            if write_state.outcome_unknown:
+                raise WriteOutcomeUnknownError(exc, backup_file=backup_file) from exc
             raise
         finally:
             close_db_preserving_active_exception(db, context="Mount-Erzeugung vor dem Commit")

@@ -13,7 +13,7 @@ from typing import Any
 
 from mcbe_editor import nbt
 
-from .api_errors import add_exception_cleanup_details, error_payload
+from .api_errors import add_exception_cleanup_details, error_payload, uncertain_write_payload
 from .bedrock_nbt import load_player_nbt
 from .db import close_db_preserving_active_exception
 from .i18n import t
@@ -29,6 +29,7 @@ from .mount_write import (
 )
 from .mounts import OVERWORLD_DIMENSION_ID, build_mount_preview
 from .players import decode_player_key
+from .service_errors import WriteOutcomeUnknownError
 
 
 def _default_blocked_none(*_args, **_kwargs):
@@ -344,6 +345,10 @@ def create_mount(data: dict, deps: MountRouteDeps):
         )
         response = deps.jsonify(result)
         return (response, 500) if validation_failed else response
+    except WriteOutcomeUnknownError as exc:
+        deps.log_api_exception("mount.create", exc)
+        deps.audit_event("mount.create", "uncertain", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
+        return deps.jsonify(uncertain_write_payload(exc)), 500
     except deps.final_write_gate_blocked_error as exc:
         message = str(exc)
         deps.audit_event(
@@ -600,6 +605,10 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
         )
         response = deps.jsonify(result)
         return (response, 500) if committed_failure else response
+    except WriteOutcomeUnknownError as exc:
+        deps.log_api_exception("workspace.save", exc)
+        deps.audit_event("workspace.save", "uncertain", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
+        return deps.jsonify(uncertain_write_payload(exc)), 500
     except deps.final_write_gate_blocked_error as exc:
         deps.audit_event(
             "workspace.save",

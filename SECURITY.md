@@ -63,6 +63,8 @@ Every editor-created world backup compares source metadata before and after crea
 
 Write operations re-check the server guard immediately before the final filesystem or LevelDB action. Unknown status can require explicit confirmation; a server later detected as online still blocks the write.
 
+File locks do not independently establish exclusive access against every Bedrock server. In particular, BDS 1.26.51.1 on Linux was observed to hold no LevelDB `LOCK`. A stopped server and the correctly configured status guard remain necessary. The writer refuses incomplete or inconsistent metadata; it does not repair databases. After an I/O failure, preserve the backup and inspect the reopened state: a save reported with an unknown outcome or a failed rollback does not prove that no bytes reached storage. Only failures the writer proves happened before its first append are reported as ordinary rejections.
+
 ## Private data and diagnostics
 
 Real worlds, backups, `.mcbe-player.zip` files, raw NBT, diagnostic reports, and audit exports must be treated as private. Renaming a world or deleting its icon does not anonymize LevelDB records.
