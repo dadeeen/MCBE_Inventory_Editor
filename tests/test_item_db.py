@@ -456,6 +456,22 @@ class TestAddableItemIds(unittest.TestCase):
             self.assertIn(item_id, ITEMS, item_id)
             self.assertNotEqual(ITEMS[item_id], superseded, item_id)
 
+    def test_current_items_use_mojangs_bedrock_names(self):
+        # Die Suche soll den Namen finden, den das Spiel anzeigt.
+        expected = {
+            "minecraft:diamond_chestplate": ("Diamantharnisch", "Diamond Chestplate"),
+            "minecraft:iron_leggings": ("Eisenbeinschutz", "Iron Leggings"),
+            "minecraft:chainmail_helmet": ("Kettenhemd-Helm", "Chainmail Helmet"),
+            "minecraft:coal_block": ("Kohleblock", "Block of Coal"),
+            "minecraft:cooked_beef": ("Steak", "Steak"),
+            "minecraft:ender_eye": ("Enderauge", "Eye of Ender"),
+            "minecraft:carrot_on_a_stick": ("Karottenangel", "Carrot on a Stick"),
+            "minecraft:cod": ("Roher Kabeljau", "Raw Cod"),
+            "minecraft:comparator": ("Komparator", "Comparator"),
+        }
+        for item_id, names in expected.items():
+            self.assertEqual(ITEMS[item_id], names, item_id)
+
 
 class TestBlockItemIds(unittest.TestCase):
     def test_block_item_section_tracks_registry_intersection(self):
@@ -599,6 +615,7 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
                 "minecraft:sandstone": ["Gemeißelter Sandstein", "Chiseled Sandstone"],
                 "minecraft:respawn_anchor": ["Wiederbeleben-Punkt festgelegt", "Respawn point set"],
                 "minecraft:wool": ["Schwarze Wolle", "Black Wool"],
+                "minecraft:diamond_chestplate": ["Diamantbrustplatte", "Diamond Chestplate"],
                 "minecraft:red_sandstone": ["Mein roter Sandstein", "My Red Sandstone"],
             },
         }
@@ -610,6 +627,7 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
         self.assertEqual(items["minecraft:sandstone"], ("Sandstein", "Sandstone"))
         self.assertEqual(items["minecraft:respawn_anchor"], ("Seelenanker", "Respawn Anchor"))
         self.assertEqual(items["minecraft:wool"], ("Wolle", "Wool"))
+        self.assertEqual(items["minecraft:diamond_chestplate"], ("Diamantharnisch", "Diamond Chestplate"))
         # Nur der exakt bekannte Altstand wird ersetzt, eigene Namen bleiben.
         self.assertEqual(items["minecraft:red_sandstone"], ("Mein roter Sandstein", "My Red Sandstone"))
 

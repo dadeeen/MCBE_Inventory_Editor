@@ -4846,7 +4846,7 @@
       "Carrot"
     ],
     "minecraft:carrot_on_a_stick": [
-      "Karottenrute",
+      "Karottenangel",
       "Carrot on a Stick"
     ],
     "minecraft:carrotonastick": [
@@ -4898,19 +4898,19 @@
       "Chain Command Block"
     ],
     "minecraft:chainmail_boots": [
-      "Kettenstiefel",
+      "Kettenhemd-Stiefel",
       "Chainmail Boots"
     ],
     "minecraft:chainmail_chestplate": [
-      "Kettenhemd",
+      "Kettenhemd-Harnisch",
       "Chainmail Chestplate"
     ],
     "minecraft:chainmail_helmet": [
-      "Kettenhaube",
+      "Kettenhemd-Helm",
       "Chainmail Helmet"
     ],
     "minecraft:chainmail_leggings": [
-      "Kettenhose",
+      "Kettenhemd-Beinschutz",
       "Chainmail Leggings"
     ],
     "minecraft:chalkboard": [
@@ -5179,7 +5179,7 @@
     ],
     "minecraft:coal_block": [
       "Kohleblock",
-      "Coal Block"
+      "Block of Coal"
     ],
     "minecraft:coal_ore": [
       "Steinkohle",
@@ -5239,7 +5239,7 @@
     ],
     "minecraft:cod": [
       "Roher Kabeljau",
-      "Cod"
+      "Raw Cod"
     ],
     "minecraft:cod_bucket": [
       "Cod Bucket",
@@ -5282,8 +5282,8 @@
       "Minecart with Command Block"
     ],
     "minecraft:comparator": [
-      "Redstone-Komparator",
-      "Redstone Comparator"
+      "Komparator",
+      "Comparator"
     ],
     "minecraft:compass": [
       "Kompass",
@@ -5314,8 +5314,8 @@
       "Conduit"
     ],
     "minecraft:cooked_beef": [
-      "Gebratenes Rindfleisch",
-      "Cooked Beef"
+      "Steak",
+      "Steak"
     ],
     "minecraft:cooked_chicken": [
       "Gebratenes Hühnchen",
@@ -6067,14 +6067,14 @@
     ],
     "minecraft:diamond_block": [
       "Diamantblock",
-      "Diamond Block"
+      "Block of Diamond"
     ],
     "minecraft:diamond_boots": [
       "Diamantstiefel",
       "Diamond Boots"
     ],
     "minecraft:diamond_chestplate": [
-      "Diamantbrustplatte",
+      "Diamantharnisch",
       "Diamond Chestplate"
     ],
     "minecraft:diamond_helmet": [
@@ -6090,7 +6090,7 @@
       "Diamond Horse Armor"
     ],
     "minecraft:diamond_leggings": [
-      "Diamantbeinschienen",
+      "Diamantbeinschutz",
       "Diamond Leggings"
     ],
     "minecraft:diamond_nautilus_armor": [
@@ -6763,7 +6763,7 @@
     ],
     "minecraft:emerald_block": [
       "Smaragdblock",
-      "Emerald Block"
+      "Block of Emerald"
     ],
     "minecraft:emerald_ore": [
       "Smaragderz",
@@ -6847,7 +6847,7 @@
     ],
     "minecraft:ender_eye": [
       "Enderauge",
-      "Ender Eye"
+      "Eye of Ender"
     ],
     "minecraft:ender_pearl": [
       "Enderperle",
@@ -6975,7 +6975,7 @@
     ],
     "minecraft:filled_map": [
       "Karte",
-      "Filled Map"
+      "Map"
     ],
     "minecraft:fire": [
       "Feuer",
@@ -7183,7 +7183,7 @@
     ],
     "minecraft:gold_block": [
       "Goldblock",
-      "Gold Block"
+      "Block of Gold"
     ],
     "minecraft:gold_ingot": [
       "Goldbarren",
@@ -7214,7 +7214,7 @@
       "Golden Carrot"
     ],
     "minecraft:golden_chestplate": [
-      "Goldbrustplatte",
+      "Goldharnisch",
       "Golden Chestplate"
     ],
     "minecraft:golden_dandelion": [
@@ -7234,7 +7234,7 @@
       "Golden Horse Armor"
     ],
     "minecraft:golden_leggings": [
-      "Goldbeinschienen",
+      "Goldbeinschutz",
       "Golden Leggings"
     ],
     "minecraft:golden_nautilus_armor": [
@@ -7807,7 +7807,7 @@
     ],
     "minecraft:iron_block": [
       "Eisenblock",
-      "Iron Block"
+      "Block of Iron"
     ],
     "minecraft:iron_boots": [
       "Eisenstiefel",
@@ -7818,7 +7818,7 @@
       "Iron Chain"
     ],
     "minecraft:iron_chestplate": [
-      "Eisenbrustplatte",
+      "Eisenharnisch",
       "Iron Chestplate"
     ],
     "minecraft:iron_door": [
@@ -7846,7 +7846,7 @@
       "Iron Ingot"
     ],
     "minecraft:iron_leggings": [
-      "Eisenbeinschienen",
+      "Eisenbeinschutz",
       "Iron Leggings"
     ],
     "minecraft:iron_nautilus_armor": [
@@ -7999,7 +7999,7 @@
     ],
     "minecraft:lapis_block": [
       "Lapislazuliblock",
-      "Lapis Lazuli Block"
+      "Block of Lapis Lazuli"
     ],
     "minecraft:lapis_lazuli": [
       "Lapislazuli",
@@ -8911,7 +8911,7 @@
     ],
     "minecraft:mutton": [
       "Rohes Hammelfleisch",
-      "Mutton"
+      "Raw Mutton"
     ],
     "minecraft:muttoncooked": [
       "Gebratenes Hammelfleisch",
@@ -8991,14 +8991,14 @@
     ],
     "minecraft:netherite_block": [
       "Netheritblock",
-      "Netherite Block"
+      "Block of Netherite"
     ],
     "minecraft:netherite_boots": [
       "Netheritstiefel",
       "Netherite Boots"
     ],
     "minecraft:netherite_chestplate": [
-      "Netheritbrustplatte",
+      "Netheritharnisch",
       "Netherite Chestplate"
     ],
     "minecraft:netherite_helmet": [
@@ -9018,7 +9018,7 @@
       "Netherite Ingot"
     ],
     "minecraft:netherite_leggings": [
-      "Netheritbeinschienen",
+      "Netheritbeinschutz",
       "Netherite Leggings"
     ],
     "minecraft:netherite_nautilus_armor": [
@@ -9110,7 +9110,7 @@
       "Oak Log"
     ],
     "minecraft:oak_planks": [
-      "Eichenholzbretter",
+      "Eichenbretter",
       "Oak Planks"
     ],
     "minecraft:oak_sapling": [
@@ -9895,7 +9895,7 @@
     ],
     "minecraft:poplar_standing_sign": [
       "Pappelschild",
-      "Poplar Standing Sign"
+      "Poplar Sign"
     ],
     "minecraft:poplar_trapdoor": [
       "Pappelfalltür",
@@ -10487,11 +10487,11 @@
     ],
     "minecraft:redstone": [
       "Redstone-Staub",
-      "Redstone"
+      "Redstone Dust"
     ],
     "minecraft:redstone_block": [
       "Redstone-Block",
-      "Redstone Block"
+      "Block of Redstone"
     ],
     "minecraft:redstone_lamp": [
       "Redstone-Lampe",
@@ -11758,7 +11758,7 @@
       "Warped Fungus"
     ],
     "minecraft:warped_fungus_on_a_stick": [
-      "Wirrpilzrute",
+      "Wirrpilz auf einem Stock",
       "Warped Fungus on a Stick"
     ],
     "minecraft:warped_hanging_sign": [
