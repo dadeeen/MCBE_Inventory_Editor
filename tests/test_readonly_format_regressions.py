@@ -278,6 +278,28 @@ def test_a_table_that_changes_while_reading_is_refused(tmp_path, monkeypatch, ch
         reader.close()
 
 
+@pytest.mark.parametrize("layout", ["next_block", "next_table"])
+def test_a_scan_left_running_opens_no_table_after_close(tmp_path, monkeypatch, layout):
+    entries = [(_key(b"k%d" % number, 1 + number), b"v%d" % number) for number in range(4)]
+    tables = [[entries[:2], entries[2:]]] if layout == "next_block" else [[entries[:2]], [entries[2:]]]
+    encoded = [(number, _table(blocks, 0), blocks) for number, blocks in enumerate(tables, start=3)]
+    manifest = b"".join(_new_file(1, number, data, blocks[0][0][0], blocks[-1][-1][0]) for number, data, blocks in encoded)
+    root = _world_db(tmp_path, manifest=manifest)
+    for number, data, _blocks in encoded:
+        (root / f"{number:06d}.ldb").write_bytes(data)
+    open_now, opened = _track_table_files(monkeypatch)
+    reader = ReadonlyLevelDbAdapter(str(root))
+    items = reader.iter_items()
+    assert next(items) == (b"k0", b"v0")
+    reader.close()
+    opened_at_close = len(opened)
+    # The rest of the scan needs another block or table; neither may be opened.
+    with pytest.raises(RuntimeError, match="geschlossen"):
+        list(items)
+    assert len(opened) == opened_at_close
+    assert open_now() == 0
+
+
 def test_overlapping_deeper_level_is_merged_table_by_table(tmp_path):
     # Level 1 must not overlap; if a MANIFEST says otherwise, reading its
     # tables one after another would miss that b@5 in the WAL is newest.

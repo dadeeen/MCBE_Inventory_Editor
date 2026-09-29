@@ -429,6 +429,7 @@ class _TableHandles:
     def __init__(self, limit: int | None = None):
         self._limit = max(1, _MAX_OPEN_TABLES if limit is None else limit)
         self._open: OrderedDict[int, _Table] = OrderedDict()
+        self._closed = False
         # Also serializes seek+read on a shared handle.
         self._guard = threading.Lock()
 
@@ -439,6 +440,10 @@ class _TableHandles:
             return handle.read(size)
 
     def _acquire(self, table: _Table) -> BinaryIO:
+        if self._closed or table._closed:
+            # A scan left running after close() must not reopen files that
+            # another program may have changed since.
+            raise RuntimeError("Datenbank ist geschlossen.")
         handle = table._handle
         if handle is not None:
             self._open.move_to_end(id(table))
@@ -456,11 +461,13 @@ class _TableHandles:
 
     def release(self, table: _Table) -> None:
         with self._guard:
+            table._closed = True
             self._open.pop(id(table), None)
             table._close_handle()
 
     def close_all(self) -> None:
         with self._guard:
+            self._closed = True
             try:
                 for table in self._open.values():
                     table._close_handle()
@@ -479,6 +486,7 @@ class _Table:
         self._cache_identity = object()
         self._handles = handles if handles is not None else _TableHandles(1)
         self._handle: BinaryIO | None = None
+        self._closed = False
         self._identity: tuple[int, int, int, int] | None = None
         self._size = 0
         self._index: list[tuple[bytes, int, int]] | None = None
@@ -843,7 +851,8 @@ class ReadonlyLevelDbAdapter:
         """Files of ``level`` in key order, or None if their ranges overlap.
 
         LevelDB keeps the internal-key ranges of every level above 0 disjoint.
-        A MANIFEST that breaks this is still read correctly, just table by table.
+        Like get() and native LevelDB, this trusts the MANIFEST ranges; a level
+        whose recorded ranges overlap is read table by table instead.
         """
 
         files = self._files[level]
