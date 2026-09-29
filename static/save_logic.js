@@ -13,6 +13,13 @@
         return cloned;
     }
 
+    // Wie formatCoord in mount_view.js: Der Server liefert die exakten
+    // Float32-Werte, angezeigt werden sie ohne Rundungsreste.
+    function formatCoordinate(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? number.toFixed(2).replace(/\.00$/, "") : "?";
+    }
+
     function createSaveLogic(deps) {
         const {
             buildChangedStatsPayload,
@@ -117,7 +124,7 @@
             }
             getPendingMounts().forEach(mount => {
                 const position = mount.selectedPosition || {};
-                const coordinates = [position.x, position.y, position.z].map(value => Number.isFinite(Number(value)) ? Number(value) : "?").join(" / ");
+                const coordinates = [position.x, position.y, position.z].map(formatCoordinate).join(" / ");
                 const safety = mount.safetyStatus === "safe" ? t("sicher geprüft") : t("ungeprüft");
                 changes.push({
                     type: "mount",

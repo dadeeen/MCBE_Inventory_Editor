@@ -503,3 +503,33 @@ def test_frontend_save_validation_blocks_location_change_with_pending_mount() ->
             """
         )
     )
+
+
+def test_frontend_change_summary_rounds_float32_mount_positions() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/save_logic.js", "utf8");
+            const context = { window: {} };
+            vm.runInNewContext(code, context, { filename: "static/save_logic.js" });
+
+            // The server sends the exact Float32 values it will store.
+            const logic = context.window.MCBESaveLogic.createSaveLogic({
+                getPendingMounts: () => [{
+                    mountLabel: "Pferd",
+                    selectedPosition: { x: 101.30000305175781, y: 64, z: -5.699999809265137 },
+                    safetyStatus: "safe",
+                }],
+                getCleanSnapshot: () => ({ inv: {}, ec: {} }),
+                takeSnapshot: () => ({ inv: {}, ec: {} }),
+            });
+
+            const labels = logic.buildChangeSummary({ includeSections: false }).shown.map(change => change.label);
+            assert.strictEqual(labels.length, 1);
+            assert.strictEqual(labels[0], "Pferd wird bei 101.30 / 64 / -5.70 erzeugt (sicher geprüft).");
+            """
+        )
+    )
