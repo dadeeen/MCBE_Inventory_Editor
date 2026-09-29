@@ -60,8 +60,12 @@ class LevelDbPermissionError(PermissionError):
         )
 
 
-class LevelDbInUseError(RuntimeError):
-    """Another process (or write session) holds the world database."""
+class LevelDbInUseError(ValueError):
+    """Another process (or write session) holds the world database.
+
+    A ValueError like the other refusals before any write: routes report its
+    complete message as a refusal, not as a server error with a second prefix.
+    """
 
     def __init__(self, *, db_path: str) -> None:
         self.db_path = db_path

@@ -3,13 +3,21 @@ from __future__ import annotations
 import ast
 import errno
 import os
+from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pytest
 
 from mcbe_editor.db import LevelDbAdapter
-from mcbe_editor.service_errors import LevelDbInUseError, LevelDbPermissionError, denied_write_actor, denied_write_permission_hint
+from mcbe_editor.service_errors import (
+    LevelDbInUseError,
+    LevelDbPermissionError,
+    LevelDbUncleanLogError,
+    denied_write_actor,
+    denied_write_permission_hint,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -82,6 +90,37 @@ def test_leveldb_in_use_error_is_not_reported_as_a_permission_problem() -> None:
         LevelDbAdapter("/worlds/Test/db")
 
     assert raised.value is expected
+
+
+@pytest.mark.parametrize(
+    "error",
+    [LevelDbInUseError(db_path="/worlds/Test/db"), LevelDbUncleanLogError(db_path="/worlds/Test/db")],
+    ids=["in_use", "unclean_log"],
+)
+def test_a_refused_save_names_its_reason_without_a_second_prefix(monkeypatch, error) -> None:
+    import main
+
+    logged = []
+    deps = replace(
+        main.player_route_deps(),
+        service=SimpleNamespace(save_player=Mock(side_effect=error)),
+        require_world_write_allowed=lambda: None,
+        require_server_guard_current=lambda _data: None,
+        presence_conflict_response=lambda *_args, **_kwargs: None,
+        log_api_exception=lambda *args: logged.append(args),
+    )
+    monkeypatch.setattr(main, "player_route_deps", lambda: deps)
+    response = main.app.test_client().post(
+        "/api/player/save",
+        json={"world_path": "world", "player_key": "~local_player", "inventory": []},
+        headers={"X-CSRF-Token": main.CSRF_TOKEN},
+    )
+
+    # The page puts "Fehler beim Speichern:" in front itself. A refusal is no
+    # server error: no second prefix and no stack trace in the log.
+    assert response.status_code == 400
+    assert response.get_json()["error"] == str(error)
+    assert logged == []
 
 
 def test_leveldb_permission_error_during_write_uses_the_same_translation() -> None:

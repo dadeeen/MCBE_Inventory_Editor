@@ -96,6 +96,8 @@ lock `LOCK`; a running Bedrock server is not detected there.
   excludes BDS 1.26.51.1 through Docker Desktop's Windows bind mount while its
   database write handles are open.
 - "In use" is reported as `LevelDbInUseError`, never as a permission problem.
+  Like an unclean log, it is a refusal before any write: the API returns its
+  message unchanged with HTTP 400, not as a server error.
 
 These checks complement the app's server-status gate and interprocess world
 lock; they do not replace them.
