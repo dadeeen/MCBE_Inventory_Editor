@@ -26,6 +26,8 @@ Limitations (by design):
   snapshot; the write path (``leveldb_writer``) takes the database locks.
 * Blocks are limited to 64 MiB stored/decompressed; the combined MANIFEST/WAL
   input is limited to 256 MiB per reader. Larger inputs fail explicitly.
+* At most 64 table files are open per reader; others are reopened on demand
+  and must keep their size, modification time and file identity.
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ import sys
 import threading
 import zlib
 from collections import OrderedDict
-from typing import NamedTuple
+from typing import BinaryIO, NamedTuple
 
 LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +53,9 @@ _LOG_BLOCK_SIZE = 32768
 _MAX_SEQUENCE = (1 << 56) - 1
 _MAX_BLOCK_BYTES = 64 * 1024 * 1024
 _MAX_METADATA_BYTES = 256 * 1024 * 1024
+# Linux commonly limits a process to 1024 open files, and large worlds have
+# thousands of tables. Native LevelDB bounds its table cache the same way.
+_MAX_OPEN_TABLES = 64
 _TYPE_DELETION = 0
 _TYPE_VALUE = 1
 
@@ -171,6 +176,13 @@ def _split_internal_key(internal_key: bytes) -> tuple[bytes, int, int]:
     if entry_type not in (_TYPE_DELETION, _TYPE_VALUE):
         raise CorruptDatabaseError("Unbekannter Eintragstyp im internen SST-Schlüssel.")
     return user_key, tail >> 8, entry_type
+
+
+def _internal_key_order(internal_key: bytes) -> tuple[bytes, int]:
+    """Sort key of LevelDB's internal-key comparator: user key up, sequence/type down."""
+
+    user_key, sequence, entry_type = _split_internal_key(internal_key)
+    return user_key, -((sequence << 8) | entry_type)
 
 
 class LogTail:
@@ -411,31 +423,106 @@ class _BlockCache:
             self._size = 0
 
 
+class _TableHandles:
+    """Bounded LRU of open table files, shared by the tables of one reader."""
+
+    def __init__(self, limit: int | None = None):
+        self._limit = max(1, _MAX_OPEN_TABLES if limit is None else limit)
+        self._open: OrderedDict[int, _Table] = OrderedDict()
+        # Also serializes seek+read on a shared handle.
+        self._guard = threading.Lock()
+
+    def read(self, table: _Table, offset: int, size: int) -> bytes:
+        with self._guard:
+            handle = self._acquire(table)
+            handle.seek(offset)
+            return handle.read(size)
+
+    def _acquire(self, table: _Table) -> BinaryIO:
+        handle = table._handle
+        if handle is not None:
+            self._open.move_to_end(id(table))
+            return handle
+        while len(self._open) >= self._limit:
+            _, oldest = self._open.popitem(last=False)
+            oldest._close_handle()
+        handle = table._open_handle()
+        self._open[id(table)] = table
+        return handle
+
+    def open(self, table: _Table) -> None:
+        with self._guard:
+            self._acquire(table)
+
+    def release(self, table: _Table) -> None:
+        with self._guard:
+            self._open.pop(id(table), None)
+            table._close_handle()
+
+    def close_all(self) -> None:
+        with self._guard:
+            try:
+                for table in self._open.values():
+                    table._close_handle()
+            finally:
+                self._open.clear()
+
+
 class _Table:
     """Lazy reader for a single .ldb/.sst table file."""
 
-    def __init__(self, path: str, *, block_cache: _BlockCache | None = None):
+    def __init__(self, path: str, *, block_cache: _BlockCache | None = None, handles: _TableHandles | None = None):
         self._path = path
         self._block_cache = block_cache
         # No table/path references in cache keys: no cross-world aliasing or
         # cache -> table -> cache cycle keeping file handles alive.
         self._cache_identity = object()
-        # Handle intentionally stays open for lazy block reads; closed via close().
-        self._handle = open(path, "rb")  # noqa: SIM115
-        self._size = os.fstat(self._handle.fileno()).st_size
+        self._handles = handles if handles is not None else _TableHandles(1)
+        self._handle: BinaryIO | None = None
+        self._identity: tuple[int, int, int, int] | None = None
+        self._size = 0
         self._index: list[tuple[bytes, int, int]] | None = None
+        # Opened now so that a missing file fails here; the reader's handle
+        # budget may close it later and reopen it for the next block.
+        self._handles.open(self)
 
     def close(self) -> None:
         self._block_cache = None
-        self._handle.close()
+        self._handles.release(self)
+
+    def _open_handle(self) -> BinaryIO:
+        # Kept open for lazy block reads until the handle budget or close() ends it.
+        handle = open(self._path, "rb")  # noqa: SIM115
+        try:
+            stat = os.fstat(handle.fileno())
+            identity = (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino)
+            if self._identity is None:
+                self._identity = identity
+                self._size = stat.st_size
+            elif identity != self._identity:
+                # Tables are immutable; a different file under this name means
+                # the world changed while it was being read.
+                raise CorruptDatabaseError(f"Tabellendatei wurde während des Lesens ersetzt: {self._path}")
+        except BaseException:
+            handle.close()
+            raise
+        self._handle = handle
+        return handle
+
+    def _close_handle(self) -> None:
+        handle, self._handle = self._handle, None
+        if handle is not None:
+            handle.close()
 
     def _read_at(self, offset: int, size: int) -> bytes:
         if offset < 0 or size < 0 or offset > self._size or size > self._size - offset:
             raise CorruptDatabaseError("SST-Blockreferenz liegt außerhalb der Datei.")
         if size > _MAX_BLOCK_BYTES + 5:
             raise CorruptDatabaseError("SST-Block überschreitet das Größenlimit.")
-        self._handle.seek(offset)
-        data = self._handle.read(size)
+        try:
+            data = self._handles.read(self, offset, size)
+        except FileNotFoundError as exc:
+            raise CorruptDatabaseError(f"Tabellendatei ist während des Lesens verschwunden: {self._path}") from exc
         if len(data) != size:
             raise CorruptDatabaseError(f"Unerwartetes Dateiende in {self._path}.")
         return data
@@ -563,6 +650,7 @@ class ReadonlyLevelDbAdapter:
     def __init__(self, db_path: str):
         self._db_path = db_path
         self._tables: dict[int, _Table] = {}
+        self._table_handles = _TableHandles()
         # Writers opt in after acquiring exclusive access. Ordinary readers
         # may inspect a running world, so they keep reading blocks afresh.
         self._block_cache: _BlockCache | None = None
@@ -655,7 +743,7 @@ class ReadonlyLevelDbAdapter:
             for extension in ("ldb", "sst"):
                 path = os.path.join(self._db_path, f"{file_no:06d}.{extension}")
                 if os.path.isfile(path):
-                    table = _Table(path, block_cache=self._block_cache)
+                    table = _Table(path, block_cache=self._block_cache, handles=self._table_handles)
                     break
             else:
                 raise CorruptDatabaseError(f"Tabellendatei {file_no:06d} fehlt.")
@@ -725,15 +813,22 @@ class ReadonlyLevelDbAdapter:
                 sequence, entry_type, value = self._memtable[user_key]
                 yield user_key, sequence, entry_type, value
 
-        def table_stream(file_no: int):
-            for internal_key, value in self._table(file_no).iter_entries():
-                user_key, sequence, entry_type = _split_internal_key(internal_key)
-                yield user_key, sequence, entry_type, value
+        def table_stream(*file_numbers: int):
+            for file_no in file_numbers:
+                for internal_key, value in self._table(file_no).iter_entries():
+                    user_key, sequence, entry_type = _split_internal_key(internal_key)
+                    yield user_key, sequence, entry_type, value
 
         streams = [memtable_stream()]
         for level in sorted(self._files):
-            for file_no in sorted(self._files[level]):
-                streams.append(table_stream(file_no))
+            ordered = self._disjoint_level_order(level) if level > 0 else None
+            if ordered is not None:
+                # One table of this level is read at a time, as native LevelDB
+                # does, so a scan keeps few files open however large the world.
+                streams.append(table_stream(*ordered))
+            else:
+                for file_no in sorted(self._files[level]):
+                    streams.append(table_stream(file_no))
 
         merged = heapq.merge(*streams, key=lambda item: (item[0], _MAX_SEQUENCE - item[1]))
         previous_key: bytes | None = None
@@ -744,10 +839,31 @@ class ReadonlyLevelDbAdapter:
             if entry_type == _TYPE_VALUE:
                 yield user_key, value
 
+    def _disjoint_level_order(self, level: int) -> list[int] | None:
+        """Files of ``level`` in key order, or None if their ranges overlap.
+
+        LevelDB keeps the internal-key ranges of every level above 0 disjoint.
+        A MANIFEST that breaks this is still read correctly, just table by table.
+        """
+
+        files = self._files[level]
+        try:
+            ordered = sorted(files, key=lambda file_no: _internal_key_order(files[file_no][0]))
+            for previous, following in zip(ordered, ordered[1:], strict=False):
+                if _internal_key_order(files[previous][1]) >= _internal_key_order(files[following][0]):
+                    return None
+        except CorruptDatabaseError:
+            # Unusable MANIFEST ranges: rely on the tables' own ordering instead.
+            return None
+        return ordered
+
     def close(self) -> None:
         self._closed = True
         if self._block_cache is not None:
             self._block_cache.clear()
-        for table in self._tables.values():
-            table.close()
-        self._tables.clear()
+        try:
+            for table in self._tables.values():
+                table.close()
+        finally:
+            self._tables.clear()
+            self._table_handles.close_all()

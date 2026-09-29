@@ -1,13 +1,16 @@
 """Synthetic on-disk fixtures; no native LevelDB or private worlds required."""
 from __future__ import annotations
 
+import builtins
 import hashlib
+import os
 import shutil
 import struct
 import zlib
 
 import pytest
 
+from mcbe_editor import leveldb_readonly
 from mcbe_editor.leveldb_readonly import CorruptDatabaseError, ReadonlyLevelDbAdapter, _TABLE_MAGIC
 from tests.test_leveldb_readonly import _crc32c, _length_prefixed, _log_record, _mask_crc32c, _varint, _write_batch
 
@@ -171,3 +174,124 @@ def test_deeper_level_versions_follow_sequence_not_manifest_order(tmp_path, olde
                 native.get(b"player")
     finally:
         native.close()
+
+
+def _many_table_world(tmp_path, *, level_tables=24, with_level0=True):
+    """Level 1 holds disjoint key ranges; level 0 and the WAL hold newer versions."""
+
+    expected = {}
+    tables = []
+    for index in range(level_tables):
+        entries = []
+        for offset in range(10):
+            number = index * 10 + offset
+            entries.append((_key(b"k%04d" % number, 1 + number), b"v1-%d" % number))
+            expected[b"k%04d" % number] = b"v1-%d" % number
+        tables.append((1, entries))
+    deleted = []
+    if with_level0:
+        tables.append((0, [(_key(b"k0005", 1000), b"level0-a"), (_key(b"k0105", 1001), b"level0-a")]))
+        tables.append((0, [(_key(b"k0015", 1003), b"level0-b"), (_key(b"k0200", 1002, 0), b"")]))
+        expected.update({b"k0005": b"level0-a", b"k0105": b"level0-a", b"k0015": b"level0-b"})
+        del expected[b"k0200"]
+        deleted.append(b"k0200")
+    # The WAL overwrites and deletes the last two keys of the level.
+    overwritten, removed = b"k%04d" % (level_tables * 10 - 2), b"k%04d" % (level_tables * 10 - 1)
+    wal = struct.pack("<QI", 2000, 2) + b"\x01" + _length_prefixed(overwritten) + _length_prefixed(b"wal")
+    wal += b"\x00" + _length_prefixed(removed)
+    expected[overwritten] = b"wal"
+    del expected[removed]
+    deleted.append(removed)
+    encoded = [(level, number, _table([entries], 2), entries) for number, (level, entries) in enumerate(tables, start=3)]
+    # MANIFEST order must not decide the reading order of a level.
+    manifest = b"".join(_new_file(level, number, data, entries[0][0], entries[-1][0]) for level, number, data, entries in reversed(encoded))
+    root = _world_db(tmp_path, manifest=manifest, wal=wal)
+    for _level, number, data, _entries in encoded:
+        (root / f"{number:06d}.ldb").write_bytes(data)
+    return root, expected, deleted
+
+
+def _track_table_files(monkeypatch):
+    opened = []
+
+    def tracking_open(path, *args, **kwargs):
+        # The reader owns and closes the handle; the test only observes it.
+        handle = builtins.open(path, *args, **kwargs)  # noqa: SIM115
+        if str(path).endswith((".ldb", ".sst")):
+            opened.append(handle)
+        return handle
+
+    monkeypatch.setattr(leveldb_readonly, "open", tracking_open, raising=False)
+    return lambda: sum(not handle.closed for handle in opened), opened
+
+
+@pytest.mark.parametrize("access", ["scan", "get"])
+def test_many_tables_are_read_with_a_bounded_number_of_open_files(tmp_path, monkeypatch, access):
+    root, expected, deleted = _many_table_world(tmp_path)
+    before = _snapshot(root)
+    monkeypatch.setattr(leveldb_readonly, "_MAX_OPEN_TABLES", 4)
+    open_now, opened = _track_table_files(monkeypatch)
+    peak = 0
+    reader = ReadonlyLevelDbAdapter(str(root))
+    try:
+        if access == "scan":
+            items = {}
+            for key, value in reader.iter_items():
+                items[key] = value
+                peak = max(peak, open_now())
+            assert items == expected
+        else:
+            # Alternate between both ends so tables are evicted and reopened.
+            keys = sorted(expected)
+            for key in [key for pair in zip(keys, reversed(keys), strict=True) for key in pair]:
+                assert reader.get(key) == expected[key]
+                peak = max(peak, open_now())
+            for key in deleted:
+                with pytest.raises(KeyError):
+                    reader.get(key)
+    finally:
+        reader.close()
+    # 26 tables, never more than four open at once, and none left open.
+    assert 0 < peak <= 4
+    assert opened and all(handle.closed for handle in opened)
+    assert _snapshot(root) == before
+
+
+@pytest.mark.parametrize("change", ["replaced", "deleted"])
+def test_a_table_that_changes_while_reading_is_refused(tmp_path, monkeypatch, change):
+    root, expected, _deleted = _many_table_world(tmp_path, level_tables=2, with_level0=False)
+    monkeypatch.setattr(leveldb_readonly, "_MAX_OPEN_TABLES", 1)
+    reader = ReadonlyLevelDbAdapter(str(root))
+    try:
+        assert reader.get(b"k0000") == expected[b"k0000"]
+        # Reading the second table closes the first one.
+        assert reader.get(b"k0010") == expected[b"k0010"]
+        if change == "replaced":
+            replacement = root / "replacement.tmp"
+            replacement.write_bytes(_table([[(_key(b"k0000", 1), b"another value")]], 0))
+            os.replace(replacement, root / "000003.ldb")
+        else:
+            os.remove(root / "000003.ldb")
+        with pytest.raises(CorruptDatabaseError, match="ersetzt" if change == "replaced" else "verschwunden"):
+            reader.get(b"k0001")
+    finally:
+        reader.close()
+
+
+def test_overlapping_deeper_level_is_merged_table_by_table(tmp_path):
+    # Level 1 must not overlap; if a MANIFEST says otherwise, reading its
+    # tables one after another would miss that b@5 in the WAL is newest.
+    first = [(_key(b"a", 1), b"a1"), (_key(b"c", 3), b"c3")]
+    second = [(_key(b"b", 2), b"b2"), (_key(b"d", 4), b"d4")]
+    first_table, second_table = _table([first], 0), _table([second], 0)
+    manifest = _new_file(1, 3, first_table, first[0][0], first[-1][0]) + _new_file(1, 4, second_table, second[0][0], second[-1][0])
+    wal = struct.pack("<QI", 5, 1) + b"\x01" + _length_prefixed(b"b") + _length_prefixed(b"b5")
+    root = _world_db(tmp_path, manifest=manifest, wal=wal)
+    (root / "000003.ldb").write_bytes(first_table)
+    (root / "000004.ldb").write_bytes(second_table)
+    reader = ReadonlyLevelDbAdapter(str(root))
+    try:
+        assert reader._disjoint_level_order(1) is None
+        assert dict(reader.iter_items()) == {b"a": b"a1", b"b": b"b5", b"c": b"c3", b"d": b"d4"}
+    finally:
+        reader.close()
