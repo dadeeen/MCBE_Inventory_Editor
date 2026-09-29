@@ -51,8 +51,8 @@ the resulting bytes with the native engine's own log for identical batches.
   record. If an append or that check fails, it attempts to truncate the log to
   its last verified length and accepts no further writes. Rollback I/O can also
   fail, so an error does not prove that no bytes were persisted.
-- `last_write_reached_log()` tells whether the last `put`/`put_batch` began
-  appending its batch. `False` proves that none of its bytes were written:
+- `last_write_reached_log()` tells whether the calling thread's last
+  `put`/`put_batch` began appending its batch. `False` proves that none of its bytes were written:
   type, size and sequence checks, log creation and directory sync all come
   first. Only a failed call that reached the log counts as an unknown outcome;
   the [save contract](save_contract.md) describes the resulting API and UI

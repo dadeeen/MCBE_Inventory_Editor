@@ -458,12 +458,20 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
         db_path = str(db_path)
         self._write_lock = threading.Lock()
         self._failed = False
-        self._write_reached_log = False
+        # Per thread: another thread's put must not reset the evidence of a
+        # batch whose exception this thread is still classifying.
+        self._write_attempt = threading.local()
         self._expected_token: tuple | None = None
         self._last_change: CommittedDbChange | None = None
-        resources = _SessionResources(_DatabaseAccess(db_path))
-        self._resources = resources
-        self._release = weakref.finalize(self, resources.release)
+        access = _DatabaseAccess(db_path)
+        try:
+            resources = _SessionResources(access)
+            self._resources = resources
+            self._release = weakref.finalize(self, resources.release)
+        except BaseException:
+            # Nothing owns the lock yet, so give it back before the error leaves.
+            access.release()
+            raise
         try:
             current = os.path.join(db_path, "CURRENT")
             if not os.path.isfile(current):
@@ -527,23 +535,23 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
             return None if self._failed or self._closed else self._last_change
 
     def last_write_reached_log(self) -> bool:
-        """Whether the last ``put``/``put_batch`` began appending its batch.
+        """Whether this thread's last ``put``/``put_batch`` began appending its batch.
 
         ``False`` proves that none of that batch's bytes were written: every
         check, the log creation and the directory sync happen before the first
         append. ``True`` leaves the outcome open unless the call returned.
         """
 
-        return self._write_reached_log
+        return getattr(self._write_attempt, "reached_log", False)
 
     def put(self, key: bytes, value: bytes) -> None:
-        self._write_reached_log = False
+        self._write_attempt.reached_log = False
         if value is None:
             raise TypeError("LevelDB-Werte müssen Bytes sein.")
         self.put_batch({key: value})
 
     def put_batch(self, data: Mapping[bytes, bytes | None]) -> None:
-        self._write_reached_log = False
+        self._write_attempt.reached_log = False
         entries = list(data.items())
         for key, value in entries:
             if not isinstance(key, bytes) or not (value is None or isinstance(value, bytes)):
@@ -593,7 +601,7 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
         # Either way, the caller must reopen before attempting another write.
         self._failed = True
         log = self._resources.log or self._open_log()
-        self._write_reached_log = True
+        self._write_attempt.reached_log = True
         try:
             log.append(framed)
             log.verify([*log.records, record])

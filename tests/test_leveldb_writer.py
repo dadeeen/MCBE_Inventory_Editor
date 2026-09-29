@@ -10,6 +10,8 @@ import random
 import shutil
 import subprocess
 import sys
+import threading
+import weakref
 from pathlib import Path
 
 import pytest
@@ -453,6 +455,23 @@ def test_a_second_session_of_the_same_process_is_refused(tmp_path):
     assert _read_all(path) == {b"a": b"2"}
 
 
+def test_a_failed_session_setup_gives_the_lock_back(tmp_path, monkeypatch):
+    path = _new_db(tmp_path)
+    _write(path, {b"a": b"1"})
+    real_finalize = weakref.finalize
+
+    def failing_finalize(*args, **kwargs):
+        monkeypatch.setattr(weakref, "finalize", real_finalize)
+        raise MemoryError("simulated finalizer setup failure")
+
+    # The lock is taken before the session can register its own cleanup.
+    monkeypatch.setattr(weakref, "finalize", failing_finalize)
+    with pytest.raises(MemoryError, match="simulated finalizer setup failure"):
+        LevelDbWriter(str(path))
+    _write(path, {b"a": b"2"})
+    assert _read_all(path) == {b"a": b"2"}
+
+
 _HOLD_WRITER = """
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -570,6 +589,35 @@ def test_failed_append_is_rolled_back_and_ends_the_session(tmp_path, monkeypatch
     finally:
         writer.close()
     assert _read_all(path) == {b"a": b"1"}
+
+
+def test_write_evidence_belongs_to_the_calling_thread(tmp_path, monkeypatch):
+    path = _new_db(tmp_path)
+    writer = LevelDbWriter(str(path))
+    try:
+        writer.put_batch({b"a": b"1"})
+        expected_error = _fail_the_next_fsync(monkeypatch)
+        with pytest.raises(expected_error):
+            writer.put_batch({b"a": b"2"})
+        monkeypatch.undo()
+
+        # A rejected put on another thread resets only that thread's evidence,
+        # not the evidence this thread still needs to classify its failure.
+        other_thread = []
+
+        def rejected_put():
+            try:
+                writer.put(b"b", None)
+            except TypeError:
+                other_thread.append(writer.last_write_reached_log())
+
+        thread = threading.Thread(target=rejected_put)
+        thread.start()
+        thread.join()
+        assert other_thread == [False]
+        assert writer.last_write_reached_log() is True
+    finally:
+        writer.close()
 
 
 @pytest.mark.parametrize("failure_at", ["create", "directory-sync"])
