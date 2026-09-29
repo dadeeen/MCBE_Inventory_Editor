@@ -59,7 +59,7 @@ from .inventory import (
     parse_ender_chest,
     protected_player_nbt_flags,
 )
-from .leveldb_readonly import ReadonlyLevelDbAdapter
+from .leveldb_readonly import ReadonlyLevelDbAdapter, WorldChangedWhileReadingError
 from .player_directory import PlayerDirectory
 from .player_state_transfer import (
     PLAYER_STATE_TRANSFER_SCHEMA_VERSION,
@@ -147,6 +147,9 @@ class BedrockEditorService:
         db_path = ensure_valid_world_path(world_path)
         try:
             return self.readonly_db_factory(db_path)
+        except WorldChangedWhileReadingError:
+            # Not a broken world: a running server changed it meanwhile.
+            raise
         except Exception as exc:
             LOGGER.warning("Readonly-Reader konnte %s nicht öffnen.", db_path, exc_info=True)
             raise RuntimeError("Readonly-LevelDB konnte nicht geöffnet werden. Die Welt wurde nicht mit dem mutierenden LevelDB-Adapter geöffnet.") from exc

@@ -1,7 +1,6 @@
 """Synthetic on-disk fixtures; no native LevelDB or private worlds required."""
 from __future__ import annotations
 
-import builtins
 import hashlib
 import os
 import shutil
@@ -11,7 +10,8 @@ import zlib
 import pytest
 
 from mcbe_editor import leveldb_readonly
-from mcbe_editor.leveldb_readonly import CorruptDatabaseError, ReadonlyLevelDbAdapter, _TABLE_MAGIC
+from mcbe_editor.leveldb_readonly import CorruptDatabaseError, ReadonlyLevelDbAdapter, WorldChangedWhileReadingError, _TABLE_MAGIC
+from mcbe_editor.leveldb_writer import LevelDbWriter
 from tests.test_leveldb_readonly import _crc32c, _length_prefixed, _log_record, _mask_crc32c, _varint, _write_batch
 
 
@@ -176,7 +176,7 @@ def test_deeper_level_versions_follow_sequence_not_manifest_order(tmp_path, olde
         native.close()
 
 
-def _many_table_world(tmp_path, *, level_tables=24, with_level0=True):
+def _many_table_world(tmp_path, *, level_tables=24, with_level0=True, writable=False):
     """Level 1 holds disjoint key ranges; level 0 and the WAL hold newer versions."""
 
     expected = {}
@@ -205,6 +205,9 @@ def _many_table_world(tmp_path, *, level_tables=24, with_level0=True):
     encoded = [(level, number, _table([entries], 2), entries) for number, (level, entries) in enumerate(tables, start=3)]
     # MANIFEST order must not decide the reading order of a level.
     manifest = b"".join(_new_file(level, number, data, entries[0][0], entries[-1][0]) for level, number, data, entries in reversed(encoded))
+    if writable:
+        # A writer continues after the next file number and last sequence.
+        manifest = b"\x03" + _varint(100) + b"\x04" + _varint(5000) + manifest
     root = _world_db(tmp_path, manifest=manifest, wal=wal)
     for _level, number, data, _entries in encoded:
         (root / f"{number:06d}.ldb").write_bytes(data)
@@ -213,15 +216,16 @@ def _many_table_world(tmp_path, *, level_tables=24, with_level0=True):
 
 def _track_table_files(monkeypatch):
     opened = []
+    open_for_reading = leveldb_readonly._open_for_reading
 
-    def tracking_open(path, *args, **kwargs):
+    def tracking_open(path, **kwargs):
         # The reader owns and closes the handle; the test only observes it.
-        handle = builtins.open(path, *args, **kwargs)  # noqa: SIM115
+        handle = open_for_reading(path, **kwargs)
         if str(path).endswith((".ldb", ".sst")):
             opened.append(handle)
         return handle
 
-    monkeypatch.setattr(leveldb_readonly, "open", tracking_open, raising=False)
+    monkeypatch.setattr(leveldb_readonly, "_open_for_reading", tracking_open)
     return lambda: sum(not handle.closed for handle in opened), opened
 
 
@@ -229,6 +233,7 @@ def _track_table_files(monkeypatch):
 def test_many_tables_are_read_with_a_bounded_number_of_open_files(tmp_path, monkeypatch, access):
     root, expected, deleted = _many_table_world(tmp_path)
     before = _snapshot(root)
+    monkeypatch.setattr(leveldb_readonly, "_MAX_HELD_TABLES", 0)
     monkeypatch.setattr(leveldb_readonly, "_MAX_OPEN_TABLES", 4)
     open_now, opened = _track_table_files(monkeypatch)
     peak = 0
@@ -260,6 +265,7 @@ def test_many_tables_are_read_with_a_bounded_number_of_open_files(tmp_path, monk
 @pytest.mark.parametrize("change", ["replaced", "deleted"])
 def test_a_table_that_changes_while_reading_is_refused(tmp_path, monkeypatch, change):
     root, expected, _deleted = _many_table_world(tmp_path, level_tables=2, with_level0=False)
+    monkeypatch.setattr(leveldb_readonly, "_MAX_HELD_TABLES", 0)
     monkeypatch.setattr(leveldb_readonly, "_MAX_OPEN_TABLES", 1)
     reader = ReadonlyLevelDbAdapter(str(root))
     try:
@@ -272,10 +278,227 @@ def test_a_table_that_changes_while_reading_is_refused(tmp_path, monkeypatch, ch
             os.replace(replacement, root / "000003.ldb")
         else:
             os.remove(root / "000003.ldb")
-        with pytest.raises(CorruptDatabaseError, match="ersetzt" if change == "replaced" else "verschwunden"):
+        with pytest.raises(WorldChangedWhileReadingError):
             reader.get(b"k0001")
     finally:
         reader.close()
+
+
+def test_a_server_compacting_during_a_scan_cannot_take_tables_away(tmp_path, monkeypatch):
+    root, expected, deleted = _many_table_world(tmp_path)
+    open_now, _opened = _track_table_files(monkeypatch)
+    reader = ReadonlyLevelDbAdapter(str(root))
+    try:
+        # All 26 tables are open before the first read, as the server's
+        # compaction may delete any of them from now on.
+        assert open_now() == 26
+        # The server deletes them at once, on Windows too; the open handles
+        # still read what the reader started with.
+        for table in root.glob("*.ldb"):
+            os.remove(table)
+        # A new MANIFEST generation replaces CURRENT the same way.
+        (root / "CURRENT.tmp").write_bytes(b"MANIFEST-000009\n")
+        os.replace(root / "CURRENT.tmp", root / "CURRENT")
+        assert dict(reader.iter_items()) == expected
+        for key in deleted:
+            with pytest.raises(KeyError):
+                reader.get(key)
+    finally:
+        reader.close()
+    assert open_now() == 0
+    assert not list(root.glob("*.ldb"))
+
+
+@pytest.mark.parametrize("state", ["after_compaction", "damaged", "unreadable"])
+def test_a_missing_table_is_a_change_only_after_the_manifest_changed(tmp_path, monkeypatch, state):
+    root, expected, _deleted = _many_table_world(tmp_path)
+    # Tables that are not held open on demand.
+    monkeypatch.setattr(leveldb_readonly, "_MAX_HELD_TABLES", 0)
+    monkeypatch.setattr(leveldb_readonly, "_MAX_OPEN_TABLES", 4)
+    reader = ReadonlyLevelDbAdapter(str(root))
+    try:
+        os.remove(root / "000013.ldb")
+        if state == "after_compaction":
+            # LevelDB records a compaction in the MANIFEST before it deletes
+            # the tables it replaced.
+            with (root / "MANIFEST-000001").open("ab") as manifest:
+                manifest.write(b"\0" * 16)
+            with pytest.raises(WorldChangedWhileReadingError):
+                reader.get(b"k0100")
+        elif state == "damaged":
+            with pytest.raises(CorruptDatabaseError, match="000013 fehlt") as raised:
+                reader.get(b"k0100")
+            assert not isinstance(raised.value, WorldChangedWhileReadingError)
+        else:
+            open_for_reading = leveldb_readonly._open_for_reading
+
+            def refuse_current(path, **kwargs):
+                if os.path.basename(path) == "CURRENT":
+                    raise PermissionError(13, "Permission denied", path)
+                return open_for_reading(path, **kwargs)
+
+            # Missing permissions stay visible instead of passing as a change.
+            monkeypatch.setattr(leveldb_readonly, "_open_for_reading", refuse_current)
+            with pytest.raises(PermissionError):
+                reader.get(b"k0100")
+    finally:
+        reader.close()
+
+
+def test_a_reader_that_fails_to_open_closes_its_tables(tmp_path, monkeypatch):
+    root, _expected, _deleted = _many_table_world(tmp_path)
+    budget = leveldb_readonly._HeldTableBudget(26)
+    monkeypatch.setattr(leveldb_readonly, "_HELD_TABLES", budget)
+    open_now, opened = _track_table_files(monkeypatch)
+
+    def broken_log(*_args, **_kwargs):
+        raise CorruptDatabaseError("broken log")
+
+    # The log is replayed after the tables are open; a failure there must not
+    # leave them open.
+    monkeypatch.setattr(leveldb_readonly, "_replay_wal", broken_log)
+    with pytest.raises(CorruptDatabaseError, match="broken log"):
+        ReadonlyLevelDbAdapter(str(root))
+    assert len(opened) == 26 and open_now() == 0
+    # The held tables went back to the budget.
+    assert budget.reserve(26)
+
+
+def test_readers_of_different_worlds_share_one_budget_of_held_tables(tmp_path, monkeypatch):
+    worlds = []
+    for name in ("first", "second"):
+        (tmp_path / name).mkdir()
+        worlds.append(_many_table_world(tmp_path / name))
+    budget = leveldb_readonly._HeldTableBudget(40)
+    monkeypatch.setattr(leveldb_readonly, "_HELD_TABLES", budget)
+    open_now, _opened = _track_table_files(monkeypatch)
+    first = ReadonlyLevelDbAdapter(str(worlds[0][0]))
+    try:
+        assert open_now() == 26
+        # 14 tables are left: the second world opens its 26 on demand.
+        second = ReadonlyLevelDbAdapter(str(worlds[1][0]))
+        try:
+            assert open_now() == 26
+            assert dict(second.iter_items()) == worlds[1][1]
+        finally:
+            second.close()
+        assert dict(first.iter_items()) == worlds[0][1]
+    finally:
+        first.close()
+    assert open_now() == 0
+    # Closing gave the tables back, so the next reader holds its world again.
+    again = ReadonlyLevelDbAdapter(str(worlds[1][0]))
+    try:
+        assert open_now() == 26
+    finally:
+        again.close()
+    assert budget.reserve(40)
+
+
+def test_a_writer_opens_tables_on_demand(tmp_path, monkeypatch):
+    root, expected, _deleted = _many_table_world(tmp_path, writable=True)
+    budget = leveldb_readonly._HeldTableBudget(26)
+    monkeypatch.setattr(leveldb_readonly, "_HELD_TABLES", budget)
+    open_now, _opened = _track_table_files(monkeypatch)
+    writer = LevelDbWriter(str(root))
+    try:
+        # Its exclusive access keeps servers out; it holds nothing up front.
+        assert open_now() == 0
+        assert writer.get(b"k0000") == expected[b"k0000"]
+    finally:
+        writer.close()
+    assert open_now() == 0
+    assert budget.reserve(26)
+
+
+def _flushing_world(tmp_path):
+    """A table holds a and b; log 2 holds a newer a that a server will flush."""
+
+    old = [(_key(b"a", 1), b"old a"), (_key(b"b", 2), b"old b")]
+    old_table = _table([old], 0)
+    root = _world_db(tmp_path, manifest=_new_file(1, 3, old_table, old[0][0], old[-1][0]),
+                     wal=_write_batch(10, [(b"a", b"new a")]))
+    (root / "000003.ldb").write_bytes(old_table)
+    return root
+
+
+def _flush(root):
+    """Do what a running server does when it flushes log 2 into table 4."""
+
+    flushed = [(_key(b"a", 10), b"new a")]
+    flushed_table = _table([flushed], 0)
+    (root / "000005.log").write_bytes(_log_record(_write_batch(11, [(b"b", b"new b")])))
+    (root / "000004.ldb").write_bytes(flushed_table)
+    # The MANIFEST records the table and the next log before log 2 goes away.
+    with (root / "MANIFEST-000001").open("ab") as manifest:
+        manifest.write(_log_record(b"\x02\x05" + _new_file(0, 4, flushed_table, flushed[0][0], flushed[0][0])))
+    os.remove(root / "000002.log")
+
+
+@pytest.mark.parametrize("moment", ["before_the_logs_are_listed", "before_the_log_is_read"])
+def test_a_flush_while_opening_is_a_change_not_a_mixed_state(tmp_path, monkeypatch, moment):
+    root = _flushing_world(tmp_path)
+    if moment == "before_the_logs_are_listed":
+        replay_logs = ReadonlyLevelDbAdapter._replay_logs
+
+        def flush_first(self, db_path):
+            _flush(root)
+            replay_logs(self, db_path)
+
+        monkeypatch.setattr(ReadonlyLevelDbAdapter, "_replay_logs", flush_first)
+    else:
+        read_metadata = ReadonlyLevelDbAdapter._read_metadata
+
+        def flush_before_the_log(self, path):
+            if path.endswith("000002.log"):
+                _flush(root)
+            return read_metadata(self, path)
+
+        monkeypatch.setattr(ReadonlyLevelDbAdapter, "_read_metadata", flush_before_the_log)
+    # The old MANIFEST without log 2 would give the old a with the new b, a
+    # state the world never had.
+    with pytest.raises(WorldChangedWhileReadingError):
+        ReadonlyLevelDbAdapter(str(root))
+    monkeypatch.undo()
+    reader = ReadonlyLevelDbAdapter(str(root))
+    try:
+        assert dict(reader.iter_items()) == {b"a": b"new a", b"b": b"new b"}
+    finally:
+        reader.close()
+
+
+def test_a_new_manifest_while_opening_is_a_change(tmp_path, monkeypatch):
+    root = _flushing_world(tmp_path)
+    read_metadata = ReadonlyLevelDbAdapter._read_metadata
+
+    def reopened_by_the_server(self, path):
+        if path.endswith("MANIFEST-000001"):
+            # Opening a world writes a new MANIFEST, points CURRENT to it and
+            # deletes the old one.
+            shutil.copyfile(root / "MANIFEST-000001", root / "MANIFEST-000006")
+            (root / "CURRENT.tmp").write_bytes(b"MANIFEST-000006\n")
+            os.replace(root / "CURRENT.tmp", root / "CURRENT")
+            os.remove(root / "MANIFEST-000001")
+        return read_metadata(self, path)
+
+    monkeypatch.setattr(ReadonlyLevelDbAdapter, "_read_metadata", reopened_by_the_server)
+    with pytest.raises(WorldChangedWhileReadingError):
+        ReadonlyLevelDbAdapter(str(root))
+
+
+@pytest.mark.parametrize("missing", ["MANIFEST-000001", "000002.log"])
+def test_a_missing_metadata_file_without_a_change_is_not_reported_as_one(tmp_path, monkeypatch, missing):
+    root = _flushing_world(tmp_path)
+    read_metadata = ReadonlyLevelDbAdapter._read_metadata
+
+    def missing_first(self, path):
+        if path.endswith(missing):
+            os.remove(path)
+        return read_metadata(self, path)
+
+    monkeypatch.setattr(ReadonlyLevelDbAdapter, "_read_metadata", missing_first)
+    with pytest.raises(FileNotFoundError):
+        ReadonlyLevelDbAdapter(str(root))
 
 
 @pytest.mark.parametrize("layout", ["next_block", "next_table"])

@@ -480,7 +480,9 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
                 _create_empty_database(db_path)
             assert resources.access is not None
             resources.access.hold_current()
-            super().__init__(db_path)
+            # With exclusive access no engine compacts meanwhile, so tables
+            # can open on demand without taking from the readers' budget.
+            super().__init__(db_path, hold_tables=False)
             self._check_writable()
             resources.access.ensure_unused(
                 os.path.join(db_path, name) for name in (self._manifest_name, *self._wal_names)

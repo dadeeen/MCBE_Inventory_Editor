@@ -21,13 +21,18 @@ Supported on-disk features:
 
 Limitations (by design):
 
-* No LOCK handling: reading while another process is actively writing can
-  observe a torn state.  Callers should treat results as a best-effort
-  snapshot; the write path (``leveldb_writer``) takes the database locks.
+* No LOCK handling: another process may write while a reader opens or reads.
+  Opening fails with ``WorldChangedWhileReadingError`` when CURRENT or the
+  MANIFEST changed meanwhile; the write path (``leveldb_writer``) takes the
+  database locks.
 * Blocks are limited to 64 MiB stored/decompressed; the combined MANIFEST/WAL
   input is limited to 256 MiB per reader. Larger inputs fail explicitly.
-* At most 64 table files are open per reader; others are reopened on demand
-  and must keep their size, modification time and file identity.
+* A reader holds every table of a world with up to 256 tables open from
+  opening until it closes, while the process's budget of held tables allows.
+  It then reads the state at its opening, even if a server compacts meanwhile.
+  Its handles let other programs delete or replace the files, on Windows too.
+  Other readers keep at most 64 tables open and reopen them on demand; a
+  reopened table must keep its size, modification time and file identity.
 """
 
 from __future__ import annotations
@@ -46,6 +51,8 @@ import zlib
 from collections import OrderedDict
 from typing import BinaryIO, NamedTuple
 
+from .i18n import t
+
 LOGGER = logging.getLogger(__name__)
 
 _TABLE_MAGIC = 0xDB4775248B80FB57
@@ -53,8 +60,11 @@ _LOG_BLOCK_SIZE = 32768
 _MAX_SEQUENCE = (1 << 56) - 1
 _MAX_BLOCK_BYTES = 64 * 1024 * 1024
 _MAX_METADATA_BYTES = 256 * 1024 * 1024
-# Linux commonly limits a process to 1024 open files, and large worlds have
-# thousands of tables. Native LevelDB bounds its table cache the same way.
+# A reader holds all tables of a world with at most this many; with LevelDB's
+# usual 2 MB tables that is roughly 500 MB of world data.
+_MAX_HELD_TABLES = 256
+# Readers that open tables on demand keep at most this many open. Large worlds
+# have thousands of tables; native LevelDB bounds its table cache the same way.
 _MAX_OPEN_TABLES = 64
 _TYPE_DELETION = 0
 _TYPE_VALUE = 1
@@ -137,8 +147,78 @@ def _mask_crc32c(crc: int) -> int:
     return (((crc >> 15) | ((crc << 17) & 0xFFFFFFFF)) + 0xA282EAD8) & 0xFFFFFFFF
 
 
+if sys.platform == "win32":  # pragma: no cover - platform-specific
+    import _winapi
+    import msvcrt
+
+    _FILE_SHARE_READ_WRITE_DELETE = 0x7
+
+    def _open_for_reading(path: str, *, buffering: int = -1) -> BinaryIO:
+        """Open like ``open(path, "rb")`` but let other programs delete or replace the file.
+
+        A running Minecraft or Bedrock server deletes tables it compacted away
+        and replaces CURRENT. With delete sharing it does so at once, while
+        this handle keeps reading what it opened, as on POSIX.
+        """
+
+        handle = _winapi.CreateFile(path, _winapi.GENERIC_READ, _FILE_SHARE_READ_WRITE_DELETE, 0, _winapi.OPEN_EXISTING, 0, 0)
+        try:
+            descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY)
+        except BaseException:
+            _winapi.CloseHandle(handle)
+            raise
+        return open(descriptor, "rb", buffering=buffering)
+
+    # Python's files take their descriptors from the C runtime's table.
+    _PROCESS_FILE_LIMIT = 8192
+
+else:
+    import resource
+
+    def _open_for_reading(path: str, *, buffering: int = -1) -> BinaryIO:
+        return open(path, "rb", buffering=buffering)
+
+    _soft_file_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+    _PROCESS_FILE_LIMIT = 1 << 20 if _soft_file_limit == resource.RLIM_INFINITY else _soft_file_limit
+
+
+class _HeldTableBudget:
+    """How many table files the readers of this process may hold together."""
+
+    def __init__(self, total: int) -> None:
+        self._free = total
+        self._lock = threading.Lock()
+
+    def reserve(self, count: int) -> bool:
+        with self._lock:
+            if count > self._free:
+                return False
+            self._free -= count
+            return True
+
+    def release(self, count: int) -> None:
+        with self._lock:
+            self._free += count
+
+
+# Requests for different worlds read at the same time and share the process's
+# file limit. Half of it stays for sockets, logs, metadata and readers that
+# open tables on demand.
+_HELD_TABLES = _HeldTableBudget(min(4 * _MAX_HELD_TABLES, _PROCESS_FILE_LIMIT // 2))
+
+
 class CorruptDatabaseError(ValueError):
     """Raised when the LevelDB on-disk structures cannot be parsed."""
+
+
+class WorldChangedWhileReadingError(CorruptDatabaseError):
+    """Another program changed the database's files while this reader used them."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        super().__init__(
+            t("Die Welt wurde während des Lesens verändert, vermutlich vom laufenden Bedrock-Server oder von Minecraft. Lade die Welt erneut.")
+        )
 
 
 def _decode_varint(data: bytes, pos: int) -> tuple[int, int]:
@@ -437,7 +517,14 @@ class _TableHandles:
         with self._guard:
             handle = self._acquire(table)
             handle.seek(offset)
-            return handle.read(size)
+            data = handle.read(size)
+            # Table handles are unbuffered, and such a read may return less.
+            while len(data) < size:
+                more = handle.read(size - len(data))
+                if not more:
+                    break
+                data += more
+            return data
 
     def _acquire(self, table: _Table) -> BinaryIO:
         if self._closed or table._closed:
@@ -500,7 +587,9 @@ class _Table:
 
     def _open_handle(self) -> BinaryIO:
         # Kept open for lazy block reads until the handle budget or close() ends it.
-        handle = open(self._path, "rb")  # noqa: SIM115
+        # Blocks are read whole at known offsets, so a buffer would only cost
+        # memory for every held table.
+        handle = _open_for_reading(self._path, buffering=0)
         try:
             stat = os.fstat(handle.fileno())
             identity = (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino)
@@ -510,7 +599,8 @@ class _Table:
             elif identity != self._identity:
                 # Tables are immutable; a different file under this name means
                 # the world changed while it was being read.
-                raise CorruptDatabaseError(f"Tabellendatei wurde während des Lesens ersetzt: {self._path}")
+                LOGGER.warning("Tabellendatei wurde während des Lesens ersetzt: %s", self._path)
+                raise WorldChangedWhileReadingError(self._path)
         except BaseException:
             handle.close()
             raise
@@ -530,7 +620,8 @@ class _Table:
         try:
             data = self._handles.read(self, offset, size)
         except FileNotFoundError as exc:
-            raise CorruptDatabaseError(f"Tabellendatei ist während des Lesens verschwunden: {self._path}") from exc
+            LOGGER.warning("Tabellendatei ist während des Lesens verschwunden: %s", self._path)
+            raise WorldChangedWhileReadingError(self._path) from exc
         if len(data) != size:
             raise CorruptDatabaseError(f"Unerwartetes Dateiende in {self._path}.")
         return data
@@ -655,10 +746,11 @@ class ReadonlyLevelDbAdapter:
     table files lazily.  Never acquires the LOCK file and never writes.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, *, hold_tables: bool = True):
         self._db_path = db_path
         self._tables: dict[int, _Table] = {}
         self._table_handles = _TableHandles()
+        self._held_tables = 0
         # Writers opt in after acquiring exclusive access. Ordinary readers
         # may inspect a running world, so they keep reading blocks afresh.
         self._block_cache: _BlockCache | None = None
@@ -670,14 +762,52 @@ class ReadonlyLevelDbAdapter:
         current_path = os.path.join(db_path, "CURRENT")
         if not os.path.isfile(current_path):
             raise FileNotFoundError(f"Keine LevelDB gefunden (CURRENT fehlt): {db_path}")
-        with open(current_path, "rb") as handle:
+        with _open_for_reading(current_path) as handle:
             manifest_name = handle.read(4096).decode("utf-8", errors="strict").strip()
         if not re.fullmatch(r"MANIFEST-\d{6,}", manifest_name):
             raise CorruptDatabaseError(f"Ungültiger CURRENT-Inhalt: {manifest_name!r}")
         self._manifest_name = manifest_name
-        self._manifest = _parse_manifest(self._read_metadata(os.path.join(db_path, manifest_name)))
-        self._files = self._manifest.files
+        self._manifest_size = -1
+        try:
+            manifest_data = self._read_metadata(os.path.join(db_path, manifest_name))
+            self._manifest_size = len(manifest_data)
+            self._manifest = _parse_manifest(manifest_data)
+            self._files = self._manifest.files
+            if hold_tables:
+                self._hold_tables()
+            self._replay_logs(db_path)
+            # LevelDB records a flush or compaction in the MANIFEST before it
+            # deletes the log or tables it replaced. Unchanged metadata means
+            # the tables and logs read belong to one state of the world.
+            changed = self._changed_since_opened()
+        except (FileNotFoundError, CorruptDatabaseError) as exc:
+            self._close_tables()
+            if not isinstance(exc, WorldChangedWhileReadingError) and self._changed_since_opened():
+                LOGGER.warning("Welt wurde beim Öffnen verändert: %s (%s)", db_path, exc)
+                raise WorldChangedWhileReadingError(db_path) from exc
+            raise
+        except BaseException:
+            self._close_tables()
+            raise
+        if changed:
+            self._close_tables()
+            LOGGER.warning("Welt wurde beim Öffnen verändert: %s", db_path)
+            raise WorldChangedWhileReadingError(db_path)
 
+    def _hold_tables(self) -> None:
+        file_numbers = sorted({file_no for files in self._files.values() for file_no in files})
+        if len(file_numbers) > _MAX_HELD_TABLES or not _HELD_TABLES.reserve(len(file_numbers)):
+            # Opened on demand instead; a table that vanishes meanwhile fails.
+            return
+        self._held_tables = len(file_numbers)
+        self._table_handles = _TableHandles(len(file_numbers))
+        # Open every table right after reading the MANIFEST and keep it open.
+        # A running server that compacts meanwhile deletes files; the open
+        # handles let it and still read them, on Windows too.
+        for file_no in file_numbers:
+            self._table(file_no)
+
+    def _replay_logs(self, db_path: str) -> None:
         self._memtable: dict[bytes, tuple[int, int, bytes]] = {}
         wal_files = []
         for filename in os.listdir(db_path):
@@ -705,7 +835,7 @@ class ReadonlyLevelDbAdapter:
             )
 
     def _read_metadata(self, path: str) -> bytes:
-        with open(path, "rb") as handle:
+        with _open_for_reading(path) as handle:
             size = os.fstat(handle.fileno()).st_size
             if size > _MAX_METADATA_BYTES - self._metadata_bytes:
                 raise CorruptDatabaseError("MANIFEST/WAL-Daten überschreiten das Leselimit.")
@@ -750,13 +880,43 @@ class ReadonlyLevelDbAdapter:
         if table is None:
             for extension in ("ldb", "sst"):
                 path = os.path.join(self._db_path, f"{file_no:06d}.{extension}")
-                if os.path.isfile(path):
+                if not os.path.isfile(path):
+                    continue
+                try:
                     table = _Table(path, block_cache=self._block_cache, handles=self._table_handles)
-                    break
+                except FileNotFoundError:
+                    continue
+                break
             else:
+                if self._changed_since_opened():
+                    LOGGER.warning("Tabellendatei %06d fehlt nach einer Änderung der Welt.", file_no)
+                    raise WorldChangedWhileReadingError(os.path.join(self._db_path, f"{file_no:06d}.ldb"))
                 raise CorruptDatabaseError(f"Tabellendatei {file_no:06d} fehlt.")
             self._tables[file_no] = table
         return table
+
+    def _changed_since_opened(self) -> bool:
+        """Whether CURRENT or the MANIFEST differs from what this reader parsed.
+
+        LevelDB records every compaction in the MANIFEST before it deletes
+        tables, so a table that vanished after such a change is no damage.
+        A MANIFEST missing under an unchanged CURRENT is damage, and other
+        errors such as missing permissions are raised as they are.
+        """
+
+        try:
+            with _open_for_reading(os.path.join(self._db_path, "CURRENT")) as handle:
+                if handle.read(4096).decode("utf-8", errors="replace").strip() != self._manifest_name:
+                    return True
+        except FileNotFoundError:
+            return True
+        if self._manifest_size < 0:
+            # The MANIFEST CURRENT still names could not be read at all.
+            return False
+        try:
+            return os.stat(os.path.join(self._db_path, self._manifest_name)).st_size != self._manifest_size
+        except FileNotFoundError:
+            return False
 
     def get(self, key: bytes) -> bytes:
         if self._closed:
@@ -870,9 +1030,14 @@ class ReadonlyLevelDbAdapter:
         self._closed = True
         if self._block_cache is not None:
             self._block_cache.clear()
+        self._close_tables()
+
+    def _close_tables(self) -> None:
         try:
             for table in self._tables.values():
                 table.close()
         finally:
             self._tables.clear()
             self._table_handles.close_all()
+            held, self._held_tables = self._held_tables, 0
+            _HELD_TABLES.release(held)

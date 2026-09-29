@@ -13,6 +13,7 @@ from typing import Any
 
 from .api_errors import add_exception_cleanup_details, error_payload, uncertain_write_payload
 from .i18n import localize_message_record, t
+from .leveldb_readonly import WorldChangedWhileReadingError
 from .service_errors import (
     PlayerImportPreviewStaleError,
     PlayerImportRecordRollbackError,
@@ -22,6 +23,18 @@ from .service_errors import (
     PlayerStateTransferRolledBackError,
     WriteOutcomeUnknownError,
 )
+
+# A running server compacts its database while the editor reads it; the next
+# attempt reads the new state. The generic hints about the world path would
+# point in the wrong direction.
+WORLD_CHANGED_WHILE_READING_HINTS = (
+    "Lade die Welt erneut; der nächste Versuch liest den aktuellen Stand.",
+    "Tritt der Fehler wiederholt auf, stoppe den Server kurz und lade die Welt dann.",
+)
+
+
+def _world_changed_response(exc: WorldChangedWhileReadingError, deps: PlayerRouteDeps):
+    return deps.api_error(exc, 409, code="world_changed_while_reading", hints=list(WORLD_CHANGED_WHILE_READING_HINTS))
 
 
 @dataclass(frozen=True)
@@ -100,6 +113,8 @@ def list_players(data: dict, deps: PlayerRouteDeps):
         return blocked
     try:
         return deps.jsonify(deps.service.list_players(deps.json_string(data, "world_path")))
+    except WorldChangedWhileReadingError as exc:
+        return _world_changed_response(exc, deps)
     except ValueError as exc:
         return deps.api_error(exc)
     except Exception as exc:
@@ -164,6 +179,8 @@ def load_player(data: dict, deps: PlayerRouteDeps):
             result["server_guard_stale_reason_key"] = PLAYER_LOADED_WHILE_SERVER_ONLINE_REASON
             result["server_guard_stale_reason"] = t(PLAYER_LOADED_WHILE_SERVER_ONLINE_REASON)
         return deps.jsonify(result)
+    except WorldChangedWhileReadingError as exc:
+        return _world_changed_response(exc, deps)
     except ValueError as exc:
         return deps.api_error(exc)
     except Exception as exc:
