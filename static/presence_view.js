@@ -55,8 +55,45 @@
         element.style.display = model.visible ? "block" : "none";
     }
 
+    // Watches the loaded player for changes made outside this page, e.g. in
+    // Minecraft. The poll reports the world's fingerprint; once it differs
+    // from loading and stayed the same over one poll, the server reads the
+    // player's stored revision, and only a different revision counts.
+    function playerWatchKey({ worldPath = "", playerKey = "", loadedFingerprint = "", revision = "" } = {}) {
+        return worldPath && playerKey && loadedFingerprint && revision
+            ? [worldPath, playerKey, loadedFingerprint, revision].join("\n")
+            : "";
+    }
+
+    function nextPlayerWatch(watch, context = {}, { data = null, requestKey = "", busy = false } = {}) {
+        const key = playerWatchKey(context);
+        // Another world, player or revision (after loading or saving) starts over.
+        const next = watch && watch.key === key
+            ? { ...watch }
+            : { key, baseline: key ? context.loadedFingerprint : "", seen: "", changed: false };
+        // A response to an older state, or one arriving while this page saves
+        // or loads, may describe a revision the page has not received yet.
+        if (!key || !data || requestKey !== key || busy) return next;
+        const fingerprint = typeof data.world_fingerprint === "string" ? data.world_fingerprint : "";
+        if (!fingerprint) return next;
+        if (typeof data.player_revision === "string") {
+            next.changed = data.player_revision !== context.revision;
+            next.baseline = fingerprint;
+            next.seen = "";
+            return next;
+        }
+        next.seen = fingerprint === next.baseline ? "" : fingerprint;
+        return next;
+    }
+
+    function playerWatchRequest(watch) {
+        return watch?.key ? { fingerprint_baseline: watch.baseline, fingerprint_seen: watch.seen } : {};
+    }
+
     window.MCBEPresenceView = {
         applyWorldPresenceModel,
+        nextPlayerWatch,
+        playerWatchRequest,
         worldPresenceModel,
         presenceConflictText,
     };
@@ -79,7 +116,11 @@
         getWorldPath,
         getCurrentPlayerKey,
         getCurrentPlayerLabel,
+        getCurrentPlayerRevision,
+        getLoadedWorldFingerprint,
         getIsDirty,
+        getIsBusy,
+        reloadPlayer,
         logStatus,
         showToast,
         showConfirmDialog,
@@ -88,6 +129,7 @@
         let lastAlertKey = "";
         let cachedSessionId = "";
         let leaveSent = false;
+        let playerWatch = null;
 
         function sessionId() {
             try {
@@ -126,12 +168,49 @@
             }
         }
 
+        function playerWatchContext() {
+            return {
+                worldPath: getWorldPath?.() || "",
+                playerKey: getCurrentPlayerKey?.() || "",
+                loadedFingerprint: getLoadedWorldFingerprint?.() || "",
+                revision: getCurrentPlayerRevision?.() || "",
+            };
+        }
+
+        function renderPlayerChanged() {
+            const banner = elements.playerChangedBanner;
+            const changed = playerWatch?.changed === true;
+            if (banner) {
+                const wasVisible = banner.style.display !== "none";
+                banner.style.display = changed ? "flex" : "none";
+                if (changed && !wasVisible) {
+                    showToast?.(t("Dieser Spieler wurde seit dem Laden verändert, z. B. in Minecraft. Speichern würde abgelehnt."), "warning", 7000);
+                }
+            }
+        }
+
+        async function reloadChangedPlayer() {
+            if (getIsDirty?.() === true) {
+                const ok = await showConfirmDialog?.(t("Deine ungespeicherten Änderungen gehen beim Neuladen verloren. Spieler trotzdem neu laden?"));
+                if (!ok) return false;
+            }
+            return reloadPlayer?.();
+        }
+
+        function wirePlayerChangedBanner() {
+            elements.playerChangedButton?.addEventListener("click", () => { reloadChangedPlayer(); });
+        }
+
         async function update({ silent = true } = {}) {
+            playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext());
+            renderPlayerChanged();
             const worldPath = getWorldPath?.() || "";
             if (!worldPath) {
                 render(null);
                 return null;
             }
+            const requestKey = playerWatch.key;
+            const watchFields = getIsBusy?.() === true ? {} : view.playerWatchRequest(playerWatch);
             try {
                 const res = await fetch("/api/world/presence", {
                     method: "POST",
@@ -142,12 +221,19 @@
                         player_key: getCurrentPlayerKey?.() || "",
                         player_label: getCurrentPlayerLabel?.() || t("Spieler"),
                         dirty: getIsDirty?.() === true,
+                        ...watchFields,
                     }),
                 });
                 const data = await parseJsonResponse(res);
                 if (data.success) {
                     leaveSent = false;
                     render(data);
+                    playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext(), {
+                        data,
+                        requestKey: Object.keys(watchFields).length ? requestKey : "",
+                        busy: getIsBusy?.() === true,
+                    });
+                    renderPlayerChanged();
                     return data;
                 }
                 if (!silent) logStatus?.(t("Präsenz-Hinweis konnte nicht aktualisiert werden: {error}", { error: data.error }), "warning");
@@ -194,12 +280,14 @@
         return {
             confirmConflict,
             leave,
+            reloadChangedPlayer,
             render,
             scheduleUpdate,
             sessionId,
             startPolling,
             update,
             wireBeforeUnload,
+            wirePlayerChangedBanner,
         };
     }
 
@@ -217,13 +305,21 @@
             win,
             sessionKey,
             intervalMs,
-            elements: { banner: doc.getElementById("worldPresenceBanner") },
+            elements: {
+                banner: doc.getElementById("worldPresenceBanner"),
+                playerChangedBanner: doc.getElementById("playerChangedBanner"),
+                playerChangedButton: doc.getElementById("btnReloadChangedPlayer"),
+            },
             withCsrf: api.withCsrf,
             parseJsonResponse: api.parseJsonResponse,
             getWorldPath: state.getWorldPath,
             getCurrentPlayerKey: state.getCurrentPlayerKey,
             getCurrentPlayerLabel: state.getCurrentPlayerLabel,
+            getCurrentPlayerRevision: state.getCurrentPlayerRevision,
+            getLoadedWorldFingerprint: state.getLoadedWorldFingerprint,
             getIsDirty: state.getIsDirty,
+            getIsBusy: state.getIsBusy,
+            reloadPlayer: helpers.reloadPlayer,
             logStatus: helpers.logStatus,
             showToast: helpers.showToast,
             showConfirmDialog: helpers.showConfirmDialog,

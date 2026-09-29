@@ -211,3 +211,81 @@ def test_locked_operation_serializes_across_processes(tmp_path):
     process.wait(timeout=5)
     assert process.returncode == 0
     assert entered.exists()
+
+
+def test_world_lock_if_free_skips_a_world_another_thread_or_process_holds(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from mcbe_editor.world_locks import locked_world, world_lock_if_free
+
+    world = tmp_path / "world"
+    world.mkdir()
+    entered = tmp_path / "child-entered"
+    release = tmp_path / "child-release"
+    backup_root = tmp_path / "backups"
+    data_root = tmp_path / "data"
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["MCBE_BACKUP_ROOT"] = str(backup_root)
+    env["MCBE_DATA_ROOT"] = str(data_root)
+    env["PYTHONPATH"] = str(root)
+    code = (
+        "import time\n"
+        "from pathlib import Path\n"
+        "from mcbe_editor.world_locks import locked_world\n"
+        f"world = {str(world)!r}\n"
+        f"entered = Path({str(entered)!r})\n"
+        f"release = Path({str(release)!r})\n"
+        "with locked_world(world):\n"
+        "    entered.write_text('entered', encoding='utf-8')\n"
+        "    while not release.exists():\n"
+        "        time.sleep(0.02)\n"
+    )
+
+    with patch.dict(os.environ, {"MCBE_BACKUP_ROOT": str(backup_root), "MCBE_DATA_ROOT": str(data_root)}, clear=False):
+        # Another thread of this process.
+        holding = threading.Event()
+        done = threading.Event()
+
+        def hold():
+            with locked_world(str(world)):
+                holding.set()
+                done.wait(5)
+
+        thread = threading.Thread(target=hold)
+        thread.start()
+        try:
+            assert holding.wait(5)
+            with world_lock_if_free(str(world)) as free:
+                assert free is False
+        finally:
+            done.set()
+            thread.join(5)
+        with world_lock_if_free(str(world)) as free:
+            assert free is True
+            # Reentrant for the thread that holds it, like locked_world.
+            with world_lock_if_free(str(world)) as nested:
+                assert nested is True
+
+        # Another process.
+        process = subprocess.Popen([sys.executable, "-c", code], cwd=root, env=env)
+        try:
+            deadline = time.monotonic() + 5
+            while not entered.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert entered.exists()
+            started = time.monotonic()
+            with world_lock_if_free(str(world)) as free:
+                assert free is False
+            assert time.monotonic() - started < 1
+        finally:
+            release.write_text("release", encoding="utf-8")
+            process.wait(timeout=5)
+        assert process.returncode == 0
+        with world_lock_if_free(str(world)) as free:
+            assert free is True

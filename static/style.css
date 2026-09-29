@@ -2812,6 +2812,15 @@ body.item-browser-open {
     color: var(--danger);
 }
 
+.player-changed-banner {
+    grid-column: 1 / -1;
+    margin-top: 0;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 /* Login */
 .login-page {
     min-height: 100vh;

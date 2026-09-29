@@ -102,10 +102,15 @@ def operation_lock_path(name: str, *, root: str | os.PathLike[str] | None = None
     return os.path.join(normalized_root, ".operation_locks", f"{digest}.lock")
 
 
-def _acquire_os_lock(handle: BinaryIO) -> None:
+def _acquire_os_lock(handle: BinaryIO, *, blocking: bool = True) -> bool:
+    """Take the lock; without ``blocking``, return False if another process holds it."""
+
     if fcntl is not None:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        return
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
     if msvcrt is not None:  # pragma: no branch - only one backend exists per platform
         # Reading byte 0 while another process owns the byte-range lock raises
         # PermissionError on Windows. Inspecting the file size does not touch the
@@ -117,10 +122,12 @@ def _acquire_os_lock(handle: BinaryIO) -> None:
             handle.seek(0)
             try:
                 msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                return
+                return True
             except OSError as exc:
                 if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK} and getattr(exc, "winerror", None) not in {33, 36}:
                     raise
+                if not blocking:
+                    return False
                 time.sleep(0.05)
     raise RuntimeError("Diese Plattform unterstützt keine prozessübergreifende Dateisperre.")
 
@@ -136,12 +143,12 @@ def _release_os_lock(handle: BinaryIO) -> None:
     raise RuntimeError("Diese Plattform unterstützt keine prozessübergreifende Dateisperre.")
 
 
-def _enter_file_lock(key: str, path: str) -> None:
+def _enter_file_lock(key: str, path: str, *, blocking: bool = True) -> bool:
     state = _FILE_LOCK_STATES.get(key)
     current_pid = os.getpid()
     if state is not None and state.pid == current_pid:
         state.depth += 1
-        return
+        return True
     if state is not None:
         # A fork can inherit Python state and an open descriptor from its
         # parent. Treat it as foreign state; the child must acquire its own
@@ -154,12 +161,17 @@ def _enter_file_lock(key: str, path: str) -> None:
     # The handle intentionally stays open for the complete critical section.
     handle = open(path, "a+b")  # noqa: SIM115
     try:
-        _acquire_os_lock(handle)
+        acquired = _acquire_os_lock(handle, blocking=blocking)
     except BaseException:
         with suppress(OSError):
             handle.close()
         raise
+    if not acquired:
+        with suppress(OSError):
+            handle.close()
+        return False
     _FILE_LOCK_STATES[key] = _FileLockState(handle=handle, pid=current_pid)
+    return True
 
 
 def _exit_file_lock(key: str) -> None:
@@ -190,6 +202,31 @@ def locked_world(world_path: str) -> Iterator[None]:
         _enter_file_lock(key, interprocess_lock_path(world_path))
         try:
             yield
+        finally:
+            _exit_file_lock(key)
+    finally:
+        lock.release()
+
+
+@contextmanager
+def world_lock_if_free(world_path: str) -> Iterator[bool]:
+    """Like ``locked_world``, but yield False at once instead of waiting.
+
+    For optional reads, such as a periodic check, that simply skip a world
+    another thread or process is loading or saving right now.
+    """
+
+    key = lock_key(world_path)
+    lock = get_world_lock(world_path)
+    if not lock.acquire(blocking=False):
+        yield False
+        return
+    try:
+        if not _enter_file_lock(key, interprocess_lock_path(world_path), blocking=False):
+            yield False
+            return
+        try:
+            yield True
         finally:
             _exit_file_lock(key)
     finally:

@@ -176,6 +176,7 @@
                 currentPlayerKey: "",
                 currentPlayer: null,
                 currentPlayerRevision: "",
+                loadedWorldFingerprint: "",
                 currentPlayerServerGuardEpoch: state.currentServerGuardEpoch || 0,
                 currentPlayerServerGuardToken: state.currentServerGuardToken || "",
                 playerStats: {
@@ -411,6 +412,7 @@
                     currentPlayerKey: playerKey,
                     currentPlayer: data.player,
                     currentPlayerRevision: data.player_revision || "",
+                    loadedWorldFingerprint: data.world_fingerprint || "",
                     currentServerGuardEpoch: nextServerEpoch,
                     currentPlayerServerGuardEpoch: nextPlayerServerEpoch,
                     currentPlayerServerGuardToken: nextPlayerServerGuardToken,

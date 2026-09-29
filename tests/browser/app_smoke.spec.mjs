@@ -205,7 +205,8 @@ async function openDragFixture(page, overrides = {}) {
     hidden_unknown_slots: { inventory: 0, ender_chest: 0 },
     items_db: { "minecraft:stone": ["Stein", "Stone"], "minecraft:carrot": ["Karotte", "Carrot"], "minecraft:iron_helmet": ["Eisenhelm", "Iron Helmet"] },
     ench_db: {}, stack_limits: { __default__: 64 }, max_damage: { __default__: 0 },
-    ...overrides,
+    // A function answers each load with the values current at that moment.
+    ...(typeof overrides === "function" ? overrides() : overrides),
   } }));
   await openAppWithSmokeWorldScan(page);
   await page.locator(".world-card").click();
@@ -2331,4 +2332,54 @@ test("first-run setup overlay guides through item DB and icons, then hands over 
   await expect(overlay).toBeHidden();
   await expect(banner).toBeVisible();
   await expect(page.locator("#btnSetupTodoBanner")).toBeFocused();
+});
+
+test("a player changed outside the editor shows a hint that reloads it", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  const stored = { revision: "drag-revision", fingerprint: "at-load" };
+  const presenceBodies = [];
+  await page.route("**/api/world/presence", route => {
+    const body = route.request().postDataJSON();
+    presenceBodies.push(body);
+    const json = { success: true, other_sessions: 0 };
+    if (body.fingerprint_baseline) {
+      json.world_fingerprint = stored.fingerprint;
+      // The server reads the player once the world stayed the same for a poll.
+      if (body.fingerprint_seen === stored.fingerprint) json.player_revision = stored.revision;
+    }
+    return route.fulfill({ json });
+  });
+  let loads = 0;
+  await openDragFixture(page, () => {
+    loads++;
+    return { player_revision: stored.revision, world_fingerprint: stored.fingerprint };
+  });
+  expect(loads).toBe(1);
+  const banner = page.locator("#playerChangedBanner");
+  await page.evaluate(() => updateWorldPresence());
+  await expect(banner).toBeHidden();
+
+  // Minecraft saves the world after changing this player.
+  stored.revision = "minecraft-revision";
+  stored.fingerprint = "after-minecraft";
+  await page.evaluate(() => updateWorldPresence());
+  await expect(banner).toBeHidden();
+  await page.evaluate(() => updateWorldPresence());
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("seit dem Laden verändert");
+  const checked = presenceBodies.filter(body => body.fingerprint_seen === "after-minecraft");
+  expect(checked.length).toBeGreaterThan(0);
+  expect(checked[0].fingerprint_baseline).toBe("at-load");
+
+  // Reloading keeps the world and the current view; only the player is read again.
+  await page.locator('.app-section-nav button[data-workflow-view="inventory"]').click();
+  const worldBefore = await page.evaluate(() => worldPath);
+  await page.locator("#btnReloadChangedPlayer").click();
+  await expect.poll(() => loads).toBe(2);
+  await expect(banner).toBeHidden();
+  expect(await page.evaluate(() => currentPlayerRevision)).toBe("minecraft-revision");
+  expect(await page.evaluate(() => worldPath)).toBe(worldBefore);
+  expect(await page.evaluate(() => activeWorkflowView)).toBe("inventory");
+  await expect(page.locator("#inventoryContainer")).toBeVisible();
+  expect(browserErrors).toEqual([]);
 });

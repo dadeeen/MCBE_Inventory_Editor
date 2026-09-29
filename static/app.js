@@ -62,6 +62,7 @@ let players = [];
 let currentPlayerKey = "";
 let currentPlayer = null;
 let currentPlayerRevision = "";
+let loadedWorldFingerprint = "";
 let selectedWorld = null;
 let lastWorldScan = null;
 let lastRenderedWorlds = [];
@@ -784,9 +785,17 @@ const worldPresenceController = window.MCBEPresenceView.createConfiguredWorldPre
         getWorldPath: () => worldPath,
         getCurrentPlayerKey: () => currentPlayerKey,
         getCurrentPlayerLabel: currentPlayerLabel,
+        getCurrentPlayerRevision: () => currentPlayerRevision,
+        getLoadedWorldFingerprint: () => loadedWorldFingerprint,
         getIsDirty: () => isDirty,
+        getIsBusy: () => Boolean(saveAppController?.isSaving() || playerLoadApp?.isLoading()),
     },
-    helpers: { logStatus, showToast, showConfirmDialog },
+    helpers: {
+        logStatus,
+        showToast,
+        showConfirmDialog,
+        reloadPlayer: () => (currentPlayerKey ? loadPlayer(currentPlayerKey, true) : false),
+    },
 });
 function getWorldPresenceController() { return worldPresenceController; }
 function getWorldPresenceSessionId() { return worldPresenceController.sessionId(); }
@@ -864,6 +873,7 @@ const assignAppStatePatch = appStateBridge.createPatchAssigner({
     currentPlayerKey: value => { currentPlayerKey = value; },
     currentPlayer: value => { currentPlayer = value; },
     currentPlayerRevision: value => { currentPlayerRevision = value; },
+    loadedWorldFingerprint: value => { loadedWorldFingerprint = value || ""; },
     currentServerGuardEpoch: value => { currentServerGuardEpoch = value; },
     currentServerGuardToken: value => { currentServerGuardToken = value; },
     currentServerStatusRevision: value => { currentServerStatusRevision = value; },

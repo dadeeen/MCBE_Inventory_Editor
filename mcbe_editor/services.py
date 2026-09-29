@@ -99,8 +99,8 @@ from .service_errors import (
     denied_write_actor,
     denied_write_permission_hint,
 )
-from .world import LOCAL_PLAYER_KEY, detect_capabilities, ensure_valid_world_path, get_world_name
-from .world_locks import get_world_lock, lock_key, locked_world
+from .world import LOCAL_PLAYER_KEY, detect_capabilities, ensure_valid_world_path, get_world_name, world_fingerprint
+from .world_locks import get_world_lock, lock_key, locked_world, world_lock_if_free
 from .write_transaction import WritePlan, WriteState
 
 LOGGER = logging.getLogger(__name__)
@@ -391,6 +391,13 @@ class BedrockEditorService:
         db = None
         with self._locked_world(world_path):
             try:
+                ensure_valid_world_path(world_path)
+                # Taken before reading, so a change during loading still
+                # differs from it later.
+                try:
+                    fingerprint = world_fingerprint(world_path)
+                except OSError:
+                    fingerprint = ""
                 db = self._open_db_readonly(world_path)
                 player_key = decode_player_key(encoded_player_key)
                 player_bytes = self._read_player(db, player_key)
@@ -431,6 +438,7 @@ class BedrockEditorService:
                     "world_name": get_world_name(world_path),
                     "player": player_info,
                     "player_revision": self._player_revision(player_bytes),
+                    "world_fingerprint": fingerprint,
                     "inventory": inventory_data,
                     "ender_chest": ender_chest_data,
                     "has_ender_chest": has_ender_chest,
@@ -459,6 +467,26 @@ class BedrockEditorService:
                 }
             finally:
                 close_db_preserving_active_exception(db, context="Spieler laden")
+
+    def stored_player_revision(self, world_path, encoded_player_key) -> str | None:
+        """Revision of the player's stored record, "" if it is gone.
+
+        None while this or another process loads or saves the world: the
+        periodic check then tries again instead of waiting.
+        """
+
+        with world_lock_if_free(world_path) as free:
+            if not free:
+                return None
+            db = None
+            try:
+                db = self._open_db_readonly(world_path)
+                try:
+                    return self._player_revision(db.get(decode_player_key(encoded_player_key)))
+                except KeyError:
+                    return ""
+            finally:
+                close_db_preserving_active_exception(db, context="Spielerstand prüfen")
 
     def save_world(self, world_path, inventory_list, stats, base_revision=None):
         return self.save_player(world_path, encode_player_key(LOCAL_PLAYER_KEY), inventory_list, stats, base_revision=base_revision)

@@ -1,6 +1,8 @@
 import contextlib
+import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -746,6 +748,32 @@ def ensure_valid_world_path(world_path: str) -> str:
             )
         )
     return db_path
+
+
+_FINGERPRINT_DB_FILE = re.compile(r"CURRENT|MANIFEST-\d+|\d+\.log")
+
+
+def world_fingerprint(world_path: str) -> str:
+    """Digest of the files every save changes, to notice changes from outside.
+
+    LevelDB appends every write to a log and records flushes and compactions
+    in the MANIFEST, and a game save also rewrites level.dat. Name, size and
+    modification time of these files suffice; reading only their metadata keeps
+    a periodic check cheap. Tables are left out, since new ones always come
+    with a MANIFEST change. ``world_path`` must be validated already.
+    """
+
+    paths = [os.path.join(world_path, "level.dat")]
+    with os.scandir(os.path.join(world_path, "db")) as listing:
+        paths += [entry.path for entry in listing if _FINGERPRINT_DB_FILE.fullmatch(entry.name)]
+    entries = []
+    for path in sorted(paths):
+        try:
+            stat = os.stat(path)
+        except FileNotFoundError:
+            continue
+        entries.append(f"{os.path.relpath(path, world_path)}\0{stat.st_size}\0{stat.st_mtime_ns}")
+    return hashlib.blake2b("\n".join(entries).encode("utf-8", "surrogatepass"), digest_size=12).hexdigest()
 
 
 def get_world_name(world_path: str) -> str:

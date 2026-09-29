@@ -47,6 +47,11 @@
                     </div>
                     <span class="visually-hidden" id="statusStackLive" role="status" aria-live="polite" aria-atomic="true"></span>
                 </div>
+                <!-- In the header, so it shows in every view while a player is loaded. -->
+                <div class="presence-warning strong player-changed-banner" id="playerChangedBanner" role="status" aria-live="polite" style="display: none;">
+                    <span>{{ t("Dieser Spieler wurde seit dem Laden verändert, z. B. in Minecraft. Speichern würde abgelehnt.") }}</span>
+                    <button id="btnReloadChangedPlayer" class="btn btn-secondary btn-sm" type="button">{{ t("Spieler neu laden") }}</button>
+                </div>
             </div>
             <div class="header-actions">
                 {% if app_config.auth_enabled %}

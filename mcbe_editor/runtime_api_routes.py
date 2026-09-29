@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from .i18n import localize_message_record, t
+from .world import world_fingerprint
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,7 @@ class RuntimeRouteDeps:
     is_authenticated: Callable[[], bool]
     require_world_db_access_allowed: Callable[[], Any]
     note_heartbeat: Callable[[], None]
+    world_fingerprint: Callable[[str], str] = world_fingerprint
 
 
 def _localized_server_status(status: dict | None) -> dict:
@@ -78,19 +83,52 @@ def heartbeat(deps: RuntimeRouteDeps):
     return deps.jsonify({"status": "alive"})
 
 
+def _loaded_player_check(data: dict, world_path: str, deps: RuntimeRouteDeps) -> dict:
+    """Notice when the page's loaded player changed outside the editor.
+
+    The page sends the world fingerprint from loading (``fingerprint_baseline``)
+    and the one the previous poll returned (``fingerprint_seen``). Once the world
+    differs from the baseline and stayed the same since the previous poll, the
+    program that changed it is likely done, and the player's stored revision
+    is read for the page to compare.
+    """
+
+    baseline = data.get("fingerprint_baseline")
+    player_key = data.get("player_key")
+    if not isinstance(baseline, str) or not baseline or not isinstance(player_key, str) or not player_key:
+        return {}
+    try:
+        fingerprint = deps.world_fingerprint(world_path)
+    except OSError:
+        return {}
+    result: dict = {"world_fingerprint": fingerprint}
+    if fingerprint == baseline or fingerprint != data.get("fingerprint_seen"):
+        return result
+    if deps.require_world_db_access_allowed() is not None:
+        return result
+    try:
+        revision = deps.service.stored_player_revision(world_path, player_key)
+    except Exception as exc:
+        # A server still writing or a damaged world: the next poll tries again.
+        LOGGER.info("Spielerstand konnte nicht geprüft werden: %s", exc)
+        return result
+    if revision is not None:
+        result["player_revision"] = revision
+    return result
+
+
 def world_presence(data: dict, deps: RuntimeRouteDeps):
     try:
         world_path = deps.json_string(data, "world_path")
         deps.ensure_valid_world_path(world_path)
-        return deps.jsonify(
-            deps.world_presence.touch(
-                deps.json_string(data, "session_id"),
-                world_path,
-                player_key=data.get("player_key", ""),
-                player_label=data.get("player_label", ""),
-                dirty=deps.json_bool(data, "dirty", False),
-            )
+        result = deps.world_presence.touch(
+            deps.json_string(data, "session_id"),
+            world_path,
+            player_key=data.get("player_key", ""),
+            player_label=data.get("player_label", ""),
+            dirty=deps.json_bool(data, "dirty", False),
         )
+        return deps.jsonify({**result, **_loaded_player_check(data, world_path, deps)})
     except ValueError as exc:
         return deps.api_error(exc)
     except Exception as exc:

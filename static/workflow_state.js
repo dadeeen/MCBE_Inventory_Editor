@@ -537,6 +537,7 @@
             const controller = getWorldPresenceController();
             controller?.startPolling?.();
             controller?.wireBeforeUnload?.();
+            controller?.wirePlayerChangedBanner?.();
         }
 
         function startInitialWorldScan() {
