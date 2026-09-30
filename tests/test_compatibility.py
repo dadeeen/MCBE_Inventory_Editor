@@ -91,8 +91,7 @@ def test_player_compatibility_notes_unknown_root_and_warns_unknown_items():
             "FutureRootTag": nbt.StringTag("keep me"),
         }
     )
-    raw = nbt.NamedTag(tag).save_to(compressed=False, little_endian=True)
-    report = analyze_player_compatibility(tag, serialized_before=raw)
+    report = analyze_player_compatibility(tag, read_from_serialized=True)
     assert report["status"] == "warning"
     assert "FutureRootTag" in report["unknown_root_keys"]
     assert any("FutureRootTag" in note for note in report["notes"])
@@ -166,8 +165,7 @@ def test_player_compatibility_accepts_common_bedrock_root_tags_without_warning()
             "SpawnZ": nbt.IntTag(0),
         }
     )
-    raw = nbt.NamedTag(tag).save_to(compressed=False, little_endian=True)
-    report = analyze_player_compatibility(tag, serialized_before=raw)
+    report = analyze_player_compatibility(tag, read_from_serialized=True)
     assert report["status"] == "ok"
     assert report["unknown_root_keys"] == []
     assert report["warnings"] == []
@@ -192,6 +190,95 @@ def test_service_compatibility_report_can_include_player(tmp_path):
     assert result["success"] is True
     assert "world" in result
     assert "player" in result
+
+
+def _root_entry(name):
+    return nbt.CompoundTag(
+        {
+            "Name": nbt.StringTag(name),
+            "Count": nbt.ByteTag(1 if name else 0),
+            "Damage": nbt.ShortTag(0),
+            "WasPickedUp": nbt.ByteTag(0),
+        }
+    )
+
+
+def _player_with_root_equipment_and_unknown_items():
+    return nbt.NamedTag(
+        nbt.CompoundTag(
+            {
+                "Inventory": nbt.ListTag([_item("minecraft:stone"), _item("minecraft:future_item", slot=4)]),
+                "EnderChestInventory": nbt.ListTag([_item("minecraft:future_block", slot=2)]),
+                "Armor": nbt.ListTag([_root_entry("minecraft:future_helmet"), _root_entry(""), _root_entry(""), _root_entry("")]),
+                "Offhand": nbt.ListTag([_root_entry("minecraft:shield")]),
+                "Pos": nbt.ListTag([nbt.DoubleTag(0.0), nbt.DoubleTag(64.0), nbt.DoubleTag(0.0)]),
+                "Health": nbt.FloatTag(20.0),
+                "FutureRootTag": nbt.StringTag("keep me"),
+            }
+        )
+    ).save_to(compressed=False, little_endian=True)
+
+
+def test_service_load_player_reports_compatibility_of_the_stored_record(tmp_path):
+    raw = _player_with_root_equipment_and_unknown_items()
+    FakeDb._shared_store = {LOCAL_PLAYER_KEY: raw}
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    service = BedrockEditorService(ITEMS, ENCHANTMENTS, db_factory=FakeDb, readonly_db_factory=FakeDb)
+
+    result = service.load_player(str(world), encode_player_key(LOCAL_PLAYER_KEY))
+
+    # The loaded view shows the root equipment, but the report describes the
+    # record as stored, like an analysis of a fresh parse.
+    assert result["inventory"][103]["name"] == "minecraft:future_helmet"
+    fresh = analyze_player_compatibility(nbt.load(raw, compressed=False, little_endian=True).tag, read_from_serialized=True)
+    assert result["compatibility"]["player"] == fresh
+    assert fresh["unknown_item_details"] == {
+        "inventory": ["Inventar 4: minecraft:future_item (Menge 1)"],
+        "ender_chest": ["Endertruhe 2: minecraft:future_block (Menge 1)"],
+    }
+
+
+class _UnchangedFakeDb(FakeDb):
+    def content_token(self):
+        # Lets the player directory reuse its discovery, as for a real world.
+        return ("world", 1)
+
+
+def test_service_load_player_parses_the_record_once(tmp_path, monkeypatch):
+    import mcbe_editor.compatibility as compatibility
+    import mcbe_editor.players as players
+    import mcbe_editor.services as services
+
+    FakeDb._shared_store = {LOCAL_PLAYER_KEY: _player_with_root_equipment_and_unknown_items()}
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    service = BedrockEditorService(ITEMS, ENCHANTMENTS, db_factory=_UnchangedFakeDb, readonly_db_factory=_UnchangedFakeDb)
+    service.list_players(str(world))
+    parsed = []
+    for module in (players, services, compatibility):
+        original = module.load_player_nbt
+
+        def counting(raw_bytes, _original=original):
+            parsed.append(raw_bytes)
+            return _original(raw_bytes)
+
+        monkeypatch.setattr(module, "load_player_nbt", counting)
+    views = []
+    for name in ("nbt_to_json", "parse_ender_chest"):
+        for module in (services, compatibility):
+            original = getattr(module, name)
+
+            def counting_view(*args, _original=original, _name=name, **kwargs):
+                views.append(_name)
+                return _original(*args, **kwargs)
+
+            monkeypatch.setattr(module, name, counting_view)
+
+    service.load_player(str(world), encode_player_key(LOCAL_PLAYER_KEY))
+
+    assert parsed == [FakeDb._shared_store[LOCAL_PLAYER_KEY]]
+    assert sorted(views) == ["nbt_to_json", "parse_ender_chest"]
 
 
 def test_serialized_roundtrip_rejects_invalid_bytes():

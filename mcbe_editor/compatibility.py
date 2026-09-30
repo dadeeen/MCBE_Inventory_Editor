@@ -364,10 +364,26 @@ def _protected_nbt_has_issues(protected: dict[str, Any]) -> bool:
     return any(key not in PROTECTED_PRESENCE_KEYS and bool(value) for key, value in protected.items())
 
 
-def analyze_player_compatibility(player_tag, *, serialized_before: bytes | None = None) -> dict[str, Any]:
+def analyze_player_compatibility(
+    player_tag,
+    *,
+    read_from_serialized: bool = False,
+    inventory: Any = None,
+    ender_chest: Any = None,
+) -> dict[str, Any]:
+    """Report what the editor preserves or cannot show for ``player_tag``.
+
+    ``read_from_serialized`` says the caller parsed ``player_tag`` from the
+    stored record, which is therefore readable. ``inventory`` and
+    ``ender_chest`` may be the caller's views from ``nbt_to_json`` and
+    ``parse_ender_chest`` before it added anything to them.
+    """
+
     protected = filter_root_equipment_presence_flags(player_tag, protected_player_nbt_flags(player_tag))
-    inventory, _ = nbt_to_json(player_tag)
-    ender_chest = parse_ender_chest(player_tag)
+    if inventory is None:
+        inventory, _ = nbt_to_json(player_tag)
+    if ender_chest is None:
+        ender_chest = parse_ender_chest(player_tag)
     root_keys = set(player_tag.keys()) if hasattr(player_tag, "keys") else set()
     unknown_root_keys = sorted(root_keys - KNOWN_PLAYER_ROOT_KEYS)
     hidden_unknown_slots = count_hidden_unknown_slots(player_tag)
@@ -399,16 +415,7 @@ def analyze_player_compatibility(player_tag, *, serialized_before: bytes | None 
     if all_unknown_item_details:
         warnings.append(f"Unbekannte Item-IDs: {_format_limited(all_unknown_item_details)}. Sie werden angezeigt und konservativ behandelt.")
 
-    roundtrip_ok = None
-    roundtrip_error = ""
-    if serialized_before is not None:
-        try:
-            load_player_nbt(serialized_before)
-            roundtrip_ok = True
-        except Exception as exc:  # pragma: no cover - defensive signal for corrupt fixtures/runtime data
-            roundtrip_ok = False
-            roundtrip_error = f"{exc.__class__.__name__}: {exc}"
-            warnings.append("Der Spieler-Datensatz konnte nicht stabil erneut gelesen werden.")
+    roundtrip_ok = True if read_from_serialized else None
 
     return {
         "status": "warning" if warnings else "ok",
@@ -423,7 +430,7 @@ def analyze_player_compatibility(player_tag, *, serialized_before: bytes | None 
         "hidden_unknown_slot_details": hidden_slot_details,
         "roundtrip": {
             "readable_before_edit": roundtrip_ok,
-            "error": roundtrip_error,
+            "error": "",
         },
         "save_policy": {
             "preserve_unknown_tags": True,

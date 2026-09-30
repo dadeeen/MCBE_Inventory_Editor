@@ -70,6 +70,7 @@ from .player_state_transfer import (
 )
 from .players import (
     classify_player_record,
+    classify_player_record_and_tag,
     create_player_export,
     decode_player_key,
     encode_player_key,
@@ -206,22 +207,27 @@ class BedrockEditorService:
         return self._player_directory.list_players(db)
 
     def _get_player_info(self, db, player_key, *, players=None, raw_bytes=None):
+        return self._get_player_info_and_tag(db, player_key, players=players, raw_bytes=raw_bytes)[0]
+
+    def _get_player_info_and_tag(self, db, player_key, *, players=None, raw_bytes=None):
+        """Classify the selected record; also return the NBT parsed for it, if any."""
+
         # Revalidate the selected record itself. Familiar player keys do not
         # require whole-world discovery just to validate a save/export/import.
         if raw_bytes is None:
             raw_bytes = self._read_player(db, player_key)
-        player = classify_player_record(player_key, raw_bytes)
+        player, named_tag = classify_player_record_and_tag(player_key, raw_bytes)
         if player is not None:
-            return player
+            return player, named_tag
         # Preserve bounded discovery membership for unfamiliar keys; accepting
         # arbitrary candidate-shaped records directly would broaden selection.
         if players is None:
             players = self._scan_players(db)
         encoded_key = encode_player_key(player_key)
         if any(entry["player_key"] == encoded_key for entry in players):
-            player = classify_player_record(player_key, raw_bytes, allow_unknown_key=True)
+            player, named_tag = classify_player_record_and_tag(player_key, raw_bytes, allow_unknown_key=True)
             if player is not None:
-                return player
+                return player, named_tag
         raise ValueError("Der ausgewählte Datensatz wurde nicht als Spieler erkannt.")
 
     @staticmethod
@@ -401,15 +407,25 @@ class BedrockEditorService:
                 db = self._open_db_readonly(world_path)
                 player_key = decode_player_key(encoded_player_key)
                 player_bytes = self._read_player(db, player_key)
-                player_info = self._get_player_info(db, player_key, raw_bytes=player_bytes)
+                player_info, player_named_tag = self._get_player_info_and_tag(db, player_key, raw_bytes=player_bytes)
                 if not player_info["editable"]:
                     raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")
                 # The API still returns complete world-wide capabilities. Keep
                 # their discovery separate from validation of the chosen record.
                 players = self._scan_players(db)
-                player_named_tag = load_player_nbt(player_bytes)
+                if player_named_tag is None:
+                    player_named_tag = load_player_nbt(player_bytes)
                 player_tag = player_named_tag.tag
                 inventory_data, _ = nbt_to_json(player_tag)
+                ender_chest_data = parse_ender_chest(player_tag)
+                # Analyzed before the views below gain origins and root
+                # equipment fallbacks, as from a fresh parse of the record.
+                player_compatibility = analyze_player_compatibility(
+                    player_tag,
+                    read_from_serialized=True,
+                    inventory=inventory_data,
+                    ender_chest=ender_chest_data,
+                )
                 encoded_player_key = encode_player_key(player_key)
                 self._annotate_item_origins(inventory_data, encoded_player_key, "inventory")
                 root_equipment_slots = merge_root_equipment_fallbacks(
@@ -420,7 +436,6 @@ class BedrockEditorService:
                 )
                 protected_flags = filter_root_equipment_presence_flags(player_tag, protected_player_nbt_flags(player_tag))
                 has_ender_chest = "EnderChestInventory" in player_tag and not protected_flags["ender_chest_opaque"]
-                ender_chest_data = parse_ender_chest(player_tag)
                 self._annotate_item_origins(ender_chest_data, encoded_player_key, "ender_chest")
                 hidden_unknown_slots = merge_root_equipment_protected_slots(
                     count_hidden_unknown_slots(player_tag),
@@ -449,7 +464,7 @@ class BedrockEditorService:
                     "protected_nbt": protected_flags,
                     "compatibility": {
                         "world": analyze_world_structure(world_path),
-                        "player": analyze_player_compatibility(player_tag, serialized_before=player_bytes),
+                        "player": player_compatibility,
                     },
                     "capabilities": self._capabilities_for_players(world_path, players),
                     "items_db": selectable_items_db,
@@ -811,7 +826,7 @@ class BedrockEditorService:
                     player_key = decode_player_key(encoded_player_key)
                     player_bytes = self._read_player(db, player_key)
                     player_tag = load_player_nbt(player_bytes).tag
-                    report["player"] = analyze_player_compatibility(player_tag, serialized_before=player_bytes)
+                    report["player"] = analyze_player_compatibility(player_tag, read_from_serialized=True)
                 return report
             finally:
                 close_db_preserving_active_exception(db, context="Kompatibilitätsbericht laden")

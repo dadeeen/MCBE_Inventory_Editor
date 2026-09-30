@@ -87,6 +87,19 @@ the codec.
 Codec optimizations should target bulk arrays and measured hot paths with
 standard-library facilities and keep the preservation tests unchanged.
 
+## Player load path
+
+Loading a player parses its stored record once. Classification returns the
+parsed NBT, and the inventory and ender chest views and the compatibility
+analysis share it. The analysis runs before the views receive item origins and
+root equipment fallbacks, so it describes the record as stored; a regression
+test compares it with an analysis of a fresh parse and counts the parses of a
+load. Saving does not reuse a loaded parse: it reads and parses the record under
+the write lock and parses the serialized result again before writing.
+
+String decoding tries strict UTF-8 first. Only strings with bytes that are not
+valid UTF-8 take the escape path, which yields the same text for every input.
+
 ## Equine-template prefilter
 
 `find_equine_template` checks for the literal UTF-8 bytes of its three accepted

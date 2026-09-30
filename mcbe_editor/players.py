@@ -176,16 +176,26 @@ def _looks_like_unknown_player_candidate(raw_bytes: bytes) -> bool:
 
 
 def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: bool = False) -> dict | None:
+    return classify_player_record_and_tag(key, raw_bytes, allow_unknown_key=allow_unknown_key)[0]
+
+
+def classify_player_record_and_tag(key: bytes, raw_bytes: bytes, *, allow_unknown_key: bool = False) -> tuple[dict | None, nbt.NamedTag | None]:
+    """Classify a record like ``classify_player_record``.
+
+    Also returns the NBT parsed for a record classified from its parsed
+    content, so a caller need not parse the same bytes again; otherwise None.
+    """
+
     is_local = key in LOCAL_PLAYER_KEY_ALIASES
     key_is_player_like = _looks_like_player_key(key)
 
     # Direct validation (for example before an import) must use the same
     # candidate and size limits as discovery, or accept an undiscoverable player.
     if not key_is_player_like and (not allow_unknown_key or not _looks_like_unknown_player_candidate(raw_bytes)):
-        return None
+        return None, None
 
     try:
-        _named_tag, player_tag = _load_player_tag(raw_bytes)
+        named_tag, player_tag = _load_player_tag(raw_bytes)
     except Exception as exc:
         if key_is_player_like:
             return {
@@ -202,8 +212,8 @@ def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: b
                     "Bearbeitung ist blockiert, damit keine Daten normalisiert oder gelöscht werden."
                 ),
                 "debug": _record_debug(key, raw_bytes, parse_error=exc),
-            }
-        return None
+            }, None
+        return None, None
 
     if not hasattr(player_tag, "keys") or not hasattr(player_tag, "get"):
         if key_is_player_like:
@@ -218,8 +228,8 @@ def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: b
                 "reason_code": "non_compound_root",
                 "reason": "Key wirkt spielerartig, Player-NBT hat aber keinen Compound-Root-Tag.",
                 "debug": _record_debug(key, raw_bytes, player_tag=player_tag),
-            }
-        return None
+            }, None
+        return None, None
 
     tag_names = set(player_tag.keys())
     has_inventory_tag = "Inventory" in tag_names
@@ -236,10 +246,10 @@ def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: b
         # EnderChestInventory tag or Inventory plus a player-specific state tag.
         has_safe_unknown_shape = has_ender_chest_tag or (has_inventory_tag and bool(tag_names & UNKNOWN_KEY_STRONG_PLAYER_HINTS))
         if not has_safe_unknown_shape:
-            return None
+            return None, None
 
     if not (has_inventory_tag or has_ender_chest_tag or has_player_hints or is_local):
-        return None
+        return None, None
 
     kind = "local" if is_local else ("remote" if key_is_player_like else "unknown")
 
@@ -298,7 +308,7 @@ def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: b
         "has_ender_chest": has_ender_chest_list,
         "has_ender_chest_tag": has_ender_chest_tag,
         "ender_chest_opaque": ender_chest_opaque,
-    }
+    }, named_tag
 
 
 def localize_player_labels(players: list[dict]) -> list[dict]:
