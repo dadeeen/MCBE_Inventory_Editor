@@ -345,10 +345,13 @@ def test_a_missing_table_is_a_change_only_after_the_manifest_changed(tmp_path, m
         reader.close()
 
 
-def test_a_reader_that_fails_to_open_closes_its_tables(tmp_path, monkeypatch):
+@pytest.mark.parametrize("held", [True, False], ids=["held", "on_demand"])
+def test_a_reader_that_fails_to_open_closes_its_tables(tmp_path, monkeypatch, held):
     root, _expected, _deleted = _many_table_world(tmp_path)
-    budget = leveldb_readonly._HeldTableBudget(26)
-    monkeypatch.setattr(leveldb_readonly, "_HELD_TABLES", budget)
+    budget = leveldb_readonly._TableBudget(26)
+    monkeypatch.setattr(leveldb_readonly, "_TABLE_BUDGET", budget)
+    if not held:
+        monkeypatch.setattr(leveldb_readonly, "_MAX_HELD_TABLES", 0)
     open_now, opened = _track_table_files(monkeypatch)
 
     def broken_log(*_args, **_kwargs):
@@ -359,56 +362,73 @@ def test_a_reader_that_fails_to_open_closes_its_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(leveldb_readonly, "_replay_wal", broken_log)
     with pytest.raises(CorruptDatabaseError, match="broken log"):
         ReadonlyLevelDbAdapter(str(root))
-    assert len(opened) == 26 and open_now() == 0
-    # The held tables went back to the budget.
-    assert budget.reserve(26)
+    assert len(opened) == (26 if held else 0) and open_now() == 0
+    # Its share went back to the budget.
+    assert budget.take_all(26) and not budget.take_all(1)
 
 
-def test_readers_of_different_worlds_share_one_budget_of_held_tables(tmp_path, monkeypatch):
+def test_readers_of_different_worlds_share_one_table_budget(tmp_path, monkeypatch):
     worlds = []
-    for name in ("first", "second"):
+    for name in ("first", "second", "third"):
         (tmp_path / name).mkdir()
         worlds.append(_many_table_world(tmp_path / name))
-    budget = leveldb_readonly._HeldTableBudget(40)
-    monkeypatch.setattr(leveldb_readonly, "_HELD_TABLES", budget)
+    budget = leveldb_readonly._TableBudget(40)
+    monkeypatch.setattr(leveldb_readonly, "_TABLE_BUDGET", budget)
+    monkeypatch.setattr(leveldb_readonly, "_MIN_OPEN_TABLES", 8)
     open_now, _opened = _track_table_files(monkeypatch)
-    first = ReadonlyLevelDbAdapter(str(worlds[0][0]))
+    readers = []
     try:
+        for root, _expected, _deleted in worlds:
+            readers.append(ReadonlyLevelDbAdapter(str(root)))
+        # The first world holds its 26 tables. The second opens its tables on
+        # demand with the 14 left, the third with the minimum of 8.
         assert open_now() == 26
-        # 14 tables are left: the second world opens its 26 on demand.
-        second = ReadonlyLevelDbAdapter(str(worlds[1][0]))
-        try:
-            assert open_now() == 26
-            assert dict(second.iter_items()) == worlds[1][1]
-        finally:
-            second.close()
-        assert dict(first.iter_items()) == worlds[0][1]
+        for reader, (_root, expected, _deleted) in zip(readers, worlds, strict=True):
+            assert dict(reader.iter_items()) == expected
+        assert open_now() == 26 + 14 + 8
     finally:
-        first.close()
+        for reader in readers:
+            reader.close()
     assert open_now() == 0
-    # Closing gave the tables back, so the next reader holds its world again.
+    # Closing gave every table back, so the next reader holds its world again.
     again = ReadonlyLevelDbAdapter(str(worlds[1][0]))
     try:
         assert open_now() == 26
     finally:
         again.close()
-    assert budget.reserve(40)
+    assert budget.take_all(40) and not budget.take_all(1)
 
 
-def test_a_writer_opens_tables_on_demand(tmp_path, monkeypatch):
+def test_a_writer_opens_tables_on_demand_within_the_budget(tmp_path, monkeypatch):
     root, expected, _deleted = _many_table_world(tmp_path, writable=True)
-    budget = leveldb_readonly._HeldTableBudget(26)
-    monkeypatch.setattr(leveldb_readonly, "_HELD_TABLES", budget)
+    budget = leveldb_readonly._TableBudget(30)
+    monkeypatch.setattr(leveldb_readonly, "_TABLE_BUDGET", budget)
     open_now, _opened = _track_table_files(monkeypatch)
     writer = LevelDbWriter(str(root))
     try:
-        # Its exclusive access keeps servers out; it holds nothing up front.
+        # Its exclusive access keeps servers out; it holds nothing up front
+        # but counts the tables it may open.
         assert open_now() == 0
+        assert not budget.take_all(5)
         assert writer.get(b"k0000") == expected[b"k0000"]
     finally:
         writer.close()
     assert open_now() == 0
-    assert budget.reserve(26)
+    assert budget.take_all(30) and not budget.take_all(1)
+
+
+def test_a_writer_that_fails_to_open_gives_its_tables_back(tmp_path, monkeypatch):
+    root, _expected, _deleted = _many_table_world(tmp_path, writable=True)
+    budget = leveldb_readonly._TableBudget(26)
+    monkeypatch.setattr(leveldb_readonly, "_TABLE_BUDGET", budget)
+
+    def not_writable(_writer):
+        raise CorruptDatabaseError("not writable")
+
+    monkeypatch.setattr(LevelDbWriter, "_check_writable", not_writable)
+    with pytest.raises(CorruptDatabaseError, match="not writable"):
+        LevelDbWriter(str(root))
+    assert budget.take_all(26) and not budget.take_all(1)
 
 
 def _flushing_world(tmp_path):

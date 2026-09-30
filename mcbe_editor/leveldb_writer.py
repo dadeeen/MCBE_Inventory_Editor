@@ -481,7 +481,7 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
             assert resources.access is not None
             resources.access.hold_current()
             # With exclusive access no engine compacts meanwhile, so tables
-            # can open on demand without taking from the readers' budget.
+            # can open on demand.
             super().__init__(db_path, hold_tables=False)
             self._check_writable()
             resources.access.ensure_unused(
@@ -490,8 +490,8 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
             self._block_cache = _BlockCache(_WRITE_BLOCK_CACHE_BYTES)
         except BaseException:
             try:
-                for table in getattr(self, "_tables", {}).values():
-                    table.close()
+                if hasattr(self, "_reserved_tables"):
+                    self._close_tables()
             finally:
                 self._release()
             raise

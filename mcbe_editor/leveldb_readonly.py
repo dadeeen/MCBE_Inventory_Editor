@@ -28,11 +28,12 @@ Limitations (by design):
 * Blocks are limited to 64 MiB stored/decompressed; the combined MANIFEST/WAL
   input is limited to 256 MiB per reader. Larger inputs fail explicitly.
 * A reader holds every table of a world with up to 256 tables open from
-  opening until it closes, while the process's budget of held tables allows.
+  opening until it closes, while the process's table budget allows.
   It then reads the state at its opening, even if a server compacts meanwhile.
   Its handles let other programs delete or replace the files, on Windows too.
-  Other readers keep at most 64 tables open and reopen them on demand; a
-  reopened table must keep its size, modification time and file identity.
+  Other readers open tables on demand and keep up to 64 open, fewer while
+  the budget runs short; a reopened table must keep its size, modification
+  time and file identity.
 """
 
 from __future__ import annotations
@@ -66,6 +67,10 @@ _MAX_HELD_TABLES = 256
 # Readers that open tables on demand keep at most this many open. Large worlds
 # have thousands of tables; native LevelDB bounds its table cache the same way.
 _MAX_OPEN_TABLES = 64
+# Such a reader gets this many even when the process's budget is used up: a
+# scan reads the tables of level 0 and one table of every deeper level at
+# once, and with fewer handles it would reopen tables for every block.
+_MIN_OPEN_TABLES = 24
 _TYPE_DELETION = 0
 _TYPE_VALUE = 1
 
@@ -182,29 +187,43 @@ else:
     _PROCESS_FILE_LIMIT = 1 << 20 if _soft_file_limit == resource.RLIM_INFINITY else _soft_file_limit
 
 
-class _HeldTableBudget:
-    """How many table files the readers of this process may hold together."""
+class _TableBudget:
+    """Open table files that the readers and writers of this process share."""
 
     def __init__(self, total: int) -> None:
         self._free = total
         self._lock = threading.Lock()
 
-    def reserve(self, count: int) -> bool:
+    def take_all(self, count: int) -> bool:
+        """Take ``count`` files for a reader that holds its whole world, or none."""
+
         with self._lock:
             if count > self._free:
                 return False
             self._free -= count
             return True
 
-    def release(self, count: int) -> None:
+    def take(self, wanted: int, *, at_least: int) -> int:
+        """Take up to ``wanted`` files, and ``at_least`` even beyond the budget."""
+
+        with self._lock:
+            granted = max(min(wanted, self._free), at_least)
+            self._free -= granted
+            return granted
+
+    def give_back(self, count: int) -> None:
         with self._lock:
             self._free += count
 
 
-# Requests for different worlds read at the same time and share the process's
-# file limit. Half of it stays for sockets, logs, metadata and readers that
-# open tables on demand.
-_HELD_TABLES = _HeldTableBudget(min(4 * _MAX_HELD_TABLES, _PROCESS_FILE_LIMIT // 2))
+def _table_budget_for(file_limit: int) -> int:
+    # Requests for different worlds read at the same time and share the
+    # process's file limit. Half of it stays for sockets, logs, metadata and
+    # the minimum every further reader gets.
+    return min(4 * _MAX_HELD_TABLES, file_limit // 2)
+
+
+_TABLE_BUDGET = _TableBudget(_table_budget_for(_PROCESS_FILE_LIMIT))
 
 
 class CorruptDatabaseError(ValueError):
@@ -750,7 +769,7 @@ class ReadonlyLevelDbAdapter:
         self._db_path = db_path
         self._tables: dict[int, _Table] = {}
         self._table_handles = _TableHandles()
-        self._held_tables = 0
+        self._reserved_tables = 0
         # Writers opt in after acquiring exclusive access. Ordinary readers
         # may inspect a running world, so they keep reading blocks afresh.
         self._block_cache: _BlockCache | None = None
@@ -773,8 +792,7 @@ class ReadonlyLevelDbAdapter:
             self._manifest_size = len(manifest_data)
             self._manifest = _parse_manifest(manifest_data)
             self._files = self._manifest.files
-            if hold_tables:
-                self._hold_tables()
+            self._reserve_tables(hold=hold_tables)
             self._replay_logs(db_path)
             # LevelDB records a flush or compaction in the MANIFEST before it
             # deletes the log or tables it replaced. Unchanged metadata means
@@ -794,18 +812,22 @@ class ReadonlyLevelDbAdapter:
             LOGGER.warning("Welt wurde beim Öffnen verändert: %s", db_path)
             raise WorldChangedWhileReadingError(db_path)
 
-    def _hold_tables(self) -> None:
+    def _reserve_tables(self, *, hold: bool) -> None:
         file_numbers = sorted({file_no for files in self._files.values() for file_no in files})
-        if len(file_numbers) > _MAX_HELD_TABLES or not _HELD_TABLES.reserve(len(file_numbers)):
-            # Opened on demand instead; a table that vanishes meanwhile fails.
+        count = len(file_numbers)
+        if hold and count <= _MAX_HELD_TABLES and _TABLE_BUDGET.take_all(count):
+            self._reserved_tables = count
+            self._table_handles = _TableHandles(count)
+            # Open every table right after reading the MANIFEST and keep it
+            # open. A running server that compacts meanwhile deletes files;
+            # the open handles let it and still read them, on Windows too.
+            for file_no in file_numbers:
+                self._table(file_no)
             return
-        self._held_tables = len(file_numbers)
-        self._table_handles = _TableHandles(len(file_numbers))
-        # Open every table right after reading the MANIFEST and keep it open.
-        # A running server that compacts meanwhile deletes files; the open
-        # handles let it and still read them, on Windows too.
-        for file_no in file_numbers:
-            self._table(file_no)
+        # Opened on demand instead; a table that vanishes meanwhile fails.
+        wanted = min(count, _MAX_OPEN_TABLES)
+        self._reserved_tables = _TABLE_BUDGET.take(wanted, at_least=min(wanted, _MIN_OPEN_TABLES))
+        self._table_handles = _TableHandles(self._reserved_tables)
 
     def _replay_logs(self, db_path: str) -> None:
         self._memtable: dict[bytes, tuple[int, int, bytes]] = {}
@@ -1039,5 +1061,5 @@ class ReadonlyLevelDbAdapter:
         finally:
             self._tables.clear()
             self._table_handles.close_all()
-            held, self._held_tables = self._held_tables, 0
-            _HELD_TABLES.release(held)
+            reserved, self._reserved_tables = self._reserved_tables, 0
+            _TABLE_BUDGET.give_back(reserved)
