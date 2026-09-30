@@ -1348,10 +1348,6 @@ def _item_preserved_nbt_summary(item) -> list[str]:
     return summary
 
 
-def _item_has_preserved_nbt(item) -> bool:
-    return bool(_item_preserved_nbt_summary(item) or _item_protected_nbt_summary(item))
-
-
 def _contained_actor_identifier(item) -> str:
     for compound in reversed(_entity_data_candidate_compounds(item)):
         for key in ("identifier", "Identifier", "ActorIdentifier", "id"):
@@ -1993,6 +1989,8 @@ def _parse_item_slot(item) -> ParsedItemSlot:
                 has_unknown_enchantments = has_unknown_enchantments or _has_unknown_enchantments(tag_compound["enchantments"])
 
     entity_variant = _item_entity_variant(item)
+    preserved_nbt_summary = _item_preserved_nbt_summary(item)
+    protected_nbt_summary = _item_protected_nbt_summary(item)
     return {
         "slot": slot,
         # Opaque same-container origin marker used to preserve future/add-on NBT
@@ -2008,12 +2006,12 @@ def _parse_item_slot(item) -> ParsedItemSlot:
         "enchantments": enchantments,
         "has_unknown_enchantments": has_unknown_enchantments,
         "has_protected_nbt": _item_has_protected_nbt(item),
-        "has_preserved_nbt": _item_has_preserved_nbt(item),
+        "has_preserved_nbt": bool(preserved_nbt_summary or protected_nbt_summary),
         "item_tag_opaque": "tag" in item and not _is_compound_tag(item["tag"]),
         "entity_variant": entity_variant,
         "entity_variant_state": _item_entity_variant_state(item, entity_variant),
-        "preserved_nbt_summary": _item_preserved_nbt_summary(item),
-        "protected_nbt_summary": _item_protected_nbt_summary(item),
+        "preserved_nbt_summary": preserved_nbt_summary,
+        "protected_nbt_summary": protected_nbt_summary,
         "nbt_view": _nbt_view_value(item),
     }
 
