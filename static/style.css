@@ -6437,6 +6437,22 @@ textarea:disabled,
     color: #fbd38d;
 }
 
+:root[data-theme="dark"] .save-status.error,
+:root[data-theme="system"] .save-status.error {
+    background: rgba(251, 113, 133, 0.11);
+    border-color: rgba(251, 113, 133, 0.28);
+    color: #fda4af;
+}
+
+:root[data-theme="dark"] .save-status.info,
+:root[data-theme="system"] .save-status.info,
+:root[data-theme="dark"] .save-status.running,
+:root[data-theme="system"] .save-status.running {
+    background: var(--info-bg);
+    border-color: var(--info-border);
+    color: var(--info-text);
+}
+
 :root[data-theme="dark"] .player-badge.readonly,
 :root[data-theme="system"] .player-badge.readonly,
 :root[data-theme="dark"] .no-backups.error,

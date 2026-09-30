@@ -2387,3 +2387,20 @@ test("a player changed outside the editor shows an error until it is reloaded", 
   await expect(page.locator("#inventoryContainer")).toBeVisible();
   expect(browserErrors).toEqual([]);
 });
+
+test("status entries keep the color of their kind in every theme", async ({ page }) => {
+  await openAppWithEmptyWorldScan(page);
+  for (const theme of ["dark", "system", "light"]) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    const colors = await page.evaluate(() => Object.fromEntries(["success", "info", "warning", "error"].map(kind => {
+      const probe = document.createElement("div");
+      probe.className = `status-stack-entry save-status ${kind}`;
+      document.getElementById("statusStackPanel").appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return [kind, color];
+    })));
+    // An error or a plain information must not look like a success.
+    expect(new Set(Object.values(colors)).size, `${theme}: ${JSON.stringify(colors)}`).toBe(4);
+  }
+});
