@@ -24,7 +24,11 @@ class NBTError(ValueError):
 
 
 def utf8_escape_decoder(value: bytes) -> str:
-    text = value.decode("utf-8", errors="surrogateescape")
+    try:
+        # Valid UTF-8 decodes without surrogates, so it has nothing to escape.
+        return value.decode("utf-8")
+    except UnicodeDecodeError:
+        text = value.decode("utf-8", errors="surrogateescape")
     return "".join(f"\u241bx{ord(char) - 0xDC00:02x}" if 0xDC80 <= ord(char) <= 0xDCFF else char for char in text)
 
 

@@ -41,6 +41,18 @@ def test_original_string_bytes_survive_escape_collisions(raw_string):
     assert nbt.load(raw).save_to() == raw
 
 
+def test_the_string_decoder_escapes_exactly_the_bytes_that_are_not_utf8():
+    def escaped(value):
+        # Every byte UTF-8 cannot decode becomes "␛x" and its hex value.
+        text = value.decode("utf-8", errors="surrogateescape")
+        return "".join(f"␛x{ord(char) - 0xDC00:02x}" if 0xDC80 <= ord(char) <= 0xDCFF else char for char in text)
+
+    samples = [bytes([first, second]) for first in range(256) for second in range(256)]
+    samples += ["Größe 🙂 中文".encode(), b"\xed\xa0\x80", "␛xff".encode(), b"ok\xffok\xc3"]
+    for value in samples:
+        assert nbt.utf8_escape_decoder(value) == escaped(value), value
+
+
 def test_original_compound_name_bytes_survive():
     name = "␛xff".encode()
     raw = b"\x0a\x00\x00\x01" + struct.pack("<H", len(name)) + name + b"\x07\x00"
