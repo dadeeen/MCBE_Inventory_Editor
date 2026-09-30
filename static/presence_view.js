@@ -130,6 +130,8 @@
         let cachedSessionId = "";
         let leaveSent = false;
         let playerWatch = null;
+        let sentRequests = 0;
+        let appliedRequest = 0;
 
         function sessionId() {
             try {
@@ -211,6 +213,7 @@
             }
             const requestKey = playerWatch.key;
             const watchFields = getIsBusy?.() === true ? {} : view.playerWatchRequest(playerWatch);
+            const request = ++sentRequests;
             try {
                 const res = await fetch("/api/world/presence", {
                     method: "POST",
@@ -225,7 +228,10 @@
                     }),
                 });
                 const data = await parseJsonResponse(res);
+                // Polls overlap; one that answers late must not undo a newer answer.
+                if (request < appliedRequest) return null;
                 if (data.success) {
+                    appliedRequest = request;
                     leaveSent = false;
                     render(data);
                     playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext(), {

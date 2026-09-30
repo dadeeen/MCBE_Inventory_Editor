@@ -321,3 +321,82 @@ def test_frontend_presence_controller_shows_the_changed_player_hint_and_reloads(
             """
         )
     )
+
+
+def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/presence_view.js", "utf8");
+            const pending = [];
+            const context = {
+                window: {},
+                fetch: (_url, options) => new Promise(resolve => {
+                    pending.push({ body: JSON.parse(options.body), answer: resolve });
+                }),
+            };
+            vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
+            const view = context.window.MCBEPresenceView;
+
+            const toasts = [];
+            const banner = { style: { display: "none" } };
+            const storage = {};
+            const controller = view.createWorldPresenceController({
+                win: {
+                    crypto: null,
+                    sessionStorage: { getItem: key => storage[key] || "", setItem: (key, value) => { storage[key] = value; } },
+                    addEventListener: () => {},
+                    setInterval: () => 1,
+                },
+                sessionKey: "presence-test",
+                elements: { playerChangedBanner: banner },
+                withCsrf: () => ({}),
+                parseJsonResponse: async response => response,
+                getWorldPath: () => "/w",
+                getCurrentPlayerKey: () => "p",
+                getCurrentPlayerLabel: () => "Alex",
+                getCurrentPlayerRevision: () => "R1",
+                getLoadedWorldFingerprint: () => "F0",
+                getIsDirty: () => false,
+                getIsBusy: () => false,
+                showToast: (text, kind) => toasts.push([text, kind]),
+            });
+
+            (async () => {
+                const first = controller.update();
+                pending[0].answer({ success: true, world_fingerprint: "F1" });
+                await first;
+
+                // Two polls for the same world, player and revision overlap,
+                // and the newer one answers first with the changed player.
+                const older = controller.update();
+                const newer = controller.update();
+                assert.strictEqual(pending[1].body.fingerprint_seen, "F1");
+                assert.strictEqual(pending[2].body.fingerprint_seen, "F1");
+                pending[2].answer({ success: true, world_fingerprint: "F1", player_revision: "R2" });
+                await newer;
+                assert.strictEqual(banner.style.display, "flex");
+                pending[1].answer({ success: true, world_fingerprint: "F1", player_revision: "R1" });
+                const late = await older;
+                assert.strictEqual(banner.style.display, "flex");
+                assert.strictEqual(late, null);
+
+                // The next poll builds on the newer answer, and the hint stays
+                // without a second toast.
+                const next = controller.update();
+                assert.strictEqual(pending[3].body.fingerprint_baseline, "F1");
+                assert.strictEqual(pending[3].body.fingerprint_seen, "");
+                pending[3].answer({ success: true, world_fingerprint: "F1" });
+                await next;
+                assert.strictEqual(banner.style.display, "flex");
+                assert.strictEqual(toasts.length, 1);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
