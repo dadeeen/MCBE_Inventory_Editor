@@ -177,6 +177,8 @@
             toast.classList.add("toast-fade");
             setTimeout(() => toast.remove(), 300);
         }, duration);
+        // Lets a caller take back a toast whose occasion has passed.
+        return toast;
     }
 
     function requestPath(input, win = window) {

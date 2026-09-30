@@ -20,6 +20,11 @@
         return STATUS_TYPES.has(type) ? type : "info";
     }
 
+    function normalizeAction(action) {
+        const label = normalizeText(action?.label);
+        return label && typeof action.onClick === "function" ? { label, onClick: action.onClick } : null;
+    }
+
     function createStatusStore({ maxNotices = 8 } = {}) {
         let notices = [];
 
@@ -41,6 +46,7 @@
             category = "",
             key = "",
             active = undefined,
+            action = null,
         } = {}) {
             const normalizedType = normalizeStatusType(type);
             const normalizedCategory = normalizeText(category);
@@ -53,6 +59,8 @@
                 active: typeof active === "boolean"
                     ? active
                     : (normalizedType === "running" || normalizedCategory === TRANSIENT_DIRTY_NOTICE_CATEGORY),
+                // Offered while the notice is active; needs a key to be found again.
+                action: normalizeText(key) ? normalizeAction(action) : null,
             };
             if (!normalized.message) return;
 
@@ -71,6 +79,7 @@
                 && latest.active === normalized.active
             ) {
                 latest.time = normalized.time;
+                latest.action = normalized.action;
                 return;
             }
 
@@ -85,6 +94,12 @@
 
         function allNotices() {
             return notices.slice();
+        }
+
+        function noticeAction(key) {
+            const normalizedKey = normalizeText(key);
+            const notice = normalizedKey ? notices.find(entry => entry.key === normalizedKey) : null;
+            return notice?.active ? notice.action : null;
         }
 
         function removeNotice(key) {
@@ -103,6 +118,7 @@
             addNotice,
             allNotices,
             clear,
+            noticeAction,
             removeNotice,
             visibleNotices,
         };

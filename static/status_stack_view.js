@@ -121,13 +121,19 @@
             ? entries.map(entry => {
                 const type = entryType(entry);
                 const meta = STATUS_META[type];
+                const active = entryIsActive(entry);
+                // The page runs the action of the notice with this key.
+                const action = active && entry.key && entry.action?.label
+                    ? `<button type="button" class="btn btn-secondary btn-sm status-stack-action" data-status-action="${escapeAttr(entry.key)}">${escapeHtml(t(entry.action.label))}</button>`
+                    : "";
                 return `
-            <div class="status-stack-entry save-status ${escapeAttr(type)}${entryIsActive(entry) ? " active" : ""}">
+            <div class="status-stack-entry save-status ${escapeAttr(type)}${active ? " active" : ""}">
                 <span class="status-stack-meta">
                     <span class="status-stack-kind"><span aria-hidden="true">${meta.icon}</span> ${meta.label}</span>
                     ${entry.time ? `<span class="status-stack-time">${escapeHtml(entry.time)}</span>` : ""}
                 </span>
                 <span class="status-stack-message">${escapeHtml(t(entry.message))}</span>
+                ${action}
             </div>
         `;
             }).join("")

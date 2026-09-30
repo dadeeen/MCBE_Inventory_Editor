@@ -3582,6 +3582,11 @@ body.item-browser-open {
     overflow-wrap: anywhere;
 }
 
+.status-stack-action {
+    justify-self: start;
+    margin-top: 2px;
+}
+
 .header-actions {
     display: flex;
     align-items: center;

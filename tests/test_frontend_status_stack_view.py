@@ -224,3 +224,78 @@ def test_clearing_status_updates_header_without_reannouncing_history() -> None:
             """
         )
     )
+
+
+def test_an_active_notice_offers_its_action_in_the_status_panel() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, document: { addEventListener() {} } };
+            for (const file of ["static/html_utils.js", "static/status_store.js", "static/status_stack_view.js", "static/session_log.js"]) {
+                vm.runInNewContext(fs.readFileSync(file, "utf8"), context, { filename: file });
+            }
+
+            let panelClick = null;
+            let focused = 0;
+            const attributes = {};
+            const statusMsg = { className: "save-status", textContent: "", set innerText(value) { this.textContent = value; } };
+            const elements = {
+                statusMsg,
+                statusStackButton: {
+                    classList: { toggle() {} },
+                    setAttribute(name, value) { attributes[name] = value; },
+                    addEventListener() {},
+                    focus() { focused += 1; },
+                },
+                statusStackPanel: {
+                    innerHTML: "",
+                    hidden: false,
+                    addEventListener(type, handler) { if (type === "click") panelClick = handler; },
+                },
+                statusStackCount: { textContent: "" },
+                statusStackHeadline: { textContent: "" },
+                statusStackSummary: { textContent: "" },
+                statusStackLive: { textContent: "" },
+            };
+            const store = context.window.MCBEStatusStore.createStatusStore();
+            const controller = context.window.MCBESessionLog.createStatusSessionController({
+                elements,
+                statusNoticeStore: store,
+                getIsDirty: () => false,
+            });
+            controller.wire();
+            const clickOn = key => panelClick({
+                target: { closest: selector => (selector === "[data-status-action]" ? { dataset: { statusAction: key } } : null) },
+            });
+
+            let runs = 0;
+            const action = { label: "Neu <laden>", onClick: () => { runs += 1; } };
+            controller.logStatus("Spieler verändert", "error", { key: "changed", active: true, action });
+            controller.logStatus("Früherer Hinweis", "warning", { key: "earlier", active: false, action });
+            controller.logStatus("Ohne Schlüssel", "error", { active: true, action });
+            const html = elements.statusStackPanel.innerHTML;
+            // Only the active notice with a key offers its action, escaped.
+            assert.strictEqual((html.match(/data-status-action=/g) || []).length, 1);
+            assert.ok(html.includes('data-status-action="changed">Neu &lt;laden&gt;</button>'));
+            assert.strictEqual(store.noticeAction("earlier"), null);
+
+            clickOn("changed");
+            assert.strictEqual(runs, 1);
+            assert.strictEqual(elements.statusStackPanel.hidden, true);
+            assert.strictEqual(attributes["aria-expanded"], "false");
+            assert.strictEqual(focused, 1);
+
+            // A cleared notice has no action left to run.
+            controller.clearStatus("changed");
+            elements.statusStackPanel.hidden = false;
+            clickOn("changed");
+            clickOn("earlier");
+            assert.strictEqual(runs, 1);
+            assert.strictEqual(elements.statusStackPanel.hidden, false);
+            assert.ok(!elements.statusStackPanel.innerHTML.includes("data-status-action"));
+            """
+        )
+    )

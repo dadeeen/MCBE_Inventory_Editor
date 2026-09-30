@@ -133,6 +133,7 @@
         let leaveSent = false;
         let playerWatch = null;
         let playerChangedShown = false;
+        let playerChangedToast = null;
         let sentRequests = 0;
         let appliedRequest = 0;
 
@@ -188,19 +189,31 @@
             playerChangedShown = changed;
             if (!changed) {
                 clearStatus?.(PLAYER_CHANGED_NOTICE_KEY);
+                playerChangedToast?.remove?.();
+                playerChangedToast = null;
                 return;
             }
             const text = t("Dieser Spieler wurde seit dem Laden verändert, z. B. in Minecraft. Speichern würde abgelehnt; lade den Spieler neu.");
-            // Stays in the status area until the player is reloaded, like a
-            // player the server guard made read-only.
-            logStatus?.(text, "error", { category: "player-changed", key: PLAYER_CHANGED_NOTICE_KEY, active: true });
-            showToast?.(text, "error", 7000, { label: t("Spieler neu laden"), onClick: () => { reloadChangedPlayer(); } });
+            const action = { label: t("Spieler neu laden"), onClick: () => { reloadChangedPlayer(); } };
+            // Stays in the status area, with the reload, until the player is
+            // reloaded, like a player the server guard made read-only.
+            logStatus?.(text, "error", { category: "player-changed", key: PLAYER_CHANGED_NOTICE_KEY, active: true, action });
+            playerChangedToast = showToast?.(text, "error", 7000, action) || null;
+        }
+
+        // The notice belongs to the world, player and revision it was found
+        // for. Once another one is loaded, it only goes away.
+        function playerChangedIsCurrent() {
+            playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext());
+            renderPlayerChanged();
+            return playerChangedShown;
         }
 
         async function reloadChangedPlayer() {
+            if (!playerChangedIsCurrent()) return false;
             if (getIsDirty?.() === true) {
                 const ok = await showConfirmDialog?.(t("Deine ungespeicherten Änderungen gehen beim Neuladen verloren. Spieler trotzdem neu laden?"));
-                if (!ok) return false;
+                if (!ok || !playerChangedIsCurrent()) return false;
             }
             return reloadPlayer?.();
         }

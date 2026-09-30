@@ -283,6 +283,8 @@ def test_frontend_presence_controller_reports_the_changed_player_until_it_is_rel
                 assert.strictEqual(toasts[0].kind, "error");
                 assert.strictEqual(toasts[0].text, notice.text);
                 assert.strictEqual(toasts[0].action.label, "Spieler neu laden");
+                // The status area offers the same reload for as long as it lasts.
+                assert.strictEqual(notice.options.action, toasts[0].action);
 
                 // The notice stays without repeating the toast.
                 responses.push({ success: true, world_fingerprint: "F1" });
@@ -399,6 +401,108 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                 await next;
                 assert.ok(notices.has("player-changed"));
                 assert.strictEqual(toasts.length, 1);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
+            """
+        )
+    )
+
+
+def test_frontend_presence_controller_drops_the_notice_of_a_player_no_longer_loaded() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/presence_view.js", "utf8");
+            const responses = [];
+            const context = { window: {}, fetch: () => Promise.resolve({}) };
+            vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
+            const view = context.window.MCBEPresenceView;
+
+            const state = { player: "p", revision: "R1", fingerprint: "F0", dirty: false };
+            const toasts = [];
+            const notices = new Map();
+            let reloads = 0;
+            let duringConfirm = () => {};
+            const storage = {};
+            const controller = view.createWorldPresenceController({
+                win: {
+                    crypto: null,
+                    sessionStorage: { getItem: key => storage[key] || "", setItem: (key, value) => { storage[key] = value; } },
+                    addEventListener: () => {},
+                    setInterval: () => 1,
+                },
+                sessionKey: "presence-test",
+                withCsrf: () => ({}),
+                parseJsonResponse: async () => responses.shift(),
+                getWorldPath: () => "/w",
+                getCurrentPlayerKey: () => state.player,
+                getCurrentPlayerLabel: () => "Alex",
+                getCurrentPlayerRevision: () => state.revision,
+                getLoadedWorldFingerprint: () => state.fingerprint,
+                getIsDirty: () => state.dirty,
+                getIsBusy: () => false,
+                reloadPlayer: () => { reloads += 1; return true; },
+                logStatus: (text, type, options) => notices.set(options.key, { text, type, options }),
+                clearStatus: key => notices.delete(key),
+                showToast: (text, kind, duration, action) => {
+                    const toast = { action, removed: false, remove() { this.removed = true; } };
+                    toasts.push(toast);
+                    return toast;
+                },
+                showConfirmDialog: async () => { duringConfirm(); return true; },
+            });
+
+            async function reportChangedPlayer() {
+                const revision = `${state.revision}-minecraft`;
+                responses.push({ success: true, world_fingerprint: `${state.fingerprint}-later` });
+                await controller.update();
+                responses.push({ success: true, world_fingerprint: `${state.fingerprint}-later`, player_revision: revision });
+                await controller.update();
+                assert.ok(notices.has("player-changed"));
+                return toasts[toasts.length - 1];
+            }
+
+            (async () => {
+                // Loading another player refreshes the presence at once: the
+                // notice and the toast of the previous player go away.
+                let toast = await reportChangedPlayer();
+                state.player = "q";
+                state.revision = "Q1";
+                await controller.update();
+                assert.ok(!notices.has("player-changed"));
+                assert.strictEqual(toast.removed, true);
+
+                // A reload offered before that refresh does not load the other player.
+                toast = await reportChangedPlayer();
+                const action = notices.get("player-changed").options.action;
+                state.player = "p";
+                state.revision = "R2";
+                toast.action.onClick();
+                action.onClick();
+                await new Promise(resolve => setImmediate(resolve));
+                assert.strictEqual(reloads, 0);
+                assert.ok(!notices.has("player-changed"));
+                assert.strictEqual(toast.removed, true);
+
+                // Nor when the other player is loaded while the page asks
+                // about unsaved changes.
+                await reportChangedPlayer();
+                state.dirty = true;
+                duringConfirm = () => { state.player = "q"; state.revision = "Q2"; };
+                assert.strictEqual(await controller.reloadChangedPlayer(), false);
+                assert.strictEqual(reloads, 0);
+                assert.ok(!notices.has("player-changed"));
+
+                // The notice of the loaded player still reloads it.
+                duringConfirm = () => {};
+                await reportChangedPlayer();
+                assert.strictEqual(await controller.reloadChangedPlayer(), true);
+                assert.strictEqual(reloads, 1);
             })().catch(error => {
                 console.error(error);
                 process.exit(1);

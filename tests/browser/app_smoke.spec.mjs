@@ -2373,18 +2373,34 @@ test("a player changed outside the editor shows an error until it is reloaded", 
   expect(checked.length).toBeGreaterThan(0);
   expect(checked[0].fingerprint_baseline).toBe("at-load");
 
-  // Reloading keeps the world and the current view; only the player is read again.
+  // Reloading keeps the world and the current view; only the player is read
+  // again, and loading it clears the error.
   await page.locator('.app-section-nav button[data-workflow-view="inventory"]').click();
   const worldBefore = await page.evaluate(() => worldPath);
   await toast.getByRole("button", { name: "Spieler neu laden" }).click();
   await expect.poll(() => loads).toBe(2);
-  await page.evaluate(() => updateWorldPresence());
   await expect(status).not.toHaveClass(/\berror\b/);
   await expect(page.locator("#statusStackSummary")).not.toContainText("seit dem Laden verändert");
   expect(await page.evaluate(() => currentPlayerRevision)).toBe("minecraft-revision");
   expect(await page.evaluate(() => worldPath)).toBe(worldBefore);
   expect(await page.evaluate(() => activeWorkflowView)).toBe("inventory");
   await expect(page.locator("#inventoryContainer")).toBeVisible();
+
+  // After the toast, the error in the status area still offers the reload.
+  stored.revision = "second-minecraft-revision";
+  stored.fingerprint = "after-second-change";
+  await page.evaluate(() => updateWorldPresence());
+  await page.evaluate(() => updateWorldPresence());
+  await expect(status).toHaveClass(/\berror\b/);
+  await expect(toast).toBeVisible();
+  await status.click();
+  await page.locator("#statusStackPanel").getByRole("button", { name: "Spieler neu laden" }).click();
+  await expect.poll(() => loads).toBe(3);
+  await expect(status).not.toHaveClass(/\berror\b/);
+  // The toast goes with the error instead of offering a reload for 7 seconds.
+  await expect(toast).toHaveCount(0, { timeout: 1500 });
+  expect(await page.evaluate(() => currentPlayerRevision)).toBe("second-minecraft-revision");
+  expect(await page.evaluate(() => activeWorkflowView)).toBe("inventory");
   expect(browserErrors).toEqual([]);
 });
 

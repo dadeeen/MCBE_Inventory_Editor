@@ -135,6 +135,7 @@
                 category,
                 key,
                 active: typeof options.active === "boolean" ? options.active : undefined,
+                action: options.action,
             });
             updateHeaderStatusStack();
         }
@@ -195,6 +196,17 @@
                 if (!statusStackPanel) return;
                 statusStackPanel.hidden = open;
                 statusStackButton.setAttribute("aria-expanded", String(!open));
+            });
+            statusStackPanel?.addEventListener("click", (event) => {
+                const button = event.target?.closest?.("[data-status-action]");
+                if (!button) return;
+                const action = statusNoticeStore?.noticeAction(button.dataset.statusAction);
+                if (!action) return;
+                // The panel is rebuilt with the notices; keep the focus on its toggle.
+                statusStackPanel.hidden = true;
+                statusStackButton?.setAttribute("aria-expanded", "false");
+                statusStackButton?.focus?.();
+                action.onClick();
             });
             document.addEventListener("click", (event) => {
                 if (!statusStackPanel || statusStackPanel.hidden) return;
