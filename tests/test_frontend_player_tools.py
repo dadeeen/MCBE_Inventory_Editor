@@ -163,6 +163,7 @@ def test_frontend_player_tools_row_element_uses_model_state_and_html() -> None:
                         className: "",
                         disabled: false,
                         innerHTML: "",
+                        dataset: {},
                         classList: {
                             add(name) {
                                 classNames.add(name);
@@ -190,6 +191,7 @@ def test_frontend_player_tools_row_element_uses_model_state_and_html() -> None:
             assert.strictEqual(row.type, "button");
             assert.strictEqual(row.className, "player-row active");
             assert.strictEqual(row.disabled, false);
+            assert.strictEqual(row.dataset.playerKey, "p1");
             assert.ok(row.innerHTML.includes("Alex &lt;main&gt;"));
             assert.ok(row.innerHTML.includes("Multiplayer · Klick zum Bearbeiten"));
 

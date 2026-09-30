@@ -236,6 +236,8 @@ const showConfirmDialog = window.MCBEUiFeedback.showConfirmDialog;
 const showLoading = window.MCBEUiFeedback.showLoading;
 const hideLoading = window.MCBEUiFeedback.hideLoading;
 const showToast = window.MCBEUiFeedback.showToast;
+// Keyboard focus survives the lock that loading and saving put on the app.
+window.MCBEUiFeedback.createFocusKeeper({ container: document.querySelector(".app-container") });
 
 // DOM Elements
 const {

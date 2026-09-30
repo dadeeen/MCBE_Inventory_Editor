@@ -274,3 +274,115 @@ def test_missing_clipboard_fallback_remains_a_real_warning() -> None:
             """
         )
     )
+
+
+def test_focus_keeper_returns_the_focus_once_the_app_is_usable_again() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+
+            const document = { body: { name: "body" }, documentElement: {}, activeElement: null, modalOpen: false };
+            document.querySelector = selector => (selector.startsWith(".modal-overlay") && document.modalOpen ? {} : null);
+            document.activeElement = document.body;
+            let observed = null;
+            const window = {
+                MutationObserver: class {
+                    constructor(callback) { this.callback = callback; }
+                    observe(target, options) { observed = { callback: this.callback, target, options }; }
+                },
+            };
+            const context = { document, setTimeout, window };
+            vm.runInNewContext(fs.readFileSync("static/ui_feedback.js", "utf8"), context, {
+                filename: "static/ui_feedback.js",
+            });
+            const feedback = context.window.MCBEUiFeedback;
+
+            const elements = [];
+            function element(attributes = {}) {
+                const node = {
+                    attributes, isConnected: true, inside: true, disabled: false, blocked: false, visible: true,
+                    getAttribute: name => (name in attributes ? attributes[name] : null),
+                    closest: selector => (selector === "[inert], [hidden]" && node.blocked ? {} : null),
+                    getClientRects: () => (node.visible ? [{}] : []),
+                    focus(options) { node.focusOptions = options; document.activeElement = node; },
+                };
+                elements.push(node);
+                return node;
+            }
+            let focusin = null;
+            const container = {
+                inert: false,
+                contains: node => Boolean(node?.inside),
+                addEventListener: (type, handler) => { if (type === "focusin") focusin = handler; },
+                querySelector: selector => elements.find(node => node.isConnected
+                    && Object.entries(node.attributes).some(([name, value]) => selector === `[${name}="${value}"]`)) || null,
+            };
+            const keeper = feedback.createFocusKeeper({ container, doc: document, win: window });
+            assert.strictEqual(observed.target, container);
+            assert.deepStrictEqual([...observed.options.attributeFilter], ["inert"]);
+            const lift = () => { container.inert = false; observed.callback(); };
+
+            // The lock drops the focus; lifting it returns the focus without scrolling.
+            const button = element({ id: "btnStatus" });
+            focusin({ target: button });
+            container.inert = true;
+            document.activeElement = document.body;
+            lift();
+            assert.strictEqual(document.activeElement, button);
+            assert.strictEqual(button.focusOptions.preventScroll, true);
+
+            // An element rendered anew is found by its slot or player key.
+            const slot = element({ "data-slot": "3" });
+            focusin({ target: slot });
+            slot.isConnected = false;
+            const newSlot = element({ "data-slot": "3" });
+            document.activeElement = document.body;
+            lift();
+            assert.strictEqual(document.activeElement, newSlot);
+            const row = element({ "data-player-key": "p1" });
+            focusin({ target: row });
+            row.isConnected = false;
+            const newRow = element({ "data-player-key": "p1" });
+            document.activeElement = document.body;
+            assert.strictEqual(keeper.restore(), true);
+            assert.strictEqual(document.activeElement, newRow);
+
+            // It takes nothing from another element or an open dialog, and
+            // gives the focus only to a usable element.
+            const other = element({ id: "dialogButton" });
+            other.inside = false;
+            document.activeElement = other;
+            assert.strictEqual(keeper.restore(), false);
+            document.activeElement = document.body;
+            document.modalOpen = true;
+            assert.strictEqual(keeper.restore(), false);
+            document.modalOpen = false;
+            container.inert = true;
+            assert.strictEqual(keeper.restore(), false);
+            container.inert = false;
+            for (const change of [
+                node => { node.disabled = true; },
+                node => { node.blocked = true; },
+                node => { node.visible = false; },
+                node => { node.inside = false; },
+            ]) {
+                const target = element({ id: `target${elements.length}` });
+                focusin({ target });
+                change(target);
+                document.activeElement = document.body;
+                assert.strictEqual(keeper.restore(), false);
+                assert.strictEqual(document.activeElement, document.body);
+            }
+
+            // Without the app area there is nothing to keep.
+            assert.strictEqual(feedback.createFocusKeeper({ container: null }).restore(), false);
+            // Locators quote their value.
+            assert.strictEqual(feedback.focusLocator(element({ id: 'a"b\\c' })), '[id="a\\"b\\\\c"]');
+            assert.strictEqual(feedback.focusLocator(element({ "data-ender-slot": "0" })), '[data-ender-slot="0"]');
+            assert.strictEqual(feedback.focusLocator(element({})), "");
+            """
+        )
+    )

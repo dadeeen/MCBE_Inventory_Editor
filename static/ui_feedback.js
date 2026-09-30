@@ -463,6 +463,63 @@
         return { close, open, wire };
     }
 
+    // Attributes that find an element again after it was rendered anew, such
+    // as an inventory slot or a player row after loading.
+    const FOCUS_LOCATOR_ATTRIBUTES = ["id", "data-slot", "data-ender-slot", "data-player-key"];
+
+    function focusLocator(element) {
+        for (const name of FOCUS_LOCATOR_ATTRIBUTES) {
+            const value = element?.getAttribute?.(name);
+            if (value !== null && value !== undefined && value !== "") {
+                return `[${name}="${String(value).replace(/["\\]/g, "\\$&")}"]`;
+            }
+        }
+        return "";
+    }
+
+    function canTakeFocus(element, container) {
+        return Boolean(
+            element?.isConnected
+            && container.contains(element)
+            && !element.disabled
+            && !element.closest?.("[inert], [hidden]")
+            && element.getClientRects?.().length > 0
+        );
+    }
+
+    // Loading and saving make the app area inert, which drops the focus of an
+    // element inside it. Once the area is usable again, the focus returns to
+    // the element last focused there, or to the one rendered in its place, as
+    // long as nothing else took it and no dialog is open.
+    function createFocusKeeper({ container = null, doc = document, win = window } = {}) {
+        if (!container) return { restore: () => false };
+        let lastFocused = null;
+        let lastLocator = "";
+        container.addEventListener("focusin", event => {
+            lastFocused = event.target;
+            lastLocator = focusLocator(event.target);
+        });
+
+        function restore() {
+            const active = doc.activeElement;
+            if (active && active !== doc.body && active !== doc.documentElement) return false;
+            if (container.inert || doc.querySelector('.modal-overlay[style*="flex"]')) return false;
+            const target = canTakeFocus(lastFocused, container)
+                ? lastFocused
+                : (lastLocator ? container.querySelector(lastLocator) : null);
+            if (!canTakeFocus(target, container)) return false;
+            target.focus({ preventScroll: true });
+            return doc.activeElement === target;
+        }
+
+        // Runs after the code that lifted the lock has rendered the result.
+        new win.MutationObserver(() => {
+            if (!container.inert) restore();
+        }).observe(container, { attributes: true, attributeFilter: ["inert"] });
+
+        return { restore };
+    }
+
     installUnknownServerWriteConfirmationFetchGuard();
 
     window.MCBEUiFeedback = {
@@ -470,6 +527,8 @@
         collectClipboardFeedbackElements,
         createInventoryClipboardFeedbackController,
         createHelpOverlayController,
+        createFocusKeeper,
+        focusLocator,
         installUnknownServerWriteConfirmationFetchGuard,
         showCopyFallback,
         closeCopyFallback,

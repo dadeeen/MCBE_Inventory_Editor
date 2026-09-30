@@ -106,7 +106,7 @@ def test_readonly_player_selection_confirms_before_discarding_edits() -> None:
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const rows = [];
         const context = {window: {}, document: {createElement: () => ({
-            classList: {add() {}}, listeners: {},
+            classList: {add() {}}, listeners: {}, dataset: {},
             addEventListener(name, callback) {this.listeners[name] = callback},
         })}};
         for (const name of ['player_view_models', 'player_load_controller']) {
@@ -385,6 +385,7 @@ def test_frontend_player_load_controller_renders_player_rows_from_state() -> Non
                         className: "",
                         disabled: false,
                         innerHTML: "",
+                        dataset: {},
                         listeners: {},
                         classList: {
                             add(name) {
@@ -428,6 +429,7 @@ def test_frontend_player_load_controller_renders_player_rows_from_state() -> Non
             assert.strictEqual(playersList.innerHTML, "");
             assert.strictEqual(appended.length, 2);
             assert.strictEqual(appended[0].className, "player-row active");
+            assert.strictEqual(appended[0].dataset.playerKey, "local");
             assert.strictEqual(typeof appended[0].listeners.click, "function");
             assert.ok(appended[0].innerHTML.includes("Alex"));
             assert.ok(appended[1].innerHTML.includes("Nur Export"));

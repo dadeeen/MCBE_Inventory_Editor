@@ -2397,10 +2397,57 @@ test("a player changed outside the editor shows an error until it is reloaded", 
   await page.locator("#statusStackPanel").getByRole("button", { name: "Spieler neu laden" }).click();
   await expect.poll(() => loads).toBe(3);
   await expect(status).not.toHaveClass(/\berror\b/);
+  // The reload locks the app; afterwards the status button has the focus again.
+  await expect(status).toBeFocused();
   // The toast goes with the error instead of offering a reload for 7 seconds.
   await expect(toast).toHaveCount(0, { timeout: 1500 });
   expect(await page.evaluate(() => currentPlayerRevision)).toBe("second-minecraft-revision");
   expect(await page.evaluate(() => activeWorkflowView)).toBe("inventory");
+  expect(browserErrors).toEqual([]);
+});
+
+test("keyboard focus returns to its element after loading and saving", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await page.route("**/api/server_status", route => route.fulfill({ json: {
+    success: true, server_status: { status: "offline" }, write_gate: { allowed: true },
+  } }));
+  await page.route("**/api/backups", route => route.fulfill({ json: { success: true, backups: [] } }));
+  let saves = 0;
+  await page.route("**/api/player/save", route => {
+    saves++;
+    return route.fulfill({ json: { success: true, player_revision: `saved-${saves}`, backup_file: "focus-test.zip" } });
+  });
+  let loads = 0;
+  await openDragFixture(page, () => {
+    loads++;
+    return {};
+  });
+  const appArea = page.locator(".app-container");
+
+  // Loading a player locks the app and renders the list anew; the new row
+  // of the same player gets the focus.
+  const row = page.locator('.player-row[data-player-key="drag-player"]');
+  await row.focus();
+  const oldRow = await row.elementHandle();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => loads).toBe(2);
+  await expect(appArea).not.toHaveAttribute("inert", "");
+  await expect(row).toBeFocused();
+  expect(await oldRow.evaluate(element => element.isConnected)).toBe(false);
+
+  // Saving with the keyboard from a slot passes through the review dialog;
+  // afterwards the slot has the focus again.
+  await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
+  expect(await page.evaluate(() => isDirty)).toBe(true);
+  const slot = page.locator('[data-slot="1"]');
+  await slot.focus();
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("#btnSaveReviewConfirm")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => saves).toBe(1);
+  await expect(page.locator("#saveReviewOverlay")).toBeHidden();
+  await expect(slot).toBeFocused();
+  expect(await page.evaluate(() => isDirty)).toBe(false);
   expect(browserErrors).toEqual([]);
 });
 

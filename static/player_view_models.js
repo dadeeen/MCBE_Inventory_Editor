@@ -133,6 +133,7 @@
             canSelect,
             meta: `${kindLabel} · ${actionMeta}`,
             name: player.label || "",
+            playerKey: player.player_key || "",
         };
     }
 
@@ -151,6 +152,8 @@
         row.className = "player-row";
         if (model.active) row.classList.add("active");
         if (!model.canSelect) row.disabled = true;
+        // Finds the row again after the list is rendered anew.
+        if (model.playerKey) row.dataset.playerKey = model.playerKey;
         row.innerHTML = playerRowHtml(model);
         return row;
     }
