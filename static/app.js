@@ -792,6 +792,7 @@ const worldPresenceController = window.MCBEPresenceView.createConfiguredWorldPre
     },
     helpers: {
         logStatus,
+        clearStatus,
         showToast,
         showConfirmDialog,
         reloadPlayer: () => (currentPlayerKey ? loadPlayer(currentPlayerKey, true) : false),

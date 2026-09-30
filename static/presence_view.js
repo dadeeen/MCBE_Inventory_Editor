@@ -105,6 +105,7 @@
     const t = window.t || ((text, params) => String(text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m)));
 
     const view = window.MCBEPresenceView || {};
+    const PLAYER_CHANGED_NOTICE_KEY = "player-changed";
 
     function createWorldPresenceController({
         win = window,
@@ -122,6 +123,7 @@
         getIsBusy,
         reloadPlayer,
         logStatus,
+        clearStatus,
         showToast,
         showConfirmDialog,
     } = {}) {
@@ -130,6 +132,7 @@
         let cachedSessionId = "";
         let leaveSent = false;
         let playerWatch = null;
+        let playerChangedShown = false;
         let sentRequests = 0;
         let appliedRequest = 0;
 
@@ -180,15 +183,18 @@
         }
 
         function renderPlayerChanged() {
-            const banner = elements.playerChangedBanner;
             const changed = playerWatch?.changed === true;
-            if (banner) {
-                const wasVisible = banner.style.display !== "none";
-                banner.style.display = changed ? "flex" : "none";
-                if (changed && !wasVisible) {
-                    showToast?.(t("Dieser Spieler wurde seit dem Laden verändert, z. B. in Minecraft. Speichern würde abgelehnt."), "warning", 7000);
-                }
+            if (changed === playerChangedShown) return;
+            playerChangedShown = changed;
+            if (!changed) {
+                clearStatus?.(PLAYER_CHANGED_NOTICE_KEY);
+                return;
             }
+            const text = t("Dieser Spieler wurde seit dem Laden verändert, z. B. in Minecraft. Speichern würde abgelehnt; lade den Spieler neu.");
+            // Stays in the status area until the player is reloaded, like a
+            // player the server guard made read-only.
+            logStatus?.(text, "error", { category: "player-changed", key: PLAYER_CHANGED_NOTICE_KEY, active: true });
+            showToast?.(text, "error", 7000, { label: t("Spieler neu laden"), onClick: () => { reloadChangedPlayer(); } });
         }
 
         async function reloadChangedPlayer() {
@@ -197,10 +203,6 @@
                 if (!ok) return false;
             }
             return reloadPlayer?.();
-        }
-
-        function wirePlayerChangedBanner() {
-            elements.playerChangedButton?.addEventListener("click", () => { reloadChangedPlayer(); });
         }
 
         async function update({ silent = true } = {}) {
@@ -293,7 +295,6 @@
             startPolling,
             update,
             wireBeforeUnload,
-            wirePlayerChangedBanner,
         };
     }
 
@@ -313,8 +314,6 @@
             intervalMs,
             elements: {
                 banner: doc.getElementById("worldPresenceBanner"),
-                playerChangedBanner: doc.getElementById("playerChangedBanner"),
-                playerChangedButton: doc.getElementById("btnReloadChangedPlayer"),
             },
             withCsrf: api.withCsrf,
             parseJsonResponse: api.parseJsonResponse,
@@ -327,6 +326,7 @@
             getIsBusy: state.getIsBusy,
             reloadPlayer: helpers.reloadPlayer,
             logStatus: helpers.logStatus,
+            clearStatus: helpers.clearStatus,
             showToast: helpers.showToast,
             showConfirmDialog: helpers.showConfirmDialog,
         });

@@ -2334,7 +2334,7 @@ test("first-run setup overlay guides through item DB and icons, then hands over 
   await expect(page.locator("#btnSetupTodoBanner")).toBeFocused();
 });
 
-test("a player changed outside the editor shows a hint that reloads it", async ({ page }) => {
+test("a player changed outside the editor shows an error until it is reloaded", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   const stored = { revision: "drag-revision", fingerprint: "at-load" };
   const presenceBodies = [];
@@ -2355,18 +2355,20 @@ test("a player changed outside the editor shows a hint that reloads it", async (
     return { player_revision: stored.revision, world_fingerprint: stored.fingerprint };
   });
   expect(loads).toBe(1);
-  const banner = page.locator("#playerChangedBanner");
+  const status = page.locator("#statusStackButton");
+  const toast = page.locator(".toast-error", { hasText: "seit dem Laden verändert" });
   await page.evaluate(() => updateWorldPresence());
-  await expect(banner).toBeHidden();
+  await expect(status).not.toHaveClass(/\berror\b/);
 
   // Minecraft saves the world after changing this player.
   stored.revision = "minecraft-revision";
   stored.fingerprint = "after-minecraft";
   await page.evaluate(() => updateWorldPresence());
-  await expect(banner).toBeHidden();
+  await expect(status).not.toHaveClass(/\berror\b/);
   await page.evaluate(() => updateWorldPresence());
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText("seit dem Laden verändert");
+  await expect(status).toHaveClass(/\berror\b/);
+  await expect(page.locator("#statusStackSummary")).toContainText("seit dem Laden verändert");
+  await expect(toast).toBeVisible();
   const checked = presenceBodies.filter(body => body.fingerprint_seen === "after-minecraft");
   expect(checked.length).toBeGreaterThan(0);
   expect(checked[0].fingerprint_baseline).toBe("at-load");
@@ -2374,9 +2376,11 @@ test("a player changed outside the editor shows a hint that reloads it", async (
   // Reloading keeps the world and the current view; only the player is read again.
   await page.locator('.app-section-nav button[data-workflow-view="inventory"]').click();
   const worldBefore = await page.evaluate(() => worldPath);
-  await page.locator("#btnReloadChangedPlayer").click();
+  await toast.getByRole("button", { name: "Spieler neu laden" }).click();
   await expect.poll(() => loads).toBe(2);
-  await expect(banner).toBeHidden();
+  await page.evaluate(() => updateWorldPresence());
+  await expect(status).not.toHaveClass(/\berror\b/);
+  await expect(page.locator("#statusStackSummary")).not.toContainText("seit dem Laden verändert");
   expect(await page.evaluate(() => currentPlayerRevision)).toBe("minecraft-revision");
   expect(await page.evaluate(() => worldPath)).toBe(worldBefore);
   expect(await page.evaluate(() => activeWorkflowView)).toBe("inventory");

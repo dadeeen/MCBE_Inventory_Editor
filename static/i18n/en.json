@@ -63,7 +63,7 @@
   "Die Welt wurde während des Lesens verändert, vermutlich vom laufenden Bedrock-Server oder von Minecraft. Lade die Welt erneut.": "The world changed while it was being read, probably by the running Bedrock server or Minecraft. Load the world again.",
   "Lade die Welt erneut; der nächste Versuch liest den aktuellen Stand.": "Load the world again; the next attempt reads its current state.",
   "Tritt der Fehler wiederholt auf, stoppe den Server kurz und lade die Welt dann.": "If this keeps happening, stop the server briefly and then load the world.",
-  "Dieser Spieler wurde seit dem Laden verändert, z. B. in Minecraft. Speichern würde abgelehnt.": "This player changed since it was loaded, for example in Minecraft. Saving would be rejected.",
+  "Dieser Spieler wurde seit dem Laden verändert, z. B. in Minecraft. Speichern würde abgelehnt; lade den Spieler neu.": "This player changed since it was loaded, for example in Minecraft. Saving would be rejected; reload the player.",
   "Deine ungespeicherten Änderungen gehen beim Neuladen verloren. Spieler trotzdem neu laden?": "Your unsaved changes will be lost when reloading. Reload the player anyway?",
   "Mount-Position ist nicht als endlicher Float32-Wert speicherbar.": "Mount position cannot be stored as a finite Float32 value.",
   "Equine-Template enthält ungeeignete Zustandsdaten, Beziehungen oder Ausrüstung und kann nicht sicher geklont werden.": "Equine template contains unsuitable state data, relationships or equipment and cannot be cloned safely.",

@@ -212,7 +212,7 @@ def test_frontend_player_watch_reports_only_a_changed_revision() -> None:
     )
 
 
-def test_frontend_presence_controller_shows_the_changed_player_hint_and_reloads() -> None:
+def test_frontend_presence_controller_reports_the_changed_player_until_it_is_reloaded() -> None:
     _run_node(
         textwrap.dedent(
             r"""
@@ -237,8 +237,7 @@ def test_frontend_presence_controller_shows_the_changed_player_hint_and_reloads(
             const confirms = [];
             let confirmAnswer = false;
             let reloads = 0;
-            const handlers = {};
-            const banner = { style: { display: "none" } };
+            const notices = new Map();
             const storage = {};
             const controller = view.createWorldPresenceController({
                 win: {
@@ -248,10 +247,6 @@ def test_frontend_presence_controller_shows_the_changed_player_hint_and_reloads(
                     setInterval: () => 1,
                 },
                 sessionKey: "presence-test",
-                elements: {
-                    playerChangedBanner: banner,
-                    playerChangedButton: { addEventListener: (name, handler) => { handlers[name] = handler; } },
-                },
                 withCsrf: () => ({}),
                 parseJsonResponse: async () => responses.shift(),
                 getWorldPath: () => "/w",
@@ -262,7 +257,9 @@ def test_frontend_presence_controller_shows_the_changed_player_hint_and_reloads(
                 getIsDirty: () => state.dirty,
                 getIsBusy: () => state.busy,
                 reloadPlayer: () => { reloads += 1; return true; },
-                showToast: (text, kind) => toasts.push([text, kind]),
+                logStatus: (text, type, options) => notices.set(options.key, { text, type, options }),
+                clearStatus: key => notices.delete(key),
+                showToast: (text, kind, duration, action) => toasts.push({ text, kind, duration, action }),
                 showConfirmDialog: async text => { confirms.push(text); return confirmAnswer; },
             });
 
@@ -271,20 +268,26 @@ def test_frontend_presence_controller_shows_the_changed_player_hint_and_reloads(
                 await controller.update();
                 assert.strictEqual(requests[0].fingerprint_baseline, "F0");
                 assert.strictEqual(requests[0].fingerprint_seen, "");
-                assert.strictEqual(banner.style.display, "none");
+                assert.strictEqual(notices.size, 0);
 
+                // A lasting error in the status area, like a player the server
+                // guard made read-only, and one toast that offers the reload.
                 responses.push({ success: true, world_fingerprint: "F1", player_revision: "R2" });
                 await controller.update();
                 assert.strictEqual(requests[1].fingerprint_seen, "F1");
-                assert.strictEqual(banner.style.display, "flex");
+                const notice = notices.get("player-changed");
+                assert.strictEqual(notice.type, "error");
+                assert.strictEqual(notice.options.active, true);
+                assert.ok(notice.text.includes("seit dem Laden verändert"));
                 assert.strictEqual(toasts.length, 1);
-                assert.strictEqual(toasts[0][1], "warning");
-                assert.ok(toasts[0][0].includes("seit dem Laden verändert"));
+                assert.strictEqual(toasts[0].kind, "error");
+                assert.strictEqual(toasts[0].text, notice.text);
+                assert.strictEqual(toasts[0].action.label, "Spieler neu laden");
 
-                // The hint stays without repeating the toast.
+                // The notice stays without repeating the toast.
                 responses.push({ success: true, world_fingerprint: "F1" });
                 await controller.update();
-                assert.strictEqual(banner.style.display, "flex");
+                assert.ok(notices.has("player-changed"));
                 assert.strictEqual(toasts.length, 1);
 
                 // While the page saves, it asks for no check.
@@ -294,26 +297,28 @@ def test_frontend_presence_controller_shows_the_changed_player_hint_and_reloads(
                 assert.strictEqual(requests[3].fingerprint_baseline, undefined);
                 state.busy = false;
 
-                // Reloading asks first when there are unsaved changes.
-                controller.wirePlayerChangedBanner();
-                assert.strictEqual(typeof handlers.click, "function");
+                // The toast's reload asks first when there are unsaved changes.
                 state.dirty = true;
-                assert.strictEqual(await controller.reloadChangedPlayer(), false);
+                toasts[0].action.onClick();
+                await new Promise(resolve => setImmediate(resolve));
                 assert.strictEqual(confirms.length, 1);
                 assert.strictEqual(reloads, 0);
                 confirmAnswer = true;
                 assert.strictEqual(await controller.reloadChangedPlayer(), true);
+                assert.strictEqual(confirms.length, 2);
                 assert.strictEqual(reloads, 1);
                 state.dirty = false;
                 assert.strictEqual(await controller.reloadChangedPlayer(), true);
                 assert.strictEqual(confirms.length, 2);
+                assert.strictEqual(reloads, 2);
 
-                // The reloaded player has a new revision; the hint goes away.
+                // The reloaded player has a new revision; the notice goes away.
                 state.revision = "R2";
                 state.fingerprint = "F1";
                 responses.push({ success: true, world_fingerprint: "F1" });
                 await controller.update();
-                assert.strictEqual(banner.style.display, "none");
+                assert.strictEqual(notices.size, 0);
+                assert.strictEqual(toasts.length, 1);
             })().catch(error => {
                 console.error(error);
                 process.exit(1);
@@ -342,7 +347,7 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
             const view = context.window.MCBEPresenceView;
 
             const toasts = [];
-            const banner = { style: { display: "none" } };
+            const notices = new Map();
             const storage = {};
             const controller = view.createWorldPresenceController({
                 win: {
@@ -352,7 +357,6 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                     setInterval: () => 1,
                 },
                 sessionKey: "presence-test",
-                elements: { playerChangedBanner: banner },
                 withCsrf: () => ({}),
                 parseJsonResponse: async response => response,
                 getWorldPath: () => "/w",
@@ -362,6 +366,8 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                 getLoadedWorldFingerprint: () => "F0",
                 getIsDirty: () => false,
                 getIsBusy: () => false,
+                logStatus: (text, type, options) => notices.set(options.key, text),
+                clearStatus: key => notices.delete(key),
                 showToast: (text, kind) => toasts.push([text, kind]),
             });
 
@@ -378,20 +384,20 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                 assert.strictEqual(pending[2].body.fingerprint_seen, "F1");
                 pending[2].answer({ success: true, world_fingerprint: "F1", player_revision: "R2" });
                 await newer;
-                assert.strictEqual(banner.style.display, "flex");
+                assert.ok(notices.has("player-changed"));
                 pending[1].answer({ success: true, world_fingerprint: "F1", player_revision: "R1" });
                 const late = await older;
-                assert.strictEqual(banner.style.display, "flex");
+                assert.ok(notices.has("player-changed"));
                 assert.strictEqual(late, null);
 
-                // The next poll builds on the newer answer, and the hint stays
-                // without a second toast.
+                // The next poll builds on the newer answer, and the notice
+                // stays without a second toast.
                 const next = controller.update();
                 assert.strictEqual(pending[3].body.fingerprint_baseline, "F1");
                 assert.strictEqual(pending[3].body.fingerprint_seen, "");
                 pending[3].answer({ success: true, world_fingerprint: "F1" });
                 await next;
-                assert.strictEqual(banner.style.display, "flex");
+                assert.ok(notices.has("player-changed"));
                 assert.strictEqual(toasts.length, 1);
             })().catch(error => {
                 console.error(error);
