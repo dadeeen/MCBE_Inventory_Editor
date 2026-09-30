@@ -6184,6 +6184,14 @@ textarea:disabled,
     }
 }
 
+/* The status entries use the light theme's text colors, so their panel needs
+   a light surface too. System keeps the dark palette and the dark panel. */
+:root[data-theme="light"] .status-stack-panel {
+    border-color: var(--card-border);
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: var(--shadow-main);
+}
+
 /* v0.5.11 visual reset: polished dark UI and stable contrast.
    System uses the same dark palette by default; use "Hell" explicitly for a light UI. */
 :root[data-theme="dark"],

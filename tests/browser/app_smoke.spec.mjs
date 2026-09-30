@@ -2388,19 +2388,54 @@ test("a player changed outside the editor shows an error until it is reloaded", 
   expect(browserErrors).toEqual([]);
 });
 
-test("status entries keep the color of their kind in every theme", async ({ page }) => {
+test("status entries keep the color of their kind and stay readable in every theme", async ({ page }) => {
   await openAppWithEmptyWorldScan(page);
-  for (const theme of ["dark", "system", "light"]) {
+  for (const theme of ["dark", "system", "light", "minecraft"]) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
-    const colors = await page.evaluate(() => Object.fromEntries(["success", "info", "warning", "error"].map(kind => {
-      const probe = document.createElement("div");
-      probe.className = `status-stack-entry save-status ${kind}`;
-      document.getElementById("statusStackPanel").appendChild(probe);
-      const color = getComputedStyle(probe).color;
-      probe.remove();
-      return [kind, color];
-    })));
+    const entries = await page.evaluate(() => {
+      const panel = document.getElementById("statusStackPanel");
+      const rgba = value => {
+        const [r, g, b, a = 1] = value.match(/[\d.]+/g).map(Number);
+        return { r, g, b, a };
+      };
+      const over = (top, bottom) => Object.fromEntries(["r", "g", "b"].map(channel => [
+        channel, top[channel] * top.a + bottom[channel] * (1 - top.a),
+      ]).concat([["a", 1]]));
+      const luminance = color => ["r", "g", "b"].map(channel => {
+        const value = color[channel] / 255;
+        return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+      const contrast = (first, second) => {
+        const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+        return (light + 0.05) / (dark + 0.05);
+      };
+      const page = document.createElement("div");
+      page.style.color = "var(--bg-main)";
+      panel.appendChild(page);
+      const panelBackground = over(rgba(getComputedStyle(panel).backgroundColor), rgba(getComputedStyle(page).color));
+      page.remove();
+      return Object.fromEntries(["success", "info", "warning", "error"].map(kind => {
+        const probe = document.createElement("div");
+        probe.className = `status-stack-entry save-status ${kind}`;
+        probe.innerHTML = '<span class="status-stack-time">12:00</span>';
+        panel.appendChild(probe);
+        const style = getComputedStyle(probe);
+        const background = over(rgba(style.backgroundColor), panelBackground);
+        const entry = {
+          color: style.color,
+          text: Number(contrast(rgba(style.color), background).toFixed(2)),
+          time: Number(contrast(rgba(getComputedStyle(probe.firstChild).color), background).toFixed(2)),
+        };
+        probe.remove();
+        return [kind, entry];
+      }));
+    });
+    const detail = `${theme}: ${JSON.stringify(entries)}`;
     // An error or a plain information must not look like a success.
-    expect(new Set(Object.values(colors)).size, `${theme}: ${JSON.stringify(colors)}`).toBe(4);
+    expect(new Set(Object.values(entries).map(entry => entry.color)).size, detail).toBe(4);
+    for (const entry of Object.values(entries)) {
+      expect(entry.text, detail).toBeGreaterThanOrEqual(4.5);
+      expect(entry.time, detail).toBeGreaterThanOrEqual(4.5);
+    }
   }
 });
