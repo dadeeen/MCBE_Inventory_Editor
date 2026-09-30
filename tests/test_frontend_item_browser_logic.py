@@ -651,3 +651,42 @@ def test_frontend_item_browser_expands_bed_variants_and_respects_locale_search()
             """
         )
     )
+
+
+def test_frontend_item_browser_sorts_by_keys_computed_once_per_item() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            let pairs = 0;
+            const context = { window: { MCBEI18n: {
+                localizedPair: (de, en) => { pairs += 1; return { primary: de || en || "", secondary: "" }; },
+                compare: (a, b) => a.localeCompare(b, "de", { sensitivity: "base" }),
+            } } };
+            vm.runInNewContext(fs.readFileSync("static/item_browser_logic.js", "utf8"), context, {
+                filename: "static/item_browser_logic.js",
+            });
+            const logic = context.window.MCBEItemBrowserLogic;
+            const items = {};
+            for (let index = 0; index < 200; index += 1) {
+                items[`minecraft:item_${String(199 - index).padStart(3, "0")}_sword`] = [`Schwert ${index % 7}`, `Sword ${index % 7}`];
+            }
+            for (const sortMode of ["type", "az"]) {
+                for (const category of ["all", "weapons"]) {
+                    pairs = 0;
+                    const sorted = logic.browserItems(items, { sortMode, category });
+                    assert.strictEqual(sorted.length, 200);
+                    // One name per item, not two per comparison.
+                    assert.strictEqual(pairs, 200, `${sortMode}/${category}`);
+                    const again = [...sorted].reverse().map(([id, names]) => [id, names, null]);
+                    assert.deepStrictEqual(
+                        JSON.parse(JSON.stringify(again.sort((a, b) => logic.compareBrowserItems(a, b, sortMode, category)).map(([id]) => id))),
+                        JSON.parse(JSON.stringify(sorted.map(([id]) => id))),
+                    );
+                }
+            }
+            """
+        )
+    )

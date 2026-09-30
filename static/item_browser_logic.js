@@ -518,22 +518,46 @@
         ]);
     }
 
-    function compareBrowserItems(a, b, sortMode, category) {
-        const leftName = localizedNamePair(a[1][0], a[1][1]).primary;
-        const rightName = localizedNamePair(b[1][0], b[1][1]).primary;
-        const nameCompare = window.MCBEI18n?.compare?.(leftName, rightName)
-            ?? leftName.localeCompare(rightName, undefined, { sensitivity: "base" });
-        if (sortMode === "type" && !["all", "common"].includes(category)) {
-            const rankCompare = itemBrowserTypeRank(a[0], category) - itemBrowserTypeRank(b[0], category);
-            if (rankCompare !== 0) return rankCompare;
-        }
-        if (sortMode === "type" && category !== "all") {
-            const idCompare = a[0].localeCompare(b[0], undefined, { sensitivity: "base" });
+    // Orders like String.prototype.localeCompare(other, undefined, { sensitivity: "base" }),
+    // without building a collator for every comparison.
+    const baseCollator = typeof Intl !== "undefined" && Intl.Collator
+        ? new Intl.Collator(undefined, { sensitivity: "base" })
+        : null;
+
+    function compareBase(left, right) {
+        return baseCollator ? baseCollator.compare(left, right) : left.localeCompare(right, undefined, { sensitivity: "base" });
+    }
+
+    function compareNames(left, right) {
+        return window.MCBEI18n?.compare?.(left, right) ?? compareBase(left, right);
+    }
+
+    // Everything the order needs from one entry, computed once per entry
+    // instead of once per comparison.
+    function browserSortKey(entry, sortMode, category) {
+        return {
+            id: entry[0],
+            name: localizedNamePair(entry[1][0], entry[1][1]).primary,
+            rank: sortMode === "type" && !["all", "common"].includes(category) ? itemBrowserTypeRank(entry[0], category) : 0,
+            idBeforeName: sortMode === "type" && category !== "all",
+            damage: Number(entry[2]?.damage) || 0,
+        };
+    }
+
+    function compareBrowserSortKeys(left, right) {
+        const rankCompare = left.rank - right.rank;
+        if (rankCompare !== 0) return rankCompare;
+        if (left.idBeforeName) {
+            const idCompare = compareBase(left.id, right.id);
             if (idCompare !== 0) return idCompare;
         }
-        return nameCompare
-            || a[0].localeCompare(b[0], undefined, { sensitivity: "base" })
-            || (Number(a[2]?.damage) || 0) - (Number(b[2]?.damage) || 0);
+        return compareNames(left.name, right.name)
+            || compareBase(left.id, right.id)
+            || left.damage - right.damage;
+    }
+
+    function compareBrowserItems(a, b, sortMode, category) {
+        return compareBrowserSortKeys(browserSortKey(a, sortMode, category), browserSortKey(b, sortMode, category));
     }
 
     function browserItems(itemsDb, {
@@ -549,8 +573,9 @@
         if (q) {
             items = items.filter(([id, names, metadata]) => itemMatchesQuery(id, names, q, metadata));
         }
-        items.sort((a, b) => compareBrowserItems(a, b, sortMode, category));
-        return items;
+        const keyed = items.map(entry => [browserSortKey(entry, sortMode, category), entry]);
+        keyed.sort((a, b) => compareBrowserSortKeys(a[0], b[0]));
+        return keyed.map(([, entry]) => entry);
     }
 
     // Chunk-Rendering: Die Suche filtert immer den vollen Datensatz im Speicher;
