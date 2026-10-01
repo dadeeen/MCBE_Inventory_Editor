@@ -25,15 +25,31 @@ def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from mcbe_editor import item_db_verification
-    from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
+    from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
     from mcbe_editor.update_output_i18n import output_t
     from mcbe_editor.update_progress import report_progress
 
-    return BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, output_t, report_progress
+    return (
+        BUNDLED_ITEM_DB_JSON,
+        atomic_seed_file,
+        item_db_verification,
+        is_non_item_lang_key_id,
+        is_technical_block_only_item_id,
+        output_t,
+        report_progress,
+    )
 
 
-BUNDLED_ITEM_DB_JSON, atomic_seed_file, item_db_verification, is_technical_block_only_item_id, tr, report_progress = _load_runtime_dependencies()
+(
+    BUNDLED_ITEM_DB_JSON,
+    atomic_seed_file,
+    item_db_verification,
+    is_non_item_lang_key_id,
+    is_technical_block_only_item_id,
+    tr,
+    report_progress,
+) = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 ENCHANTMENT_MAX_LEVELS_PATH = REPO_ROOT / "mcbe_editor" / "resources" / "enchantment_max_levels.json"
@@ -313,7 +329,8 @@ def _canonical_enchantment_identifier(value: str) -> str:
 
 
 def _is_non_item_lang_identifier(identifier: str) -> bool:
-    return any(identifier.startswith(prefix) for prefix in NON_ITEM_LANG_IDENTIFIER_PREFIXES)
+    # Tooltip keys such as item.canBreak= match the legacy item key pattern.
+    return any(identifier.startswith(prefix) for prefix in NON_ITEM_LANG_IDENTIFIER_PREFIXES) or is_non_item_lang_key_id(identifier)
 
 
 _COLOR_OUTPUT_ENABLED = bool(getattr(sys.stdout, "isatty", lambda: False)()) and "NO_COLOR" not in os.environ
@@ -1730,15 +1747,18 @@ def merge_items(
     Existing localized entries stay untouched. Existing English fallbacks may be
     corrected when Mojang's mojang-items.json points the canonical ID at a
     legacy serialization/localization key. A label that names one variant of a
-    multi-variant ID is replaced by Mojang's base name for that ID.
+    multi-variant ID is replaced by Mojang's base name for that ID. Tooltip
+    keys that older catalogs took for items are dropped.
     """
-    merged = dict(old)
+    merged = {item_id: names for item_id, names in old.items() if not is_non_item_lang_key_id(item_id)}
     microsoft_items = microsoft_items or {}
     serialization_aliases = serialization_aliases or {}
     item_localizations = item_localizations or {}
     localization_label_index = build_item_localization_label_index(item_localizations)
     all_ids = sorted(set(en_items) | set(de_items) | set(microsoft_items) | set(serialization_aliases))
     for item_id in all_ids:
+        if is_non_item_lang_key_id(item_id):
+            continue
         full_id = f"minecraft:{item_id}"
         de_name, en_name = _resolved_item_names(
             item_id,

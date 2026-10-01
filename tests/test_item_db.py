@@ -36,7 +36,7 @@ from mcbe_editor.item_data import (
     selectable_item_catalog,
 )
 from mcbe_editor import item_data as item_data_module
-from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
+from mcbe_editor.item_registry_policy import NON_ITEM_LANG_KEY_IDS, is_technical_block_only_item_id
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
 
 
@@ -472,6 +472,19 @@ class TestAddableItemIds(unittest.TestCase):
         for item_id, names in expected.items():
             self.assertEqual(ITEMS[item_id], names, item_id)
 
+    def test_catalog_lists_no_tooltip_lines_as_items(self):
+        # item.canBreak=Can break: and similar keys name tooltip lines.
+        bundled = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))["items"]
+        self.assertEqual(sorted(NON_ITEM_LANG_KEY_IDS & set(bundled)), [])
+        self.assertEqual(sorted(NON_ITEM_LANG_KEY_IDS & set(ITEMS)), [])
+        for item_id in NON_ITEM_LANG_KEY_IDS:
+            self.assertFalse(is_known_item_id(item_id), item_id)
+        # Their neighbours carry the base names of the language files.
+        self.assertEqual(ITEMS["minecraft:banner_pattern"], ("Bannermuster", "Banner Pattern"))
+        self.assertEqual(ITEMS["minecraft:smithing_template"], ("Schmiedevorlage", "Smithing Template"))
+        self.assertTrue(is_known_item_id("minecraft:banner_pattern"))
+        self.assertTrue(is_known_item_id("minecraft:smithing_template"))
+
 
 class TestBlockItemIds(unittest.TestCase):
     def test_block_item_section_tracks_registry_intersection(self):
@@ -844,6 +857,46 @@ class TestBundledCurationForPersistentCopies(unittest.TestCase):
             db["ITEM_COMPONENTS"]["enchantable"]["minecraft:copper_spear"],
             {"slot": "melee_spear", "value": 13},
         )
+
+    def test_load_drops_tooltip_lines_that_older_catalogs_took_for_items(self):
+        legacy_items = {
+            "minecraft:armor": ["Upgrade:", "Upgrade:"],
+            "minecraft:canbreak": ["Kann abbauen:", "Can break:"],
+            "minecraft:canplace": ["Kann platziert werden auf:", "Can be placed on:"],
+            "minecraft:customproperties": ["Hat benutzerdefinierte Eigenschaften", "Has Custom Properties"],
+            "minecraft:dyed": ["Gefärbt", "Dyed"],
+            "minecraft:itemlock": [":hollow star: Gegenst. fallen lassen unmöglich; unbenutzbar wenn:", ":hollow star: Can't Drop Items can't be:"],
+            "minecraft:unbreakable": ["Unzerstörbar", "Unbreakable"],
+            "minecraft:worldbuilder": ["Du benötigst Kreativ + Operator, um diesen Block zu platzieren", "You need Creative + Operator to place this block"],
+            "minecraft:banner_pattern": ["Gemauertes Feld", "Field Masoned"],
+            "minecraft:smithing_template": ["Gilt für:", "Applies to:"],
+            "minecraft:diamond": ["Diamant", "Diamond"],
+        }
+        self.assertEqual(NON_ITEM_LANG_KEY_IDS - set(legacy_items), frozenset())
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "item_db.json"
+            db_path.write_text(json.dumps({"schema_version": 1, "items": legacy_items}, ensure_ascii=False), encoding="utf-8")
+            db = load_item_database(db_path)
+
+        items = db["ITEMS"]
+        self.assertEqual(sorted(NON_ITEM_LANG_KEY_IDS & set(items)), [])
+        self.assertEqual(sorted(NON_ITEM_LANG_KEY_IDS & db["ADDABLE_ITEM_IDS"]), [])
+        self.assertEqual(items["minecraft:banner_pattern"], ("Bannermuster", "Banner Pattern"))
+        self.assertEqual(items["minecraft:smithing_template"], ("Schmiedevorlage", "Smithing Template"))
+        self.assertEqual(items["minecraft:diamond"], ("Diamant", "Diamond"))
+
+    def test_own_names_for_banner_pattern_and_smithing_template_stay(self):
+        legacy_items = {
+            "minecraft:banner_pattern": ["Mein Bannermuster", "My Banner Pattern"],
+            "minecraft:smithing_template": ["Vorlage", "Template"],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "item_db.json"
+            db_path.write_text(json.dumps({"schema_version": 1, "items": legacy_items}, ensure_ascii=False), encoding="utf-8")
+            items = load_item_database(db_path)["ITEMS"]
+
+        self.assertEqual(items["minecraft:banner_pattern"], ("Mein Bannermuster", "My Banner Pattern"))
+        self.assertEqual(items["minecraft:smithing_template"], ("Vorlage", "Template"))
 
 
 class TestItemDbStatusApi(unittest.TestCase):

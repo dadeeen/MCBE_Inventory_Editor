@@ -250,6 +250,48 @@ class TestMicrosoftItemListings(unittest.TestCase):
         self.assertNotIn("glazedterracottasilver", en_items)
         self.assertEqual(en_items["stonecutter"], "Stonecutter")
 
+    def test_lang_item_parser_skips_tooltip_lines(self):
+        # item.canBreak=Can break: and similar keys match the legacy item
+        # pattern but name tooltip lines, not items.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            en_lang = tmp_path / "en_US.lang"
+            de_lang = tmp_path / "de_DE.lang"
+            en_lang.write_text(
+                "\n".join(
+                    [
+                        "item.canBreak=Can break:",
+                        "item.canPlace=Can be placed on:",
+                        "item.customProperties=Has Custom Properties",
+                        "item.dyed=Dyed",
+                        "item.unbreakable=Unbreakable",
+                        "item.banner_pattern.bricks=Field Masoned",
+                        "item.banner_pattern.name=Banner Pattern",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            de_lang.write_text(
+                "\n".join(["item.unbreakable=Unzerstörbar", "item.banner_pattern.name=Bannermuster"]),
+                encoding="utf-8",
+            )
+
+            en_items, de_items = update_db.parse_lang_items(en_lang, de_lang)
+
+        self.assertEqual(en_items, {"banner_pattern": "Banner Pattern"})
+        self.assertEqual(de_items, {"banner_pattern": "Bannermuster"})
+
+    def test_merge_drops_tooltip_lines_of_older_catalogs(self):
+        old = {
+            "minecraft:canbreak": ("Kann abbauen:", "Can break:"),
+            "minecraft:itemlock": ("Gegenst. fallen lassen unmöglich", "Can't Drop Items"),
+            "minecraft:diamond": ("Diamant", "Diamond"),
+        }
+
+        merged = update_db.merge_items(old, {"unbreakable": "Unbreakable"}, {"unbreakable": "Unzerstörbar"})
+
+        self.assertEqual(merged, {"minecraft:diamond": ("Diamant", "Diamond")})
+
     def test_compute_block_only_item_ids_uses_mojang_registries(self):
         # Block-Registry ja + Item-Registry nein => kein Inventar-Item.
         buffer = io.BytesIO()

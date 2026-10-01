@@ -3973,10 +3973,6 @@
       "Gürteltier-Spawn-Ei",
       "Armadillo Spawn Egg"
     ],
-    "minecraft:armor": [
-      "Upgrade:",
-      "Upgrade:"
-    ],
     "minecraft:armor_stand": [
       "Rüstungsständer",
       "Armor Stand"
@@ -4118,8 +4114,8 @@
       "Black Banner"
     ],
     "minecraft:banner_pattern": [
-      "Gemauertes Feld",
-      "Field Masoned"
+      "Bannermuster",
+      "Banner Pattern"
     ],
     "minecraft:barrel": [
       "Fass",
@@ -4821,10 +4817,6 @@
       "Lagerfeuer",
       "Campfire"
     ],
-    "minecraft:canbreak": [
-      "Kann abbauen:",
-      "Can break:"
-    ],
     "minecraft:candle": [
       "Kerze",
       "Candle"
@@ -4832,10 +4824,6 @@
     "minecraft:candle_cake": [
       "Kuchen mit Kerze",
       "Cake with Candle"
-    ],
-    "minecraft:canplace": [
-      "Kann platziert werden auf:",
-      "Can be placed on:"
     ],
     "minecraft:carpet": [
       "Teppich",
@@ -5617,10 +5605,6 @@
       "Weinender Obsidian",
       "Crying Obsidian"
     ],
-    "minecraft:customproperties": [
-      "Hat benutzerdefinierte Eigenschaften",
-      "Has Custom Properties"
-    ],
     "minecraft:cut_copper": [
       "Geschnittener Kupferblock",
       "Cut Copper"
@@ -6256,10 +6240,6 @@
     "minecraft:dye": [
       "Tintenbeutel",
       "Ink Sac"
-    ],
-    "minecraft:dyed": [
-      "Gefärbt",
-      "Dyed"
     ],
     "minecraft:echo_shard": [
       "Echoscherbe",
@@ -7880,10 +7860,6 @@
     "minecraft:iron_trapdoor": [
       "Eisenfalltür",
       "Iron Trapdoor"
-    ],
-    "minecraft:itemlock": [
-      ":hollow star: Gegenst. fallen lassen unmöglich; unbenutzbar wenn:",
-      ":hollow star: Can't Drop Items can't be:"
     ],
     "minecraft:jigsaw": [
       "Verbundblock",
@@ -10854,8 +10830,8 @@
       "Smithing Table"
     ],
     "minecraft:smithing_template": [
-      "Gilt für:",
-      "Applies to:"
+      "Schmiedevorlage",
+      "Smithing Template"
     ],
     "minecraft:smoker": [
       "Räucherofen",
@@ -11653,10 +11629,6 @@
       "Zwirbelranken",
       "Twisting Vines"
     ],
-    "minecraft:unbreakable": [
-      "Unzerstörbar",
-      "Unbreakable"
-    ],
     "minecraft:underwater_tnt": [
       "Underwater Tnt",
       "Underwater Tnt"
@@ -12352,10 +12324,6 @@
     "minecraft:wool": [
       "Wolle",
       "Wool"
-    ],
-    "minecraft:worldbuilder": [
-      "Du benötigst Kreativ + Operator, um diesen Block zu platzieren",
-      "You need Creative + Operator to place this block"
     ],
     "minecraft:writable_book": [
       "Buch und Feder",

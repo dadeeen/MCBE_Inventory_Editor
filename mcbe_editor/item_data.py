@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
+from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
 from mcbe_editor.world_locks import locked_operation
 
@@ -366,6 +366,10 @@ SUPERSEDED_ITEM_LABELS: dict[str, tuple[str, str]] = {
     "minecraft:tallgrass": ("Farn", "Fern"),
     "minecraft:wooden_slab": ("Akazienstufe", "Acacia Slab"),
     "minecraft:wool": ("Schwarze Wolle", "Black Wool"),
+    # Die Variante item.banner_pattern.bricks und die Tooltip-Zeile
+    # item.smithing_template.applies_to statt des Basisnamens <id>.name.
+    "minecraft:banner_pattern": ("Gemauertes Feld", "Field Masoned"),
+    "minecraft:smithing_template": ("Gilt für:", "Applies to:"),
     # Namen, die nicht Mojangs aktueller Bedrock-Übersetzung entsprachen
     # (z. B. Brustplatte statt Harnisch, Umbenennung in bedrock-samples 1.26.50).
     "minecraft:carrot_on_a_stick": ("Karottenrute", "Carrot on a Stick"),
@@ -547,7 +551,13 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
         if not isinstance(items_raw, dict):
             raise InvalidItemDatabaseError("Item-DB-Abschnitt items muss ein Objekt sein.")
 
-        items = {str(key): _as_text_pair(value, key=str(key)) for key, value in items_raw.items()}
+        # The updater only adds entries, so tooltip keys that older catalogs
+        # took for items leave persistent copies only here.
+        items = {
+            str(key): _as_text_pair(value, key=str(key))
+            for key, value in items_raw.items()
+            if not is_non_item_lang_key_id(str(key))
+        }
         block_only_item_ids = _item_id_set(raw.get("block_only_items"))
         addable_items_raw = raw.get("addable_items")
         has_explicit_addable_items = isinstance(addable_items_raw, list)
