@@ -236,8 +236,16 @@ const showConfirmDialog = window.MCBEUiFeedback.showConfirmDialog;
 const showLoading = window.MCBEUiFeedback.showLoading;
 const hideLoading = window.MCBEUiFeedback.hideLoading;
 const showToast = window.MCBEUiFeedback.showToast;
-// Keyboard focus survives the lock that loading and saving put on the app.
-window.MCBEUiFeedback.createFocusKeeper({ container: document.querySelector(".app-container") });
+// Keyboard focus survives the lock that loading and saving put on the app;
+// after a change of view it lands at the start of the new view. Narrow
+// layouts show one column at a time, so it may land in the shown one instead.
+window.MCBEUiFeedback.createFocusKeeper({
+    container: document.querySelector(".app-container"),
+    landing: () => {
+        const shown = [...document.querySelectorAll("[data-view-landing]")].filter(element => element.getClientRects().length > 0);
+        return shown.find(element => element.dataset.viewLanding === activeWorkflowView) || shown[0] || null;
+    },
+});
 
 // DOM Elements
 const {

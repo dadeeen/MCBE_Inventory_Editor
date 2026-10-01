@@ -305,7 +305,7 @@ def test_focus_keeper_returns_the_focus_once_the_app_is_usable_again() -> None:
                 const node = {
                     attributes, isConnected: true, inside: true, disabled: false, blocked: false, visible: true,
                     getAttribute: name => (name in attributes ? attributes[name] : null),
-                    closest: selector => (selector === "[inert], [hidden]" && node.blocked ? {} : null),
+                    closest: selector => ((selector === "[inert]" && node.blocked) || (selector === "[hidden]" && node.hiddenAbove) ? {} : null),
                     getClientRects: () => (node.visible ? [{}] : []),
                     focus(options) { node.focusOptions = options; document.activeElement = node; },
                 };
@@ -367,6 +367,7 @@ def test_focus_keeper_returns_the_focus_once_the_app_is_usable_again() -> None:
                 node => { node.disabled = true; },
                 node => { node.blocked = true; },
                 node => { node.visible = false; },
+                node => { node.hiddenAbove = true; },
                 node => { node.inside = false; },
             ]) {
                 const target = element({ id: `target${elements.length}` });
@@ -383,6 +384,177 @@ def test_focus_keeper_returns_the_focus_once_the_app_is_usable_again() -> None:
             assert.strictEqual(feedback.focusLocator(element({ id: 'a"b\\c' })), '[id="a\\"b\\\\c"]');
             assert.strictEqual(feedback.focusLocator(element({ "data-ender-slot": "0" })), '[data-ender-slot="0"]');
             assert.strictEqual(feedback.focusLocator(element({})), "");
+            """
+        )
+    )
+
+
+def test_focus_keeper_lands_in_the_new_view_only_for_an_element_no_longer_shown() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+
+            const document = { body: { name: "body" }, documentElement: {}, querySelector: () => null };
+            document.activeElement = document.body;
+            let lift = null;
+            const window = {
+                MutationObserver: class {
+                    constructor(callback) { lift = callback; }
+                    observe() {}
+                },
+            };
+            const context = { document, setTimeout, window };
+            vm.runInNewContext(fs.readFileSync("static/ui_feedback.js", "utf8"), context, {
+                filename: "static/ui_feedback.js",
+            });
+            function element(attributes = {}) {
+                const node = {
+                    attributes, isConnected: true, disabled: false, visible: true,
+                    getAttribute: name => (name in attributes ? attributes[name] : null),
+                    closest: () => null,
+                    getClientRects: () => (node.visible ? [{}] : []),
+                    focus() { document.activeElement = node; },
+                };
+                return node;
+            }
+            let focusin = null;
+            const container = {
+                inert: false,
+                contains: () => true,
+                addEventListener: (type, handler) => { if (type === "focusin") focusin = handler; },
+                querySelector: () => null,
+            };
+            const heading = element({ "data-view-landing": "inventory" });
+            let landings = 0;
+            context.window.MCBEUiFeedback.createFocusKeeper({
+                container, doc: document, win: window, landing: () => { landings += 1; return heading; },
+            });
+
+            // Nothing focused in the app yet: the lock moves no focus.
+            lift();
+            assert.strictEqual(document.activeElement, document.body);
+            assert.strictEqual(landings, 0);
+
+            // The load button is hidden after the view changed.
+            const load = element({ id: "btnLoad" });
+            focusin({ target: load });
+            load.visible = false;
+            lift();
+            assert.strictEqual(document.activeElement, heading);
+
+            // An element gone without a replacement lands there as well.
+            const gone = element({});
+            focusin({ target: gone });
+            gone.isConnected = false;
+            document.activeElement = document.body;
+            lift();
+            assert.strictEqual(document.activeElement, heading);
+
+            // A disabled button that is still shown keeps the focus where it is.
+            const save = element({ id: "btnSave" });
+            focusin({ target: save });
+            save.disabled = true;
+            document.activeElement = document.body;
+            landings = 0;
+            lift();
+            assert.strictEqual(document.activeElement, document.body);
+            assert.strictEqual(landings, 0);
+            """
+        )
+    )
+
+
+def test_dialogs_return_the_focus_to_the_element_that_opened_them() -> None:
+    _run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+
+            const document = { body: { name: "body" }, documentElement: {} };
+            document.activeElement = document.body;
+            function element(name, parent = null) {
+                const node = {
+                    name, parent, style: {}, textContent: "", onclick: null, isConnected: true, disabled: false,
+                    closest: () => null,
+                    getClientRects: () => [{}],
+                    contains: other => { for (let at = other; at; at = at.parent) if (at === node) return true; return false; },
+                    focus() { document.activeElement = node; },
+                    addEventListener(type, handler) { (node.listeners ||= {})[type] = handler; },
+                };
+                return node;
+            }
+            const overlay = element("confirmOverlay");
+            const ok = element("confirmOk", overlay);
+            const cancel = element("confirmCancel", overlay);
+            const message = element("confirmMessage", overlay);
+            message.replaceChildren = () => {};
+            const byId = { confirmOverlay: overlay, confirmOk: ok, confirmCancel: cancel, confirmMessage: message };
+            document.getElementById = id => byId[id] || null;
+            document.addEventListener = () => {};
+            const context = { document, setTimeout, window: { document } };
+            vm.runInNewContext(fs.readFileSync("static/ui_feedback.js", "utf8"), context, {
+                filename: "static/ui_feedback.js",
+            });
+            const feedback = context.window.MCBEUiFeedback;
+
+            (async () => {
+                // Cancelling returns the focus to the button that asked.
+                const discard = element("discard");
+                discard.focus();
+                const first = feedback.showConfirmDialog("Verwerfen?");
+                assert.strictEqual(document.activeElement, ok);
+                cancel.onclick();
+                assert.strictEqual(await first, false);
+                assert.strictEqual(document.activeElement, discard);
+
+                // A dialog replacing another still returns to the first opener.
+                const second = feedback.showConfirmDialog("Erste Frage");
+                const third = feedback.showConfirmDialog("Zweite Frage");
+                assert.strictEqual(await second, false);
+                assert.strictEqual(document.activeElement, ok);
+                ok.onclick();
+                assert.strictEqual(await third, true);
+                assert.strictEqual(document.activeElement, discard);
+
+                // It takes nothing from an element focused meanwhile, and
+                // gives nothing to an opener that is disabled by then.
+                const fourth = feedback.showConfirmDialog("Frage");
+                const other = element("other");
+                other.focus();
+                ok.onclick();
+                await fourth;
+                assert.strictEqual(document.activeElement, other);
+                discard.focus();
+                const fifth = feedback.showConfirmDialog("Frage");
+                discard.disabled = true;
+                ok.onclick();
+                await fifth;
+                assert.strictEqual(document.activeElement, ok);
+                discard.disabled = false;
+
+                // Help returns the focus to its button as well.
+                const helpOverlay = element("helpOverlay");
+                const helpClose = element("helpClose", helpOverlay);
+                const helpButton = element("helpButton");
+                const help = feedback.createHelpOverlayController({
+                    doc: document, openButton: helpButton, closeButton: helpClose, overlay: helpOverlay,
+                });
+                helpButton.focus();
+                help.open();
+                assert.strictEqual(helpOverlay.style.display, "flex");
+                helpClose.focus();
+                help.close();
+                assert.strictEqual(helpOverlay.style.display, "none");
+                assert.strictEqual(document.activeElement, helpButton);
+            })().catch(error => {
+                console.error(error);
+                process.exit(1);
+            });
             """
         )
     )

@@ -90,6 +90,7 @@
         // requests it concurrently, cancel the stale action explicitly so its
         // Promise cannot remain unresolved after the button handlers are replaced.
         activeConfirmFinish?.(false);
+        const opener = document.activeElement;
         return new Promise((resolve) => {
             const overlay = document.getElementById("confirmOverlay");
             const msgEl = document.getElementById("confirmMessage");
@@ -114,6 +115,7 @@
                 okBtn.onclick = null;
                 cancelBtn.onclick = null;
                 if (loadingRequested && loadingOverlay) loadingOverlay.style.display = "flex";
+                returnFocus(opener, overlay);
                 resolve(value);
             };
             activeConfirmFinish = finish;
@@ -441,12 +443,17 @@
         closeButton = null,
         overlay = null,
     } = {}) {
+        let opener = null;
+
         function open() {
+            opener = doc.activeElement;
             if (overlay) overlay.style.display = "flex";
         }
 
         function close() {
             if (overlay) overlay.style.display = "none";
+            returnFocus(opener, overlay, doc);
+            opener = null;
         }
 
         function wire() {
@@ -477,21 +484,39 @@
         return "";
     }
 
-    function canTakeFocus(element, container) {
+    function isShown(element) {
+        return Boolean(element?.isConnected && !element.closest?.("[hidden]") && element.getClientRects?.().length > 0);
+    }
+
+    function canTakeFocus(element, container = null) {
         return Boolean(
-            element?.isConnected
-            && container.contains(element)
+            isShown(element)
+            && (!container || container.contains(element))
             && !element.disabled
-            && !element.closest?.("[inert], [hidden]")
-            && element.getClientRects?.().length > 0
+            && !element.closest?.("[inert]")
         );
+    }
+
+    function focusIsFree(doc, dialog = null) {
+        const active = doc.activeElement;
+        return !active || active === doc.body || active === doc.documentElement || Boolean(dialog?.contains?.(active));
+    }
+
+    // A closing dialog gives the focus back to the element that had it when
+    // the dialog opened, if nothing else took it meanwhile.
+    function returnFocus(opener, dialog, doc = document) {
+        if (!focusIsFree(doc, dialog) || !canTakeFocus(opener)) return false;
+        opener.focus({ preventScroll: true });
+        return doc.activeElement === opener;
     }
 
     // Loading and saving make the app area inert, which drops the focus of an
     // element inside it. Once the area is usable again, the focus returns to
     // the element last focused there, or to the one rendered in its place, as
-    // long as nothing else took it and no dialog is open.
-    function createFocusKeeper({ container = null, doc = document, win = window } = {}) {
+    // long as nothing else took it and no dialog is open. If that element is
+    // no longer shown, for example after the view changed, the focus goes to
+    // ``landing()`` instead; a disabled one keeps the focus where it is.
+    function createFocusKeeper({ container = null, landing = () => null, doc = document, win = window } = {}) {
         if (!container) return { restore: () => false };
         let lastFocused = null;
         let lastLocator = "";
@@ -501,12 +526,16 @@
         });
 
         function restore() {
-            const active = doc.activeElement;
-            if (active && active !== doc.body && active !== doc.documentElement) return false;
-            if (container.inert || doc.querySelector('.modal-overlay[style*="flex"]')) return false;
-            const target = canTakeFocus(lastFocused, container)
+            if (!focusIsFree(doc)) return false;
+            if (!lastFocused || container.inert || doc.querySelector('.modal-overlay[style*="flex"]')) return false;
+            const current = lastFocused.isConnected
                 ? lastFocused
                 : (lastLocator ? container.querySelector(lastLocator) : null);
+            let target = current;
+            if (!canTakeFocus(current, container)) {
+                if (isShown(current)) return false;
+                target = landing();
+            }
             if (!canTakeFocus(target, container)) return false;
             target.focus({ preventScroll: true });
             return doc.activeElement === target;

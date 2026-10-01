@@ -2448,6 +2448,57 @@ test("keyboard focus returns to its element after loading and saving", async ({ 
   await expect(page.locator("#saveReviewOverlay")).toBeHidden();
   await expect(slot).toBeFocused();
   expect(await page.evaluate(() => isDirty)).toBe(false);
+
+  // Loading the world from the world view switches to the inventory, where
+  // the load button is hidden; the focus lands at the start of that view.
+  await page.locator('.app-section-nav button[data-workflow-view="world"]').click();
+  await page.locator("#btnLoad").focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => loads).toBe(3);
+  await expect(page.locator("#btnLoad")).toBeHidden();
+  await expect(page.locator('[data-view-landing="inventory"]')).toBeFocused();
+
+  // A narrow layout shows one column at a time, here not the inventory; the
+  // focus lands at the start of the shown column instead.
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.locator('.app-section-nav button[data-workflow-view="world"]').click();
+  await page.locator("#btnLoad").focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => loads).toBe(4);
+  await expect(page.locator('[data-view-landing="inventory"]')).toBeHidden();
+  await expect(page.locator('[data-view-landing="player"]')).toBeFocused();
+  expect(browserErrors).toEqual([]);
+});
+
+test("dialogs return the keyboard focus to the element that opened them", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  let loads = 0;
+  await openDragFixture(page, () => {
+    loads++;
+    return {};
+  });
+
+  // Cancelling the question about discarding changes returns to its button.
+  await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
+  const discard = page.locator("#btnSafeEditDiscardChanges");
+  await discard.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await expect(page.locator("#confirmOk")).toBeFocused();
+  await page.locator("#confirmCancel").click();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  await expect(discard).toBeFocused();
+  expect(await page.evaluate(() => isDirty)).toBe(true);
+  expect(loads).toBe(1);
+
+  // Closing the help returns to the help button.
+  const helpButton = page.locator("#btnHelp");
+  await helpButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#helpOverlay")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#helpOverlay")).toBeHidden();
+  await expect(helpButton).toBeFocused();
   expect(browserErrors).toEqual([]);
 });
 

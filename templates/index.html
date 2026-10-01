@@ -215,7 +215,7 @@
                 <!-- Main Inventory Grid (Standard MC Layout) -->
                 <div class="glass-card inventory-card" id="inventoryContainer" style="display: none;">
                     <div id="iconHintBanner" class="icon-hint-banner" style="display:none;" role="status"></div>
-                    <div id="playerInventorySummary" class="player-inventory-summary" style="display:none;" aria-live="polite">
+                    <div id="playerInventorySummary" class="player-inventory-summary" style="display:none;" aria-live="polite" data-view-landing="inventory" tabindex="-1">
                         <div>
                             <span class="summary-kicker">{{ t("Aktueller Spieler") }}</span>
                             <strong id="playerSummaryName">{{ t("Kein Spieler geladen") }}</strong>
@@ -307,7 +307,7 @@
                 <div class="glass-card save-workflow-card" id="saveWorkflowPanel" style="display:none;">
                     <div class="card-header save-workflow-header">
                         <div>
-                            <h2>{{ t("Speichern prüfen") }}</h2>
+                            <h2 data-view-landing="save" tabindex="-1">{{ t("Speichern prüfen") }}</h2>
                             <p class="section-subtitle">{{ t("Nur geänderte Bereiche werden geschrieben. Andere Spielerdaten bleiben unverändert.") }}</p>
                         </div>
                         <button id="btnSaveWorkflowRefresh" class="btn-text" type="button">{{ t("Neu prüfen") }}</button>
@@ -333,7 +333,7 @@
                 <div class="glass-card player-card" id="playerManager" style="display: none;">
                     <div class="card-header player-card-header">
                         <div>
-                            <h2>{{ t("Spieler") }}</h2>
+                            <h2 data-view-landing="player" tabindex="-1">{{ t("Spieler") }}</h2>
                             <p class="section-subtitle">{{ t("Spieler auswählen, Werte und Effekte im Editor bearbeiten, danach gesammelt speichern.") }}</p>
                         </div>
                         <div class="player-header-actions">
@@ -408,7 +408,7 @@
                 <section id="mountsPanel" class="glass-card mounts-panel" style="display:none;">
                     <div class="section-header">
                         <div>
-                            <h2>{{ t("Mounts (experimentell)") }}</h2>
+                            <h2 data-view-landing="mounts" tabindex="-1">{{ t("Mounts (experimentell)") }}</h2>
                             <p class="section-subtitle">
                                 {{ t("Vorschau und Vormerken ändern die Welt noch nicht. Erst beim Speichern wird das Mount erzeugt.") }}
                             </p>
@@ -444,7 +444,7 @@
                     <!-- Editor Konfiguration -->
                     <div class="dashboard-section" id="sectionEditorConfig">
                         <div class="card-header">
-                            <h2>{{ t("Spieler bearbeiten") }}</h2>
+                            <h2 data-view-landing="tools" tabindex="-1">{{ t("Spieler bearbeiten") }}</h2>
                         </div>
                         <div class="tab-headers dashboard-tab-headers">
                             <button class="tab-btn-dash active" data-tab-dash="dashStats">{{ t("Spieler-Stats") }}</button>
