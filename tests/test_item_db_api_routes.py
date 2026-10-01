@@ -211,6 +211,7 @@ def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
             const vm = require("vm");
             const code = fs.readFileSync("static/update_db_view.js", "utf8");
             const context = { window: { fetch: async () => ({}) }, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/update_db_view.js" });
             const view = context.window.MCBEUpdateDbView;
             let resolveFetch;
@@ -506,6 +507,7 @@ def test_update_db_frontend_reports_post_commit_reload_warning():
             const vm = require("vm");
             const code = fs.readFileSync("static/update_db_view.js", "utf8");
             const context = { window: { fetch: async () => ({}) }, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/update_db_view.js" });
             const view = context.window.MCBEUpdateDbView;
             const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };

@@ -70,6 +70,7 @@ def test_player_load_preserves_an_existing_workflow_view() -> None:
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context, {
                 filename: "static/player_view_models.js",
             });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context, {
                 filename: "static/player_load_controller.js",
             });
@@ -295,6 +296,7 @@ def test_recent_world_ui_is_cleared_instead_of_persisted() -> None:
             const vm = require("vm");
             const context = { window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
 
             const recentWorldsEl = { style: { display: "block" } };
@@ -332,6 +334,7 @@ def test_frontend_player_load_controller_collects_inventory_dom_elements() -> No
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             const seenIds = [];
@@ -391,6 +394,7 @@ def test_frontend_player_load_controller_renders_player_rows_from_state() -> Non
             };
             const context = { window: {}, document: doc };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             const playersList = {
@@ -435,6 +439,7 @@ def test_frontend_player_load_controller_shows_overlay_while_loading_player() ->
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             (async () => {
@@ -496,6 +501,7 @@ def test_frontend_player_load_controller_can_suppress_player_overlay_for_parent_
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             (async () => {
@@ -539,6 +545,7 @@ def test_frontend_player_load_marks_online_snapshot_stale_immediately() -> None:
             const vm = require("vm");
             const context = { window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
 
             (async () => {
@@ -601,6 +608,7 @@ def test_frontend_player_load_carries_client_status_request_order() -> None:
             const vm = require("vm");
             const context = { window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
 
             (async () => {
@@ -658,6 +666,7 @@ def test_frontend_player_load_accepts_fresh_token_after_backend_epoch_reset() ->
             const vm = require("vm");
             const context = { window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
 
             (async () => {
@@ -722,6 +731,7 @@ def test_frontend_player_load_controller_ignores_out_of_order_player_response() 
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             function deferred() {
@@ -773,6 +783,7 @@ def test_frontend_player_load_cancellation_replaces_superseded_running_status() 
             const vm = require("vm");
             const context = { window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
 
             function deferred() {
@@ -875,6 +886,7 @@ def test_frontend_player_list_refresh_ignores_previous_world_response() -> None:
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             function deferred() {
@@ -982,6 +994,7 @@ def test_frontend_player_load_controller_hides_overlay_after_load_failure() -> N
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             (async () => {
@@ -1031,6 +1044,7 @@ def test_frontend_player_load_controller_does_not_rescan_icons_in_read_only_mode
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             (async () => {

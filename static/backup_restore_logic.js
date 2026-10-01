@@ -29,8 +29,14 @@
         };
     }
 
+    // A backend message names its own context; only a technical reason, such
+    // as an unreadable answer, gets the context of the action in front.
+    function errorInContext(data, withContext) {
+        return window.MCBEApiClient.errorMessageInContext(data, withContext);
+    }
+
     function restorePreviewFailure(data = {}) {
-        const message = t("Restore-Vorschau fehlgeschlagen: {error}", { error: data.error || t("Unbekannter Fehler") });
+        const message = errorInContext(data, reason => t("Restore-Vorschau fehlgeschlagen: {error}", { error: reason }));
         return {
             statusMessage: message,
             statusType: "error",
@@ -98,14 +104,13 @@
             };
         }
         const cleanupWarning = data.cleanup_warning ? ` ${t("Hinweis: {warning}", { warning: data.cleanup_warning })}` : "";
-        const errorMessage = data.error || t("Unbekannter Fehler");
         return {
             ok: false,
             writeGate: data.write_gate || null,
-            statusMessage: `${t("Restaurierung fehlgeschlagen: {error}", { error: errorMessage })}${cleanupWarning}`,
+            statusMessage: `${errorInContext(data, reason => t("Restaurierung fehlgeschlagen: {error}", { error: reason }))}${cleanupWarning}`,
             statusType: "error",
             toast: {
-                message: `${t("Wiederherstellung fehlgeschlagen: {error}", { error: errorMessage })}${cleanupWarning}`,
+                message: `${errorInContext(data, reason => t("Wiederherstellung fehlgeschlagen: {error}", { error: reason }))}${cleanupWarning}`,
                 type: "error",
                 ms: cleanupWarning ? 9000 : 5000,
             },

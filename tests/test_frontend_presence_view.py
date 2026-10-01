@@ -12,6 +12,7 @@ def test_frontend_presence_view_world_presence_model_and_applier() -> None:
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const context = { window: {} };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
 
             const view = context.window.MCBEPresenceView;
@@ -55,6 +56,7 @@ def test_frontend_presence_view_conflict_text_lists_dirty_sessions() -> None:
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const context = { window: {} };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
 
             const view = context.window.MCBEPresenceView;
@@ -94,6 +96,7 @@ def test_frontend_presence_leave_uses_pagehide_and_deduplicates_signals() -> Non
                     return Promise.resolve({ ok: true });
                 },
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
 
             const storage = {};
@@ -146,6 +149,7 @@ def test_frontend_player_watch_reports_only_a_changed_revision() -> None:
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const context = { window: {} };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
             const view = context.window.MCBEPresenceView;
 
@@ -215,6 +219,7 @@ def test_frontend_presence_controller_reports_the_changed_player_until_it_is_rel
                     return Promise.resolve({});
                 },
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
             const view = context.window.MCBEPresenceView;
 
@@ -331,6 +336,7 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                     pending.push({ body: JSON.parse(options.body), answer: resolve });
                 }),
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
             const view = context.window.MCBEPresenceView;
 
@@ -406,6 +412,7 @@ def test_frontend_presence_controller_drops_the_notice_of_a_player_no_longer_loa
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const responses = [];
             const context = { window: {}, fetch: () => Promise.resolve({}) };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
             const view = context.window.MCBEPresenceView;
 

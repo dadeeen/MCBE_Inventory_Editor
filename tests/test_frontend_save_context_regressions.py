@@ -20,6 +20,7 @@ def test_save_completion_does_not_modify_a_replaced_context(changed_field, scena
         const vm = require("vm");
         const assert = require("node:assert/strict");
         const context = {window: {}, console: {error() {}}};
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(fs.readFileSync("static/save_controller.js", "utf8"), context);
         const {scenario, changedField} = CONFIG;
         const state = {world: "world-A", player: "player-A", changed: false};

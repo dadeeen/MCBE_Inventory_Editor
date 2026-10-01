@@ -13,6 +13,7 @@ def test_frontend_scan_paths_controller_loads_adds_and_refreshes() -> None:
             const vm = require("vm");
             const code = fs.readFileSync("static/scan_paths_controller.js", "utf8");
             const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/scan_paths_controller.js" });
 
             function button() {

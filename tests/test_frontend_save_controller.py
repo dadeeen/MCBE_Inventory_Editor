@@ -70,6 +70,70 @@ def test_unreadable_mount_save_response_blocks_retries_including_confirmation_re
     """)
 
 
+def test_save_failure_shows_a_specific_backend_message_without_a_second_prefix() -> None:
+    run_node(r"""
+        const fs = require('fs');
+        const vm = require('vm');
+        const assert = require('node:assert/strict');
+        const context = {window: {}, console};
+        for (const name of ['api_client', 'save_controller']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        const api = context.window.MCBEApiClient.createApiClient();
+        async function saveErrors(status, body) {
+            const toasts = [];
+            const statuses = [];
+            const noop = () => {};
+            const controller = context.window.MCBESaveController.createSaveController({
+                getWorldPath: () => 'world', getCurrentPlayerKey: () => 'player',
+                getIsDirty: () => true, getPendingMounts: () => [],
+                writeBlocked: () => false, getCurrentWriteGate: () => ({}),
+                buildSavePayload: () => ({stats: {}, base_revision: 'rev'}),
+                payloadContainsUserChanges: () => true, buildChangeSummary: () => ({}),
+                getCreateRequiresConfirmation: () => ({}),
+                validateInventoryState: () => ({errors: 0}),
+                setPrimarySaveDisabled: noop, setReviewConfirmDisabled: noop,
+                showLoading: noop, hideLoading: noop, updateWriteControls: noop,
+                renderWriteGate: noop, showConfirmDialog: async () => true,
+                confirmPresenceConflict: async () => true, markReloadRequired: noop,
+                logStatus: (message, type) => statuses.push({message, type}),
+                showToast: (message, type) => toasts.push({message, type}),
+                postSavePayload: async () => api.parseJsonResponse({
+                    ok: status === 200, status,
+                    headers: {get: () => 'application/json'},
+                    text: async () => JSON.stringify(body),
+                }),
+            });
+            await controller.saveCurrentPlayer({skipReview: true});
+            assert.equal(statuses.at(-1).type, 'error');
+            assert.equal(statuses.at(-1).message, toasts.at(-1).message);
+            return toasts.filter(entry => entry.type === 'error').map(entry => entry.message);
+        }
+        (async () => {
+            // The backend message already names the failed action.
+            assert.deepEqual(await saveErrors(500, {
+                success: false,
+                code: 'internal_server_error',
+                message_key: 'Fehler beim Speichern des Spielers: {error}',
+                params: {error: 'Datenbank gesperrt'},
+                message: 'Fehler beim Speichern des Spielers: Datenbank gesperrt',
+                error: 'Fehler beim Speichern des Spielers: Datenbank gesperrt',
+            }), ['Fehler beim Speichern des Spielers: Datenbank gesperrt']);
+            // The generic answer of the server's error handler keeps the context.
+            assert.deepEqual(await saveErrors(500, {
+                success: false,
+                code: 'internal_server_error',
+                message_key: 'Interner Serverfehler',
+                message: 'Interner Serverfehler',
+                error: 'Interner Serverfehler',
+            }), ['Fehler beim Speichern: Interner Serverfehler']);
+            // An error answer without any message keeps the context as well.
+            assert.deepEqual(await saveErrors(500, {success: false}), ['Fehler beim Speichern: HTTP 500: Anfrage fehlgeschlagen']);
+            assert.deepEqual(await saveErrors(200, {success: false, error: 'Backup failed'}), ['Fehler beim Speichern: Backup failed']);
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
 def test_frontend_save_controller_preserves_save_orchestration_contract() -> None:
     run_node(
         textwrap.dedent(
@@ -79,6 +143,7 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
             const vm = require("vm");
             const code = fs.readFileSync("static/save_controller.js", "utf8");
             const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/save_controller.js" });
 
             function makeController(overrides = {}) {

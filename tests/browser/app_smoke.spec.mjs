@@ -1474,7 +1474,10 @@ test("unexpected server block responses are shown as errors instead of green sta
 
   await expect(page.locator("#loadErrorPanel")).toBeVisible();
   await expect(page.locator("#loadErrorPanel")).toContainText("Server läuft noch");
-  await expect(page.locator("#statusStackSummary")).toContainText("Fehler: Server läuft noch");
+  // The header names the severity; the server message keeps its own wording.
+  await expect(page.locator("#statusStackHeadline")).toHaveText("Fehler");
+  await expect(page.locator("#statusStackSummary")).toContainText("Server läuft noch");
+  await expect(page.locator("#statusStackSummary")).not.toContainText("Fehler:");
   await expect(page.locator("#statusStackButton")).toHaveClass(/error/);
   expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });

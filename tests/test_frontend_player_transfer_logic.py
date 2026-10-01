@@ -12,6 +12,7 @@ def test_frontend_player_transfer_logic_export_and_picker_plans() -> None:
         const vm = require("vm");
         const code = fs.readFileSync("static/player_transfer_logic.js", "utf8");
         const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/player_transfer_logic.js" });
         const logic = context.window.MCBEPlayerTransferLogic;
         const plain = value => JSON.parse(JSON.stringify(value));
@@ -62,6 +63,27 @@ def test_frontend_player_transfer_logic_export_and_picker_plans() -> None:
             statusType: "error",
         });
         eq(logic.browseExportSelectionOutcome({ success: false }), { ok: false, reason: "cancelled" });
+
+        // A specific backend message names the failed action itself.
+        const structured = key => ({
+            success: false,
+            message_key: key,
+            params: { error: "Datei gesperrt" },
+            message: key.replace("{error}", "Datei gesperrt"),
+            error: key.replace("{error}", "Datei gesperrt"),
+        });
+        assert.strictEqual(
+            logic.exportPlayerOutcome(structured("Fehler beim Exportieren des Spielers: {error}")).toast.message,
+            "Fehler beim Exportieren des Spielers: Datei gesperrt",
+        );
+        assert.strictEqual(
+            logic.browseExportSelectionOutcome(structured("Fehler bei der Dateiauswahl: {error}")).statusMessage,
+            "Fehler bei der Dateiauswahl: Datei gesperrt",
+        );
+        assert.strictEqual(
+            logic.exportPlayerOutcome(structured("Interner Serverfehler")).toast.message,
+            "Export fehlgeschlagen: Interner Serverfehler",
+        );
         """
         ),
     )
@@ -76,6 +98,7 @@ def test_frontend_player_transfer_logic_import_plans_and_outcomes() -> None:
         const vm = require("vm");
         const code = fs.readFileSync("static/player_transfer_logic.js", "utf8");
         const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/player_transfer_logic.js" });
         const logic = context.window.MCBEPlayerTransferLogic;
         const plain = value => JSON.parse(JSON.stringify(value));
@@ -309,6 +332,7 @@ def test_frontend_player_import_request_freezes_confirmed_plan_target() -> None:
         const vm = require("vm");
         const code = fs.readFileSync("static/player_transfer_logic.js", "utf8");
         const context = { window: {}, console, fetch: null };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/player_transfer_logic.js" });
         const logic = context.window.MCBEPlayerTransferLogic;
 
@@ -381,6 +405,7 @@ def test_frontend_player_import_runtime_guard_covers_confirmation_and_retry_boun
             const fs = require("fs");
             const vm = require("vm");
             const context = { window: {}, console, fetch: null };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(
                 fs.readFileSync("static/player_transfer_logic.js", "utf8"),
                 context,
@@ -470,6 +495,7 @@ def test_frontend_successful_import_refreshes_selected_player() -> None:
             const vm = require("vm");
             const code = fs.readFileSync("static/player_transfer_logic.js", "utf8");
             const context = { window: {}, console, fetch: null };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/player_transfer_logic.js" });
             const logic = context.window.MCBEPlayerTransferLogic;
 
@@ -562,6 +588,7 @@ def test_frontend_stale_import_token_triggers_fresh_preview() -> None:
             const vm = require("vm");
             const code = fs.readFileSync("static/player_transfer_logic.js", "utf8");
             const context = { window: {}, console, fetch: null };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/player_transfer_logic.js" });
             const logic = context.window.MCBEPlayerTransferLogic;
 
@@ -617,6 +644,7 @@ def test_frontend_stale_import_target_refreshes_player_without_refreshing_export
             const vm = require("vm");
             const code = fs.readFileSync("static/player_transfer_logic.js", "utf8");
             const context = { window: {}, console, fetch: null };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/player_transfer_logic.js" });
             const logic = context.window.MCBEPlayerTransferLogic;
 
@@ -678,6 +706,7 @@ def test_frontend_player_import_preview_ignores_stale_world_response() -> None:
         const transferCode = fs.readFileSync("static/player_transfer_logic.js", "utf8");
         const context = { window: {}, console, fetch: null, setTimeout, clearTimeout };
         vm.runInNewContext(importViewCode, context, { filename: "static/player_import_view.js" });
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(transferCode, context, { filename: "static/player_transfer_logic.js" });
         const logic = context.window.MCBEPlayerTransferLogic;
 
@@ -770,6 +799,7 @@ def test_frontend_player_import_preview_ignores_older_response_for_same_context(
         const transferCode = fs.readFileSync("static/player_transfer_logic.js", "utf8");
         const context = { window: {}, console, fetch: null, setTimeout, clearTimeout };
         vm.runInNewContext(importViewCode, context, { filename: "static/player_import_view.js" });
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(transferCode, context, { filename: "static/player_transfer_logic.js" });
         const logic = context.window.MCBEPlayerTransferLogic;
 
@@ -847,6 +877,7 @@ def test_frontend_player_import_preview_surfaces_cleanup_warning_on_failure() ->
         const transferCode = fs.readFileSync("static/player_transfer_logic.js", "utf8");
         const context = { window: {}, console, fetch: null, setTimeout, clearTimeout };
         vm.runInNewContext(importViewCode, context, { filename: "static/player_import_view.js" });
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(transferCode, context, { filename: "static/player_transfer_logic.js" });
         const logic = context.window.MCBEPlayerTransferLogic;
 

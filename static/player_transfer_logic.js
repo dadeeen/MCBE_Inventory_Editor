@@ -9,8 +9,11 @@
         return String(value || "").trim();
     }
 
+    // A backend message names its own context; only a technical reason, such
+    // as an unreadable answer, needs the fallback in front of it.
     function prefixedErrorMessage(data = {}, fallback = t("Fehler")) {
-        return data && data.error ? `${fallback}: ${data.error}` : fallback;
+        if (!data || !data.error) return fallback;
+        return window.MCBEApiClient.errorMessageInContext(data, reason => `${fallback}: ${reason}`);
     }
 
     function apiErrorMessage(data = {}, fallback = t("Fehler")) {
@@ -98,7 +101,7 @@
         if (data.error) {
             return {
                 ok: false,
-                statusMessage: t("Fehler: {error}", { error: data.error }),
+                statusMessage: window.MCBEApiClient.errorMessageInContext(data, reason => t("Fehler: {error}", { error: reason })),
                 statusType: "error",
             };
         }

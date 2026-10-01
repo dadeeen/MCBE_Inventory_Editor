@@ -313,7 +313,7 @@
                 if (!data.success) {
                     if (playersList) playersList.innerHTML = playerListStatusHtml("loadError");
                     const msg = buildErrorMessage(data, t("Spieler konnten nicht geladen werden."));
-                    logLoadStatus(t("Fehler: {error}", { error: msg }), "error");
+                    logLoadStatus(msg, "error");
                     renderLoadError(data, t("Spieler konnten nicht geladen werden."));
                     return false;
                 }
@@ -379,7 +379,7 @@
                 if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
                 if (!data.success) {
                     const msg = buildErrorMessage(data, t("Spieler konnte nicht geladen werden."));
-                    logLoadStatus(t("Fehler: {error}", { error: msg }), "error");
+                    logLoadStatus(msg, "error");
                     renderLoadError(data, t("Spieler konnte nicht geladen werden."));
                     return false;
                 }
@@ -570,7 +570,7 @@
 
                 if (!data.success) {
                     const msg = buildErrorMessage(data, t("Welt konnte nicht geladen werden."));
-                    logLoadStatus(t("Fehler: {error}", { error: msg }), "error");
+                    logLoadStatus(msg, "error");
                     renderLoadError(data, t("Welt konnte nicht geladen werden."));
                     showToast(t("Welt konnte nicht geladen werden – Details stehen unter dem Pfadfeld."), "error", 6000);
                     return false;

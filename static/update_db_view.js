@@ -204,8 +204,13 @@
                     }
                 } else {
                     append(`\n${t("Fehler (Code {code}): {error}", { code: data.returncode, error: data.error || t("Unbekannter Fehler") })}`);
-                    updateStatus(t("{mode} fehlgeschlagen: {error}", { mode, error: data.error }), "error", true);
-                    showToast(t("{mode} fehlgeschlagen: {error}", { mode, error: data.error }), "error", 5000);
+                    // The backend message already says what failed.
+                    const message = window.MCBEApiClient.errorMessageInContext(
+                        data,
+                        reason => t("{mode} fehlgeschlagen: {error}", { mode, error: reason }),
+                    );
+                    updateStatus(message, "error", true);
+                    showToast(message, "error", 5000);
                 }
                 return data;
             } catch (e) {

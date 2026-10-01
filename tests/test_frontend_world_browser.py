@@ -13,6 +13,7 @@ def test_world_source_labels_use_active_locale_and_preserve_custom_labels() -> N
             const catalog = JSON.parse(fs.readFileSync("static/i18n/en.json", "utf8"));
             const t = text => catalog[text] ?? text;
             const context = { window: { t, MCBEI18n: { compare: (a, b) => a.localeCompare(b, "en") } } };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/world_browser.js", "utf8"), context, {
                 filename: "static/world_browser.js",
             });
@@ -61,6 +62,7 @@ def test_world_scan_ignores_older_response() -> None:
                     },
                 },
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/world_browser.js", "utf8"), context, { filename: "static/world_browser.js" });
 
             (async () => {
@@ -117,6 +119,7 @@ def test_world_folder_picker_replaces_running_status_with_terminal_status() -> N
                 window: {},
                 fetch: async () => ({ payload: { success: true, path: "C:/World" } }),
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/world_browser.js", "utf8"), context, {
                 filename: "static/world_browser.js",
             });

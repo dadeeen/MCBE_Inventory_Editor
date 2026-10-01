@@ -433,8 +433,13 @@
                     if (data.write_gate) {
                         renderWriteGate(data.write_gate);
                     }
-                    logSaveOutcome(t("Fehler beim Speichern: {error}", { error: data.error }), "error");
-                    showToast(t("Fehler beim Speichern: {error}", { error: data.error }), "error", 5000);
+                    // The backend message already says what failed.
+                    const message = window.MCBEApiClient.errorMessageInContext(
+                        data,
+                        reason => t("Fehler beim Speichern: {error}", { error: reason }),
+                    );
+                    logSaveOutcome(message, "error");
+                    showToast(message, "error", 5000);
                     if (wasDirty) setPrimarySaveDisabled(false);
                 }
             } catch (e) {

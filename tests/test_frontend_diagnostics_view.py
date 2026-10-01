@@ -14,6 +14,7 @@ def test_frontend_diagnostics_view_status_chip_html_escapes_text() -> None:
             const diagnosticsCode = fs.readFileSync("static/diagnostics_view.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(diagnosticsCode, context, { filename: "static/diagnostics_view.js" });
 
             const view = context.window.MCBEDiagnosticsView;
@@ -45,6 +46,7 @@ def test_frontend_diagnostics_view_status_message_html_escapes_text_and_level() 
             const diagnosticsCode = fs.readFileSync("static/diagnostics_view.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(diagnosticsCode, context, { filename: "static/diagnostics_view.js" });
 
             const view = context.window.MCBEDiagnosticsView;
@@ -72,6 +74,7 @@ def test_frontend_diagnostics_view_runtime_diagnostics_html_formats_and_escapes_
             const diagnosticsCode = fs.readFileSync("static/diagnostics_view.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(diagnosticsCode, context, { filename: "static/diagnostics_view.js" });
 
             const view = context.window.MCBEDiagnosticsView;
@@ -131,6 +134,7 @@ def test_frontend_diagnostics_view_recent_logs_html_formats_and_escapes_rows() -
             const diagnosticsCode = fs.readFileSync("static/diagnostics_view.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(diagnosticsCode, context, { filename: "static/diagnostics_view.js" });
 
             const view = context.window.MCBEDiagnosticsView;
@@ -179,6 +183,7 @@ def test_frontend_diagnostics_view_audit_events_html_formats_and_escapes_rows() 
             const diagnosticsCode = fs.readFileSync("static/diagnostics_view.js", "utf8");
             const context = { window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(diagnosticsCode, context, { filename: "static/diagnostics_view.js" });
 
             const view = context.window.MCBEDiagnosticsView;
@@ -271,6 +276,61 @@ def test_frontend_diagnostics_view_copies_the_status_with_the_live_write_gate() 
                 assert.deepStrictEqual(received, [diagnostics]);
                 // The loaded snapshot does not override the live gate.
                 assert.ok(controller.statusCenterText().includes("Serverstatus: online"));
+                completed = true;
+            })().catch(error => { console.error(error); process.exitCode = 1; });
+            """
+        )
+    )
+
+
+def test_frontend_diagnostics_view_shows_a_refused_log_request_instead_of_an_empty_log() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            for (const file of ["static/html_utils.js", "static/api_client.js", "static/diagnostics_view.js"]) {
+                vm.runInNewContext(fs.readFileSync(file, "utf8"), context, { filename: file });
+            }
+            const api = context.window.MCBEApiClient.createApiClient();
+            let answer = null;
+            context.fetch = async () => answer;
+            const recentLogsPanel = { innerHTML: "" };
+            const controller = context.window.MCBEDiagnosticsView.createDiagnosticsController({
+                elements: { recentLogsPanel },
+                parseJsonResponse: api.parseJsonResponse,
+            });
+            const respond = (status, body) => ({
+                ok: status === 200,
+                status,
+                headers: { get: () => "application/json" },
+                text: async () => JSON.stringify(body),
+            });
+
+            let completed = false;
+            process.on("exit", () => {
+                if (!completed) process.exitCode = 1;
+            });
+            (async () => {
+                answer = respond(200, { success: true, logs: [{ level: "INFO", message: "bereit" }] });
+                await controller.loadRecentLogs();
+                assert.ok(controller.recentLogsText().includes("bereit"));
+
+                const refusal = "Logeinsicht ist im Docker/LAN-Modus nur mit aktivierter Auth abrufbar.";
+                answer = respond(403, { success: false, code: "forbidden", message_key: refusal, message: refusal, error: refusal });
+                await controller.loadRecentLogs();
+                assert.ok(recentLogsPanel.innerHTML.includes(refusal), recentLogsPanel.innerHTML);
+                assert.ok(recentLogsPanel.innerHTML.includes("error"));
+                assert.ok(!recentLogsPanel.innerHTML.includes("Logs konnten nicht geladen werden"));
+                // Copying does not hand out the logs of the earlier answer.
+                assert.ok(!controller.recentLogsText().includes("bereit"));
+
+                const generic = "Interner Serverfehler";
+                answer = respond(500, { success: false, code: "internal_server_error", message_key: generic, message: generic, error: generic });
+                await controller.loadRecentLogs();
+                assert.ok(recentLogsPanel.innerHTML.includes("Logs konnten nicht geladen werden: Interner Serverfehler"), recentLogsPanel.innerHTML);
                 completed = true;
             })().catch(error => { console.error(error); process.exitCode = 1; });
             """

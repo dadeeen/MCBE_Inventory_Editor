@@ -1227,6 +1227,8 @@
   "Read-only: Dieser Player-Gamemode wird nur angezeigt. Der Editor schreibt ihn nicht; Welt-/Servermodus kann abweichen.": "Read-only: this player game mode is display-only. The editor does not write it; the world/server mode may differ.",
   "HTTP {status}: Leere Serverantwort": "HTTP {status}: empty server response",
   "HTTP {status}: Anfrage fehlgeschlagen": "HTTP {status}: request failed",
+  "HTTP {status}: Serverantwort ist kein JSON": "HTTP {status}: server response is not JSON",
+  "{message} ({reason})": "{message} ({reason})",
   "Zu viele Anfragen. Bitte {wait}s warten.": "Too many requests. Please wait {wait}s.",
   "MCBE_READ_ONLY=true: Welten ansehen, Schreibaktionen blockiert.": "MCBE_READ_ONLY=true: view worlds, write actions blocked.",
   "ActiveEffects hat einen unbekannten NBT-Typ und wird geschützt erhalten.": "ActiveEffects has an unknown NBT type and is preserved as protected.",

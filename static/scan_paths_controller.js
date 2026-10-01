@@ -26,6 +26,16 @@
             status,
         } = elements;
 
+        // A backend message names its own context; only a technical reason
+        // needs "Fehler:" in front of it.
+        function failureText(result, fallbackReason = t("Unbekannter Fehler")) {
+            return window.MCBEApiClient.errorMessageInContext(
+                result,
+                reason => t("Fehler: {error}", { error: reason }),
+                fallbackReason,
+            );
+        }
+
         async function postJson(url, body = {}) {
             try {
                 const res = await fetchImpl(url, {
@@ -74,7 +84,7 @@
                         enabled: checkbox.checked,
                     });
                     if (!result.success) {
-                        if (status) status.textContent = t("Fehler: {error}", { error: result.error || t("Unbekannter Fehler") });
+                        if (status) status.textContent = failureText(result);
                         checkbox.checked = !checkbox.checked;
                         return;
                     }
@@ -85,7 +95,7 @@
                 remove.addEventListener("click", async () => {
                     const result = await postJson("/api/scan_paths/remove", { path: remove.dataset.path || "" });
                     if (!result.success) {
-                        if (status) status.textContent = t("Fehler: {error}", { error: result.error || t("Suchbereich konnte nicht entfernt werden.") });
+                        if (status) status.textContent = failureText(result, t("Suchbereich konnte nicht entfernt werden."));
                         return;
                     }
                     await refreshAfterChange(t("Suchbereich entfernt."));
@@ -118,12 +128,12 @@
                     if (data.success && data.path) {
                         const result = await postJson("/api/scan_paths/add", { path: data.path });
                         if (!result.success) {
-                            if (status) status.textContent = t("Fehler: {error}", { error: result.error || t("Unbekannter Fehler") });
+                            if (status) status.textContent = failureText(result);
                             return;
                         }
                         await refreshAfterChange("");
                     } else if (data.error && status) {
-                        status.textContent = t("Fehler: {error}", { error: data.error });
+                        status.textContent = failureText(data);
                     }
                 } catch (e) {
                     consoleObj.error("btnAddScanPathBrowse:", e);
@@ -151,7 +161,7 @@
                     if (manualInput) manualInput.style.display = "none";
                     await refreshAfterChange("");
                 } else if (status) {
-                    status.textContent = t("Fehler: {error}", { error: data.error || t("Unbekannter Fehler") });
+                    status.textContent = failureText(data);
                 }
             });
         }

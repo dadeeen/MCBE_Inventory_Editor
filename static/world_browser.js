@@ -231,7 +231,7 @@
                     updateSelectedWorld({ path: data.path, name: t("Manuell gewählte Welt"), folder: data.path, source_label: t("Manueller Pfad") }, { fromManual: true });
                     pickerStatus(t("Welt-Ordner ausgewählt. Bereit zum Laden."), "success");
                 } else if (data.error) {
-                    pickerStatus(t("Fehler: {error}", { error: data.error }), "error");
+                    pickerStatus(window.MCBEApiClient.errorMessageInContext(data, reason => t("Fehler: {error}", { error: reason })), "error");
                 } else {
                     pickerStatus(t("Auswahl abgebrochen."), "");
                 }

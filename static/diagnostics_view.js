@@ -270,6 +270,18 @@
             try {
                 const res = await fetch("/api/logs/recent?level=INFO&limit=80");
                 const data = await parseJsonResponse(res);
+                if (!data.success) {
+                    // A refusal, for example without sign-in, is no empty log.
+                    lastRecentLogs = [];
+                    recentLogsPanel.innerHTML = statusMessageHtml(
+                        window.MCBEApiClient.errorMessageInContext(
+                            data,
+                            reason => t("Logs konnten nicht geladen werden: {error}", { error: reason }),
+                        ),
+                        { level: "error" }
+                    );
+                    return;
+                }
                 lastRecentLogs = Array.isArray(data.logs) ? data.logs : [];
                 renderRecentLogs(lastRecentLogs);
             } catch (e) {

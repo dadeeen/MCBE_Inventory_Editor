@@ -36,6 +36,7 @@ const ctx = { window: {}, console, fetch: async (url, options) => {
         success: true, write_gate: { allowed: false }, write_committed: true,
     } };
 } };
+vm.runInNewContext(fs.readFileSync('static/api_client.js', 'utf8'), ctx, { filename: 'static/api_client.js' });
 vm.runInNewContext(fs.readFileSync('static/player_transfer_logic.js', 'utf8'), ctx);
 const forbidden = name => { calls.push(name); };
 const controller = ctx.window.MCBEPlayerTransferLogic.createPlayerTransferController({
@@ -88,6 +89,7 @@ const ctx = { window: {}, console, fetch: async url => {
     const conflict = ['conflict', 'retry'].includes(params.phase) && restoreRequests === 1;
     return { data: conflict ? { success: false, presence_conflict: true } : { success: true, write_gate: { allowed: false } } };
 } };
+vm.runInNewContext(fs.readFileSync('static/api_client.js', 'utf8'), ctx, { filename: 'static/api_client.js' });
 vm.runInNewContext(fs.readFileSync('static/backup_restore_logic.js', 'utf8'), ctx);
 const controller = ctx.window.MCBEBackupRestoreLogic.createBackupRestoreController({
     parseJsonResponse: async r => r.data,
@@ -142,13 +144,14 @@ const refresh = vm.runInNewContext('(' + match[1] + ')', {
 
 
 @pytest.mark.parametrize("action", ["browse", "manual", "toggle", "remove"])
-@pytest.mark.parametrize("failure", ["server", "transport"])
+@pytest.mark.parametrize("failure", ["server", "structured", "transport"])
 def test_scan_path_failures_are_visible_without_success_refresh(action, failure):
     _node(r'''
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const context = { window: {}, console, fetch: () => {} };
+vm.runInNewContext(fs.readFileSync('static/api_client.js', 'utf8'), context, { filename: 'static/api_client.js' });
 vm.runInNewContext(fs.readFileSync('static/scan_paths_controller.js', 'utf8'), context);
 const button = () => ({ listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; } });
 const browseButton = button();
@@ -167,6 +170,11 @@ const controller = context.window.MCBEScanPathsController.createScanPathsControl
         if (url.includes('pick_folder')) return { data: { success: true, path: 'world-A' } };
         if (url === '/api/scan_paths') return { data: { success: true, scan_roots: [] } };
         if (params.failure === 'transport') throw new Error('network offline');
+        if (params.failure === 'structured') {
+            const message = 'Fehler beim Hinzufügen des Scan-Pfads: kein Zugriff';
+            const key = 'Fehler beim Hinzufügen des Scan-Pfads: {error}';
+            return { data: { success: false, message_key: key, params: { error: 'kein Zugriff' }, message, error: message } };
+        }
         return { data: { success: false, error: 'permission denied' } };
     },
     parseJsonResponse: async r => r.data,
@@ -182,6 +190,9 @@ controller.renderScanPaths({});
     if (params.action === 'toggle') await toggle.listeners.change();
     if (params.action === 'remove') await remove.listeners.click();
     assert.ok(status.textContent.length > 0, 'failure hidden from the user');
+    // A specific backend message is shown without a second prefix.
+    if (params.failure === 'structured') assert.strictEqual(status.textContent, 'Fehler beim Hinzufügen des Scan-Pfads: kein Zugriff');
+    if (params.failure === 'server') assert.strictEqual(status.textContent, 'Fehler: permission denied');
     assert.strictEqual(refreshes, 0, 'failed operation triggered success refresh');
     if (params.action === 'toggle') assert.strictEqual(toggle.checked, false);
 })().then(() => console.log('workflow-check-complete')).catch(e => { console.error(e); process.exit(1); });
@@ -199,6 +210,7 @@ const state = { world: 'world-A', player: 'player-A', revision: 'a'.repeat(64), 
 const statuses = [];
 const actions = [];
 const ctx = { window: {}, console, fetch: async () => ({ data: { success: true, write_committed: true } }) };
+vm.runInNewContext(fs.readFileSync('static/api_client.js', 'utf8'), ctx, { filename: 'static/api_client.js' });
 vm.runInNewContext(fs.readFileSync('static/player_transfer_logic.js', 'utf8'), ctx);
 const controller = ctx.window.MCBEPlayerTransferLogic.createPlayerTransferController({
     elements: { importPathInput: { value: 'export.zip' }, importAsExportedCheckbox: { checked: params.new_player } },
@@ -255,7 +267,7 @@ const context = {window: {}, console, fetch: async () => {
     calls.push('import');
     return {data: {success: true, write_committed: true}};
 }};
-for (const name of ['player_view_models', 'player_load_controller', 'player_transfer_logic']) {
+for (const name of ['api_client', 'player_view_models', 'player_load_controller', 'player_transfer_logic']) {
     vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
 }
 const loader = context.window.MCBEPlayerLoadController.createPlayerLoadController({
@@ -332,6 +344,7 @@ const context = {window: {}, console, fetch: async () => {
     return {data: {success: false, write_committed: true, error: 'Import validation failed',
         rollback_warning: 'Import-Rollback unvollständig: Datenbank gesperrt', backup_file: 'world_before_import.zip'}};
 }};
+vm.runInNewContext(fs.readFileSync('static/api_client.js', 'utf8'), context, { filename: 'static/api_client.js' });
 vm.runInNewContext(fs.readFileSync('static/player_transfer_logic.js', 'utf8'), context);
 const controller = context.window.MCBEPlayerTransferLogic.createPlayerTransferController({
     elements: {importPathInput: {value: 'export.zip'}, importAsExportedCheckbox: {checked: false}},

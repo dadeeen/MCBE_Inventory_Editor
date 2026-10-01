@@ -17,6 +17,7 @@ def test_unknown_server_status_confirmation_retries_save_with_flag() -> None:
                 MCBESavePayloadLogic: { payloadContainsUserChanges: () => true },
               },
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/save_controller.js" });
 
             const calls = [];
@@ -104,6 +105,7 @@ def test_unknown_server_status_confirmation_cancel_does_not_retry() -> None:
                 MCBESavePayloadLogic: { payloadContainsUserChanges: () => true },
               },
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/save_controller.js" });
 
             let calls = 0;

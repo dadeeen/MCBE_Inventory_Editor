@@ -20,6 +20,7 @@ def test_frontend_restore_rechecks_write_gate_before_commit() -> None:
                     return { payload: { success: true, backup_token: { version: 1 } } };
                 },
             };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(
                 fs.readFileSync("static/backup_restore_logic.js", "utf8"),
                 context,
@@ -57,6 +58,7 @@ def test_frontend_backup_restore_logic_plans_and_outcomes() -> None:
         const vm = require("vm");
         const code = fs.readFileSync("static/backup_restore_logic.js", "utf8");
         const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/backup_restore_logic.js" });
         const logic = context.window.MCBEBackupRestoreLogic;
         const plain = value => JSON.parse(JSON.stringify(value));
@@ -149,6 +151,27 @@ def test_frontend_backup_restore_logic_plans_and_outcomes() -> None:
         });
         assert.ok(failedCleanup.statusMessage.includes("Snapshot blieb zurück"));
         assert.strictEqual(failedCleanup.toast.ms, 9000);
+
+        // A specific backend message names the failed action itself; the
+        // generic answer of the server's error handler keeps the context.
+        const structured = key => ({
+            success: false,
+            message_key: key,
+            params: { error: "Datei fehlt" },
+            message: key.replace("{error}", "Datei fehlt"),
+            error: key.replace("{error}", "Datei fehlt"),
+        });
+        const failedStructured = logic.restoreOutcome(structured("Fehler bei der Wiederherstellung: {error}"));
+        assert.strictEqual(failedStructured.statusMessage, "Fehler bei der Wiederherstellung: Datei fehlt");
+        assert.strictEqual(failedStructured.toast.message, "Fehler bei der Wiederherstellung: Datei fehlt");
+        assert.strictEqual(
+            logic.restorePreviewFailure(structured("Fehler bei der Restore-Vorschau: {error}")).statusMessage,
+            "Fehler bei der Restore-Vorschau: Datei fehlt",
+        );
+        assert.strictEqual(
+            logic.restoreOutcome(structured("Interner Serverfehler")).toast.message,
+            "Wiederherstellung fehlgeschlagen: Interner Serverfehler",
+        );
         """
         ),
     )
@@ -163,6 +186,7 @@ def test_frontend_backup_restore_logic_player_reload_plans() -> None:
         const vm = require("vm");
         const code = fs.readFileSync("static/backup_restore_logic.js", "utf8");
         const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/backup_restore_logic.js" });
         const logic = context.window.MCBEBackupRestoreLogic;
         const plain = value => JSON.parse(JSON.stringify(value));
@@ -269,6 +293,7 @@ def test_frontend_backup_restore_controller_renders_write_gate_on_restore_failur
                 };
             },
         };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/backup_restore_logic.js" });
 
         const renderedWriteGates = [];
@@ -344,6 +369,7 @@ def test_frontend_restore_aborts_when_world_changes_after_preview() -> None:
                 throw new Error("Restore request must not be sent");
             },
         };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/backup_restore_logic.js" });
         const controller = context.window.MCBEBackupRestoreLogic.createBackupRestoreController({
             parseJsonResponse: async response => response.payload,
@@ -401,6 +427,7 @@ def test_frontend_restore_reports_reload_failure_after_successful_commit() -> No
                 };
             },
         };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/backup_restore_logic.js" });
         const controller = context.window.MCBEBackupRestoreLogic.createBackupRestoreController({
             parseJsonResponse: async response => response.payload,
@@ -438,6 +465,7 @@ def test_frontend_restore_keeps_cleanup_warning_after_successful_reload() -> Non
         const statuses = [];
         let currentPlayerKey = "";
         const context = { window: {}, console };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/backup_restore_logic.js" });
         const controller = context.window.MCBEBackupRestoreLogic.createBackupRestoreController({
             getPlayers: () => [{ player_key: "player-1", editable: true }],
@@ -480,6 +508,7 @@ def test_frontend_restore_preview_failure_is_kept_in_status_overview() -> None:
             window: {},
             fetch: async () => ({ payload: { success: false, error: "Backup beschädigt" } }),
         };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
         vm.runInNewContext(code, context, { filename: "static/backup_restore_logic.js" });
         const controller = context.window.MCBEBackupRestoreLogic.createBackupRestoreController({
             parseJsonResponse: async response => response.payload,

@@ -18,6 +18,7 @@ def test_database_update_replaces_running_status_with_success() -> None:
             const vm = require("vm");
             const context = { window: {}, console };
             vm.runInNewContext(fs.readFileSync("static/status_store.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const store = context.window.MCBEStatusStore.createStatusStore();
@@ -58,6 +59,7 @@ def test_database_update_can_force_full_scope_without_mutating_tools_selection()
             const fs = require("fs");
             const vm = require("vm");
             const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const requests = [];
@@ -103,6 +105,7 @@ def test_database_update_surfaces_loaded_player_refresh_warning() -> None:
             const vm = require("vm");
             const context = { window: {}, console };
             vm.runInNewContext(fs.readFileSync("static/status_store.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const store = context.window.MCBEStatusStore.createStatusStore();
@@ -159,6 +162,7 @@ def test_loaded_player_refresh_policy_preserves_dirty_state_and_refreshes_clean_
             const fs = require("fs");
             const vm = require("vm");
             const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
             const refresh = context.window.MCBEUpdateDbView.refreshLoadedPlayerAfterDbUpdate;
 
@@ -227,6 +231,7 @@ def test_update_controllers_do_not_expose_manual_release_cache_controls() -> Non
             const elements = {};
             const document = { getElementById: id => elements[id] || null };
             const context = { window: {}, document, console, fetch: async () => ({}) };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
             vm.runInNewContext(fs.readFileSync("static/icon_sources_controller.js", "utf8"), context);
 
@@ -254,6 +259,7 @@ def test_apply_uses_source_receipt_from_matching_successful_dry_run() -> None:
             const fs = require("fs");
             const vm = require("vm");
             const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const requests = [];
@@ -300,6 +306,7 @@ def test_dry_run_does_not_resolve_apply_reload_warning() -> None:
             const vm = require("vm");
             const context = { window: {}, console };
             vm.runInNewContext(fs.readFileSync("static/status_store.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const store = context.window.MCBEStatusStore.createStatusStore();
@@ -341,6 +348,7 @@ def test_update_output_normalizes_spacing_and_classifies_web_formatting() -> Non
             const fs = require("fs");
             const vm = require("vm");
             const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const view = context.window.MCBEUpdateDbView;

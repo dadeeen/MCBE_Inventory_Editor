@@ -257,7 +257,12 @@
                     renderPlayerChanged();
                     return data;
                 }
-                if (!silent) logStatus?.(t("Präsenz-Hinweis konnte nicht aktualisiert werden: {error}", { error: data.error }), "warning");
+                if (!silent) {
+                    logStatus?.(window.MCBEApiClient.errorMessageInContext(
+                        data,
+                        reason => t("Präsenz-Hinweis konnte nicht aktualisiert werden: {error}", { error: reason }),
+                    ), "warning");
+                }
             } catch (e) {
                 if (!silent) console.warn("updateWorldPresence:", e);
             }
