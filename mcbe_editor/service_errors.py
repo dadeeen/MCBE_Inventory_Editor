@@ -2,10 +2,89 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterable
 
 from .i18n import t
+
+LOGGER = logging.getLogger(__name__)
+
+INTERNAL_ERROR_REASON = "interner Fehler, Details im Server-Log (Anfrage-ID {request_id})"
+INTERNAL_ERROR_REASON_WITHOUT_ID = "interner Fehler, Details im Server-Log"
+SYSTEM_ERROR_REASON = "Systemfehler „{reason}“, Details im Server-Log (Anfrage-ID {request_id})"
+SYSTEM_ERROR_REASON_WITHOUT_ID = "Systemfehler „{reason}“, Details im Server-Log"
+
+
+class UserFacingError(Exception):
+    """Mark an error whose message the editor phrased for the user.
+
+    Refusals are ValueErrors. Other failures carry this marker when their
+    message explains the situation, for example a refused file permission or a
+    restore that left the original world elsewhere. The text of every other
+    exception can contain local paths or internals and stays in the server log.
+    """
+
+
+class UserFacingRuntimeError(UserFacingError, RuntimeError):
+    """A runtime failure with a message phrased for the user."""
+
+
+def current_request_id() -> str:
+    """Return the ID of the active request, which the server log names as well."""
+
+    try:
+        from flask import g, has_request_context
+    except ImportError:  # pragma: no cover - Flask is a runtime dependency
+        return ""
+    if not has_request_context():
+        return ""
+    return str(getattr(g, "request_id", "") or "")
+
+
+def public_error_text(exc: BaseException) -> str:
+    """Return what a client may read about an exception.
+
+    The message of a refusal or of a UserFacingError is shown as it is. Any
+    other exception gets a generic reason with the request ID under which the
+    server log keeps its text and traceback. An operating system error keeps
+    its description, such as a full disk or a file in use, but not the path.
+    """
+
+    if isinstance(exc, (ValueError, UserFacingError)):
+        return t(str(exc))
+    request_id = current_request_id()
+    reason = str(exc.strerror or "").strip() if isinstance(exc, OSError) else ""
+    if reason:
+        if request_id:
+            return t(SYSTEM_ERROR_REASON, reason=reason, request_id=request_id)
+        return t(SYSTEM_ERROR_REASON_WITHOUT_ID, reason=reason)
+    if request_id:
+        return t(INTERNAL_ERROR_REASON, request_id=request_id)
+    return t(INTERNAL_ERROR_REASON_WITHOUT_ID)
+
+
+def log_error_detail(context: str, exc: BaseException) -> None:
+    """Keep the text and traceback of an error in the server log."""
+
+    LOGGER.error(
+        "%s failed request_id=%s error=%s",
+        context,
+        current_request_id(),
+        exc,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+
+
+def step_failure_text(label: str, exc: BaseException, *, context: str) -> str:
+    """Log a failed step and return "label: reason" as a client may read it."""
+
+    log_error_detail(f"{context}: {label}", exc)
+    return f"{label}: {public_error_text(exc)}"
+
+
+def _rollback_failure_details(failures: tuple[tuple[str, Exception], ...]) -> str:
+    return "; ".join(step_failure_text(label, failure, context="rollback") for label, failure in failures)
 
 
 def denied_write_actor() -> str:
@@ -43,7 +122,7 @@ def denied_write_permission_hint() -> str:
     )
 
 
-class LevelDbPermissionError(PermissionError):
+class LevelDbPermissionError(UserFacingError, PermissionError):
     """Expose a LevelDB filesystem permission failure as a stable service error."""
 
     def __init__(self, *, operation: str, db_path: str) -> None:
@@ -97,7 +176,7 @@ class WriteNotAttemptedError(ValueError):
     """A final gate refused the database call before any storage mutation."""
 
 
-class WriteOutcomeUnknownError(RuntimeError):
+class WriteOutcomeUnknownError(UserFacingError, RuntimeError):
     """A database write raised without proving that its batch was rolled back."""
 
     def __init__(self, original_error: Exception, *, backup_file: str | None = None) -> None:
@@ -146,7 +225,7 @@ class PlayerImportRecordRollbackError(RuntimeError):
         self.rollback_failures = tuple(rollback_failures)
         self.write_committed = True
         self.rolled_back = False
-        details = "; ".join(f"{label}: {exc}" for label, exc in self.rollback_failures)
+        details = _rollback_failure_details(self.rollback_failures)
         self.rollback_warning = t("Import-Rollback unvollständig: {details}", details=details)
         super().__init__(f"{original_error} {self.rollback_warning}")
 
@@ -177,6 +256,6 @@ class PlayerStateTransferRollbackError(RuntimeError):
         self.rollback_failures = tuple(rollback_failures)
         self.write_committed = True
         self.rolled_back = False
-        details = "; ".join(f"{label}: {exc}" for label, exc in self.rollback_failures)
+        details = _rollback_failure_details(self.rollback_failures)
         self.rollback_warning = t("Migrations-Rollback unvollständig: {details}", details=details)
         super().__init__(f"{original_error} {self.rollback_warning}")

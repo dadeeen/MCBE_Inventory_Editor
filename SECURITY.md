@@ -82,6 +82,8 @@ Hashes and truncation are risk reductions, not anonymization. World names, IP ad
 
 Secrets, CSRF tokens, passwords, session values, and detected full paths are redacted or reduced before audit storage. This does not make the resulting log public data. On POSIX, the app restricts newly created setup and audit files to the owner; on Windows, the containing directory's ACLs remain authoritative.
 
+Error responses name the failed action. The text of an unexpected exception, which can contain local paths or internals, stays in the server log: the response names the request ID under which the log keeps it (also sent as the `X-Request-ID` header), and for an operating system error its description without the path. Messages the editor phrases for the user, such as a refused file permission, and notices about files left for manual removal appear in full.
+
 Private fixture worlds belong only under `fixtures/private/`, which is ignored and excluded from releases. Public fixtures require LevelDB/NBT-aware anonymization plus manual review; the supported scanner-fixture generator removes the original LevelDB files.
 
 ## Dependencies and verification

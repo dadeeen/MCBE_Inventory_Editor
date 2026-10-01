@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from mcbe_editor import api_errors
@@ -51,3 +52,17 @@ def test_api_route_modules_do_not_build_legacy_only_error_payloads() -> None:
     paths = [root / "main.py", *sorted((root / "mcbe_editor").glob("*_api_routes.py"))]
     offenders = [path.name for path in paths if '"success": False, "error"' in path.read_text(encoding="utf-8")]
     assert not offenders, f"Use api_errors.error_payload or api_error in: {offenders}"
+
+
+def test_api_route_modules_answer_with_the_public_text_of_an_exception() -> None:
+    # The raw text of an unexpected exception belongs in the server log; an
+    # answer uses service_errors.public_error_text.
+    root = Path(__file__).resolve().parents[1]
+    raw_text = re.compile(r"t\(str\(exc[\w.]*\)\)|error=exc\b|\{exc\}|exception_text\(exc\)")
+    offenders = [
+        f"{path.name}:{number}"
+        for path in sorted((root / "mcbe_editor").glob("*_api_routes.py"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if raw_text.search(line)
+    ]
+    assert not offenders, f"Raw exception text in an answer: {offenders}"

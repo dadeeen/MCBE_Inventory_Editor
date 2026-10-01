@@ -12,6 +12,7 @@ from typing import Any
 
 from .api_errors import error_payload
 from .i18n import t
+from .service_errors import public_error_text
 
 
 @dataclass(frozen=True)
@@ -105,7 +106,7 @@ def open_backup_folder(data: dict, deps: LocalFileRouteDeps):
         return deps.api_error(str(exc), 400)
     except Exception as exc:
         deps.log_api_exception("backup.folder_open", exc)
-        return deps.api_error(t("Backupordner konnte nicht geöffnet werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Backupordner konnte nicht geöffnet werden: {error}", error=public_error_text(exc)), 500)
 
 
 def open_player_export_folder(data: dict, deps: LocalFileRouteDeps):
@@ -118,7 +119,7 @@ def open_player_export_folder(data: dict, deps: LocalFileRouteDeps):
         return deps.api_error(str(exc), 400)
     except Exception as exc:
         deps.log_api_exception("player_export.folder_open", exc)
-        return deps.api_error(t("Exportordner konnte nicht geöffnet werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Exportordner konnte nicht geöffnet werden: {error}", error=public_error_text(exc)), 500)
 
 
 def open_folder(data: dict, deps: LocalFileRouteDeps):
@@ -131,7 +132,7 @@ def open_folder(data: dict, deps: LocalFileRouteDeps):
         return deps.api_error(str(exc), 400)
     except Exception as exc:
         deps.log_api_exception("folder.open", exc)
-        return deps.api_error(t("Ordner konnte nicht geöffnet werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Ordner konnte nicht geöffnet werden: {error}", error=public_error_text(exc)), 500)
 
 
 def pick_folder(deps: LocalFileRouteDeps):
@@ -147,7 +148,7 @@ def pick_folder(deps: LocalFileRouteDeps):
         return deps.jsonify({"success": True, "path": path})
     except Exception as exc:
         deps.log_api_exception("folder.pick", exc)
-        return deps.api_error(t("Fehler bei der Ordnerauswahl: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler bei der Ordnerauswahl: {error}", error=public_error_text(exc)), 500)
     finally:
         deps.gui_picker_lock.release()
 
@@ -172,6 +173,6 @@ def pick_player_export(data: dict, deps: LocalFileRouteDeps):
         return deps.api_error(str(exc), 400)
     except Exception as exc:
         deps.log_api_exception("player_export.pick", exc)
-        return deps.api_error(t("Fehler bei der Dateiauswahl: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler bei der Dateiauswahl: {error}", error=public_error_text(exc)), 500)
     finally:
         deps.gui_picker_lock.release()

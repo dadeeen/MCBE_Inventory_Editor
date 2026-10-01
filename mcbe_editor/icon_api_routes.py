@@ -25,6 +25,7 @@ from .icons import (
     set_icon_source_enabled,
     world_icon_roots,
 )
+from .service_errors import public_error_text
 from .world_locks import locked_operation
 
 _ICON_OPERATION_LOCK = threading.RLock()
@@ -147,7 +148,7 @@ def icons_scan(data: dict, deps: IconRouteDeps):
         return deps.api_error(str(exc), 400)
     except Exception as exc:
         deps.log_api_exception("icons.scan", exc)
-        return deps.api_error(t("Lokale Icons konnten nicht gescannt werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Lokale Icons konnten nicht gescannt werden: {error}", error=public_error_text(exc)), 500)
 
 
 def icons_vanilla_update(data: dict, deps: IconRouteDeps):
@@ -203,7 +204,7 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
         return deps.api_error(str(exc), 400)
     except Exception as exc:
         deps.log_api_exception("icons.vanilla_update", exc)
-        return deps.api_error(t("Fehler beim Vanilla-Icon-Update: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Vanilla-Icon-Update: {error}", error=public_error_text(exc)), 500)
 
 
 def icons_sources(deps: IconRouteDeps):
@@ -245,7 +246,7 @@ def icons_sources_add(data: dict, deps: IconRouteDeps):
             details={"path": source.get("path") if source is not None else data.get("path"), "settings_changed": source is not None},
             error=str(exc),
         )
-        return deps.api_error(t("Icon-Quelle konnte nicht hinzugefügt werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Icon-Quelle konnte nicht hinzugefügt werden: {error}", error=public_error_text(exc)), 500)
 
 
 def icons_sources_remove(data: dict, deps: IconRouteDeps):
@@ -275,7 +276,7 @@ def icons_sources_remove(data: dict, deps: IconRouteDeps):
             details={"path": data.get("path"), "settings_changed": settings_changed},
             error=str(exc),
         )
-        return deps.api_error(t("Icon-Quelle konnte nicht entfernt werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Icon-Quelle konnte nicht entfernt werden: {error}", error=public_error_text(exc)), 500)
 
 
 def icons_sources_set_enabled(data: dict, deps: IconRouteDeps):
@@ -309,7 +310,7 @@ def icons_sources_set_enabled(data: dict, deps: IconRouteDeps):
             details={"path": data.get("path"), "settings_changed": settings_changed},
             error=str(exc),
         )
-        return deps.api_error(t("Icon-Quelle konnte nicht aktualisiert werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Icon-Quelle konnte nicht aktualisiert werden: {error}", error=public_error_text(exc)), 500)
 
 
 def icons_sources_move(data: dict, deps: IconRouteDeps):
@@ -340,7 +341,7 @@ def icons_sources_move(data: dict, deps: IconRouteDeps):
             details={"path": data.get("path"), "direction": data.get("direction"), "settings_changed": settings_changed},
             error=str(exc),
         )
-        return deps.api_error(t("Icon-Quelle konnte nicht verschoben werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Icon-Quelle konnte nicht verschoben werden: {error}", error=public_error_text(exc)), 500)
 
 
 def icons_pick_pack(deps: IconRouteDeps):
@@ -358,7 +359,7 @@ def icons_pick_pack(deps: IconRouteDeps):
         return deps.jsonify({"success": True, "path": path})
     except Exception as exc:
         deps.log_api_exception("icons.pick_pack", exc)
-        return deps.api_error(t("Fehler bei der Resource-Pack-Auswahl: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler bei der Resource-Pack-Auswahl: {error}", error=public_error_text(exc)), 500)
     finally:
         deps.gui_picker_lock.release()
 
@@ -378,7 +379,7 @@ def icons_pick_folder(deps: IconRouteDeps):
         return deps.jsonify({"success": True, "path": path})
     except Exception as exc:
         deps.log_api_exception("icons.pick_folder", exc)
-        return deps.api_error(t("Fehler bei der Icon-Ordnerauswahl: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler bei der Icon-Ordnerauswahl: {error}", error=public_error_text(exc)), 500)
     finally:
         deps.gui_picker_lock.release()
 
@@ -399,7 +400,8 @@ def icon_file(token: str, deps: IconRouteDeps):
     except ValueError as exc:
         return deps.api_error(str(exc), 413)
     except (OSError, KeyError, zipfile.BadZipFile) as exc:
-        return deps.api_error(t("Icon konnte nicht gelesen werden: {error}", error=t(str(exc))), 404)
+        deps.log_api_exception("icons.file", exc)
+        return deps.api_error(t("Icon konnte nicht gelesen werden: {error}", error=public_error_text(exc)), 404)
     if len(data) > 2 * 1024 * 1024:
         return deps.api_error("Icon ist zu groß oder die Icon-Quelle wurde seit dem Scan verändert. Bitte Icons neu scannen.", 413)
     mimetype = "image/webp" if candidate.suffix == ".webp" else "image/png"

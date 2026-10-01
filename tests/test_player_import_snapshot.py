@@ -381,7 +381,8 @@ def test_direct_import_keeps_backup_when_record_rollback_fails(tmp_path: Path) -
     assert raised.value.rolled_back is False
     assert raised.value.backup_file
     assert Path(raised.value.backup_file).is_file()
-    assert "rollback write failed" in raised.value.rollback_warning
+    assert "Vorheriger Zielzustand konnte nicht zurückgeschrieben werden: interner Fehler" in raised.value.rollback_warning
+    assert "rollback write failed" not in raised.value.rollback_warning
 
 
 def test_preview_reports_snapshot_cleanup_failure(tmp_path: Path) -> None:

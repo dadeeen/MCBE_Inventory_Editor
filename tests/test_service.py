@@ -397,7 +397,10 @@ class ServiceTests(unittest.TestCase):
 
             # Backup pruning runs after the write is committed. Its failure must not
             # turn a committed write into a seemingly retryable error.
-            with patch("mcbe_editor.services.prune_backups", side_effect=OSError("prune boom")):
+            with (
+                patch("mcbe_editor.services.prune_backups", side_effect=OSError("prune boom")),
+                self.assertLogs("mcbe_editor.service_errors", level="ERROR") as logs,
+            ):
                 result = service.save_player(
                     str(world),
                     encode_player_key(LOCAL_PLAYER_KEY),
@@ -411,6 +414,10 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(result["write_committed"])
             self.assertTrue(result["validation_failed"])
             self.assertIn("Backups", result["error"])
+            # The answer names the failed step; the exception text stays in the log.
+            self.assertIn("interner Fehler, Details im Server-Log", result["error"])
+            self.assertNotIn("prune boom", str(result))
+            self.assertIn("prune boom", " ".join(logs.output))
             # The player change was actually persisted despite the prune failure.
             saved = nbt.load(FakeDb._shared_store[LOCAL_PLAYER_KEY], compressed=False, little_endian=True).tag
             self.assertIn("Inventory", saved)

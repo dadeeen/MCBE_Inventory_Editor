@@ -239,7 +239,9 @@ def test_player_import_route_reports_failed_record_rollback():
     assert data["rolled_back"] is False
     assert data["write_committed"] is True
     assert data["backup_file"] == "world_before_import.zip"
-    assert "locked" in data["rollback_warning"]
+    # The step stays named; the raw exception text stays in the server log.
+    assert "Zielzustand konnte nicht zurückgeschrieben werden: interner Fehler, Details im Server-Log" in data["rollback_warning"]
+    assert "locked" not in data["rollback_warning"]
 
 
 @patch("main.CSRF_TOKEN", "gate-token")
@@ -412,5 +414,7 @@ def test_player_state_transfer_reports_failed_record_rollback():
     assert data["rolled_back"] is False
     assert data["write_committed"] is True
     assert data["backup_file"] == "world_before_transfer.zip"
-    assert "locked" in data["rollback_warning"]
+    # The step stays named; the raw exception text stays in the server log.
+    assert "Zielzustand konnte nicht zurückgeschrieben werden: interner Fehler, Details im Server-Log" in data["rollback_warning"]
+    assert "locked" not in data["rollback_warning"]
     assert main._SAVING_COUNTER == 0

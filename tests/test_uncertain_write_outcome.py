@@ -107,7 +107,9 @@ def test_real_writer_failure_preserves_backup_and_reports_outcome(tmp_path, monk
             # Each route keeps its ordinary status for this rejection.
             assert status == {"player": 409, "workspace": 400, "mount": 500}[operation]
         else:
-            assert "injected failure before writing" in payload["error"]
+            # An unexpected exception names no internals; the log keeps them.
+            assert "interner Fehler, Details im Server-Log" in payload["error"]
+            assert "injected failure before writing" not in payload["error"]
     else:
         assert status == 500
         assert payload["code"] == "write_outcome_unknown"

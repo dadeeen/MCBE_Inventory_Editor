@@ -255,7 +255,7 @@ def test_direct_mount_backup_failure_leaves_native_world_files_identical(monkeyp
     assert snapshot() == before
 
 
-def test_direct_mount_create_reports_committed_validation_failure(monkeypatch, tmp_path) -> None:
+def test_direct_mount_create_reports_committed_validation_failure(monkeypatch, tmp_path, caplog) -> None:
     class WriteDb:
         def close(self):
             return None
@@ -325,9 +325,12 @@ def test_direct_mount_create_reports_committed_validation_failure(monkeypatch, t
     assert exception_result["write_committed"] is True
     assert exception_result["validation_failed"] is True
     assert exception_result["post_create_validation"]["details"]["exception_type"] == "RuntimeError"
+    # The answer names the failed step; the exception text stays in the log.
+    assert "Validator abgestürzt" not in str(exception_result)
+    assert "Validator abgestürzt" in caplog.text
 
 
-def test_direct_mount_create_treats_post_write_close_failure_as_committed(monkeypatch, tmp_path) -> None:
+def test_direct_mount_create_treats_post_write_close_failure_as_committed(monkeypatch, tmp_path, caplog) -> None:
     class WriteDb:
         def __init__(self):
             self.committed = False
@@ -384,6 +387,8 @@ def test_direct_mount_create_treats_post_write_close_failure_as_committed(monkey
     assert result["validation_failed"] is True
     assert "geschlossen" in result["error"]
     assert result["post_create_validation"]["details"]["post_write_errors"]
+    assert "Zugriff verweigert beim Schließen" not in str(result)
+    assert "Zugriff verweigert beim Schließen" in caplog.text
 
 
 def test_direct_mount_create_preserves_pre_write_error_when_close_also_fails(monkeypatch, tmp_path) -> None:

@@ -17,6 +17,7 @@ from mcbe_editor.world import (
 )
 
 from .i18n import t
+from .service_errors import public_error_text
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ def scan_worlds(deps: ScanRouteDeps):
         return deps.jsonify({"success": True, **result})
     except Exception as exc:
         deps.log_api_exception("worlds.scan", exc)
-        return deps.api_error(t("Fehler beim Scannen der Welten: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Scannen der Welten: {error}", error=public_error_text(exc)), 500)
 
 
 def get_scan_paths(deps: ScanRouteDeps):
@@ -72,7 +73,7 @@ def add_scan_path_route(data: dict, deps: ScanRouteDeps):
         return deps.api_error(str(exc))
     except Exception as exc:
         deps.log_api_exception("scan_path.add", exc)
-        return deps.api_error(t("Fehler beim Hinzufügen des Scan-Pfads: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Hinzufügen des Scan-Pfads: {error}", error=public_error_text(exc)), 500)
 
 
 def remove_scan_path_route(data: dict, deps: ScanRouteDeps):
@@ -87,7 +88,7 @@ def remove_scan_path_route(data: dict, deps: ScanRouteDeps):
         return deps.api_error(str(exc))
     except Exception as exc:
         deps.log_api_exception("scan_path.remove", exc)
-        return deps.api_error(t("Fehler beim Entfernen des Scan-Pfads: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Entfernen des Scan-Pfads: {error}", error=public_error_text(exc)), 500)
 
 
 def set_scan_path_enabled_route(data: dict, deps: ScanRouteDeps):
@@ -103,4 +104,4 @@ def set_scan_path_enabled_route(data: dict, deps: ScanRouteDeps):
         return deps.api_error(str(exc))
     except Exception as exc:
         deps.log_api_exception("scan_path.set_enabled", exc)
-        return deps.api_error(t("Fehler beim Aktualisieren des Scan-Pfads: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Aktualisieren des Scan-Pfads: {error}", error=public_error_text(exc)), 500)

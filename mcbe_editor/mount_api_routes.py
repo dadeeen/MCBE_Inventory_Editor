@@ -29,7 +29,7 @@ from .mount_write import (
 )
 from .mounts import OVERWORLD_DIMENSION_ID, build_mount_preview
 from .players import decode_player_key
-from .service_errors import WriteOutcomeUnknownError
+from .service_errors import WriteOutcomeUnknownError, public_error_text
 
 
 def _default_blocked_none(*_args, **_kwargs):
@@ -260,7 +260,7 @@ def preview_mount(data: dict, deps: MountRouteDeps):
     except Exception as exc:
         deps.log_api_exception("mount.preview", exc)
         deps.audit_event("mount.preview", "failure", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
-        return deps.api_error(f"Fehler beim Erzeugen der Mount-Vorschau: {exc}", 500)
+        return deps.api_error(t("Fehler beim Erzeugen der Mount-Vorschau: {error}", error=public_error_text(exc)), 500)
 
 
 def create_mount(data: dict, deps: MountRouteDeps):
@@ -376,12 +376,12 @@ def create_mount(data: dict, deps: MountRouteDeps):
                 error_payload(
                     "Fehler beim experimentellen Erzeugen des Mounts: {error}",
                     code="mount_create_failed",
-                    params={"error": t(str(exc))},
+                    params={"error": public_error_text(exc)},
                 ),
                 exc,
             )
             return deps.jsonify(payload), 500
-        return deps.api_error(f"Fehler beim experimentellen Erzeugen des Mounts: {exc}", 500)
+        return deps.api_error(t("Fehler beim experimentellen Erzeugen des Mounts: {error}", error=public_error_text(exc)), 500)
 
 
 class _StagedMountDbView:
@@ -539,11 +539,12 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
                     # save_player hat den gemeinsamen Batch an dieser Stelle
                     # bereits committed. Die Ausnahme muss daher als
                     # Post-Write-Teilfehler bis zum Client transportiert werden.
+                    deps.log_api_exception("workspace.post_create_validation", exc)
                     validation = {
                         "ok": False,
                         "checks": {},
                         "details": {"exception_type": type(exc).__name__},
-                        "errors": [t("Nachvalidierung konnte nicht abgeschlossen werden: {error}", error=t(str(exc)))],
+                        "errors": [t("Nachvalidierung konnte nicht abgeschlossen werden: {error}", error=public_error_text(exc))],
                     }
                 result["post_create_validation"] = validation
                 if not validation["ok"]:
@@ -647,9 +648,9 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
                 error_payload(
                     "Fehler beim gemeinsamen Speichern der Änderungen: {error}",
                     code="workspace_save_failed",
-                    params={"error": t(str(exc))},
+                    params={"error": public_error_text(exc)},
                 ),
                 exc,
             )
             return deps.jsonify(payload), 500
-        return deps.api_error(t("Fehler beim gemeinsamen Speichern der Änderungen: {error}", error=exc), 500)
+        return deps.api_error(t("Fehler beim gemeinsamen Speichern der Änderungen: {error}", error=public_error_text(exc)), 500)

@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from .i18n import t
+from .service_errors import UserFacingRuntimeError
 
 
 def run_gui_script(script: str, timeout: int = 60) -> str:
@@ -23,7 +24,7 @@ def run_gui_script(script: str, timeout: int = 60) -> str:
             raise RuntimeError(t("GUI-Dialog fehlgeschlagen: {error}", error=stderr or t("Unbekannter Fehler")))
         return res.stdout.strip()
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(t("GUI-Dialog hat zu lange gedauert (Timeout).")) from exc
+        raise UserFacingRuntimeError(t("GUI-Dialog hat zu lange gedauert (Timeout).")) from exc
 
 
 def select_folder(initial_dir: str | None = None) -> str:

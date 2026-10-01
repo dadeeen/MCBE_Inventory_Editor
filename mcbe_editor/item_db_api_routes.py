@@ -12,6 +12,7 @@ from typing import Any
 
 from . import item_db_verification
 from .i18n import t
+from .service_errors import public_error_text
 
 _UPDATE_REVIEW_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -203,7 +204,7 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
         return deps.api_error("Timeout: Das Update-Skript läuft länger als 3 Minuten.")
     except Exception as exc:
         deps.log_api_exception("item_db_update", exc)
-        return deps.api_error(t("Fehler beim Datenbank-Update: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Datenbank-Update: {error}", error=public_error_text(exc)), 500)
 
 
 def item_db_status(deps: ItemDbRouteDeps):

@@ -82,6 +82,8 @@ Hashes und Kürzungen reduzieren Risiken, sind aber keine Anonymisierung. Weltna
 
 Geheimnisse, CSRF-Token, Passwörter, Sitzungswerte und erkannte vollständige Pfade werden vor der Audit-Speicherung redigiert oder reduziert. Dadurch werden die Logs nicht zu öffentlichen Daten. Unter POSIX beschränkt die App neu erstellte Setup- und Audit-Dateien auf den Eigentümer; unter Windows bleiben die ACLs des umgebenden Verzeichnisses maßgeblich.
 
+Fehlerantworten nennen die fehlgeschlagene Aktion. Der Text einer unerwarteten Ausnahme, der lokale Pfade oder Interna enthalten kann, bleibt im Server-Log: Die Antwort nennt die Anfrage-ID, unter der das Log ihn führt (auch als Header `X-Request-ID`), und bei einem Betriebssystemfehler dessen Beschreibung ohne Pfad. Meldungen, die der Editor für Nutzer formuliert, etwa eine verweigerte Dateiberechtigung, und Hinweise auf Dateien, die von Hand entfernt werden müssen, erscheinen vollständig.
+
 Private Fixture-Welten gehören ausschließlich unter `fixtures/private/`; dieser Ordner wird ignoriert und aus Releases ausgeschlossen. Öffentliche Fixtures benötigen eine LevelDB-/NBT-gerechte Anonymisierung und eine manuelle Prüfung. Der unterstützte Scanner-Fixture-Generator entfernt die ursprünglichen LevelDB-Dateien.
 
 ## Abhängigkeiten und Prüfung

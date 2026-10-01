@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .i18n import localize_message_record, t
+from .service_errors import public_error_text
 from .world import world_fingerprint
 
 LOGGER = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ def world_presence(data: dict, deps: RuntimeRouteDeps):
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("world_presence", exc)
-        return deps.api_error(t("Fehler beim Aktualisieren der Welt-Präsenz: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Aktualisieren der Welt-Präsenz: {error}", error=public_error_text(exc)), 500)
 
 
 def world_presence_leave(data: dict, deps: RuntimeRouteDeps):
@@ -143,7 +144,7 @@ def world_presence_leave(data: dict, deps: RuntimeRouteDeps):
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("world_presence_leave", exc)
-        return deps.api_error(t("Fehler beim Entfernen der Welt-Präsenz: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Entfernen der Welt-Präsenz: {error}", error=public_error_text(exc)), 500)
 
 
 def diagnostics_status(deps: RuntimeRouteDeps):
@@ -177,7 +178,7 @@ def diagnostics_status(deps: RuntimeRouteDeps):
         )
     except Exception as exc:
         deps.log_api_exception("diagnostics.status", exc)
-        return deps.api_error(t("Diagnose konnte nicht erstellt werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Diagnose konnte nicht erstellt werden: {error}", error=public_error_text(exc)), 500)
 
 
 def recent_logs(args: Any, deps: RuntimeRouteDeps):
@@ -208,4 +209,4 @@ def world_compatibility(data: dict, deps: RuntimeRouteDeps):
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("world.compatibility", exc)
-        return deps.api_error(t("Kompatibilitätsbericht konnte nicht erstellt werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Kompatibilitätsbericht konnte nicht erstellt werden: {error}", error=public_error_text(exc)), 500)

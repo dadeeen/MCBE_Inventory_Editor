@@ -11,6 +11,7 @@ from .backup_consistency import BackupSourceChangedError
 from .backup_consistency import source_snapshot as _source_snapshot
 from .backup_settings import get_backup_settings, save_backup_settings
 from .i18n import t
+from .service_errors import public_error_text
 from .world import ensure_valid_world_path
 
 
@@ -39,7 +40,7 @@ def _remove_rejected_backup(deps: BackupRouteDeps, world_path: str, result: dict
         return t(
             "Das verworfene Backup konnte nicht automatisch entfernt werden: {file}. Bitte lösche es manuell. Fehler: {error}",
             file=backup_file,
-            error=t(str(exc)),
+            error=public_error_text(exc),
         )
     return None
 
@@ -68,7 +69,7 @@ def list_backups(data: dict, deps: BackupRouteDeps):
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("backups.list", exc)
-        return deps.api_error(t("Fehler beim Scannen der Backups: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Scannen der Backups: {error}", error=public_error_text(exc)), 500)
 
 
 def create_backup(data: dict, deps: BackupRouteDeps):
@@ -152,11 +153,11 @@ def create_backup(data: dict, deps: BackupRouteDeps):
             payload = error_payload(
                 "Backup konnte nicht erstellt werden: {error}",
                 code="backup_create_failed",
-                params={"error": t(str(exc))},
+                params={"error": public_error_text(exc)},
             )
             payload["cleanup_warning"] = cleanup_warning
             return deps.jsonify(payload), 500
-        return deps.api_error(t("Backup konnte nicht erstellt werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Backup konnte nicht erstellt werden: {error}", error=public_error_text(exc)), 500)
 
 
 def delete_backup(data: dict, deps: BackupRouteDeps):
@@ -175,7 +176,7 @@ def delete_backup(data: dict, deps: BackupRouteDeps):
     except Exception as exc:
         deps.log_api_exception("backup.delete", exc)
         deps.audit_event("backup.delete", "failure", world_path=data.get("world_path"), details={"backup_file": data.get("backup_file")}, error=str(exc))
-        return deps.api_error(t("Backup konnte nicht gelöscht werden: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Backup konnte nicht gelöscht werden: {error}", error=public_error_text(exc)), 500)
 
 
 def restore_backup_preview(data: dict, deps: BackupRouteDeps):
@@ -188,7 +189,7 @@ def restore_backup_preview(data: dict, deps: BackupRouteDeps):
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("backup.restore_preview", exc)
-        return deps.api_error(t("Fehler bei der Restore-Vorschau: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler bei der Restore-Vorschau: {error}", error=public_error_text(exc)), 500)
 
 
 def restore_backup(data: dict, deps: BackupRouteDeps):
@@ -274,7 +275,7 @@ def restore_backup(data: dict, deps: BackupRouteDeps):
             payload = error_payload(
                 "Fehler bei der Wiederherstellung: {error}",
                 code="restore_failed",
-                params={"error": t(str(exc))},
+                params={"error": public_error_text(exc)},
             )
             if cleanup_warning:
                 payload["cleanup_warning"] = cleanup_warning
@@ -284,4 +285,4 @@ def restore_backup(data: dict, deps: BackupRouteDeps):
             if snapshot_path:
                 payload["source_snapshot_path"] = snapshot_path
             return deps.jsonify(payload), 500
-        return deps.api_error(t("Fehler bei der Wiederherstellung: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler bei der Wiederherstellung: {error}", error=public_error_text(exc)), 500)

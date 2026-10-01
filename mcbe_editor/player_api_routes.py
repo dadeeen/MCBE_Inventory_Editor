@@ -22,6 +22,7 @@ from .service_errors import (
     PlayerStateTransferRollbackError,
     PlayerStateTransferRolledBackError,
     WriteOutcomeUnknownError,
+    public_error_text,
 )
 
 # A running server compacts its database while the editor reads it; the next
@@ -44,7 +45,6 @@ class PlayerRouteDeps:
     jsonify: Callable[..., Any]
     api_error: Callable[..., Any]
     log_api_exception: Callable[[str, Exception], None]
-    exception_text: Callable[[Exception], str]
     world_load_hints: Callable[[Exception], list[str]]
     json_string: Callable[..., str]
     json_bool: Callable[..., bool]
@@ -122,7 +122,7 @@ def list_players(data: dict, deps: PlayerRouteDeps):
         return deps.api_error(
             "Fehler beim Erkennen der Spieler.",
             500,
-            details=deps.exception_text(exc),
+            details=public_error_text(exc),
             hints=deps.world_load_hints(exc),
         )
 
@@ -188,7 +188,7 @@ def load_player(data: dict, deps: PlayerRouteDeps):
         return deps.api_error(
             "Fehler beim Laden des Spielers.",
             500,
-            details=deps.exception_text(exc),
+            details=public_error_text(exc),
             hints=deps.world_load_hints(exc),
         )
 
@@ -211,7 +211,7 @@ def preview_player_state_transfer(data: dict, deps: PlayerRouteDeps):
         return deps.api_error(exc)
     except Exception as exc:
         deps.log_api_exception("player.state_transfer_preview", exc)
-        return deps.api_error(t("Fehler beim Prüfen der Spielermigration: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Prüfen der Spielermigration: {error}", error=public_error_text(exc)), 500)
 
 
 def transfer_player_state(data: dict, deps: PlayerRouteDeps):
@@ -305,7 +305,7 @@ def transfer_player_state(data: dict, deps: PlayerRouteDeps):
         payload = error_payload(
             t(
                 "Spielermigration fehlgeschlagen; der vorherige Zielzustand wurde erfolgreich wiederhergestellt: {error}",
-                error=t(str(exc.original_error)),
+                error=public_error_text(exc.original_error),
             ),
             code="player_state_transfer_rolled_back",
             details=t("Sicherungsbackup: {backup}", backup=Path(exc.backup_file).name) if exc.backup_file else None,
@@ -331,7 +331,7 @@ def transfer_player_state(data: dict, deps: PlayerRouteDeps):
         payload = error_payload(
             t(
                 "Spielermigration fehlgeschlagen und der vorherige Zielzustand konnte nicht vollständig wiederhergestellt werden: {error}",
-                error=t(str(exc.original_error)),
+                error=public_error_text(exc.original_error),
             ),
             code="player_state_transfer_rollback_failed",
             details=exc.rollback_warning,
@@ -399,12 +399,12 @@ def transfer_player_state(data: dict, deps: PlayerRouteDeps):
                 error_payload(
                     "Fehler bei der Spielermigration: {error}",
                     code="player_state_transfer_failed",
-                    params={"error": t(str(exc))},
+                    params={"error": public_error_text(exc)},
                 ),
                 exc,
             )
             return deps.jsonify(payload), 500
-        return deps.api_error(t("Fehler bei der Spielermigration: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler bei der Spielermigration: {error}", error=public_error_text(exc)), 500)
 
 
 def save_player(data: dict, deps: PlayerRouteDeps):
@@ -517,12 +517,12 @@ def save_player(data: dict, deps: PlayerRouteDeps):
                 error_payload(
                     "Fehler beim Speichern des Spielers: {error}",
                     code="player_save_failed",
-                    params={"error": t(str(exc))},
+                    params={"error": public_error_text(exc)},
                 ),
                 exc,
             )
             return deps.jsonify(payload), 500
-        return deps.api_error(t("Fehler beim Speichern des Spielers: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Speichern des Spielers: {error}", error=public_error_text(exc)), 500)
 
 
 def export_player(data: dict, deps: PlayerRouteDeps):
@@ -541,7 +541,7 @@ def export_player(data: dict, deps: PlayerRouteDeps):
     except Exception as exc:
         deps.log_api_exception("player.export", exc)
         deps.audit_event("player.export", "failure", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
-        return deps.api_error(t("Fehler beim Exportieren des Spielers: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Exportieren des Spielers: {error}", error=public_error_text(exc)), 500)
 
 
 def import_player_preview(data: dict, deps: PlayerRouteDeps):
@@ -568,14 +568,14 @@ def import_player_preview(data: dict, deps: PlayerRouteDeps):
             payload = error_payload(
                 "Fehler beim Lesen der Import-Vorschau: {error}",
                 code="import_preview_failed",
-                params={"error": t(str(exc))},
+                params={"error": public_error_text(exc)},
             )
             payload["cleanup_warning"] = cleanup_warning
             snapshot_path = getattr(exc, "source_snapshot_path", None)
             if snapshot_path:
                 payload["source_snapshot_path"] = snapshot_path
             return deps.jsonify(payload), 500
-        return deps.api_error(t("Fehler beim Lesen der Import-Vorschau: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Lesen der Import-Vorschau: {error}", error=public_error_text(exc)), 500)
 
 
 def import_player(data: dict, deps: PlayerRouteDeps):
@@ -659,7 +659,7 @@ def import_player(data: dict, deps: PlayerRouteDeps):
         payload = error_payload(
             t(
                 "Spieler-Import fehlgeschlagen; der vorherige Zielzustand wurde erfolgreich wiederhergestellt: {error}",
-                error=t(str(exc.original_error)),
+                error=public_error_text(exc.original_error),
             ),
             code="player_import_rolled_back",
             details=t("Sicherungsbackup: {backup}", backup=Path(exc.backup_file).name) if exc.backup_file else None,
@@ -686,7 +686,7 @@ def import_player(data: dict, deps: PlayerRouteDeps):
         payload = error_payload(
             t(
                 "Spieler-Import fehlgeschlagen und der vorherige Zielzustand konnte nicht vollständig wiederhergestellt werden: {error}",
-                error=t(str(exc.original_error)),
+                error=public_error_text(exc.original_error),
             ),
             code="player_import_rollback_failed",
             details=exc.rollback_warning,
@@ -740,8 +740,8 @@ def import_player(data: dict, deps: PlayerRouteDeps):
             payload = error_payload(
                 "Fehler beim Importieren des Spielers: {error}",
                 code="player_import_failed",
-                params={"error": t(str(exc))},
+                params={"error": public_error_text(exc)},
             )
             add_exception_cleanup_details(payload, exc)
             return deps.jsonify(payload), 500
-        return deps.api_error(t("Fehler beim Importieren des Spielers: {error}", error=t(str(exc))), 500)
+        return deps.api_error(t("Fehler beim Importieren des Spielers: {error}", error=public_error_text(exc)), 500)

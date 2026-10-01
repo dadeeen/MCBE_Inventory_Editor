@@ -25,6 +25,7 @@ from .config import load_config
 from .i18n import t
 from .path_safety import is_linklike
 from .runtime_data import atomic_write_private_text
+from .service_errors import UserFacingError, UserFacingRuntimeError
 from .world import get_world_name
 from .world_locks import locked_world
 
@@ -412,7 +413,7 @@ def _world_locked[**P, R](function: Callable[P, R]) -> Callable[P, R]:
     return wrapper
 
 
-class BackupRetentionError(OSError):
+class BackupRetentionError(UserFacingError, OSError):
     """Report backup files that could not be removed during retention."""
 
     def __init__(self, failures: Iterable[tuple[str, OSError]]) -> None:
@@ -1624,7 +1625,7 @@ def restore_backup(
                     _fsync_directory(parent_dir)
                     transaction_resolved = True
                 except OSError as rollback_exc:
-                    raise RuntimeError(
+                    raise UserFacingRuntimeError(
                         t(
                             "Restore fehlgeschlagen. Die Originalwelt wurde nicht gelöscht, konnte aber nicht automatisch zurückgeschoben werden: {path}",
                             path=rollback_dir,

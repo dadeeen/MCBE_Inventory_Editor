@@ -99,6 +99,8 @@ from .service_errors import (
     WriteOutcomeUnknownError,
     denied_write_actor,
     denied_write_permission_hint,
+    log_error_detail,
+    step_failure_text,
 )
 from .world import LOCAL_PLAYER_KEY, detect_capabilities, ensure_valid_world_path, get_world_name, world_fingerprint
 from .world_locks import get_world_lock, lock_key, locked_world, world_lock_if_free
@@ -746,17 +748,23 @@ class BedrockEditorService:
                         try:
                             extra_batch_validator(db, extra_batch)
                         except Exception as exc:
-                            post_write_errors.append(f"Nachvalidierung nach dem Schreiben fehlgeschlagen: {exc}")
+                            post_write_errors.append(
+                                step_failure_text("Nachvalidierung nach dem Schreiben fehlgeschlagen", exc, context="player.save post_write")
+                            )
                     try:
                         db.close()
                     except Exception as exc:
-                        post_write_errors.append(f"Datenbank konnte nach dem Schreiben nicht sauber geschlossen werden: {exc}")
+                        post_write_errors.append(
+                            step_failure_text("Datenbank konnte nach dem Schreiben nicht sauber geschlossen werden", exc, context="player.save post_write")
+                        )
                     finally:
                         db = None
                     try:
                         prune_backups(world_path, keep_paths=[backup_file])
                     except Exception as exc:
-                        post_write_errors.append(f"Alte Backups konnten nach dem Schreiben nicht bereinigt werden: {exc}")
+                        post_write_errors.append(
+                            step_failure_text("Alte Backups konnten nach dem Schreiben nicht bereinigt werden", exc, context="player.save post_write")
+                        )
 
                     result = {
                         "success": not post_write_errors,
@@ -783,6 +791,7 @@ class BedrockEditorService:
                     # Unerwarteter Fehler nach dem Commit (z. B. beim Aufbau der
                     # Antwort). Der Batch ist geschrieben: strukturiert als
                     # Post-Write-Fehler melden, niemals als wiederholbaren 500.
+                    log_error_detail("player.save post_write", exc)
                     with contextlib.suppress(Exception):
                         if db is not None:
                             db.close()
@@ -801,7 +810,6 @@ class BedrockEditorService:
                         "no_op": False,
                         "backup_file": os.path.basename(backup_file) if backup_file else None,
                         "item_source_digests": item_source_digests,
-                        "post_write_error_detail": f"{type(exc).__name__}: {exc}",
                     }
             except Exception as exc:
                 if backup_file and not write_state.attempted:

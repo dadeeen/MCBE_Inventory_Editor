@@ -1932,7 +1932,6 @@ def player_route_deps() -> player_api_routes.PlayerRouteDeps:
         jsonify=jsonify,
         api_error=api_error,
         log_api_exception=log_api_exception,
-        exception_text=_exception_text,
         world_load_hints=_world_load_hints,
         json_string=json_string,
         json_bool=json_bool,

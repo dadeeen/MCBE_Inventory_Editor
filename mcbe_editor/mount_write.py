@@ -30,7 +30,13 @@ from .mount_profile import (
 )
 from .mounts import MOUNT_TYPE_DEFINITIONS, normalize_mount_position
 from .players import decode_player_key
-from .service_errors import WriteOutcomeUnknownError, denied_write_actor, denied_write_permission_hint
+from .service_errors import (
+    WriteOutcomeUnknownError,
+    denied_write_actor,
+    denied_write_permission_hint,
+    log_error_detail,
+    step_failure_text,
+)
 from .world import ensure_valid_world_path
 from .write_transaction import WritePlan, WriteState
 
@@ -1317,7 +1323,7 @@ def create_horse_mount_with_service(
                         "ok": False,
                         "checks": {},
                         "details": {"exception_type": type(exc).__name__},
-                        "errors": [f"Nachvalidierung konnte nicht abgeschlossen werden: {exc}"],
+                        "errors": [step_failure_text("Nachvalidierung konnte nicht abgeschlossen werden", exc, context="mount.create post_write")],
                     }
                 # Ergebnis defensiv normalisieren: ein Validator, der ein
                 # unerwartetes Objekt (z. B. {}) zurückgibt, darf nach dem Commit
@@ -1331,13 +1337,17 @@ def create_horse_mount_with_service(
                 try:
                     db.close()
                 except Exception as exc:
-                    post_write_errors.append(f"Datenbank konnte nach dem Schreiben nicht sauber geschlossen werden: {exc}")
+                    post_write_errors.append(
+                        step_failure_text("Datenbank konnte nach dem Schreiben nicht sauber geschlossen werden", exc, context="mount.create post_write")
+                    )
                 finally:
                     db = None
                 try:
                     prune_backups(world_path, keep_paths=[backup_file])
                 except Exception as exc:
-                    post_write_errors.append(f"Alte Backups konnten nach dem Schreiben nicht bereinigt werden: {exc}")
+                    post_write_errors.append(
+                        step_failure_text("Alte Backups konnten nach dem Schreiben nicht bereinigt werden", exc, context="mount.create post_write")
+                    )
                 if post_write_errors:
                     validation = _merge_post_write_errors(validation, post_write_errors)
                 chunk_x, chunk_z = chunk_coordinates_for_position(record.position)
@@ -1387,6 +1397,7 @@ def create_horse_mount_with_service(
                 # Unerwarteter Fehler nach dem Commit (z. B. beim Aufbau der
                 # Antwort). Der Batch ist geschrieben: strukturiert als
                 # Post-Write-Fehler melden, niemals als wiederholbaren 500.
+                log_error_detail("mount.create post_write", exc)
                 with contextlib.suppress(Exception):
                     if db is not None:
                         db.close()
@@ -1406,7 +1417,6 @@ def create_horse_mount_with_service(
                     "mount_label": MOUNT_WRITE_LABELS.get(mount_type, mount_type),
                     "selected_position": record.position,
                     "backup_file": os.path.basename(backup_file) if backup_file else None,
-                    "post_write_error_detail": f"{type(exc).__name__}: {exc}",
                 }
         except Exception as exc:
             if backup_file and not write_state.attempted:
