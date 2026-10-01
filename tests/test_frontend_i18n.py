@@ -1,25 +1,15 @@
 from __future__ import annotations
 
-import subprocess
 import textwrap
 from pathlib import Path
+
+from tests.node_runner import run_node
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_frontend_i18n_centralizes_locale_sensitive_behavior() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -61,7 +51,7 @@ def test_frontend_i18n_centralizes_locale_sensitive_behavior() -> None:
 
 
 def test_frontend_i18n_keeps_english_as_secondary_name_in_german_locale() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_item_browser_controller_autocomplete_selects_and_applies_detail_item() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -92,7 +78,7 @@ def test_frontend_item_browser_controller_autocomplete_selects_and_applies_detai
 
 
 def test_frontend_item_browser_controller_enter_resolves_names_without_guessing() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -183,7 +169,7 @@ def test_frontend_item_browser_controller_enter_resolves_names_without_guessing(
 
 
 def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selection() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -260,7 +246,7 @@ def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selecti
 
 
 def test_frontend_item_browser_controller_applies_selected_bed_damage_before_save() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -305,7 +291,7 @@ def test_frontend_item_browser_controller_applies_selected_bed_damage_before_sav
 
 
 def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bulk_item() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -412,7 +398,7 @@ def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bu
 
 
 def test_frontend_item_browser_controller_renders_in_chunks_with_load_more() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

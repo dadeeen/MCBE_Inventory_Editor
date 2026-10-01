@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_slot_display_tooltip_html_and_hover_position() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -65,7 +51,7 @@ def test_frontend_slot_display_tooltip_html_and_hover_position() -> None:
 
 
 def test_frontend_slot_display_detail_preview_and_quick_subtitle_html() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -106,7 +92,7 @@ def test_frontend_slot_display_detail_preview_and_quick_subtitle_html() -> None:
 
 
 def test_frontend_slot_display_preserves_lore_formatting_in_preview_model() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -133,7 +119,7 @@ def test_frontend_slot_display_preserves_lore_formatting_in_preview_model() -> N
 
 
 def test_frontend_slot_display_detail_preview_model_and_applier() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -246,7 +232,7 @@ def test_frontend_slot_display_detail_preview_model_and_applier() -> None:
 
 
 def test_frontend_slot_display_uses_item_specific_damage_label() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -385,7 +371,7 @@ def test_frontend_slot_display_uses_item_specific_damage_label() -> None:
 
 
 def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -496,7 +482,7 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
 
 
 def test_frontend_slot_display_reads_slot_item_from_element() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -546,7 +532,7 @@ def test_frontend_slot_display_reads_slot_item_from_element() -> None:
 
 
 def test_frontend_slot_display_builds_slot_button_elements() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

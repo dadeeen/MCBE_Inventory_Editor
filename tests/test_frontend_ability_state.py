@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_ability_state_apply_stats_update_clamps_touched_values() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -66,7 +52,7 @@ def test_frontend_ability_state_apply_stats_update_clamps_touched_values() -> No
 
 
 def test_frontend_ability_state_keeps_xp_progress_below_next_level_boundary() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -90,7 +76,7 @@ def test_frontend_ability_state_keeps_xp_progress_below_next_level_boundary() ->
 
 
 def test_frontend_ability_state_apply_stats_update_respects_protected_fields() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -141,7 +127,7 @@ def test_frontend_ability_state_apply_stats_update_respects_protected_fields() -
 
 
 def test_frontend_ability_state_apply_stats_update_ignores_untouched_or_equal_values() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -183,7 +169,7 @@ def test_frontend_ability_state_apply_stats_update_ignores_untouched_or_equal_va
 
 
 def test_frontend_ability_state_updates_location_and_converts_only_on_request() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -229,7 +215,7 @@ def test_frontend_ability_state_updates_location_and_converts_only_on_request() 
 
 
 def test_frontend_ability_state_rejects_incomplete_location_without_defaults() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -293,7 +279,7 @@ def test_frontend_ability_state_dimension_switch_keeps_exact_position() -> None:
     versetzt jeder Wechsel den Spieler um bis zu 5 mm pro Achse.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -346,7 +332,7 @@ def test_frontend_ability_state_speed_change_keeps_the_other_exact_speeds() -> N
     wie bei den Positionskoordinaten.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -392,7 +378,7 @@ def test_frontend_ability_state_speed_change_keeps_the_other_exact_speeds() -> N
 
 
 def test_frontend_ability_state_omits_locked_speeds_and_legacy_flags() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

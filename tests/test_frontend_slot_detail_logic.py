@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_slot_detail_logic_builds_and_preserves_same_item_nbt() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -92,7 +78,7 @@ def test_frontend_slot_detail_logic_builds_and_preserves_same_item_nbt() -> None
 
 
 def test_frontend_slot_detail_logic_scopes_entity_metadata_and_preserves_only_existing_overstacks() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -156,7 +142,7 @@ def test_frontend_slot_detail_logic_scopes_entity_metadata_and_preserves_only_ex
 
 
 def test_frontend_slot_detail_logic_empty_invalid_and_nbt_drop_cases() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -228,7 +214,7 @@ def test_frontend_slot_detail_logic_empty_invalid_and_nbt_drop_cases() -> None:
 
 
 def test_frontend_slot_detail_logic_rejects_non_registry_item_only_when_new() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -259,7 +245,7 @@ def test_frontend_slot_detail_logic_rejects_non_registry_item_only_when_new() ->
 
 
 def test_frontend_slot_detail_logic_applies_and_clears_availability_badge() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -303,7 +289,7 @@ def test_frontend_slot_detail_logic_applies_and_clears_availability_badge() -> N
 
 
 def test_frontend_slot_detail_logic_carries_only_explicit_entity_variant_edits() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -380,7 +366,7 @@ def test_frontend_slot_detail_logic_carries_only_explicit_entity_variant_edits()
 
 
 def test_frontend_data_variant_unknown_values_are_only_preserved_from_a_verified_source() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -434,7 +420,7 @@ def test_frontend_data_variant_unknown_values_are_only_preserved_from_a_verified
 
 
 def test_frontend_slot_detail_logic_rejects_incompatible_new_enchantments() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -466,7 +452,7 @@ def test_frontend_slot_detail_logic_rejects_incompatible_new_enchantments() -> N
 
 
 def test_frontend_slot_detail_logic_preserves_unchanged_values_outside_local_limits() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -527,7 +513,7 @@ def test_frontend_slot_detail_logic_preserves_unchanged_values_outside_local_lim
 
 
 def test_frontend_slot_detail_logic_apply_single_slot_plan() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -568,7 +554,7 @@ def test_frontend_slot_detail_logic_apply_single_slot_plan() -> None:
 
 
 def test_frontend_slot_detail_logic_quick_action_plans() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -627,7 +613,7 @@ def test_frontend_slot_detail_logic_quick_action_plans() -> None:
 
 
 def test_frontend_slot_detail_controller_blocks_quick_actions_at_execution_time() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -696,7 +682,7 @@ def test_frontend_slot_detail_logic_keeps_custom_name_padding() -> None:
     because the browser echoes the complete container on every save.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

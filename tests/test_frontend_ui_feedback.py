@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_new_confirmation_cancels_previous_promise_before_reusing_overlay() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -74,7 +60,7 @@ def test_new_confirmation_cancels_previous_promise_before_reusing_overlay() -> N
 
 
 def test_confirmation_temporarily_yields_to_active_loading_overlay() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -129,7 +115,7 @@ def test_confirmation_temporarily_yields_to_active_loading_overlay() -> None:
 
 
 def test_replaced_confirmation_does_not_restore_a_finished_loading_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -191,7 +177,7 @@ def test_replaced_confirmation_does_not_restore_a_finished_loading_state() -> No
 
 
 def test_clipboard_fallback_is_informational_and_cleared_when_dialog_closes() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -246,7 +232,7 @@ def test_clipboard_fallback_is_informational_and_cleared_when_dialog_closes() ->
 
 
 def test_missing_clipboard_fallback_remains_a_real_warning() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -277,7 +263,7 @@ def test_missing_clipboard_fallback_remains_a_real_warning() -> None:
 
 
 def test_focus_keeper_returns_the_focus_once_the_app_is_usable_again() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -390,7 +376,7 @@ def test_focus_keeper_returns_the_focus_once_the_app_is_usable_again() -> None:
 
 
 def test_focus_keeper_lands_in_the_new_view_only_for_an_element_no_longer_shown() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -468,7 +454,7 @@ def test_focus_keeper_lands_in_the_new_view_only_for_an_element_no_longer_shown(
 
 
 def test_dialogs_return_the_focus_to_the_element_that_opened_them() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

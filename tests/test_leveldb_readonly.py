@@ -241,7 +241,7 @@ def test_wal_tail_recovery_matches_native_engine_without_world_writes(tmp_path, 
     from mcbe_editor import nbt
     from mcbe_editor.players import encode_player_key
     from mcbe_editor.services import BedrockEditorService
-    from tests.conftest import make_minimal_player_tag
+    from tests.nbt_fixtures import make_minimal_player_tag
 
     world = tmp_path / "world"
     world.mkdir()

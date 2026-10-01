@@ -170,7 +170,7 @@ Both Docker stages use the same multi-architecture digest for `python:3.12-slim`
 
 ## Frontend tests and Node.js
 
-The frontend logic under `static/` is primarily tested without an npm build step: the `tests/test_frontend_*.py` files execute the browser modules directly via `node -e`, and `tests/test_frontend_syntax.py` syntax-checks every JS file with `node --check` (pure parsing, no execution).
+The frontend logic under `static/` is primarily tested without an npm build step: the `tests/test_frontend_*.py` files and a few backend test modules execute the browser modules directly through `run_node` from `tests/node_runner.py`. It starts one `node -e` process per script from the repository root, so scripts share no module state, fails the test on a non-zero exit with Node's output, and stops a script after 60 seconds unless the test passes its own `timeout`. `tests/test_frontend_syntax.py` syntax-checks every JS file with `node --check` (pure parsing, no execution).
 
 In addition, there are Playwright browser smoke tests under `tests/browser/`. These use `package.json` and `package-lock.json`; locally, the dependencies are installed on demand with `npm ci --ignore-scripts`. The command `npm run test:browser` automatically re-launches through the repository's `.venv` when present, starts two local Flask test servers, runs Playwright, and shuts the servers down again afterwards. `node_modules/` is a local working artifact and is not committed.
 
@@ -242,6 +242,8 @@ These checks do not change dependencies automatically. Security updates are appl
 Real Bedrock worlds and player data are private data. Place them only under `fixtures/private/`; that folder is ignored, excluded from Docker builds, and protected by release checks.
 
 Private worlds do not belong in `tests/fixtures/` and not in a release archive.
+
+Most tests need no world at all: `tests/nbt_fixtures.py` builds synthetic player records (`make_minimal_player_tag`, `make_full_player_tag`, `make_player_bytes`) from `mcbe_editor.nbt` alone, so any test can use them without loading Flask or the service. `tests/conftest.py` holds only the automatic fixtures: isolated runtime storage, the German test client, the rate-limit reset, and the read factory for `tests/test_service.py`.
 
 A private example world can be inspected without printing private values with:
 

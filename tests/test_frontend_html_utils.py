@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_html_utils_escape_html_and_attributes() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -47,7 +33,7 @@ def test_frontend_html_utils_format_timestamp_localizes_and_falls_back() -> None
     ISO value keep the server-rendered string instead of showing nothing at all.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

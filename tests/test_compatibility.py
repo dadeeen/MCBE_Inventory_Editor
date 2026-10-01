@@ -7,7 +7,8 @@ from mcbe_editor.item_data import ITEMS, ENCHANTMENTS
 from mcbe_editor.players import encode_player_key
 from mcbe_editor.services import BedrockEditorService
 from mcbe_editor.world import LOCAL_PLAYER_KEY
-from tests.test_service import FakeDb, make_player_bytes
+from tests.nbt_fixtures import make_player_bytes
+from tests.test_service import FakeDb
 
 
 def _item(name="minecraft:stone", slot=0, count=1):

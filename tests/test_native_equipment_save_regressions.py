@@ -13,7 +13,7 @@ from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
 from mcbe_editor.players import encode_player_key
 from mcbe_editor.services import BedrockEditorService
 from mcbe_editor.world import LOCAL_PLAYER_KEY
-from tests.conftest import make_minimal_player_tag
+from tests.nbt_fixtures import make_minimal_player_tag
 
 
 SOURCE_KEY = b"player_synthetic_source"

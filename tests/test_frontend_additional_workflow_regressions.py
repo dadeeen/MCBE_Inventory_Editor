@@ -1,20 +1,14 @@
 """Regression coverage for import, restore and asynchronous editor workflows."""
 
 import json
-import subprocess
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.node_runner import run_node
 
 
 def _node(source, **params):
-    result = subprocess.run(
-        ["node", "-e", "const params = " + json.dumps(params) + ";\n" + source],
-        cwd=ROOT, text=True, capture_output=True, check=False, timeout=20,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+    result = run_node("const params = " + json.dumps(params) + ";\n" + source, timeout=20)
     assert 'workflow-check-complete' in result.stdout, 'Asynchronous assertions did not finish'
 
 

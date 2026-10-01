@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_inventory_clipboard_logic_context_menu_models() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -58,7 +44,7 @@ def test_frontend_inventory_clipboard_logic_context_menu_models() -> None:
 
 
 def test_frontend_inventory_clipboard_logic_keyboard_copy_paste_plans() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -128,7 +114,7 @@ def test_frontend_inventory_clipboard_logic_keyboard_copy_paste_plans() -> None:
 
 
 def test_frontend_inventory_clipboard_logic_keyboard_cut_is_single_target_and_atomic() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -188,7 +174,7 @@ def test_frontend_inventory_clipboard_logic_keyboard_cut_is_single_target_and_at
 
 
 def test_frontend_inventory_clipboard_controller_never_clears_multi_selection_on_cut() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -258,7 +244,7 @@ def test_frontend_inventory_clipboard_controller_never_clears_multi_selection_on
 
 
 def test_frontend_inventory_clipboard_runtime_guard_blocks_cut_and_paste() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

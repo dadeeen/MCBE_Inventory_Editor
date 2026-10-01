@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from mcbe_editor import item_db_api_routes, item_db_verification
+from tests.node_runner import run_node
 
 
 def _jsonify(payload):
@@ -200,68 +201,56 @@ def test_worker_lazily_reloads_item_db_after_external_commit():
 
 
 def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
-    import subprocess
     import textwrap
-    from pathlib import Path
 
-    root = Path(__file__).resolve().parents[1]
-    result = subprocess.run(
-        [
-            "node",
-            "-e",
-            textwrap.dedent(
-                r"""
-                const assert = require("assert");
-                const fs = require("fs");
-                const vm = require("vm");
-                const code = fs.readFileSync("static/update_db_view.js", "utf8");
-                const context = { window: { fetch: async () => ({}) }, console };
-                vm.runInNewContext(code, context, { filename: "static/update_db_view.js" });
-                const view = context.window.MCBEUpdateDbView;
-                let resolveFetch;
-                let fetchCount = 0;
-                const fetchPromise = new Promise(resolve => { resolveFetch = resolve; });
-                const dryRunButton = { disabled: false, addEventListener() {} };
-                const applyButton = { disabled: false, addEventListener() {} };
-                const onlySelect = { disabled: false, value: "items", options: [{ text: "Items" }], selectedIndex: 0 };
-                const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
-                const controller = view.createUpdateDbController({
-                    outputEl,
-                    dryRunButton,
-                    applyButton,
-                    onlySelect,
-                    fetchImpl: async () => { fetchCount += 1; return fetchPromise; },
-                    parseJsonResponse: response => response.json(),
-                    withCsrf: () => ({}),
-                });
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/update_db_view.js", "utf8");
+            const context = { window: { fetch: async () => ({}) }, console };
+            vm.runInNewContext(code, context, { filename: "static/update_db_view.js" });
+            const view = context.window.MCBEUpdateDbView;
+            let resolveFetch;
+            let fetchCount = 0;
+            const fetchPromise = new Promise(resolve => { resolveFetch = resolve; });
+            const dryRunButton = { disabled: false, addEventListener() {} };
+            const applyButton = { disabled: false, addEventListener() {} };
+            const onlySelect = { disabled: false, value: "items", options: [{ text: "Items" }], selectedIndex: 0 };
+            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const controller = view.createUpdateDbController({
+                outputEl,
+                dryRunButton,
+                applyButton,
+                onlySelect,
+                fetchImpl: async () => { fetchCount += 1; return fetchPromise; },
+                parseJsonResponse: response => response.json(),
+                withCsrf: () => ({}),
+            });
 
-                (async () => {
-                    const first = controller.run(true, false);
-                    const second = controller.run(false, true);
-                    assert.strictEqual(controller.isRunning(), true);
-                    assert.strictEqual(fetchCount, 1);
-                    assert.strictEqual(dryRunButton.disabled, true);
-                    assert.strictEqual(applyButton.disabled, true);
-                    assert.strictEqual(onlySelect.disabled, true);
-                    resolveFetch({ json: async () => ({ success: true, output: "ok" }) });
-                    const [firstResult, secondResult] = await Promise.all([first, second]);
-                    assert.strictEqual(firstResult.success, true);
-                    assert.strictEqual(secondResult.success, false);
-                    assert.strictEqual(secondResult.busy, true);
-                    assert.strictEqual(controller.isRunning(), false);
-                    assert.strictEqual(dryRunButton.disabled, false);
-                    assert.strictEqual(applyButton.disabled, false);
-                    assert.strictEqual(onlySelect.disabled, false);
-                })().catch(error => { console.error(error); process.exit(1); });
-                """
-            ),
-        ],
-        cwd=root,
-        text=True,
-        capture_output=True,
-        check=False,
+            (async () => {
+                const first = controller.run(true, false);
+                const second = controller.run(false, true);
+                assert.strictEqual(controller.isRunning(), true);
+                assert.strictEqual(fetchCount, 1);
+                assert.strictEqual(dryRunButton.disabled, true);
+                assert.strictEqual(applyButton.disabled, true);
+                assert.strictEqual(onlySelect.disabled, true);
+                resolveFetch({ json: async () => ({ success: true, output: "ok" }) });
+                const [firstResult, secondResult] = await Promise.all([first, second]);
+                assert.strictEqual(firstResult.success, true);
+                assert.strictEqual(secondResult.success, false);
+                assert.strictEqual(secondResult.busy, true);
+                assert.strictEqual(controller.isRunning(), false);
+                assert.strictEqual(dryRunButton.disabled, false);
+                assert.strictEqual(applyButton.disabled, false);
+                assert.strictEqual(onlySelect.disabled, false);
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        ),
     )
-    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def _write_release_cache(tmp_path, release="v1.26.40.5"):
@@ -507,58 +496,46 @@ def test_update_db_reports_reload_failure_after_successful_commit():
 
 
 def test_update_db_frontend_reports_post_commit_reload_warning():
-    import subprocess
     import textwrap
-    from pathlib import Path
 
-    root = Path(__file__).resolve().parents[1]
-    result = subprocess.run(
-        [
-            "node",
-            "-e",
-            textwrap.dedent(
-                r"""
-                const assert = require("assert");
-                const fs = require("fs");
-                const vm = require("vm");
-                const code = fs.readFileSync("static/update_db_view.js", "utf8");
-                const context = { window: { fetch: async () => ({}) }, console };
-                vm.runInNewContext(code, context, { filename: "static/update_db_view.js" });
-                const view = context.window.MCBEUpdateDbView;
-                const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
-                const toasts = [];
-                const statuses = [];
-                const controller = view.createUpdateDbController({
-                    outputEl,
-                    fetchImpl: async () => ({
-                        json: async () => ({
-                            success: true,
-                            update_committed: true,
-                            reloaded: false,
-                            reload_warning: "Gespeichert, Neustart nötig.",
-                        }),
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/update_db_view.js", "utf8");
+            const context = { window: { fetch: async () => ({}) }, console };
+            vm.runInNewContext(code, context, { filename: "static/update_db_view.js" });
+            const view = context.window.MCBEUpdateDbView;
+            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const toasts = [];
+            const statuses = [];
+            const controller = view.createUpdateDbController({
+                outputEl,
+                fetchImpl: async () => ({
+                    json: async () => ({
+                        success: true,
+                        update_committed: true,
+                        reloaded: false,
+                        reload_warning: "Gespeichert, Neustart nötig.",
                     }),
-                    parseJsonResponse: response => response.json(),
-                    withCsrf: () => ({}),
-                    showToast: (...args) => toasts.push(args),
-                    logStatus: (...args) => statuses.push(args),
-                });
+                }),
+                parseJsonResponse: response => response.json(),
+                withCsrf: () => ({}),
+                showToast: (...args) => toasts.push(args),
+                logStatus: (...args) => statuses.push(args),
+            });
 
-                (async () => {
-                    const updateResult = await controller.run(false, true);
-                    assert.strictEqual(updateResult.success, true);
-                    assert.strictEqual(updateResult.reloaded, false);
-                    assert.match(outputEl.textContent, /Gespeichert, Neustart nötig/);
-                    assert.strictEqual(toasts.at(-1)[1], "warning");
-                    assert.strictEqual(statuses.at(-1)[1], "warning");
-                    assert.doesNotMatch(outputEl.textContent, /Dry-Run abgeschlossen/);
-                })().catch(error => { console.error(error); process.exit(1); });
-                """
-            ),
-        ],
-        cwd=root,
-        text=True,
-        capture_output=True,
-        check=False,
+            (async () => {
+                const updateResult = await controller.run(false, true);
+                assert.strictEqual(updateResult.success, true);
+                assert.strictEqual(updateResult.reloaded, false);
+                assert.match(outputEl.textContent, /Gespeichert, Neustart nötig/);
+                assert.strictEqual(toasts.at(-1)[1], "warning");
+                assert.strictEqual(statuses.at(-1)[1], "warning");
+                assert.doesNotMatch(outputEl.textContent, /Dry-Run abgeschlossen/);
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        ),
     )
-    assert result.returncode == 0, result.stderr + result.stdout

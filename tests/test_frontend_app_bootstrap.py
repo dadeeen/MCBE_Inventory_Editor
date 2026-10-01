@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_app_bootstrap_builds_runtime_context_and_reports_missing_csrf() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -87,7 +73,7 @@ def test_frontend_app_bootstrap_builds_runtime_context_and_reports_missing_csrf(
 
 
 def test_frontend_app_bootstrap_icon_error_fallback_replaces_failed_images() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -140,7 +126,7 @@ def test_frontend_app_bootstrap_icon_error_fallback_replaces_failed_images() -> 
 
 
 def test_frontend_app_bootstrap_icon_tint_handler_multiplies_grayscale_icons() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

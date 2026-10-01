@@ -1,26 +1,16 @@
 from __future__ import annotations
 
-import subprocess
 import textwrap
 from pathlib import Path
+
+from tests.node_runner import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_player_load_warning_guides_users_to_the_player_analysis() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -63,7 +53,7 @@ def test_player_load_warning_guides_users_to_the_player_analysis() -> None:
 
 
 def test_player_analysis_combines_and_renders_informational_notes_safely() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -1,24 +1,14 @@
-import subprocess
 import textwrap
 from pathlib import Path
+
+from tests.node_runner import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_frontend_item_browser_logic_count_text_formats_sort_and_category() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -47,7 +37,7 @@ def test_frontend_item_browser_logic_count_text_formats_sort_and_category() -> N
 
 
 def test_frontend_item_browser_finds_real_items_by_new_german_localizations() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -90,7 +80,7 @@ def test_frontend_item_browser_finds_real_items_by_new_german_localizations() ->
 
 
 def test_frontend_autocomplete_keeps_exact_names_in_limited_real_catalog_results() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -133,7 +123,7 @@ def test_frontend_autocomplete_keeps_exact_names_in_limited_real_catalog_results
 
 
 def test_frontend_autocomplete_prioritizes_ids_aliases_and_localized_variant_names() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -185,7 +175,7 @@ def test_frontend_autocomplete_prioritizes_ids_aliases_and_localized_variant_nam
 
 
 def test_frontend_item_browser_categories_are_multi_label_and_token_safe() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -264,7 +254,7 @@ def test_item_browser_offers_other_category() -> None:
 
 
 def test_frontend_item_browser_logic_card_html_escapes_names_and_icons() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -308,7 +298,7 @@ def test_frontend_item_browser_logic_card_html_escapes_names_and_icons() -> None
 
 
 def test_frontend_item_browser_uses_english_names_and_sorting_in_english_locale() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -366,7 +356,7 @@ def test_frontend_item_browser_uses_english_names_and_sorting_in_english_locale(
 
 
 def test_frontend_item_browser_logic_autocomplete_html_escapes_item_fields() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -405,7 +395,7 @@ def test_frontend_item_browser_logic_autocomplete_html_escapes_item_fields() -> 
 
 
 def test_frontend_item_browser_logic_element_helpers_build_expected_rows() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -456,7 +446,7 @@ def test_frontend_item_browser_logic_element_helpers_build_expected_rows() -> No
 
 
 def test_frontend_item_browser_render_chunk_plan() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -504,7 +494,7 @@ def test_frontend_item_browser_render_chunk_plan() -> None:
 
 
 def test_frontend_item_browser_logic_hides_block_only_ids_from_suggestions() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -548,7 +538,7 @@ def test_frontend_item_browser_logic_hides_block_only_ids_from_suggestions() -> 
 
 
 def test_frontend_item_browser_logic_uses_positive_addable_registry() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -580,7 +570,7 @@ def test_frontend_item_browser_logic_uses_positive_addable_registry() -> None:
 
 
 def test_frontend_item_browser_logic_does_not_duplicate_registry_with_hidden_names() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -615,7 +605,7 @@ def test_frontend_item_browser_logic_does_not_duplicate_registry_with_hidden_nam
 
 
 def test_frontend_item_browser_expands_bed_variants_and_respects_locale_search() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -654,7 +644,7 @@ def test_frontend_item_browser_expands_bed_variants_and_respects_locale_search()
 
 
 def test_frontend_item_browser_sorts_by_keys_computed_once_per_item() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

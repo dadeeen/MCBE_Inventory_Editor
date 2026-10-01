@@ -2,23 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import textwrap
 from pathlib import Path
 
+from tests.node_runner import run_node
+
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def _view_harness(body: str) -> str:
@@ -48,7 +38,7 @@ def _view_harness(body: str) -> str:
 
 
 def test_mount_numeric_helpers_handle_empty_and_valid_values() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             assert.strictEqual(view.finiteInput(""), null);
@@ -63,7 +53,7 @@ def test_mount_numeric_helpers_handle_empty_and_valid_values() -> None:
 
 
 def test_mount_options_render_controls_for_the_selected_mount_type() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             const customHorse = view.optionsHtml(
@@ -102,7 +92,7 @@ def test_mount_options_render_controls_for_the_selected_mount_type() -> None:
 
 
 def test_horse_temper_is_editable_in_custom_mode_and_rolled_otherwise() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             const optionsFor = profile => view.optionsHtml("minecraft:horse", undefined, true, 6, profile);
@@ -126,7 +116,7 @@ def test_horse_temper_is_editable_in_custom_mode_and_rolled_otherwise() -> None:
 
 
 def test_horse_temper_input_explains_the_value_in_plain_language() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             const hints = [[3, "praktisch ungez"], [40, "etwas vorgez"], [70, "gut vorgez"], [95, "fast gez"]];
@@ -161,7 +151,7 @@ def test_every_live_hint_the_controller_updates_exists_in_the_rendered_markup() 
         }
     ), "Die vollständige Menge der Live-Hinweise muss explizit verdrahtet bleiben."
 
-    _run_node(
+    run_node(
         _view_harness(
             f"const wanted = {json.dumps(hint_ids)};"
             + r"""
@@ -181,7 +171,7 @@ def test_every_live_hint_the_controller_updates_exists_in_the_rendered_markup() 
 
 
 def test_donkey_and_mule_expose_temper_but_only_on_the_wild_variant() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             for (const mountType of ["minecraft:donkey", "minecraft:mule"]) {
@@ -218,7 +208,7 @@ def test_preview_notes_stay_collapsed_unless_something_blocks_creating() -> None
     then the reason is in there and must not be hidden.
     """
 
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             const base = {
@@ -247,7 +237,7 @@ def test_preview_notes_stay_collapsed_unless_something_blocks_creating() -> None
 
 
 def test_random_profile_ranges_are_behind_a_disclosure() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             const random = view.optionsHtml("minecraft:horse", undefined, true, 6, { mode: "random_like_game" });
@@ -268,7 +258,7 @@ def test_random_profile_ranges_are_behind_a_disclosure() -> None:
 
 
 def test_mount_preview_exposes_selectable_and_blocked_candidates_safely() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             const markup = view.previewHtml({
@@ -300,7 +290,7 @@ def test_mount_preview_exposes_selectable_and_blocked_candidates_safely() -> Non
 
 
 def test_pending_mounts_render_actionable_drafts_and_escape_data() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             assert.strictEqual(view.pendingMountsHtml([]), "");
@@ -328,7 +318,7 @@ def test_pending_mounts_render_actionable_drafts_and_escape_data() -> None:
 def test_pending_mount_card_shows_every_value_that_will_be_written() -> None:
     """A staged value the card omits looks like it was not applied."""
 
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             const card = mount => view.pendingMountsHtml([{ id: "d1", mountType: "minecraft:donkey", mountLabel: "Esel", ...mount }]);
@@ -355,7 +345,7 @@ def test_pending_mount_card_shows_every_value_that_will_be_written() -> None:
 
 
 def test_mount_icons_are_decorative_and_scale_to_the_requested_size() -> None:
-    _run_node(
+    run_node(
         _view_harness(
             r"""
             for (const mountType of [

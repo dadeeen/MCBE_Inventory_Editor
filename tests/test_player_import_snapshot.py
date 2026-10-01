@@ -13,7 +13,8 @@ from mcbe_editor.services import (
     PlayerImportRolledBackError,
 )
 from mcbe_editor.world import LOCAL_PLAYER_KEY
-from tests.test_service import PathFakeDb, make_player_bytes
+from tests.nbt_fixtures import make_player_bytes
+from tests.test_service import PathFakeDb
 
 
 def _player_raw(item_name: str) -> bytes:

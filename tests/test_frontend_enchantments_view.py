@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_enchantments_view_unavailable_text_matches_item_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -49,7 +35,7 @@ def test_frontend_enchantments_view_unavailable_text_matches_item_state() -> Non
 
 
 def test_frontend_enchantments_view_row_model_and_html_escape_values() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -91,7 +77,7 @@ def test_frontend_enchantments_view_row_model_and_html_escape_values() -> None:
 
 
 def test_frontend_enchantments_view_prioritizes_english_name_in_english_locale() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -134,7 +120,7 @@ def test_frontend_enchantments_view_prioritizes_english_name_in_english_locale()
 
 
 def test_frontend_enchantments_view_row_element_uses_model_class_and_html() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -172,7 +158,7 @@ def test_frontend_enchantments_view_row_element_uses_model_class_and_html() -> N
 
 
 def test_frontend_enchantments_view_action_buttons_model_and_applier() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -220,7 +206,7 @@ def test_frontend_enchantments_view_action_buttons_model_and_applier() -> None:
 
 
 def test_frontend_enchantments_view_unavailable_element_uses_text_content() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

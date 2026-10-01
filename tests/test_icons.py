@@ -3,6 +3,8 @@ import os
 from mcbe_editor.icons import _MAX_FILE_BYTES, scan_icons
 import pytest
 
+from tests.node_runner import run_node
+
 
 @pytest.fixture(autouse=True)
 def isolate_vanilla_icon_cache(monkeypatch, tmp_path):
@@ -853,70 +855,58 @@ def test_icon_source_add_audits_partial_when_rescan_fails_after_settings_change(
 
 
 def test_icon_frontend_keeps_existing_index_when_post_commit_rescan_failed():
-    import subprocess
     import textwrap
-    from pathlib import Path
 
-    root = Path(__file__).resolve().parents[1]
-    result = subprocess.run(
-        [
-            "node",
-            "-e",
-            textwrap.dedent(
-                r"""
-                const assert = require("assert");
-                const fs = require("fs");
-                const vm = require("vm");
-                const code = fs.readFileSync("static/icon_sources_controller.js", "utf8");
-                const context = { window: {}, console, fetch: async () => ({}) };
-                vm.runInNewContext(code, context, { filename: "static/icon_sources_controller.js" });
-                const api = context.window.MCBEIconSourcesController;
-                const toasts = [];
-                const statuses = [];
-                const outputs = [];
-                let applied = 0;
-                const controller = api.createIconSourcesController({
-                    elements: { updateVanillaButton: { disabled: false }, useCacheCheckbox: { checked: true, disabled: false } },
-                    fetchImpl: async () => ({
-                        json: async () => ({
-                            success: true,
-                            update_committed: true,
-                            scan_warning: "Icons gespeichert, Scan fehlgeschlagen.",
-                            manifest: { mapped_items: 1, known_items: 1 },
-                        }),
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const code = fs.readFileSync("static/icon_sources_controller.js", "utf8");
+            const context = { window: {}, console, fetch: async () => ({}) };
+            vm.runInNewContext(code, context, { filename: "static/icon_sources_controller.js" });
+            const api = context.window.MCBEIconSourcesController;
+            const toasts = [];
+            const statuses = [];
+            const outputs = [];
+            let applied = 0;
+            const controller = api.createIconSourcesController({
+                elements: { updateVanillaButton: { disabled: false }, useCacheCheckbox: { checked: true, disabled: false } },
+                fetchImpl: async () => ({
+                    json: async () => ({
+                        success: true,
+                        update_committed: true,
+                        scan_warning: "Icons gespeichert, Scan fehlgeschlagen.",
+                        manifest: { mapped_items: 1, known_items: 1 },
                     }),
-                    parseJsonResponse: response => response.json(),
-                    withCsrf: () => ({}),
-                    showToast: (...args) => toasts.push(args),
-                    logStatus: (...args) => statuses.push(args),
-                    appendUpdateOutput: text => outputs.push(text),
-                    onIconData: () => { applied += 1; },
-                    onIconDataApplied: () => { applied += 1; },
-                });
+                }),
+                parseJsonResponse: response => response.json(),
+                withCsrf: () => ({}),
+                showToast: (...args) => toasts.push(args),
+                logStatus: (...args) => statuses.push(args),
+                appendUpdateOutput: text => outputs.push(text),
+                onIconData: () => { applied += 1; },
+                onIconDataApplied: () => { applied += 1; },
+            });
 
-                (async () => {
-                    const updateResult = await controller.updateVanillaIcons();
-                    assert.strictEqual(updateResult.success, false);
-                    assert.strictEqual(updateResult.error, "Icons gespeichert, Scan fehlgeschlagen.");
-                    assert.strictEqual(applied, 0);
-                    assert.match(outputs.join("\n"), /Scan fehlgeschlagen/);
-                    assert.strictEqual(statuses[0][1], "running");
-                    assert.strictEqual(statuses[0][2].key, "vanilla-icons-update");
-                    assert.strictEqual(statuses[0][2].active, true);
-                    assert.strictEqual(toasts.at(-1)[1], "warning");
-                    assert.strictEqual(statuses.at(-1)[1], "warning");
-                    assert.strictEqual(statuses.at(-1)[2].key, "vanilla-icons-update");
-                    assert.strictEqual(statuses.at(-1)[2].active, true);
-                })().catch(error => { console.error(error); process.exit(1); });
-                """
-            ),
-        ],
-        cwd=root,
-        text=True,
-        capture_output=True,
-        check=False,
+            (async () => {
+                const updateResult = await controller.updateVanillaIcons();
+                assert.strictEqual(updateResult.success, false);
+                assert.strictEqual(updateResult.error, "Icons gespeichert, Scan fehlgeschlagen.");
+                assert.strictEqual(applied, 0);
+                assert.match(outputs.join("\n"), /Scan fehlgeschlagen/);
+                assert.strictEqual(statuses[0][1], "running");
+                assert.strictEqual(statuses[0][2].key, "vanilla-icons-update");
+                assert.strictEqual(statuses[0][2].active, true);
+                assert.strictEqual(toasts.at(-1)[1], "warning");
+                assert.strictEqual(statuses.at(-1)[1], "warning");
+                assert.strictEqual(statuses.at(-1)[2].key, "vanilla-icons-update");
+                assert.strictEqual(statuses.at(-1)[2].active, true);
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        ),
     )
-    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def test_icon_sources_tolerate_invalid_utf8(tmp_path):

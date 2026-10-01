@@ -1,12 +1,10 @@
 """Late save completions must not mutate a newly selected player or world."""
 
 import json
-import subprocess
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.node_runner import run_node
 
 
 @pytest.mark.parametrize("changed_field", ["world", "player"])
@@ -110,6 +108,5 @@ def test_save_completion_does_not_modify_a_replaced_context(changed_field, scena
         })().catch(error => {console.error = global.console.error; console.error(error); process.exitCode = 1;});
     '''
     script = script.replace("CONFIG", json.dumps({"scenario": scenario, "changedField": changed_field}))
-    result = subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr + result.stdout
+    result = run_node(script)
     assert "save-context-check-passed" in result.stdout, "The asynchronous assertions did not complete"

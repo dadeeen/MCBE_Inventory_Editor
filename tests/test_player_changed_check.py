@@ -66,7 +66,7 @@ def player_world(tmp_path, monkeypatch):
     from mcbe_editor.db import LevelDbAdapter
     from mcbe_editor.world import LOCAL_PLAYER_KEY
     from mcbe_editor import nbt
-    from tests.conftest import make_minimal_player_tag
+    from tests.nbt_fixtures import make_minimal_player_tag
 
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)

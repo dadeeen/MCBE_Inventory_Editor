@@ -1,25 +1,14 @@
-import subprocess
 import textwrap
 from pathlib import Path
 
+from tests.node_runner import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_dedicated_item_paste_uses_real_clipboard_controller() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

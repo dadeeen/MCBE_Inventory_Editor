@@ -1,24 +1,14 @@
-import subprocess
 import textwrap
 from pathlib import Path
+
+from tests.node_runner import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_unreadable_mount_save_response_blocks_retries_including_confirmation_requests() -> None:
-    _run_node(r"""
+    run_node(r"""
         const fs = require('fs');
         const vm = require('vm');
         const assert = require('node:assert/strict');
@@ -81,7 +71,7 @@ def test_unreadable_mount_save_response_blocks_retries_including_confirmation_re
 
 
 def test_frontend_save_controller_preserves_save_orchestration_contract() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -732,7 +722,7 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
 
 
 def test_configured_save_locks_editing_through_review_and_request_and_releases_on_exit() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -862,7 +852,7 @@ def test_app_wiring_forwards_finalize_options_to_mount_controller() -> None:
     # Regression for the real app.js wiring: the second (options) argument must
     # reach the mount controller, not be dropped. app.js cannot be loaded in
     # isolation, so extract the wiring arrow and execute it against a spy.
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -897,7 +887,7 @@ def test_app_wiring_forwards_finalize_options_to_mount_controller() -> None:
 
 
 def test_app_wiring_forwards_item_source_digests_to_origin_controller() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

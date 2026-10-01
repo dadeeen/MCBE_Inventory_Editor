@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_world_analysis_view_empty_state_html() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -39,7 +25,7 @@ def test_frontend_world_analysis_view_empty_state_html() -> None:
 
 
 def test_frontend_world_analysis_view_html_escapes_dynamic_values() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -74,7 +60,7 @@ def test_frontend_world_analysis_view_html_escapes_dynamic_values() -> None:
 
 
 def test_frontend_world_analysis_view_keeps_notes_only_status_ok() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

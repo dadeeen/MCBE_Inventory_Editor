@@ -17,7 +17,7 @@ def test_marker_only_ability_save_is_noop_without_creating_tags_or_backups(tmp_p
     from mcbe_editor.players import encode_player_key
     from mcbe_editor.services import BedrockEditorService
     from mcbe_editor.world import LOCAL_PLAYER_KEY
-    from tests.conftest import make_minimal_player_tag
+    from tests.nbt_fixtures import make_minimal_player_tag
     from tests.test_service import PathFakeDb
 
     world = tmp_path / "world"

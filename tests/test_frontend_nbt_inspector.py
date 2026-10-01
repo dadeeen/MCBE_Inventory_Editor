@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_nbt_inspector_body_html_formats_editable_slot_details() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -64,7 +50,7 @@ def test_frontend_nbt_inspector_body_html_formats_editable_slot_details() -> Non
 
 
 def test_frontend_nbt_inspector_body_html_formats_protected_slot_details() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -99,7 +85,7 @@ def test_frontend_nbt_inspector_body_html_formats_protected_slot_details() -> No
 
 
 def test_frontend_nbt_inspector_panel_model_and_applier() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -152,7 +138,7 @@ def test_frontend_nbt_inspector_panel_model_and_applier() -> None:
 
 
 def test_frontend_nbt_inspector_copy_keeps_the_full_detail_text() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -18,7 +18,7 @@ from mcbe_editor.players import (
     read_player_export,
 )
 from mcbe_editor.world import LOCAL_PLAYER_KEY
-from tests.conftest import make_minimal_player_tag
+from tests.nbt_fixtures import make_minimal_player_tag
 
 
 class TestPlayerKeyEncoding(unittest.TestCase):

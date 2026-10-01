@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_icon_sources_controller_loads_applies_and_renders() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -71,7 +57,7 @@ def test_frontend_icon_sources_controller_loads_applies_and_renders() -> None:
 
 
 def test_frontend_icon_sources_controller_reports_unavailable_status_without_fake_empty_result() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -110,7 +96,7 @@ def test_frontend_icon_sources_controller_reports_unavailable_status_without_fak
 
 
 def test_frontend_icon_sources_controller_wires_source_actions_and_move() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -190,7 +176,7 @@ def test_frontend_icon_sources_controller_wires_source_actions_and_move() -> Non
 
 
 def test_frontend_icon_rescan_reports_failure_instead_of_stale_success() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -242,7 +228,7 @@ def test_frontend_icon_rescan_reports_failure_instead_of_stale_success() -> None
 
 
 def test_frontend_icon_sources_controller_does_not_apply_failed_mutations() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -287,7 +273,7 @@ def test_frontend_icon_sources_controller_does_not_apply_failed_mutations() -> N
 
 
 def test_frontend_icon_sources_controller_uses_status_in_read_only_even_when_rescan_requested() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -325,7 +311,7 @@ def test_frontend_icon_sources_controller_uses_status_in_read_only_even_when_res
 
 
 def test_frontend_icon_sources_controller_prefers_central_permissions_model() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -367,7 +353,7 @@ def test_frontend_icon_sources_controller_prefers_central_permissions_model() ->
 
 
 def test_frontend_icon_sources_controller_locks_write_controls_in_read_only() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -482,7 +468,7 @@ _HINT_BANNER_HARNESS = r"""
 
 
 def test_frontend_icon_hint_banner_shows_and_dismisses_via_workspace() -> None:
-    _run_node(
+    run_node(
         _HINT_BANNER_HARNESS
         + textwrap.dedent(
             r"""
@@ -521,7 +507,7 @@ def test_frontend_icon_hint_banner_shows_and_dismisses_via_workspace() -> None:
 
 
 def test_frontend_icon_hint_banner_hidden_when_icons_exist_or_inventory_closed() -> None:
-    _run_node(
+    run_node(
         _HINT_BANNER_HARNESS
         + textwrap.dedent(
             r"""
@@ -578,7 +564,7 @@ def test_frontend_icon_hint_banner_hidden_when_icons_exist_or_inventory_closed()
 
 
 def test_frontend_icon_hint_banner_vanilla_button_confirms_and_updates() -> None:
-    _run_node(
+    run_node(
         _HINT_BANNER_HARNESS
         + textwrap.dedent(
             r"""
@@ -618,7 +604,7 @@ def test_frontend_icon_hint_banner_vanilla_button_confirms_and_updates() -> None
 
 
 def test_frontend_icon_update_output_localizes_its_heading() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             (async () => {
@@ -664,7 +650,7 @@ def test_frontend_icon_update_output_localizes_its_heading() -> None:
 
 
 def test_frontend_icon_hint_banner_locks_vanilla_button_in_read_only() -> None:
-    _run_node(
+    run_node(
         _HINT_BANNER_HARNESS
         + textwrap.dedent(
             r"""

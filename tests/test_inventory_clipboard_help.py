@@ -1,9 +1,6 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
+from tests.node_runner import run_node
 
 
 def test_inventory_clipboard_help_renderer_is_model_driven_and_idempotent() -> None:
@@ -84,5 +81,4 @@ def test_inventory_clipboard_help_renderer_is_model_driven_and_idempotent() -> N
         assert.strictEqual(table.querySelectorAll("tr").length, rowCount);
         """
     )
-    result = subprocess.run(["node", "-e", source], cwd=ROOT, text=True, capture_output=True, check=False)
-    assert result.returncode == 0, result.stderr + result.stdout
+    run_node(source)

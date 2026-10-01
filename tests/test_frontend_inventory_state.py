@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_inventory_state_selected_bulk_targets_skip_protected_slots() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -58,7 +44,7 @@ def test_frontend_inventory_state_selected_bulk_targets_skip_protected_slots() -
 
 
 def test_frontend_inventory_state_visible_targets_and_set_counts() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -99,7 +85,7 @@ def test_frontend_inventory_state_visible_targets_and_set_counts() -> None:
 
 
 def test_frontend_inventory_state_first_empty_writable_slot_skips_full_and_protected_slots() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -142,7 +128,7 @@ def test_frontend_inventory_state_first_empty_writable_slot_skips_full_and_prote
 
 
 def test_frontend_inventory_state_damaged_item_targets_for_selected_slots() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -177,7 +163,7 @@ def test_frontend_inventory_state_damaged_item_targets_for_selected_slots() -> N
 
 
 def test_frontend_inventory_state_damaged_inventory_targets_match_repair_all_semantics() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -211,7 +197,7 @@ def test_frontend_inventory_state_damaged_inventory_targets_match_repair_all_sem
 
 
 def test_frontend_inventory_state_repair_targets_skip_potion_data_values_and_invisible_items() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -240,7 +226,7 @@ def test_frontend_inventory_state_repair_targets_skip_potion_data_values_and_inv
 
 
 def test_frontend_inventory_state_repairs_sword_armor_and_spear_identically() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

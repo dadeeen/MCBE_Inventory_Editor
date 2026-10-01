@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_sync_effects_preserves_disabled_opaque_and_unknown_rows() -> None:
-    _run_node(r'''
+    run_node(r'''
         const assert = require("node:assert/strict");
         const fs = require("fs");
         const vm = require("vm");
@@ -53,7 +39,7 @@ def test_sync_effects_preserves_disabled_opaque_and_unknown_rows() -> None:
 
 
 def test_frontend_effects_logic_add_effect_decision() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -116,7 +102,7 @@ def test_frontend_effects_logic_add_effect_decision() -> None:
 
 
 def test_frontend_effects_logic_uses_english_effect_name_in_english_locale() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -167,7 +153,7 @@ def test_frontend_effects_logic_uses_english_effect_name_in_english_locale() -> 
 
 
 def test_stats_form_clamps_manual_values_to_declared_input_range() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -207,7 +193,7 @@ def test_stats_form_clamps_manual_values_to_declared_input_range() -> None:
 
 
 def test_stats_form_dimension_conversion_is_explicit_and_one_shot() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -287,7 +273,7 @@ def test_stats_form_dimension_conversion_is_explicit_and_one_shot() -> None:
 
 
 def test_stats_form_disables_location_conversion_for_invalid_coordinates() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -343,7 +329,7 @@ def test_stats_form_disables_location_conversion_for_invalid_coordinates() -> No
 
 
 def test_frontend_effects_logic_apply_plan() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -383,7 +369,7 @@ def test_frontend_effects_logic_apply_plan() -> None:
 
 
 def test_frontend_effects_logic_apply_outcome_requires_real_work() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -424,7 +410,7 @@ def test_frontend_effects_logic_apply_outcome_requires_real_work() -> None:
 
 
 def test_frontend_effects_logic_remove_effect_decision() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -449,7 +435,7 @@ def test_frontend_effects_logic_remove_effect_decision() -> None:
 
 
 def test_effects_controller_keeps_dynamic_controls_read_only_when_editing_is_blocked() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -585,7 +571,7 @@ def test_effects_controller_keeps_dynamic_controls_read_only_when_editing_is_blo
 
 
 def test_effects_controller_couples_walk_speed_and_resets_only_editable_speeds() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

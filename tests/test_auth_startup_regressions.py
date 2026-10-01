@@ -11,6 +11,7 @@ import urllib.request
 import pytest
 
 from mcbe_editor.setup_state import FirstRunSetup
+from tests.node_runner import run_node
 
 
 def _configure(monkeypatch, tmp_path, *, password=None, host="0.0.0.0"):
@@ -150,7 +151,7 @@ def test_auto_browser_uses_public_health_endpoint_and_ipv6_brackets(monkeypatch,
 
 
 def test_auth_heartbeat_script_sends_token_immediately_and_every_five_seconds():
-    result = subprocess.run(["node", "-e", r'''
+    run_node(r'''
         const vm = require("vm"), fs = require("fs"), assert = require("assert");
         const sent = [];
         let tick;
@@ -167,5 +168,4 @@ def test_auth_heartbeat_script_sends_token_immediately_and_every_five_seconds():
             assert.equal(options.method, "POST");
             assert.equal(options.headers["X-CSRF-Token"], "session-token");
         }
-    '''], capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
+    ''')

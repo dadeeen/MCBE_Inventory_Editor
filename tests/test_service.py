@@ -11,6 +11,7 @@ from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
 from mcbe_editor.players import encode_player_key, snapshot_player_export_for_import
 from mcbe_editor.services import BedrockEditorService
 from mcbe_editor.world import LOCAL_PLAYER_KEY
+from tests.nbt_fixtures import make_player_bytes
 
 
 class FakeDb:
@@ -77,18 +78,6 @@ def player_import_token(export_path, world_path):
     snapshot_path, token = snapshot_player_export_for_import(str(export_path), str(world_path))
     Path(snapshot_path).unlink()
     return token
-
-
-def make_player_bytes(item_tag, *additional_item_tags):
-    player = nbt.CompoundTag(
-        {
-            "Inventory": nbt.ListTag([item_tag, *additional_item_tags]),
-            "Pos": nbt.ListTag([nbt.DoubleTag(1.0), nbt.DoubleTag(2.0), nbt.DoubleTag(3.0)]),
-            "Health": nbt.FloatTag(20.0),
-            "PlayerGameType": nbt.IntTag(0),
-        }
-    )
-    return nbt.NamedTag(player).save_to(compressed=False, little_endian=True)
 
 
 class ServiceTests(unittest.TestCase):

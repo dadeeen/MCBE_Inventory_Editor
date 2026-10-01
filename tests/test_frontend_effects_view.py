@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_effects_view_list_state_html_formats_empty_and_protected_states() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -44,7 +30,7 @@ def test_frontend_effects_view_list_state_html_formats_empty_and_protected_state
 
 
 def test_frontend_effects_view_row_model_and_html_preserve_unknown_effects() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -78,7 +64,7 @@ def test_frontend_effects_view_row_model_and_html_preserve_unknown_effects() -> 
 
 
 def test_frontend_effects_view_translates_labels_and_explains_particles() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -122,7 +108,7 @@ def test_frontend_effects_view_translates_labels_and_explains_particles() -> Non
 
 
 def test_frontend_effects_view_localizes_bilingual_descriptions() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -157,7 +143,7 @@ def test_frontend_effects_view_localizes_bilingual_descriptions() -> None:
 
 
 def test_frontend_effects_view_row_element_uses_model_class_dataset_and_html() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -193,7 +179,7 @@ def test_frontend_effects_view_row_element_uses_model_class_dataset_and_html() -
 
 
 def test_frontend_effects_view_reads_row_values_and_builds_patch() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -235,7 +221,7 @@ def test_frontend_effects_view_reads_row_values_and_builds_patch() -> None:
 
 
 def test_frontend_effects_view_list_model_returns_state_or_rows() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -276,7 +262,7 @@ def test_frontend_effects_view_keeps_exact_duration_when_the_seconds_field_is_un
     Ticks abschneiden und einen Effekt mit unter 20 Ticks ganz beenden.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

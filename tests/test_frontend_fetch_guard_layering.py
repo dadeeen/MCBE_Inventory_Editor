@@ -7,12 +7,10 @@ dialog for the same blocked write — including a path where a user who already
 declined gets prompted again and can accidentally proceed.
 """
 
-import subprocess
 import textwrap
-from pathlib import Path
 
+from tests.node_runner import run_node
 
-ROOT = Path(__file__).resolve().parents[1]
 
 _HARNESS = r"""
 const assert = require("assert");
@@ -110,19 +108,8 @@ assert.notStrictEqual(context.window.fetch, stubFetch, "ui_feedback.js muss den 
 """
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_only_ui_feedback_installs_fetch_guard_and_prompts_exactly_once() -> None:
-    _run_node(
+    run_node(
         _HARNESS
         + textwrap.dedent(
             r"""
@@ -146,7 +133,7 @@ def test_only_ui_feedback_installs_fetch_guard_and_prompts_exactly_once() -> Non
 
 
 def test_backup_create_is_covered_by_unknown_server_fetch_guard() -> None:
-    _run_node(
+    run_node(
         _HARNESS
         + textwrap.dedent(
             r"""
@@ -169,7 +156,7 @@ def test_backup_create_is_covered_by_unknown_server_fetch_guard() -> None:
 
 
 def test_player_state_transfer_is_covered_by_unknown_server_fetch_guard() -> None:
-    _run_node(
+    run_node(
         _HARNESS
         + textwrap.dedent(
             r"""

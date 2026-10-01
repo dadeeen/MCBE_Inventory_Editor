@@ -1,9 +1,6 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
+from tests.node_runner import run_node
 
 
 def test_progress_counters_cancellation_and_client_refresh():
@@ -96,5 +93,4 @@ def test_progress_counters_cancellation_and_client_refresh():
         assert.equal(timers.size, 0);
     })().catch(error => { console.error(error); process.exitCode = 1; });
     """
-    result = subprocess.run(["node", "-e", textwrap.dedent(source)], cwd=ROOT, capture_output=True, text=True, timeout=15, check=False)
-    assert result.returncode == 0, result.stderr + result.stdout
+    run_node(textwrap.dedent(source), timeout=15)

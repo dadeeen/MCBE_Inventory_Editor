@@ -60,7 +60,7 @@ def test_native_save_keeps_protected_and_untouched_effect_bytes(tmp_path, monkey
     from mcbe_editor.players import encode_player_key
     from mcbe_editor.services import BedrockEditorService
     from mcbe_editor.world import LOCAL_PLAYER_KEY
-    from tests.conftest import make_minimal_player_tag
+    from tests.nbt_fixtures import make_minimal_player_tag
 
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)

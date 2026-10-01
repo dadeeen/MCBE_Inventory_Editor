@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_data_source_view_asset_status_html_formats_current_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -69,7 +55,7 @@ def test_frontend_data_source_view_asset_status_html_formats_current_state() -> 
 
 
 def test_frontend_data_source_view_item_db_status_html_formats_history_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -127,7 +113,7 @@ def test_frontend_data_source_view_item_db_status_html_formats_history_state() -
 
 
 def test_frontend_data_source_view_warns_when_item_db_has_no_server_verification() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -159,7 +145,7 @@ def test_frontend_data_source_view_warns_when_item_db_has_no_server_verification
 
 
 def test_frontend_data_source_view_distinguishes_unavailable_status_from_missing_data() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -192,7 +178,7 @@ def test_frontend_data_source_view_distinguishes_unavailable_status_from_missing
 
 
 def test_frontend_data_source_view_keeps_no_wiki_trace_in_the_source_summary() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -228,7 +214,7 @@ def test_frontend_data_source_view_keeps_no_wiki_trace_in_the_source_summary() -
 
 
 def test_frontend_data_source_controller_notifies_every_status_consumer() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_write_status_view_models_and_badge_applier() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -144,7 +130,7 @@ def test_frontend_write_status_view_models_and_badge_applier() -> None:
 
 
 def test_frontend_write_status_view_exposes_shared_runtime_guards() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -186,7 +172,7 @@ def test_frontend_write_status_view_exposes_shared_runtime_guards() -> None:
 
 
 def test_frontend_write_status_view_fallback_gate_respects_config() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -231,7 +217,7 @@ def test_frontend_write_status_view_fallback_gate_respects_config() -> None:
 
 
 def test_frontend_write_status_view_keeps_one_active_player_gate_and_blocks_edit_controls() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -296,7 +282,7 @@ def test_frontend_write_status_view_keeps_one_active_player_gate_and_blocks_edit
 
 
 def test_frontend_write_status_view_guards_slot_mutations_while_player_is_view_only() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -361,7 +347,7 @@ def test_frontend_write_status_view_guards_slot_mutations_while_player_is_view_o
 
 
 def test_frontend_write_status_view_localizes_backend_gate_payload() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -402,7 +388,7 @@ def test_frontend_write_status_view_localizes_backend_gate_payload() -> None:
 
 
 def test_frontend_write_status_view_orders_responses_by_client_request() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -461,7 +447,7 @@ def test_frontend_write_status_view_orders_responses_by_client_request() -> None
 
 
 def test_frontend_write_status_view_never_discards_stale_authoritative_hard_block() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -526,7 +512,7 @@ def test_frontend_write_status_view_never_discards_stale_authoritative_hard_bloc
 
 
 def test_frontend_write_status_view_uses_generic_stale_reason_after_offline_restart() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -578,7 +564,7 @@ def test_frontend_write_status_view_uses_generic_stale_reason_after_offline_rest
 
 
 def test_frontend_write_status_view_ignores_failure_from_older_request() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -621,7 +607,7 @@ def test_frontend_write_status_view_ignores_failure_from_older_request() -> None
 
 
 def test_frontend_write_status_view_preserves_last_observation_on_current_failure() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -657,7 +643,7 @@ def test_frontend_write_status_view_preserves_last_observation_on_current_failur
 
 
 def test_frontend_write_status_failure_does_not_downgrade_online_block() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -697,7 +683,7 @@ def test_frontend_write_status_failure_does_not_downgrade_online_block() -> None
 
 
 def test_frontend_write_status_refresh_renders_json_api_failure() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -746,7 +732,7 @@ def test_frontend_write_status_refresh_renders_json_api_failure() -> None:
 
 
 def test_frontend_write_status_failure_remains_visible_in_read_only_mode() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -781,7 +767,7 @@ def test_frontend_write_status_failure_remains_visible_in_read_only_mode() -> No
 
 
 def test_frontend_permission_model_mirrors_backend_policy() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -832,7 +818,7 @@ def test_frontend_permission_model_mirrors_backend_policy() -> None:
 
 
 def test_frontend_write_gate_controller_exposes_permissions() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

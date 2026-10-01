@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_player_context_changes_invalidate_pending_loads_and_release_only_their_overlay() -> None:
-    _run_node(r"""
+    run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const context = {window: {}};
         for (const name of ['player_view_models', 'player_load_controller']) {
@@ -74,7 +60,7 @@ def test_player_context_changes_invalidate_pending_loads_and_release_only_their_
 
 
 def test_player_load_preserves_an_existing_workflow_view() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -102,7 +88,7 @@ def test_player_load_preserves_an_existing_workflow_view() -> None:
 
 
 def test_readonly_player_selection_confirms_before_discarding_edits() -> None:
-    _run_node(r"""
+    run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const rows = [];
         const context = {window: {}, document: {createElement: () => ({
@@ -151,7 +137,7 @@ def test_readonly_player_selection_confirms_before_discarding_edits() -> None:
 
 
 def test_load_busy_lifecycle_preserves_edits_and_does_not_unlock_newer_requests() -> None:
-    _run_node(r"""
+    run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const context = {window: {}, console: {error() {}}};
         for (const name of ['player_view_models', 'player_load_controller', 'write_status_view']) {
@@ -235,7 +221,7 @@ def test_load_busy_lifecycle_preserves_edits_and_does_not_unlock_newer_requests(
 
 
 def test_loaded_controls_restore_current_protection_and_undo_after_busy_state() -> None:
-    _run_node(r"""
+    run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const context = {window: {}};
         for (const name of ['player_view_models', 'player_load_controller', 'write_status_view',
@@ -301,7 +287,7 @@ def test_loaded_controls_restore_current_protection_and_undo_after_busy_state() 
 
 
 def test_recent_world_ui_is_cleared_instead_of_persisted() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -336,7 +322,7 @@ def test_recent_world_ui_is_cleared_instead_of_persisted() -> None:
 
 
 def test_frontend_player_load_controller_collects_inventory_dom_elements() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -367,7 +353,7 @@ def test_frontend_player_load_controller_collects_inventory_dom_elements() -> No
 
 
 def test_frontend_player_load_controller_renders_player_rows_from_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -439,7 +425,7 @@ def test_frontend_player_load_controller_renders_player_rows_from_state() -> Non
 
 
 def test_frontend_player_load_controller_shows_overlay_while_loading_player() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -500,7 +486,7 @@ def test_frontend_player_load_controller_shows_overlay_while_loading_player() ->
 
 
 def test_frontend_player_load_controller_can_suppress_player_overlay_for_parent_flows() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -545,7 +531,7 @@ def test_frontend_player_load_controller_can_suppress_player_overlay_for_parent_
 
 
 def test_frontend_player_load_marks_online_snapshot_stale_immediately() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -607,7 +593,7 @@ def test_frontend_player_load_marks_online_snapshot_stale_immediately() -> None:
 
 
 def test_frontend_player_load_carries_client_status_request_order() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -664,7 +650,7 @@ def test_frontend_player_load_carries_client_status_request_order() -> None:
 
 
 def test_frontend_player_load_accepts_fresh_token_after_backend_epoch_reset() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -726,7 +712,7 @@ def test_frontend_player_load_accepts_fresh_token_after_backend_epoch_reset() ->
 
 
 def test_frontend_player_load_controller_ignores_out_of_order_player_response() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -779,7 +765,7 @@ def test_frontend_player_load_controller_ignores_out_of_order_player_response() 
 
 
 def test_frontend_player_load_cancellation_replaces_superseded_running_status() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -879,7 +865,7 @@ def test_frontend_player_load_cancellation_replaces_superseded_running_status() 
 
 
 def test_frontend_player_list_refresh_ignores_previous_world_response() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -927,7 +913,7 @@ def test_frontend_player_list_refresh_ignores_previous_world_response() -> None:
 
 
 def test_world_switch_clears_old_player_before_loading_new_world_player() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -986,7 +972,7 @@ def test_world_switch_clears_old_player_before_loading_new_world_player() -> Non
 
 
 def test_frontend_player_load_controller_hides_overlay_after_load_failure() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -1035,7 +1021,7 @@ def test_frontend_player_load_controller_hides_overlay_after_load_failure() -> N
 
 
 def test_frontend_player_load_controller_does_not_rescan_icons_in_read_only_mode() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

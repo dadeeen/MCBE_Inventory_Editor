@@ -1,76 +1,57 @@
 from __future__ import annotations
 
-import subprocess
 import textwrap
 from pathlib import Path
+
+from tests.node_runner import run_node
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_database_update_replaces_running_status_with_success() -> None:
-    result = subprocess.run(
-        [
-            "node",
-            "-e",
-            textwrap.dedent(
-                r"""
-                const assert = require("assert");
-                const fs = require("fs");
-                const vm = require("vm");
-                const context = { window: {}, console };
-                vm.runInNewContext(fs.readFileSync("static/status_store.js", "utf8"), context);
-                vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/status_store.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
-                const store = context.window.MCBEStatusStore.createStatusStore();
-                const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
-                let reloadFinished = false;
-                const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
-                    outputEl,
-                    fetchImpl: async () => ({ payload: { success: true, reloaded: true } }),
-                    parseJsonResponse: async response => response.payload,
-                    withCsrf: () => ({ "X-CSRF-Token": "test" }),
-                    logStatus: (message, type, options) => store.addNotice({ message, type, ...options }),
-                    onReloaded: async () => {
-                        await Promise.resolve();
-                        reloadFinished = true;
-                    },
-                });
+            const store = context.window.MCBEStatusStore.createStatusStore();
+            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            let reloadFinished = false;
+            const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                outputEl,
+                fetchImpl: async () => ({ payload: { success: true, reloaded: true } }),
+                parseJsonResponse: async response => response.payload,
+                withCsrf: () => ({ "X-CSRF-Token": "test" }),
+                logStatus: (message, type, options) => store.addNotice({ message, type, ...options }),
+                onReloaded: async () => {
+                    await Promise.resolve();
+                    reloadFinished = true;
+                },
+            });
 
-                (async () => {
-                    await controller.run(false, true);
-                    assert.strictEqual(reloadFinished, true);
-                    const notices = store.allNotices();
-                    assert.strictEqual(notices.length, 1);
-                    assert.strictEqual(notices[0].key, "database-update:apply");
-                    assert.strictEqual(notices[0].type, "success");
-                    assert.strictEqual(notices[0].message, "Update erfolgreich.");
-                    assert.strictEqual(notices[0].active, false);
-                })().catch(error => { console.error(error); process.exit(1); });
-                """
-            ),
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
+            (async () => {
+                await controller.run(false, true);
+                assert.strictEqual(reloadFinished, true);
+                const notices = store.allNotices();
+                assert.strictEqual(notices.length, 1);
+                assert.strictEqual(notices[0].key, "database-update:apply");
+                assert.strictEqual(notices[0].type, "success");
+                assert.strictEqual(notices[0].message, "Update erfolgreich.");
+                assert.strictEqual(notices[0].active, false);
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        ),
     )
-    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def test_database_update_can_force_full_scope_without_mutating_tools_selection() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -114,7 +95,7 @@ def test_database_update_can_force_full_scope_without_mutating_tools_selection()
 
 
 def test_database_update_surfaces_loaded_player_refresh_warning() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -171,7 +152,7 @@ def test_database_update_surfaces_loaded_player_refresh_warning() -> None:
 
 
 def test_loaded_player_refresh_policy_preserves_dirty_state_and_refreshes_clean_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -237,7 +218,7 @@ def test_app_wires_current_player_state_into_database_refresh_policy() -> None:
 
 
 def test_update_controllers_do_not_expose_manual_release_cache_controls() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -266,7 +247,7 @@ def test_update_controllers_do_not_expose_manual_release_cache_controls() -> Non
 
 
 def test_apply_uses_source_receipt_from_matching_successful_dry_run() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -311,7 +292,7 @@ def test_apply_uses_source_receipt_from_matching_successful_dry_run() -> None:
 
 
 def test_dry_run_does_not_resolve_apply_reload_warning() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -353,7 +334,7 @@ def test_dry_run_does_not_resolve_apply_reload_warning() -> None:
 
 
 def test_update_output_normalizes_spacing_and_classifies_web_formatting() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

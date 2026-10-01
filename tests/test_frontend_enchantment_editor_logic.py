@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_enchantment_editor_logic_rows_and_counts() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -63,7 +49,7 @@ def test_frontend_enchantment_editor_logic_rows_and_counts() -> None:
 
 
 def test_frontend_enchantment_editor_logic_sorts_by_active_locale() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -94,7 +80,7 @@ def test_frontend_enchantment_editor_logic_sorts_by_active_locale() -> None:
 
 
 def test_frontend_enchantment_editor_logic_updates_toggles_and_maxes() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -144,7 +130,7 @@ def test_frontend_enchantment_editor_logic_updates_toggles_and_maxes() -> None:
 
 
 def test_frontend_enchantment_editor_logic_manual_reset_plan() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

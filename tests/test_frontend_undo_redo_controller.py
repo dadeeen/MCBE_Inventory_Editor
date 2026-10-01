@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_undo_redo_controller_pushes_dedupes_and_trims() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -61,7 +47,7 @@ def test_frontend_undo_redo_controller_pushes_dedupes_and_trims() -> None:
 
 
 def test_frontend_undo_redo_controller_undo_redo_transitions_and_reset() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -116,7 +102,7 @@ def test_frontend_undo_redo_controller_undo_redo_transitions_and_reset() -> None
 
 
 def test_frontend_undo_redo_app_restores_mount_drafts_and_dirty_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -167,7 +153,7 @@ def test_frontend_undo_redo_app_restores_mount_drafts_and_dirty_state() -> None:
 
 
 def test_frontend_undo_redo_app_respects_editing_block() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -233,7 +219,7 @@ def test_frontend_undo_redo_app_respects_editing_block() -> None:
 def test_frontend_undo_redo_controller_uses_the_translated_default_label() -> None:
     """DEFAULT_LABEL is a function; using it unevaluated leaks its source text."""
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

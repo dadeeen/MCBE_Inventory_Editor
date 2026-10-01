@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_presence_view_world_presence_model_and_applier() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -61,7 +47,7 @@ def test_frontend_presence_view_world_presence_model_and_applier() -> None:
 
 
 def test_frontend_presence_view_conflict_text_lists_dirty_sessions() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -92,7 +78,7 @@ def test_frontend_presence_view_conflict_text_lists_dirty_sessions() -> None:
 
 
 def test_frontend_presence_leave_uses_pagehide_and_deduplicates_signals() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -152,7 +138,7 @@ def test_frontend_presence_leave_uses_pagehide_and_deduplicates_signals() -> Non
 
 
 def test_frontend_player_watch_reports_only_a_changed_revision() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -213,7 +199,7 @@ def test_frontend_player_watch_reports_only_a_changed_revision() -> None:
 
 
 def test_frontend_presence_controller_reports_the_changed_player_until_it_is_reloaded() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -331,7 +317,7 @@ def test_frontend_presence_controller_reports_the_changed_player_until_it_is_rel
 
 
 def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -411,7 +397,7 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
 
 
 def test_frontend_presence_controller_drops_the_notice_of_a_player_no_longer_loaded() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

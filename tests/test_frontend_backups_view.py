@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_backups_view_status_html_and_error_fallback() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -44,7 +30,7 @@ def test_frontend_backups_view_status_html_and_error_fallback() -> None:
 
 
 def test_frontend_backups_view_reconciles_new_restore_buttons_with_write_gate() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -106,7 +92,7 @@ def test_frontend_backups_view_reconciles_new_restore_buttons_with_write_gate() 
 
 
 def test_frontend_backups_view_folder_controls_and_applier() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -161,7 +147,7 @@ def test_frontend_backups_view_folder_controls_and_applier() -> None:
 
 
 def test_frontend_backups_view_manual_backup_creates_and_refreshes() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -219,7 +205,7 @@ def test_frontend_backups_view_manual_backup_creates_and_refreshes() -> None:
 
 
 def test_frontend_backups_view_manual_backup_keeps_write_gate_blocked_button_disabled() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -294,7 +280,7 @@ def test_frontend_backups_view_manual_backup_keeps_write_gate_blocked_button_dis
 
 
 def test_frontend_backups_view_manual_backup_runtime_guard_prevents_stale_click() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -338,7 +324,7 @@ def test_frontend_backups_view_manual_backup_runtime_guard_prevents_stale_click(
 
 
 def test_frontend_backups_view_manual_backup_disabled_in_read_only_mode() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -369,7 +355,7 @@ def test_frontend_backups_view_shows_what_actually_failed() -> None:
     negotiated separately cannot leak into the active page language.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -446,7 +432,7 @@ def test_frontend_backups_view_asks_for_a_world_instead_of_reporting_an_error() 
     not keep pointing at the previously loaded world either.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -500,7 +486,7 @@ def test_frontend_backups_view_asks_for_a_world_instead_of_reporting_an_error() 
 
 
 def test_frontend_backups_view_ignores_out_of_order_world_response() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -570,7 +556,7 @@ def test_frontend_backups_view_invalidates_stale_folder_during_load_and_after_fa
     A's path although the list showed B's error.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -669,7 +655,7 @@ def test_frontend_backups_view_invalidates_stale_folder_during_load_and_after_fa
 def test_frontend_backups_view_ignores_stale_open_folder_response_after_world_switch() -> None:
     """A native folder-open response must remain bound to its requested world."""
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -769,7 +755,7 @@ def test_frontend_backups_view_ignores_stale_open_folder_response_after_world_sw
 
 
 def test_frontend_backups_view_manual_backup_warns_after_successful_create_cleanup_failure() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -823,7 +809,7 @@ def test_frontend_backups_view_manual_backup_warns_after_successful_create_clean
 
 
 def test_frontend_backups_view_renders_retention_classes_and_kind_badges() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -865,7 +851,7 @@ def test_frontend_backups_view_localizes_kind_badges_from_the_stable_kind() -> N
     boundary via the stable ``kind`` key.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -916,7 +902,7 @@ def test_frontend_backups_view_explains_each_kind_with_an_accessible_disclosure(
     of hiding it in a pointer-only title attribute.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -1014,7 +1000,7 @@ def test_frontend_backups_view_renders_localized_timestamps_with_utc_tooltip() -
     compatibility fallback for older API responses.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -1071,7 +1057,7 @@ def test_frontend_backups_view_renders_localized_timestamps_with_utc_tooltip() -
 
 
 def test_frontend_backups_view_deletes_backup_after_confirmation_and_refreshes() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -1126,7 +1112,7 @@ def test_frontend_backups_view_deletes_backup_after_confirmation_and_refreshes()
 
 
 def test_frontend_backups_view_does_not_delete_without_confirmation() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -1157,7 +1143,7 @@ def test_frontend_backups_view_does_not_delete_without_confirmation() -> None:
 
 
 def test_frontend_backups_view_deduplicates_concurrent_delete_requests() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

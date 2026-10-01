@@ -1,9 +1,7 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
+from tests.node_runner import run_node
 
-ROOT = Path(__file__).resolve().parents[1]
 
 HARNESS = r"""
 const assert = require("assert");
@@ -65,14 +63,7 @@ function buildElements() {
 
 
 def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", HARNESS + source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+    run_node(HARNESS + source)
 
 
 def test_frontend_first_run_setup_opens_only_while_a_todo_is_open_and_undismissed() -> None:

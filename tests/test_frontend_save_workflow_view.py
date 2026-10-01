@@ -1,20 +1,10 @@
-import subprocess
 import textwrap
 from pathlib import Path
 
+from tests.node_runner import run_node
+
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def test_discard_controls_have_unique_explicit_ids() -> None:
@@ -27,7 +17,7 @@ def test_discard_controls_have_unique_explicit_ids() -> None:
 
 
 def test_frontend_save_workflow_view_empty_states_are_owned_by_view_module() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -56,7 +46,7 @@ def test_frontend_save_workflow_view_empty_states_are_owned_by_view_module() -> 
 
 
 def test_frontend_save_workflow_view_decision_log_html_escapes_rows() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -83,7 +73,7 @@ def test_frontend_save_workflow_view_decision_log_html_escapes_rows() -> None:
 
 
 def test_frontend_save_workflow_view_applies_panel_model() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -117,7 +107,7 @@ def test_frontend_save_workflow_view_applies_panel_model() -> None:
 
 
 def test_frontend_save_workflow_view_normalizes_legacy_discard_controls() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -172,7 +162,7 @@ def test_frontend_save_workflow_view_normalizes_legacy_discard_controls() -> Non
 
 
 def test_frontend_save_workflow_view_only_discards_after_successful_reload() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

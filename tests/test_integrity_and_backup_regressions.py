@@ -1,4 +1,3 @@
-import subprocess
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,23 +5,14 @@ from unittest.mock import Mock
 
 import pytest
 
+from tests.node_runner import run_node
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_item_moves_keep_one_immutable_origin_tuple() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -61,7 +51,7 @@ def test_item_moves_keep_one_immutable_origin_tuple() -> None:
 
 
 def test_cross_world_clipboard_clone_is_marked_and_save_validation_blocks_it() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

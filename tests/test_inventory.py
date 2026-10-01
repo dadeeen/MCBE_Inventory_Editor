@@ -25,7 +25,7 @@ from mcbe_editor.inventory import (
     validate_effect,
     validate_inventory_item,
 )
-from tests.conftest import make_full_player_tag, make_minimal_player_tag
+from tests.nbt_fixtures import make_full_player_tag, make_minimal_player_tag
 
 
 class TestNbtToJson(unittest.TestCase):

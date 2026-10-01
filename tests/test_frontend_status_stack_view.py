@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_status_stack_view_builds_models_and_escapes_html() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -117,7 +103,7 @@ def test_frontend_status_stack_view_builds_models_and_escapes_html() -> None:
 
 
 def test_frontend_status_stack_view_applies_dom_model() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -177,7 +163,7 @@ def test_frontend_status_stack_view_applies_dom_model() -> None:
 
 
 def test_clearing_status_updates_header_without_reannouncing_history() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -227,7 +213,7 @@ def test_clearing_status_updates_header_without_reannouncing_history() -> None:
 
 
 def test_an_active_notice_offers_its_action_in_the_status_panel() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

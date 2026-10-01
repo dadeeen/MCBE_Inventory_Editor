@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_save_validation_rejects_enchantment_levels_above_backend_maximum() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -69,7 +55,7 @@ def test_save_validation_rejects_enchantment_levels_above_backend_maximum() -> N
 
 
 def test_save_validation_rejects_duplicate_or_unknown_enchantments() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -113,7 +99,7 @@ def test_save_validation_rejects_duplicate_or_unknown_enchantments() -> None:
 
 
 def test_save_validation_allows_only_unchanged_original_values_outside_catalog_limits() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -1,20 +1,6 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def _client_source() -> str:
@@ -42,7 +28,7 @@ def _client_source() -> str:
 
 
 def test_mount_create_serializes_the_public_api_contract() -> None:
-    _run_node(
+    run_node(
         _client_source()
         + textwrap.dedent(
             r"""
@@ -84,7 +70,7 @@ def test_mount_create_serializes_the_public_api_contract() -> None:
 
 
 def test_uncertain_or_committed_mount_response_never_requests_a_retry() -> None:
-    _run_node(_client_source() + r"""
+    run_node(_client_source() + r"""
         (async () => {
           for (const field of ['write_outcome_unknown', 'write_committed']) {
             calls.length = 0;
@@ -108,7 +94,7 @@ def test_uncertain_or_committed_mount_response_never_requests_a_retry() -> None:
 
 
 def test_unknown_server_status_confirmation_retries_mount_create_with_flag() -> None:
-    _run_node(
+    run_node(
         _client_source()
         + textwrap.dedent(
             r"""
@@ -150,7 +136,7 @@ def test_unknown_server_status_confirmation_retries_mount_create_with_flag() -> 
 
 
 def test_unknown_server_status_declined_aborts_without_retry() -> None:
-    _run_node(
+    run_node(
         _client_source()
         + textwrap.dedent(
             r"""
@@ -185,7 +171,7 @@ def test_unknown_server_status_declined_aborts_without_retry() -> None:
 
 
 def test_other_create_errors_do_not_trigger_unknown_server_dialog() -> None:
-    _run_node(
+    run_node(
         _client_source()
         + textwrap.dedent(
             r"""
@@ -212,7 +198,7 @@ def test_other_create_errors_do_not_trigger_unknown_server_dialog() -> None:
 
 
 def test_committed_mount_error_preserves_structured_response_on_exception() -> None:
-    _run_node(
+    run_node(
         _client_source()
         + textwrap.dedent(
             r"""

@@ -1,21 +1,11 @@
-import subprocess
 import textwrap
 import json
 from pathlib import Path
 
+from tests.node_runner import run_node
+
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
 
 
 def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_payload() -> None:
@@ -38,7 +28,7 @@ def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_paylo
     })
     responses.append({"stats": inventory.extract_player_stats(readable), "protected_nbt": inventory.protected_player_nbt_flags(readable),
                       "expected_changes": {"pos": [1, 2, 3], "dimension_id": 2, "health": 11, "xp_level": 9}})
-    _run_node("const responses = " + json.dumps(responses) + r""";
+    run_node("const responses = " + json.dumps(responses) + r""";
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const context = {window: {}};
         for (const name of ['player_view_models', 'player_tools', 'save_payload_logic', 'ability_state']) {
@@ -73,7 +63,7 @@ def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_paylo
 
 
 def test_copy_ender_chest_keeps_target_creation_confirmation() -> None:
-    _run_node(r"""
+    run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const context = {window: {}};
         for (const name of ['player_view_models', 'player_tools', 'save_controller']) {
@@ -107,7 +97,7 @@ def test_copy_ender_chest_keeps_target_creation_confirmation() -> None:
 
 
 def test_frontend_player_tools_row_html_escapes_model_text() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -140,7 +130,7 @@ def test_frontend_player_tools_row_html_escapes_model_text() -> None:
 
 
 def test_frontend_player_tools_row_element_uses_model_state_and_html() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -204,7 +194,7 @@ def test_frontend_player_tools_row_element_uses_model_state_and_html() -> None:
 
 
 def test_frontend_player_tools_list_status_html_formats_known_states() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -239,7 +229,7 @@ def test_frontend_player_tools_list_status_html_formats_known_states() -> None:
 
 
 def test_frontend_player_tools_options_html_escapes_and_disables_current() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -277,7 +267,7 @@ def test_frontend_player_tools_options_html_escapes_and_disables_current() -> No
 
 
 def test_frontend_player_tools_copy_request_model() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -321,7 +311,7 @@ def test_frontend_player_tools_copy_request_model() -> None:
 
 
 def test_frontend_player_tools_snapshot_counts_only_repairable_damage_as_damaged() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -359,7 +349,7 @@ def test_frontend_player_tools_snapshot_counts_only_repairable_damage_as_damaged
 
 
 def test_frontend_player_tools_strips_read_only_root_equipment_on_copy() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -398,7 +388,7 @@ def test_frontend_player_tools_strips_read_only_root_equipment_on_copy() -> None
 
 
 def test_frontend_player_tools_does_not_copy_into_a_new_target_player() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -467,7 +457,7 @@ def test_frontend_player_tools_does_not_copy_into_a_new_target_player() -> None:
 
 
 def test_frontend_player_tools_rechecks_edit_gate_after_async_snapshot_load() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -524,7 +514,7 @@ def test_frontend_player_tools_rechecks_edit_gate_after_async_snapshot_load() ->
 
 
 def test_frontend_player_api_exposes_safe_state_transfer_endpoints() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -578,7 +568,7 @@ def test_frontend_player_api_exposes_safe_state_transfer_endpoints() -> None:
 
 
 def test_frontend_player_tools_previews_and_applies_state_transfer_with_backup() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -793,7 +783,7 @@ def test_player_migration_uses_preview_then_final_confirmation_without_extra_che
 
 
 def test_state_transfer_confirmation_is_single_flight_and_rechecks_world_context() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -900,7 +890,7 @@ def test_state_transfer_confirmation_is_single_flight_and_rechecks_world_context
 
 
 def test_state_transfer_applies_authoritative_write_gate_failure_immediately() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -1002,7 +992,7 @@ def test_state_transfer_applies_authoritative_write_gate_failure_immediately() -
 
 
 def test_state_transfer_discards_preview_response_after_selection_changes() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -1080,7 +1070,7 @@ def test_state_transfer_discards_preview_response_after_selection_changes() -> N
 
 
 def test_frontend_failed_migration_rollback_invalidates_preview_and_reloads_player_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

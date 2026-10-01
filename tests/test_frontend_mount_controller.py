@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_mount_controller_ignores_preview_from_previous_player_context() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -86,7 +72,7 @@ def test_mount_controller_ignores_preview_from_previous_player_context() -> None
 
 
 def test_mount_controller_syncs_dynamic_controls_and_guards_queue_commit() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -144,7 +130,7 @@ def test_mount_controller_reads_every_stat_field_generically_including_temper() 
     A new field must reach the staged mount without a second registration here.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -206,7 +192,7 @@ def test_mount_controller_reads_every_stat_field_generically_including_temper() 
 def test_horse_temper_live_hint_updates_on_input() -> None:
     """Protect the actual listener, not only the matching markup id."""
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -254,7 +240,7 @@ def test_open_disclosures_survive_a_re_render() -> None:
     candidate would snap the list shut again.
     """
 
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -303,7 +289,7 @@ def test_open_disclosures_survive_a_re_render() -> None:
 
 
 def test_mount_controller_clears_committed_mounts_but_renders_validation_failure() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -341,7 +327,7 @@ def test_mount_controller_clears_committed_mounts_but_renders_validation_failure
 
 
 def test_mount_controller_finalize_tolerates_count_mismatch_without_throwing() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -16,6 +16,7 @@ from mcbe_editor.backup import (
 )
 from mcbe_editor.inventory import apply_player_stats
 from mcbe_editor.players import MAX_EXPORT_MEMBERS, MAX_EXPORT_UNCOMPRESSED_MB, read_player_export
+from tests.nbt_fixtures import make_minimal_player_tag
 
 
 def _post_login_with_next(monkeypatch, next_target: str):
@@ -91,16 +92,6 @@ def test_login_rejects_unsafe_redirect_targets(monkeypatch, next_target):
 
     assert response.status_code == 302
     assert response.headers["Location"] == "/"
-
-
-def make_minimal_player_tag():
-    return nbt.CompoundTag(
-        {
-            "Pos": nbt.ListTag([nbt.DoubleTag(0.0), nbt.DoubleTag(64.0), nbt.DoubleTag(0.0)]),
-            "Health": nbt.FloatTag(20.0),
-            "PlayerGameType": nbt.IntTag(0),
-        }
-    )
 
 
 class StatsValidationTests(unittest.TestCase):

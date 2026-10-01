@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_workflow_state_resolves_views_and_button_models() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -93,7 +79,7 @@ def test_frontend_workflow_state_resolves_views_and_button_models() -> None:
 
 
 def test_responsive_panels_restore_active_panel_after_narrowing_viewport() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -148,7 +134,7 @@ def test_responsive_panels_restore_active_panel_after_narrowing_viewport() -> No
 
 
 def test_main_workflow_navigation_does_not_change_scroll_position() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -191,7 +177,7 @@ def test_main_workflow_navigation_does_not_change_scroll_position() -> None:
 
 
 def test_dirty_state_resolves_its_status_key_when_clean() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -225,7 +211,7 @@ def test_dirty_state_resolves_its_status_key_when_clean() -> None:
 
 
 def test_dirty_state_does_not_duplicate_an_existing_write_gate_error() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -258,7 +244,7 @@ def test_dirty_state_does_not_duplicate_an_existing_write_gate_error() -> None:
 
 
 def test_dirty_state_keeps_warning_when_unknown_status_can_be_confirmed() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

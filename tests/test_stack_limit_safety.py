@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
 import zipfile
-from pathlib import Path
 
 import pytest
 
 from mcbe_editor import item_data, nbt
 from mcbe_editor.inventory import build_inventory_nbt, nbt_to_json
 from scripts import update_db
+from tests.node_runner import run_node
 
 
 def _component_archive(definitions: list[tuple[str, dict]]) -> zipfile.ZipFile:
@@ -185,5 +184,4 @@ assert.strictEqual(changed, 1);
 assert.strictEqual(map[0].count, 16);
 assert.strictEqual(map[1].count, 64);
 """
-    result = subprocess.run(["node", "-e", source], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr + result.stdout
+    run_node(source)

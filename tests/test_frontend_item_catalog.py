@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_enchantment_compatibility_allows_unbreaking_on_golden_sword() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -52,7 +38,7 @@ def test_frontend_enchantment_compatibility_allows_unbreaking_on_golden_sword() 
 
 
 def test_frontend_item_catalog_separates_known_from_newly_addable_ids() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -85,7 +71,7 @@ def test_frontend_item_catalog_separates_known_from_newly_addable_ids() -> None:
 
 
 def test_frontend_enchantment_compatibility_uses_shared_catalog_for_new_slots() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -122,7 +108,7 @@ def test_frontend_enchantment_compatibility_uses_shared_catalog_for_new_slots() 
 
 
 def test_frontend_item_catalog_uses_official_item_components_before_heuristics() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -184,7 +170,7 @@ def test_frontend_item_catalog_uses_official_item_components_before_heuristics()
 
 
 def test_frontend_icon_lookup_falls_back_to_base_potion_icons() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -244,7 +230,7 @@ def test_frontend_icon_lookup_falls_back_to_base_potion_icons() -> None:
 
 
 def test_frontend_icon_lookup_uses_compat_item_aliases() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -285,7 +271,7 @@ def test_frontend_icon_lookup_uses_compat_item_aliases() -> None:
 
 
 def test_frontend_potion_damage_values_have_variant_names_and_data_label() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -342,7 +328,7 @@ def test_frontend_potion_damage_values_have_variant_names_and_data_label() -> No
 
 
 def test_frontend_item_icon_tint_marks_grayscale_leather_sprites() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -378,7 +364,7 @@ def test_frontend_item_icon_tint_marks_grayscale_leather_sprites() -> None:
 
 
 def test_frontend_vanilla_exclusive_enchantment_conflicts() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -428,7 +414,7 @@ def test_frontend_vanilla_exclusive_enchantment_conflicts() -> None:
 
 
 def test_frontend_bed_data_values_have_names_icons_and_addable_variants() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -485,7 +471,7 @@ def test_frontend_bed_data_values_have_names_icons_and_addable_variants() -> Non
 
 
 def test_frontend_catalog_exposes_current_bedrock_data_value_item_families() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -1,23 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_state_snapshot_take_snapshot_deep_clones_state() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -51,7 +38,7 @@ def test_frontend_state_snapshot_take_snapshot_deep_clones_state() -> None:
 
 
 def test_frontend_state_snapshot_hash_and_section_changed() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -79,7 +66,7 @@ def test_frontend_state_snapshot_hash_and_section_changed() -> None:
 
 
 def test_frontend_status_store_deduplicates_and_limits_notices() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -131,7 +118,7 @@ def test_frontend_status_store_deduplicates_and_limits_notices() -> None:
 
 
 def test_frontend_status_store_hides_transient_dirty_notices_when_clean() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");

@@ -1,24 +1,10 @@
-import subprocess
 import textwrap
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run_node(source: str) -> None:
-    result = subprocess.run(
-        ["node", "-e", source],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+from tests.node_runner import run_node
 
 
 def test_frontend_diagnostics_view_status_chip_html_escapes_text() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -49,7 +35,7 @@ def test_frontend_diagnostics_view_status_chip_html_escapes_text() -> None:
 
 
 def test_frontend_diagnostics_view_status_message_html_escapes_text_and_level() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -76,7 +62,7 @@ def test_frontend_diagnostics_view_status_message_html_escapes_text_and_level() 
 
 
 def test_frontend_diagnostics_view_runtime_diagnostics_html_formats_and_escapes_details() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -135,7 +121,7 @@ def test_frontend_diagnostics_view_runtime_diagnostics_html_formats_and_escapes_
 
 
 def test_frontend_diagnostics_view_recent_logs_html_formats_and_escapes_rows() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
@@ -183,7 +169,7 @@ def test_frontend_diagnostics_view_recent_logs_html_formats_and_escapes_rows() -
 
 
 def test_frontend_diagnostics_view_audit_events_html_formats_and_escapes_rows() -> None:
-    _run_node(
+    run_node(
         textwrap.dedent(
             r"""
             const assert = require("assert");
