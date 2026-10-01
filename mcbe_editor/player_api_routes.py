@@ -11,7 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .api_errors import add_exception_cleanup_details, error_payload, uncertain_write_payload
+from .api_errors import (
+    add_exception_cleanup_details,
+    error_code_for_status,
+    error_payload,
+    names_refused_save,
+    save_refusal_payload,
+    uncertain_write_payload,
+)
 from .i18n import localize_message_record, t
 from .leveldb_readonly import WorldChangedWhileReadingError
 from .service_errors import (
@@ -504,11 +511,10 @@ def save_player(data: dict, deps: PlayerRouteDeps):
         return deps.jsonify(payload), 409
     except ValueError as exc:
         message = str(exc)
-        status = 409 if message.startswith("Speichern abgelehnt:") else 400
+        status = 409 if names_refused_save(message) else 400
         deps.audit_event("player.save", "failure", world_path=data.get("world_path"), player_key=data.get("player_key"), error=message)
-        if getattr(exc, "cleanup_warning", None):
-            return deps.jsonify(add_exception_cleanup_details(error_payload(exc, code="player_save_failed"), exc)), status
-        return deps.api_error(exc, status)
+        code = "player_save_failed" if getattr(exc, "cleanup_warning", None) else error_code_for_status(status)
+        return deps.jsonify(add_exception_cleanup_details(save_refusal_payload(exc, code=code), exc)), status
     except Exception as exc:
         deps.log_api_exception("player.save", exc)
         deps.audit_event("player.save", "failure", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))

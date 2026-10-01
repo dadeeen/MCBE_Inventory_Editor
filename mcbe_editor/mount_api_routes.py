@@ -13,7 +13,13 @@ from typing import Any
 
 from mcbe_editor import nbt
 
-from .api_errors import add_exception_cleanup_details, error_payload, uncertain_write_payload
+from .api_errors import (
+    add_exception_cleanup_details,
+    error_code_for_status,
+    error_payload,
+    save_refusal_payload,
+    uncertain_write_payload,
+)
 from .bedrock_nbt import load_player_nbt
 from .db import close_db_preserving_active_exception
 from .i18n import t
@@ -631,9 +637,8 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
             player_key=data.get("player_key"),
             error=str(exc),
         )
-        if getattr(exc, "cleanup_warning", None):
-            return deps.jsonify(add_exception_cleanup_details(error_payload(exc, code="workspace_save_failed"), exc)), 400
-        return deps.api_error(exc)
+        code = "workspace_save_failed" if getattr(exc, "cleanup_warning", None) else error_code_for_status(400)
+        return deps.jsonify(add_exception_cleanup_details(save_refusal_payload(exc, code=code), exc)), 400
     except Exception as exc:
         deps.log_api_exception("workspace.save", exc)
         deps.audit_event(

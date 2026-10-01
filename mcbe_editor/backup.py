@@ -25,7 +25,7 @@ from .config import load_config
 from .i18n import t
 from .path_safety import is_linklike
 from .runtime_data import atomic_write_private_text
-from .service_errors import UserFacingError, UserFacingRuntimeError
+from .service_errors import UserFacingError, UserFacingRuntimeError, log_error_detail, public_error_text
 from .world import get_world_name
 from .world_locks import locked_world
 
@@ -805,7 +805,9 @@ def _verify_zip_integrity(zip_path: StrPath | BinaryIO) -> None:
     except zipfile.BadZipFile as exc:
         raise ValueError("Backup-Datei ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
     except OSError as exc:
-        raise ValueError(t("Backup-Datei kann nicht gelesen werden: {error}", error=exc)) from exc
+        # The text of an OSError names the full path; the server log keeps it.
+        log_error_detail("backup.verify_zip", exc)
+        raise ValueError(t("Backup-Datei kann nicht gelesen werden: {error}", error=public_error_text(exc))) from exc
     if bad_member is not None:
         raise ValueError(t("Backup-Datei ist beschädigt (CRC-Fehler): {member}", member=bad_member))
 

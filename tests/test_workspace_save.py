@@ -96,6 +96,14 @@ def _synthetic_mount_workspace(tmp_path, monkeypatch, owner_tag=None, position=(
     return SimpleNamespace(values=values, batches=batches, backups=backups, deps=deps, player_deps=player_deps, request=request)
 
 
+def _refusal(result):
+    """Return payload and status from the stubbed api_error or from jsonify."""
+
+    if isinstance(result, tuple):
+        return result
+    return result, result["status"]
+
+
 @pytest.mark.parametrize("owner_tag", [None, nbt.IntTag(42), nbt.FloatTag(42), nbt.StringTag("42"), nbt.LongTag(-1)])
 @pytest.mark.parametrize("workspace_save", [False, True])
 def test_tamed_mount_without_player_owner_is_rejected_before_backup(tmp_path, monkeypatch, owner_tag, workspace_save) -> None:
@@ -106,8 +114,9 @@ def test_tamed_mount_without_player_owner_is_rejected_before_backup(tmp_path, mo
         result = mount_api_routes.save_workspace({**fixture.request, "mounts": [mount]}, fixture.deps, fixture.player_deps)
     else:
         result = mount_api_routes.create_mount({**fixture.request, **mount}, fixture.deps)
+    result, status = _refusal(result)
     assert result["success"] is False
-    assert result["status"] == 400
+    assert status == 400
     assert "UniqueID des Referenzspielers" in result["error"]
     assert fixture.batches == []
     assert fixture.backups == []
@@ -158,8 +167,9 @@ def test_missing_neighbor_chunk_does_not_allow_mount_in_known_stone(tmp_path, mo
         result = mount_api_routes.save_workspace({**fixture.request, "mounts": [mount]}, fixture.deps, fixture.player_deps)
     else:
         result = mount_api_routes.create_mount({**fixture.request, **mount}, fixture.deps)
+    result, status = _refusal(result)
     assert result["success"] is False
-    assert result["status"] == 400
+    assert status == 400
     assert fixture.batches == []
     assert fixture.backups == []
 
@@ -242,7 +252,7 @@ def test_workspace_save_builds_one_atomic_player_and_mount_batch(monkeypatch) ->
     assert callable(call_kwargs["extra_batch_builder"])
     assert callable(call_kwargs["extra_batch_validator"])
 
-    location_and_mount = mount_api_routes.save_workspace(
+    location_and_mount, status = mount_api_routes.save_workspace(
         {
             "world_path": "C:/World",
             "player_key": "player",
@@ -254,6 +264,8 @@ def test_workspace_save_builds_one_atomic_player_and_mount_batch(monkeypatch) ->
         player_deps,
     )
 
+    assert status == 400
     assert location_and_mount["success"] is False
+    assert location_and_mount["error"].startswith("Speichern abgelehnt: ")
     assert "nicht gemeinsam gespeichert" in location_and_mount["error"]
     assert len(service.calls) == 1

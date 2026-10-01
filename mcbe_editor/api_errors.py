@@ -87,6 +87,36 @@ def uncertain_write_payload(error: WriteOutcomeUnknownError) -> dict[str, object
     }
 
 
+SAVE_REFUSAL = "Speichern abgelehnt: {error}"
+
+
+def names_refused_save(message: object) -> bool:
+    """Return whether a refusal already says that saving was refused.
+
+    Refusals are raised in German or, through t(), in the request's language.
+    """
+
+    text = str(message or "")
+    if text.startswith(SAVE_REFUSAL.split("{", 1)[0].strip()):
+        return True
+    return i18n.t(text).startswith(i18n.t(SAVE_REFUSAL, error="").strip())
+
+
+def save_refusal_payload(error: ValueError, *, code: str) -> dict[str, object]:
+    """Name the refused save in front of a reason that does not say so itself.
+
+    Most save refusals begin with "Speichern abgelehnt:". Value and path checks
+    name only their reason, such as "Welt-Ordner existiert nicht.", which in
+    the status area would no longer show which action failed.
+    """
+
+    if names_refused_save(error):
+        return error_payload(error, code=code)
+    if isinstance(error, BackupLimitError):
+        code = "backup_limit_exceeded"
+    return error_payload(SAVE_REFUSAL, code=code, params={"error": i18n.t(str(error))})
+
+
 def add_exception_cleanup_details(payload: dict[str, object], error: BaseException) -> dict[str, object]:
     """Expose recoverable cleanup leftovers without replacing the primary error."""
 

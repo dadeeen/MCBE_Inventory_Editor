@@ -116,10 +116,10 @@ def test_a_refused_save_names_its_reason_without_a_second_prefix(monkeypatch, er
         headers={"X-CSRF-Token": main.CSRF_TOKEN},
     )
 
-    # The page puts "Fehler beim Speichern:" in front itself. A refusal is no
-    # server error: no second prefix and no stack trace in the log.
+    # The answer names the refused save once, in front of the reason. A
+    # refusal is no server error: no stack trace in the log.
     assert response.status_code == 400
-    assert response.get_json()["error"] == str(error)
+    assert response.get_json()["error"] == f"Speichern abgelehnt: {error}"
     assert logged == []
 
 

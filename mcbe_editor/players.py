@@ -20,7 +20,7 @@ from .bedrock_nbt import load_player_nbt
 from .i18n import t
 from .inventory import extract_player_stats, nbt_to_json, protected_player_nbt_flags
 from .path_safety import is_linklike, is_linklike_stat
-from .service_errors import PlayerImportPreviewStaleError
+from .service_errors import PlayerImportPreviewStaleError, log_error_detail, public_error_text
 from .world import LOCAL_PLAYER_KEY, get_world_name
 
 MAX_EXPORT_UNCOMPRESSED_MB = 50
@@ -531,6 +531,12 @@ def _cleanup_stale_import_sources(snapshot_dir, *, now=None):
         pass
 
 
+def _unreadable_player_export(exc: OSError, *, context: str) -> ValueError:
+    # The text of an OSError names the full path; the server log keeps it.
+    log_error_detail(context, exc)
+    return ValueError(t("Spieler-Export kann nicht gelesen werden: {error}", error=public_error_text(exc)))
+
+
 def _check_import_source_size(size):
     if size > MAX_EXPORT_SOURCE_BYTES:
         raise ValueError(t("Spieler-Export ist zu groß (maximal {limit} MiB).", limit=MAX_EXPORT_SOURCE_BYTES // (1024 * 1024)))
@@ -562,8 +568,11 @@ def snapshot_player_export_for_import(export_zip, target_world_path, *, expected
 
     try:
         source_stat = os.stat(source_path, follow_symlinks=False)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        # A moved or deleted export is a refusal, not a system error.
+        raise ValueError("Spieler-Export existiert nicht.") from exc
     except OSError as exc:
-        raise ValueError(f"Spieler-Export kann nicht gelesen werden: {exc}") from exc
+        raise _unreadable_player_export(exc, context="player_export.stat") from exc
     if not stat.S_ISREG(source_stat.st_mode) or is_linklike_stat(source_stat):
         raise ValueError("Spieler-Export ist keine reguläre Datei.")
     _check_import_source_size(source_stat.st_size)
@@ -633,7 +642,8 @@ def _verify_player_export_archive(path: str) -> None:
     except zipfile.BadZipFile as exc:
         raise ValueError("Spieler-Export konnte nicht vollständig erstellt werden.") from exc
     except OSError as exc:
-        raise ValueError(t("Spieler-Export konnte nicht geprüft werden: {error}", error=exc)) from exc
+        log_error_detail("player_export.verify", exc)
+        raise ValueError(t("Spieler-Export konnte nicht geprüft werden: {error}", error=public_error_text(exc))) from exc
     if bad_member is not None:
         raise ValueError(t("Spieler-Export ist beschädigt (CRC-Fehler): {member}", member=bad_member))
 
@@ -735,7 +745,7 @@ def read_player_export(export_zip):
     except zipfile.BadZipFile as exc:
         raise ValueError("Spieler-Export ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
     except OSError as exc:
-        raise ValueError(f"Spieler-Export kann nicht gelesen werden: {exc}") from exc
+        raise _unreadable_player_export(exc, context="player_export.open") from exc
 
     with zipf_ctx as zipf:
         infos = zipf.infolist()
