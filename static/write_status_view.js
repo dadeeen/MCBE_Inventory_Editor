@@ -484,6 +484,7 @@
             if (serverStatusBadge) applyServerStatusBadgeModel(serverStatusBadge, model);
             updateWriteControls();
             updateHeaderStatusStack();
+            renderStatusCenter();
             return true;
         }
 

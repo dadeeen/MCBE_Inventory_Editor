@@ -231,3 +231,48 @@ def test_frontend_diagnostics_view_audit_events_html_formats_and_escapes_rows() 
             """
         )
     )
+
+
+def test_frontend_diagnostics_view_copies_the_status_with_the_live_write_gate() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            const files = ["static/html_utils.js", "static/data_source_view.js", "static/status_center_view.js", "static/diagnostics_view.js"];
+            for (const file of files) {
+                vm.runInNewContext(fs.readFileSync(file, "utf8"), context, { filename: file });
+            }
+            const diagnostics = { success: true, write_gate: { allowed: true, server_status: { status: "offline" } } };
+            const received = [];
+            context.fetch = async () => ({ json: async () => diagnostics });
+            let gate = null;
+            const controller = context.window.MCBEDiagnosticsView.createDiagnosticsController({
+                elements: { runtimeDiagnostics: { innerHTML: "" } },
+                appConfig: { mode: "docker", require_server_offline: true },
+                getWriteGate: () => gate,
+                onRuntimeDiagnostics: data => received.push(data),
+            });
+
+            assert.ok(controller.statusCenterText().includes("Schreiben: wird geprüft"));
+            gate = { allowed: false, server_status: { status: "online" } };
+            const text = controller.statusCenterText();
+            assert.ok(text.includes("Schreiben: gesperrt"));
+            assert.ok(text.includes("Serverstatus: online"));
+
+            let completed = false;
+            process.on("exit", () => {
+                if (!completed) process.exitCode = 1;
+            });
+            (async () => {
+                await controller.loadRuntimeDiagnostics();
+                assert.deepStrictEqual(received, [diagnostics]);
+                // The loaded snapshot does not override the live gate.
+                assert.ok(controller.statusCenterText().includes("Serverstatus: online"));
+                completed = true;
+            })().catch(error => { console.error(error); process.exitCode = 1; });
+            """
+        )
+    )

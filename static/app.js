@@ -503,6 +503,7 @@ async function loadItemDbStatus() {
 const statusCenterController = window.MCBEStatusCenterView.createInventoryStatusCenterController({
     doc: document,
     getRuntimeDiagnostics: () => lastRuntimeDiagnostics || {},
+    getWriteGate: () => effectiveWriteGate(),
     getAppConfig: () => appConfig,
     getCurrentCompatibility: () => currentCompatibility,
     getIconSummary: () => iconSourceSummary,
@@ -1431,7 +1432,11 @@ const diagnosticsController = window.MCBEDiagnosticsView.createInventoryDiagnost
     getIsDirty: () => isDirty,
     getWorldPath: () => worldPath,
     getCurrentPlayerLabel: currentPlayerLabel,
-    onRuntimeDiagnostics: data => { lastRuntimeDiagnostics = data; },
+    getWriteGate: () => effectiveWriteGate(),
+    onRuntimeDiagnostics: data => {
+        lastRuntimeDiagnostics = data;
+        renderStatusCenter();
+    },
 });
 const loadRuntimeDiagnostics = diagnosticsController.loadRuntimeDiagnostics;
 const loadRecentLogs = diagnosticsController.loadRecentLogs;

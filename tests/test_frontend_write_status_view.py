@@ -852,3 +852,51 @@ def test_frontend_write_gate_controller_exposes_permissions() -> None:
             """
         )
     )
+
+
+def test_frontend_write_status_view_renders_the_status_overview_with_each_applied_status() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            vm.runInNewContext(
+                fs.readFileSync("static/write_status_view.js", "utf8"),
+                context,
+                { filename: "static/write_status_view.js" },
+            );
+
+            let gate = { allowed: true, server_status: { status: "offline" } };
+            const overviewGates = [];
+            const controller = context.window.MCBEWriteStatusView.createWriteGateController({
+                elements: { serverStatusBadge: {} },
+                getCurrentWriteGate: () => gate,
+                setCurrentWriteGate: value => { gate = value; },
+                renderStatusCenter: () => overviewGates.push(controller.effectiveWriteGate()),
+            });
+
+            const olderRequest = controller.beginServerStatusRequest();
+            const newerRequest = controller.beginServerStatusRequest();
+            assert.strictEqual(controller.renderServerStatus({
+                server_status: { status: "online" },
+                write_gate: { allowed: false, server_status: { status: "online" } },
+            }, { requestOrder: newerRequest }), true);
+            assert.strictEqual(overviewGates.length, 1);
+            assert.strictEqual(overviewGates[0].allowed, false);
+            assert.strictEqual(overviewGates[0].server_status.status, "online");
+
+            // An older answer that is ignored leaves the overview alone.
+            assert.strictEqual(controller.renderServerStatus({
+                server_status: { status: "offline" },
+                write_gate: { allowed: true, server_status: { status: "offline" } },
+            }, { requestOrder: olderRequest }), false);
+            assert.strictEqual(overviewGates.length, 1);
+
+            controller.renderServerStatusFailure("Keine Antwort.");
+            assert.strictEqual(overviewGates.length, 2);
+            assert.strictEqual(overviewGates[1].status_check_failed, true);
+            """
+        )
+    )

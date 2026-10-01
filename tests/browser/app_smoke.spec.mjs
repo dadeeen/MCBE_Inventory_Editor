@@ -2553,3 +2553,46 @@ test("status entries keep the color of their kind and stay readable in every the
     }
   }
 });
+
+test("status overview follows the server status shown in the header", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  const onlineGate = {
+    allowed: false,
+    reason: "Server läuft noch. Bitte Server stoppen.",
+    server_status: { status: "online" },
+  };
+  let serverStatus = { success: true, server_status: onlineGate.server_status, write_gate: onlineGate };
+  await page.route("**/api/server_status", route => route.fulfill({ json: serverStatus }));
+  await page.clock.install();
+  await openAppWithEmptyWorldScan(page);
+
+  await page.locator('.app-section-nav button[data-workflow-view="tools"]').click();
+  const hero = page.locator("#statusCenterPanel .status-hero");
+  const writing = page.locator("#statusCenterPanel .status-tile").filter({ hasText: "Schreiben" });
+  await expect(hero).toHaveClass(/\berror\b/);
+  await expect(hero).toContainText("Prüfen");
+  await expect(writing.locator("strong")).toHaveText("gesperrt");
+
+  // Loading the diagnostics again keeps the server status of the header.
+  const diagnostics = page.waitForResponse(response => response.url().endsWith("/api/diagnostics/status"));
+  await page.locator("#btnRefreshRuntimeDiagnostics").click();
+  await diagnostics;
+  await expect(hero).toHaveClass(/\berror\b/);
+  await expect(writing.locator("strong")).toHaveText("gesperrt");
+
+  // The next poll after the server stopped clears the overview.
+  const offlineGate = { allowed: true, server_status: { status: "offline" } };
+  serverStatus = { success: true, server_status: offlineGate.server_status, write_gate: offlineGate };
+  await page.clock.fastForward(10_000);
+  await expect(writing.locator("strong")).toHaveText("bereit");
+  await expect(hero).not.toHaveClass(/\berror\b/);
+
+  // The test server runs in local mode without a server address: its answer
+  // is an unknown status, and writing works after confirming it.
+  await page.unroute("**/api/server_status");
+  await page.clock.fastForward(10_000);
+  await expect(writing.locator("strong")).toHaveText("nach Bestätigung");
+  await expect(writing).toHaveClass(/\bwarning\b/);
+  await expect(hero).not.toHaveClass(/\berror\b/);
+  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
+});

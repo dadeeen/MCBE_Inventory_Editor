@@ -209,6 +209,7 @@
         getIsDirty = () => false,
         getWorldPath = () => "",
         getCurrentPlayerLabel = () => "",
+        getWriteGate = () => null,
         onRuntimeDiagnostics = () => {},
     } = {}) {
         const {
@@ -230,6 +231,7 @@
         function statusCenterText() {
             return window.MCBEStatusCenterView.statusCenterText({
                 runtimeDiagnostics: lastRuntimeDiagnostics || {},
+                writeGate: getWriteGate(),
                 appConfig,
                 currentCompatibility: getCurrentCompatibility(),
                 iconSummary: getIconSourceSummary(),
@@ -317,6 +319,7 @@
         getIsDirty = () => false,
         getWorldPath = () => "",
         getCurrentPlayerLabel = () => "",
+        getWriteGate = () => null,
         onRuntimeDiagnostics = () => {},
     } = {}) {
         return createDiagnosticsController({
@@ -329,6 +332,7 @@
             getIsDirty,
             getWorldPath,
             getCurrentPlayerLabel,
+            getWriteGate,
             onRuntimeDiagnostics,
         });
     }
