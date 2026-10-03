@@ -1,7 +1,6 @@
 import argparse
 import atexit
 import contextlib
-import importlib
 import logging
 import math
 import os
@@ -13,6 +12,7 @@ import time
 from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from flask import Flask, Response, g, has_request_context, jsonify, redirect, render_template, request, session, url_for
@@ -20,7 +20,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 
 # This import must run before modules such as services and inventory import
-# mcbe_editor.item_data and freeze its module-level catalog globals.
+# mcbe_editor.item_data and load the initial catalog snapshot.
 from mcbe_editor.runtime_bootstrap import APP_CONFIG, APP_ROOT, BUNDLED_ITEM_DB_JSON, PERSISTENT_ITEM_DB_PATH
 from mcbe_editor import (
     audit_api_routes,
@@ -363,8 +363,12 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = APP_CONFIG.session_cookie_secure
 app.secret_key = SETUP_STATE.secret_key() or APP_CONFIG.secret_key
-editor_service = BedrockEditorService(item_data_module.ITEMS, item_data_module.ENCHANTMENTS)
+editor_service = BedrockEditorService(
+    item_data_module.ITEMS, item_data_module.ENCHANTMENTS,
+    item_catalog=item_data_module.current_item_catalog(),
+)
 _ITEM_DB_RUNTIME_SIGNATURE = _item_db_file_signature()
+_ITEM_DB_RELOAD_FAILURE = None
 
 CSRF_TOKEN = secrets.token_urlsafe(32)
 _SERVER_ONLINE_EPOCH_LOCK = threading.RLock()
@@ -913,10 +917,9 @@ def save_in_progress(f):
 def service_mutation_guard(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
-        # Serializes operations that mutate worlds or replace the global service
-        # instance. Per-world locks live in mcbe_editor.world_locks and therefore
-        # survive service-module reloads; this outer guard keeps service replacement
-        # from racing with mutations that use the global editor_service instance.
+        # Keep catalog/service publication outside active world mutations.
+        # Read workflows bind their own catalog and retain it across publication;
+        # per-world locks remain independent of the service instance.
         with _SERVICE_MUTATION_LOCK:
             return f(*args, **kwargs)
 
@@ -927,7 +930,7 @@ def item_db_update_guard(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         # The updater reads and later rewrites the complete item database and
-        # version history.  Keep the update process and subsequent module reload
+        # version history.  Keep the update process and subsequent catalog publication
         # in one dedicated critical section so parallel partial updates cannot
         # overwrite each other's newer categories.
         with _ITEM_DB_UPDATE_LOCK, locked_operation("item-db-update", root=_item_db_operation_root()):
@@ -1260,7 +1263,15 @@ def source_version_history_entries() -> list[dict]:
 
 
 def item_db_status_snapshot() -> dict:
-    return status_snapshots.item_db_status_snapshot(APP_CONFIG, item_data_module, APP_ROOT)
+    snapshot = status_snapshots.item_db_status_snapshot(
+        APP_CONFIG, SimpleNamespace(**item_data_module.current_item_catalog()), APP_ROOT,
+    )
+    if _ITEM_DB_RELOAD_FAILURE is not None:
+        snapshot["verification"] = {**snapshot["verification"], "verified": False, "reason": "runtime-reload-failed"}
+        snapshot["reload_warning"] = i18n.t(
+            "Die Item-Datenbank wurde aktualisiert, konnte aber im laufenden Server nicht neu geladen werden. Bitte die Anwendung neu starten."
+        )
+    return snapshot
 
 
 def runtime_status_snapshot() -> dict:
@@ -1372,39 +1383,62 @@ def _looks_like_network_failure(output: str) -> bool:
 
 
 def reload_item_db_after_update() -> dict:
+    global _ITEM_DB_RUNTIME_SIGNATURE, _ITEM_DB_RELOAD_FAILURE, editor_service
     with _SERVICE_MUTATION_LOCK:
-        # Reload JSON item data and dependent modules so the running app picks up changes.
-        import mcbe_editor.item_data as fresh_item_data_module
-        import mcbe_editor.inventory as inventory_module
-        import mcbe_editor.services as services_module
-
-        fresh_item_data_module = importlib.reload(fresh_item_data_module)
-        inventory_module._reload_inventory_core_data()
-        importlib.reload(inventory_module)
-        services_module = importlib.reload(services_module)
-
-        global BedrockEditorService, _ITEM_DB_RUNTIME_SIGNATURE, editor_service, item_data_module
-        item_data_module = fresh_item_data_module
-        BedrockEditorService = services_module.BedrockEditorService
-        editor_service = BedrockEditorService(item_data_module.ITEMS, item_data_module.ENCHANTMENTS)
-        _ITEM_DB_RUNTIME_SIGNATURE = _item_db_file_signature()
+        signature = _item_db_file_signature()
+        if signature is None:
+            raise OSError("Item database is unavailable.")
+        catalog = item_data_module.prepare_item_catalog(_item_db_runtime_path())
+        service = BedrockEditorService(catalog["ITEMS"], catalog["ENCHANTMENTS"], item_catalog=catalog)
+        status = status_snapshots.item_db_status_snapshot(APP_CONFIG, SimpleNamespace(**catalog), APP_ROOT)
+        if _item_db_file_signature() != signature:
+            raise ValueError("Item database changed while loading.")
+        # Validation, derived rules, service construction and status preparation
+        # must all succeed before any live state is replaced. No code is reloaded.
+        item_data_module.publish_item_catalog(catalog)
+        editor_service = service
+        _ITEM_DB_RUNTIME_SIGNATURE = signature
+        _ITEM_DB_RELOAD_FAILURE = None
         return {
             "reloaded": True,
-            "item_db_path": APP_CONFIG.item_db_path or getattr(item_data_module, "ITEM_DB_SOURCE_PATH", "bundled"),
-            "item_db": item_db_status_snapshot(),
+            "item_db_path": APP_CONFIG.item_db_path or catalog["ITEM_DB_SOURCE_PATH"],
+            "item_db": status,
         }
+
+
+def _item_db_reload_failed(signature) -> bool:
+    # Read once: requests clear the failure without holding the update lock.
+    failure = _ITEM_DB_RELOAD_FAILURE
+    return failure is not None and failure[0] == signature
 
 
 @app.before_request
 def reload_item_db_after_external_worker_update():
-    """Lazily refresh worker-local modules after another worker committed an update."""
+    """Lazily publish validated worker-local data after another worker's update."""
 
+    global _ITEM_DB_RELOAD_FAILURE
     current_signature = _item_db_file_signature()
     if current_signature == _ITEM_DB_RUNTIME_SIGNATURE:
+        _ITEM_DB_RELOAD_FAILURE = None
+        return None
+    if _item_db_reload_failed(current_signature):
+        # An update can hold the lock for minutes; requests such as its progress
+        # polling must not wait for it to skip a file that already failed.
         return None
     with _ITEM_DB_UPDATE_LOCK, locked_operation("item-db-update", root=_item_db_operation_root()):
-        if _item_db_file_signature() != _ITEM_DB_RUNTIME_SIGNATURE:
+        current_signature = _item_db_file_signature()
+        if current_signature == _ITEM_DB_RUNTIME_SIGNATURE:
+            _ITEM_DB_RELOAD_FAILURE = None
+            return None
+        if _item_db_reload_failed(current_signature):
+            return None
+        try:
             reload_item_db_after_update()
+        except Exception as exc:
+            # Keep serving the last good catalog. Retry once the file changes,
+            # or when an explicit update requests another reload.
+            _ITEM_DB_RELOAD_FAILURE = (current_signature, str(exc))
+            LOGGER.exception("Item catalog reload failed; retaining the active catalog")
     return None
 
 

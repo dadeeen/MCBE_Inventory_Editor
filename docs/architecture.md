@@ -103,8 +103,9 @@ not only in a frontend control or a single NBT writer.
 
 ## Known hotspots
 
-- `main.py`: composition, global runtime state, and the localized item-database
-  module reload. Do not spread runtime reloads into feature modules.
+- `main.py`: composition, global runtime state, and the publication of a
+  prepared item catalog after an item-database update. Feature code reads
+  catalog data through `item_data`; do not reload modules at runtime.
 - `services.py`: transactional workflows. Extract pure preparation or
   validation only when the before/after-commit ordering remains obvious.
 - `_inventory_core.py`: broad NBT domain implementation behind the stable

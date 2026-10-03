@@ -228,6 +228,6 @@ def item_availability_client_payload() -> dict[str, Any]:
         for item_id in item_ids
     } | set(payload["variants"])
     classifications["unreviewed"] = sorted(
-        item_data.UNREVIEWED_ITEM_IDS - curated_item_ids
+        item_data.catalog_values()["UNREVIEWED_ITEM_IDS"] - curated_item_ids
     )
     return payload

@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import hashlib as _hashlib
 import hmac as _hmac
-import importlib as _importlib
 import json as _json
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from . import _inventory_core as _core
+from . import item_data as _item_data
 from ._inventory_core import (
     ABILITY_TAG_FIELDS,
     ATTRIBUTE_STAT_TAGS,
@@ -22,8 +23,6 @@ from ._inventory_core import (
     AXOLOTL_VARIANTS,
     DYE_COLOR_LABELS,
     EFFECT_CONTROL_TAGS,
-    EFFECTS,
-    ENCHANTMENTS,
     ENDER_CHEST_SLOTS,
     INTEGER_TAG_RANGES,
     INTEGER_TAG_TYPES,
@@ -74,6 +73,10 @@ from ._inventory_core import (
     validate_item_stack_count,
 )
 
+if _TYPE_CHECKING:
+    from .item_data import EFFECTS, ENCHANTMENTS
+
+
 # Private compatibility exports used by existing internal callers and tests.
 _apply_entity_variant_edit = _core._apply_entity_variant_edit
 _build_item_compound = _core._build_item_compound
@@ -87,10 +90,12 @@ _set_numeric_tag_preserving_type = _core._set_numeric_tag_preserving_type
 validate_item_data_value_variant = _core.validate_item_data_value_variant
 
 
-def _reload_inventory_core_data():
-    """Refresh item-data-bound defaults before this public facade is reloaded."""
-
-    return _importlib.reload(_core)
+def __getattr__(name: str):
+    # Preserve the two historical catalog exports without binding runtime readers
+    # or function defaults to dictionaries from a previous catalog generation.
+    if name in {"EFFECTS", "ENCHANTMENTS"}:
+        return _item_data.catalog_values()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = (

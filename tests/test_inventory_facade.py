@@ -5,7 +5,7 @@ from pathlib import Path
 
 from mcbe_editor import nbt  # noqa: F401
 
-from mcbe_editor import _inventory_core, inventory
+from mcbe_editor import _inventory_core, inventory, item_data
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,21 +42,20 @@ def test_internal_inventory_core_is_not_imported_elsewhere() -> None:
     assert not offenders, f"Internal inventory core imported outside facade: {offenders}"
 
 
-def test_inventory_facade_owns_core_data_reload(monkeypatch) -> None:
-    reloaded = []
-    monkeypatch.setattr(inventory._importlib, "reload", lambda module: reloaded.append(module) or module)
+def test_inventory_facade_catalog_exports_follow_the_bound_snapshot() -> None:
+    original_effects = inventory.EFFECTS
+    original_enchantments = inventory.ENCHANTMENTS
+    catalog = {**item_data.current_item_catalog(), "EFFECTS": {}, "ENCHANTMENTS": {}}
+    with item_data.use_item_catalog(catalog):
+        assert inventory.EFFECTS is catalog["EFFECTS"]
+        assert inventory.ENCHANTMENTS is catalog["ENCHANTMENTS"]
+        assert inventory.parse_effects is _inventory_core.parse_effects
+    assert inventory.EFFECTS is original_effects
+    assert inventory.ENCHANTMENTS is original_enchantments
 
-    result = inventory._reload_inventory_core_data()
 
-    assert result is _inventory_core
-    assert reloaded == [_inventory_core]
-
-
-def test_main_reloads_item_data_then_inventory_core_then_facade() -> None:
-    source = (ROOT / "main.py").read_text(encoding="utf-8")
-
-    item_data_reload = source.index("fresh_item_data_module = importlib.reload(fresh_item_data_module)")
-    core_reload = source.index("inventory_module._reload_inventory_core_data()")
-    facade_reload = source.index("importlib.reload(inventory_module)", core_reload)
-
-    assert item_data_reload < core_reload < facade_reload
+def test_runtime_catalog_update_does_not_reload_executable_modules() -> None:
+    for path in (ROOT / "main.py", ROOT / "mcbe_editor" / "inventory.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "importlib.reload(" not in source
+        assert "_reload_inventory_core_data" not in source

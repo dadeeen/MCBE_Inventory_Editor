@@ -5,7 +5,9 @@ import logging
 import os
 import re
 import secrets
-from collections.abc import Collection
+from collections.abc import Collection, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -126,26 +128,59 @@ def load_enchantment_compatibility(path: str | os.PathLike | None = None) -> dic
     }
 
 
-_ENCHANTMENT_COMPATIBILITY_DATA = load_enchantment_compatibility()
-ENCHANTMENT_COMPATIBILITY_SCHEMA_VERSION = _ENCHANTMENT_COMPATIBILITY_DATA["schema_version"]
-ENCHANTMENT_COMPATIBILITY_SOURCES = _ENCHANTMENT_COMPATIBILITY_DATA["sources"]
-ENCHANTMENT_COMPATIBILITY_SOURCE_PATH = _ENCHANTMENT_COMPATIBILITY_DATA["source_path"]
-ENCHANTMENT_COMPATIBLE_SLOTS: dict[int, set[str]] = _ENCHANTMENT_COMPATIBILITY_DATA["compatible_slots"]
-ENCHANTMENT_SLOT_GROUPS: dict[str, set[str]] = _ENCHANTMENT_COMPATIBILITY_DATA["slot_groups"]
-ENCHANTMENT_ITEM_SLOTS: dict[str, set[str]] = _ENCHANTMENT_COMPATIBILITY_DATA["item_slots"]
-ENCHANTMENT_ITEM_SLOT_SUFFIXES: tuple[tuple[str, str], ...] = _ENCHANTMENT_COMPATIBILITY_DATA["item_slot_suffixes"]
-ENCHANTMENT_EXCLUSIVE_GROUPS: list[list[int]] = _ENCHANTMENT_COMPATIBILITY_DATA["exclusive_groups"]
-OFFICIAL_ENCHANTMENT_ITEM_SLOTS: dict[str, set[str]] = {}
-ENCHANTMENT_COMPATIBILITY: dict[str, Any] = {
-    "schema_version": ENCHANTMENT_COMPATIBILITY_SCHEMA_VERSION,
-    "sources": ENCHANTMENT_COMPATIBILITY_SOURCES,
-    "compatible_slots": {str(key): sorted(value) for key, value in ENCHANTMENT_COMPATIBLE_SLOTS.items()},
-    "slot_groups": _client_slot_map(ENCHANTMENT_SLOT_GROUPS),
-    "item_slots": _client_slot_map(ENCHANTMENT_ITEM_SLOTS),
-    "official_item_slots": {},
-    "item_slot_suffixes": [list(entry) for entry in ENCHANTMENT_ITEM_SLOT_SUFFIXES],
-    "exclusive_groups": ENCHANTMENT_EXCLUSIVE_GROUPS,
-}
+def _compatibility_globals(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ENCHANTMENT_COMPATIBILITY_SCHEMA_VERSION": data["schema_version"],
+        "ENCHANTMENT_COMPATIBILITY_SOURCES": data["sources"],
+        "ENCHANTMENT_COMPATIBILITY_SOURCE_PATH": data["source_path"],
+        "ENCHANTMENT_COMPATIBLE_SLOTS": data["compatible_slots"],
+        "ENCHANTMENT_SLOT_GROUPS": data["slot_groups"],
+        "ENCHANTMENT_ITEM_SLOTS": data["item_slots"],
+        "ENCHANTMENT_ITEM_SLOT_SUFFIXES": data["item_slot_suffixes"],
+        "ENCHANTMENT_EXCLUSIVE_GROUPS": data["exclusive_groups"],
+        "ENCHANTMENT_COMPATIBILITY": {
+            "schema_version": data["schema_version"],
+            "sources": data["sources"],
+            "compatible_slots": {str(key): sorted(value) for key, value in data["compatible_slots"].items()},
+            "slot_groups": _client_slot_map(data["slot_groups"]),
+            "item_slots": _client_slot_map(data["item_slots"]),
+            "official_item_slots": {},
+            "item_slot_suffixes": [list(entry) for entry in data["item_slot_suffixes"]],
+            "exclusive_groups": data["exclusive_groups"],
+        },
+    }
+
+
+_ITEM_CATALOG_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("item_catalog", default=None)
+_CURRENT_ITEM_CATALOG: dict[str, Any] = {}
+
+
+def current_item_catalog() -> dict[str, Any]:
+    """Return the published data snapshot. Consumers must not mutate its contents."""
+
+    return _CURRENT_ITEM_CATALOG
+
+
+def catalog_values() -> dict[str, Any]:
+    """Use a workflow's bound snapshot, or the public defaults for standalone callers."""
+
+    catalog = _ITEM_CATALOG_CONTEXT.get()
+    return globals() if catalog is None else catalog
+
+
+@contextmanager
+def use_item_catalog(catalog: dict[str, Any] | None) -> Iterator[None]:
+    """Keep nested NBT helpers on one catalog without serializing concurrent readers."""
+
+    if catalog is None:
+        yield
+        return
+    token = _ITEM_CATALOG_CONTEXT.set(catalog)
+    try:
+        yield
+    finally:
+        _ITEM_CATALOG_CONTEXT.reset(token)
+
 
 STACK_LIMITS: dict[str, int] = {}
 DURABILITY: dict[str, int] = {}
@@ -193,7 +228,7 @@ def _validated_item_components(raw: Any) -> dict[str, dict[str, dict[str, Any]]]
     if not isinstance(raw, dict):
         raise ValueError("Item-DB-Abschnitt item_components muss ein Objekt sein.")
     result: dict[str, dict[str, dict[str, Any]]] = {}
-    for component_name in ITEM_COMPONENTS:
+    for component_name in ("enchantable", "wearable"):
         component_map = raw.get(component_name, {})
         if not isinstance(component_map, dict):
             raise ValueError(f"Item-DB-Abschnitt item_components.{component_name} muss ein Objekt sein.")
@@ -206,8 +241,9 @@ def _validated_item_components(raw: Any) -> dict[str, dict[str, dict[str, Any]]]
             label = f"item_components.{component_name}.{item_id}"
             if component_name == "enchantable":
                 slot = str(component.get("slot", "")).strip()
-                known_slots = {"none", *ENCHANTMENT_SLOT_GROUPS}
-                for slots in ENCHANTMENT_SLOT_GROUPS.values():
+                slot_groups = catalog_values()["ENCHANTMENT_SLOT_GROUPS"]
+                known_slots = {"none", *slot_groups}
+                for slots in slot_groups.values():
                     known_slots.update(slots)
                 if slot not in known_slots or type(component.get("value")) is not int:
                     raise ValueError(f"Ungültige Verzauberbarkeits-Komponente: {label}")
@@ -521,7 +557,7 @@ def _apply_bundled_curation(
                 **db["ITEM_COMPONENTS"].get(component, {}),
                 **bundled_item_components.get(component, {}),
             }
-            for component in ITEM_COMPONENTS
+            for component in ("enchantable", "wearable")
         }
         db["BEHAVIOR_ITEM_SOURCE"] = bundled_behavior_source
     db["BLOCK_ONLY_ITEM_IDS"] = frozenset(db["BLOCK_ONLY_ITEM_IDS"] | bundled_block_only)
@@ -577,8 +613,8 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
             # Old databases advertise a blanket 64. A missing per-item value
             # must never regain that assumption through a persistent copy.
             "DEFAULT_MAX_STACK": DEFAULT_MAX_STACK,
-            "DEFAULT_MAX_DAMAGE": int(defaults.get("max_damage", DEFAULT_MAX_DAMAGE)),
-            "MAX_DATA_VALUE": int(defaults.get("max_data_value", MAX_DATA_VALUE)),
+            "DEFAULT_MAX_DAMAGE": int(defaults.get("max_damage", 1561)),
+            "MAX_DATA_VALUE": int(defaults.get("max_data_value", 32767)),
             "STACK_LIMITS": _str_int_dict(raw.get("stack_limits", {}), label="stack_limits"),
             "DURABILITY": _str_int_dict(raw.get("durability", {}), label="durability"),
             "ITEM_COMPONENTS": _validated_item_components(raw.get("item_components", {})),
@@ -681,22 +717,42 @@ def database_as_module_globals(path: str | os.PathLike | None = None) -> dict[st
     }
 
 
-def reload_item_database(path: str | os.PathLike | None = None) -> dict[str, Any]:
-    """Reload JSON item data into module globals and return the loaded DB.
+def prepare_item_catalog(path: str | os.PathLike | None = None) -> dict[str, Any]:
+    """Load and validate all data, including derived rules, without changing live state."""
 
-    The application imports item data from this module directly. The updater only
-    writes JSON and then calls this function/reloads dependent modules.
+    catalog = _compatibility_globals(load_enchantment_compatibility())
+    with use_item_catalog(catalog):
+        catalog.update(database_as_module_globals(path))
+    official_slots = _official_enchantment_slots(catalog["ITEM_COMPONENTS"])
+    catalog["OFFICIAL_ENCHANTMENT_ITEM_SLOTS"] = official_slots
+    catalog["ENCHANTMENT_COMPATIBILITY"]["official_item_slots"] = _client_slot_map(official_slots)
+    return catalog
+
+
+def publish_item_catalog(catalog: dict[str, Any]) -> None:
+    """Publish a prepared catalog; previously bound workflows retain their data.
+
+    The application serializes publication with its service/update guards.
+    Public module attributes remain data snapshots for standalone callers;
+    runtime consumers bind the complete catalog rather than importing defaults.
     """
 
-    db_globals = database_as_module_globals(path)
-    globals().update(db_globals)
-    _refresh_component_derived_data()
-    return db_globals
+    global _CURRENT_ITEM_CATALOG
+    globals().update(catalog)
+    _CURRENT_ITEM_CATALOG = catalog
+
+
+def reload_item_database(path: str | os.PathLike | None = None) -> dict[str, Any]:
+    """Reload data only. Failed preparation leaves every live value unchanged."""
+
+    catalog = prepare_item_catalog(path)
+    publish_item_catalog(catalog)
+    return catalog
 
 
 def canonical_item_id(item_name: str) -> str:
     normalized = str(item_name or "").strip().lower()
-    return COMPAT_ITEM_ALIASES.get(normalized, normalized)
+    return catalog_values()["COMPAT_ITEM_ALIASES"].get(normalized, normalized)
 
 
 def fallback_item_display_names(item_name: str) -> tuple[str, str]:
@@ -734,10 +790,10 @@ def selectable_item_catalog(
     continue to be governed exclusively by ``ADDABLE_ITEM_IDS``.
     """
 
-    source_items = ITEMS if items is None else items
-    source_addable = ADDABLE_ITEM_IDS if addable_item_ids is None else addable_item_ids
-    source_block_only = BLOCK_ONLY_ITEM_IDS if block_only_item_ids is None else block_only_item_ids
-    source_aliases = COMPAT_ITEM_ALIASES if compat_item_aliases is None else compat_item_aliases
+    source_items = catalog_values()["ITEMS"] if items is None else items
+    source_addable = catalog_values()["ADDABLE_ITEM_IDS"] if addable_item_ids is None else addable_item_ids
+    source_block_only = catalog_values()["BLOCK_ONLY_ITEM_IDS"] if block_only_item_ids is None else block_only_item_ids
+    source_aliases = catalog_values()["COMPAT_ITEM_ALIASES"] if compat_item_aliases is None else compat_item_aliases
     result = dict(source_items)
     recognized_runtime_ids = {
         str(value or "").strip().lower()
@@ -754,17 +810,18 @@ def selectable_item_catalog(
 
 def is_known_item_id(item_name: str) -> bool:
     normalized = str(item_name or "").strip().lower()
-    return normalized in ITEMS or normalized in COMPAT_ITEM_ALIASES or normalized in ADDABLE_ITEM_IDS or normalized in BLOCK_ONLY_ITEM_IDS
+    catalog = catalog_values()
+    return any(normalized in catalog[name] for name in ("ITEMS", "COMPAT_ITEM_ALIASES", "ADDABLE_ITEM_IDS", "BLOCK_ONLY_ITEM_IDS"))
 
 
 def is_block_only_item_id(item_name: str) -> bool:
     """True für Katalog-IDs, die nur als technische Blockzustände nutzbar sind."""
-    return str(item_name or "").strip().lower() in BLOCK_ONLY_ITEM_IDS
+    return str(item_name or "").strip().lower() in catalog_values()["BLOCK_ONLY_ITEM_IDS"]
 
 
 def is_block_item_id(item_name: str) -> bool:
     """True für registry-abgeleitete, im Browser als Block geeignete Items."""
-    return str(item_name or "").strip().lower() in BLOCK_ITEM_IDS
+    return str(item_name or "").strip().lower() in catalog_values()["BLOCK_ITEM_IDS"]
 
 
 def is_addable_item_id(item_name: str) -> bool:
@@ -774,31 +831,31 @@ def is_addable_item_id(item_name: str) -> bool:
     Block- und Add-on-IDs werden weiterhin gelesen und erhalten, aber nicht als
     neue Vanilla-Items angeboten oder frei erzeugt.
     """
-    return str(item_name or "").strip().lower() in ADDABLE_ITEM_IDS
+    return str(item_name or "").strip().lower() in catalog_values()["ADDABLE_ITEM_IDS"]
 
 
 def get_max_damage(item_name: str, durability: dict[str, int] | None = None) -> int:
-    limits = durability or DURABILITY
+    limits = durability or catalog_values()["DURABILITY"]
     normalized = str(item_name or "").strip().lower()
-    return limits.get(normalized, limits.get(canonical_item_id(normalized), MAX_DATA_VALUE))
+    return limits.get(normalized, limits.get(canonical_item_id(normalized), catalog_values()["MAX_DATA_VALUE"]))
 
 
 def has_verified_stack_limit(item_name: str, stack_limits: dict[str, int] | None = None) -> bool:
-    limits = STACK_LIMITS if stack_limits is None else stack_limits
+    limits = catalog_values()["STACK_LIMITS"] if stack_limits is None else stack_limits
     normalized = str(item_name or "").strip().lower()
     return normalized in limits or canonical_item_id(normalized) in limits
 
 
 def get_max_stack(item_name: str, stack_limits: dict[str, int] | None = None) -> int:
     """Return a recorded limit, or the safe creation bound for an unknown one."""
-    limits = STACK_LIMITS if stack_limits is None else stack_limits
+    limits = catalog_values()["STACK_LIMITS"] if stack_limits is None else stack_limits
     normalized = str(item_name or "").strip().lower()
-    return limits.get(canonical_item_id(normalized), limits.get(normalized, DEFAULT_MAX_STACK))
+    return limits.get(canonical_item_id(normalized), limits.get(normalized, catalog_values()["DEFAULT_MAX_STACK"]))
 
 
 def item_component(item_name: str, component_name: str) -> dict[str, Any] | None:
     normalized = canonical_item_id(item_name)
-    component_map = ITEM_COMPONENTS.get(str(component_name or "").strip().lower(), {})
+    component_map = catalog_values()["ITEM_COMPONENTS"].get(str(component_name or "").strip().lower(), {})
     component = component_map.get(normalized)
     return dict(component) if isinstance(component, dict) else None
 
@@ -813,13 +870,13 @@ def enchantment_slots_for_item(item_name: str) -> set[str]:
     normalized = canonical_item_id(item_name)
     if not normalized:
         return set()
-    if normalized in OFFICIAL_ENCHANTMENT_ITEM_SLOTS:
-        return _expand_enchantment_slot_groups(OFFICIAL_ENCHANTMENT_ITEM_SLOTS[normalized])
-    exact_slots = ENCHANTMENT_ITEM_SLOTS.get(normalized)
+    if normalized in catalog_values()["OFFICIAL_ENCHANTMENT_ITEM_SLOTS"]:
+        return _expand_enchantment_slot_groups(catalog_values()["OFFICIAL_ENCHANTMENT_ITEM_SLOTS"][normalized])
+    exact_slots = catalog_values()["ENCHANTMENT_ITEM_SLOTS"].get(normalized)
     if exact_slots:
         return _expand_enchantment_slot_groups(exact_slots)
     short = normalized.removeprefix("minecraft:")
-    for suffix, slot in ENCHANTMENT_ITEM_SLOT_SUFFIXES:
+    for suffix, slot in catalog_values()["ENCHANTMENT_ITEM_SLOT_SUFFIXES"]:
         if short.endswith(suffix):
             return _expand_enchantment_slot_groups({slot})
     return set()
@@ -832,7 +889,7 @@ def is_enchantable_item_id(item_name: str) -> bool:
 def _expand_enchantment_slot_groups(slots: set[str]) -> set[str]:
     expanded = set()
     for slot in slots:
-        expanded.update(ENCHANTMENT_SLOT_GROUPS.get(slot, {slot}))
+        expanded.update(catalog_values()["ENCHANTMENT_SLOT_GROUPS"].get(slot, {slot}))
     return expanded
 
 
@@ -840,23 +897,21 @@ def is_enchantment_compatible_with_item(enchantment_id: int, item_name: str) -> 
     item_slots = enchantment_slots_for_item(item_name)
     if not item_slots:
         return False
-    compatible_slots = ENCHANTMENT_COMPATIBLE_SLOTS.get(int(enchantment_id))
+    compatible_slots = catalog_values()["ENCHANTMENT_COMPATIBLE_SLOTS"].get(int(enchantment_id))
     if not compatible_slots:
         return False
     return bool(item_slots & _expand_enchantment_slot_groups(compatible_slots))
 
 
-def _refresh_component_derived_data() -> None:
+def _official_enchantment_slots(item_components: dict[str, Any]) -> dict[str, set[str]]:
     official_slots: dict[str, set[str]] = {}
-    for item_id, component in ITEM_COMPONENTS.get("enchantable", {}).items():
+    for item_id, component in item_components.get("enchantable", {}).items():
         slot = str(component.get("slot", "") if isinstance(component, dict) else "").strip()
         if slot == "none":
             official_slots[item_id] = set()
         elif slot:
             official_slots[item_id] = {slot}
-    OFFICIAL_ENCHANTMENT_ITEM_SLOTS.clear()
-    OFFICIAL_ENCHANTMENT_ITEM_SLOTS.update(official_slots)
-    ENCHANTMENT_COMPATIBILITY["official_item_slots"] = _client_slot_map(OFFICIAL_ENCHANTMENT_ITEM_SLOTS)
+    return official_slots
 
 
 reload_item_database()
