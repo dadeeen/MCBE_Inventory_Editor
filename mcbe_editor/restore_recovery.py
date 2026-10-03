@@ -23,13 +23,17 @@ from .server_status import write_gate
 from .world import get_configured_scan_roots
 
 
-def recovery_help_command() -> str:
+def recovery_command(*args: str) -> str:
     # A bare "python" may be missing or older than the runtime on Windows.
     interpreter = Path(sys.executable)
     with contextlib.suppress(ValueError):
         interpreter = interpreter.relative_to(Path.cwd())
-    command = [str(interpreter), "-m", "mcbe_editor.restore_recovery", "--help"]
+    command = [str(interpreter), "-m", "mcbe_editor.restore_recovery", *args]
     return subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
+
+
+def recovery_help_command() -> str:
+    return recovery_command("--help")
 
 
 def recovery_write_gate(config: AppConfig, *, server_stopped_confirmed: bool = False) -> dict:

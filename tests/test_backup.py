@@ -383,7 +383,7 @@ class TestRestoreBackup(unittest.TestCase):
             self.assertEqual(len(list(root.glob(".mcbe_restore_*.json"))), 1)
             self.assertEqual(len(list(root.glob(".world_rollback_*"))), 1)
             self.assertEqual(len(list(root.glob(".world_restoring_*"))), 1)
-            self.assertIn("sichere Wiederaufnahme", getattr(raised.exception, "cleanup_warning", ""))
+            self.assertIn("bleibt für die Wiederaufnahme erhalten", getattr(raised.exception, "cleanup_warning", ""))
 
             recovered = recover_interrupted_restores([str(world_dir)])
 

@@ -100,6 +100,10 @@
         return targets.length;
     }
 
+    function writableTargets(targets, isProtectedKnownSlot = () => false) {
+        return targets.filter(({ slotId, container }) => !isProtectedKnownSlot(Number(slotId), container));
+    }
+
     function selectedBulkTargets({
         selectedSlots = [],
         selectedEnderSlot = -1,
@@ -107,13 +111,11 @@
         enderChestInventory = {},
         isProtectedKnownSlot = () => false,
     } = {}) {
-        const targets = selectedSlots
-            .map(slotId => ({ container: "inventory", slotId, map: inventory }))
-            .filter(target => !isProtectedKnownSlot(target.slotId, target.container));
-        if (selectedEnderSlot >= 0 && !isProtectedKnownSlot(selectedEnderSlot, "ender_chest")) {
+        const targets = selectedSlots.map(slotId => ({ container: "inventory", slotId, map: inventory }));
+        if (selectedEnderSlot >= 0) {
             targets.push({ container: "ender_chest", slotId: selectedEnderSlot, map: enderChestInventory });
         }
-        return targets;
+        return writableTargets(targets, isProtectedKnownSlot);
     }
 
     function bulkSelectionLabel(count, { selectedEnderSlot = -1 } = {}) {
@@ -150,14 +152,11 @@
         return targets.filter(({ map, slotId }) => itemHasRepairableDamage(map?.[slotId], maxDamage, isItemVisiblePresent));
     }
 
-    function damagedInventoryTargets({ sources = [], maxDamage = {}, isItemVisiblePresent = null } = {}) {
-        const targets = [];
-        sources.forEach(({ map }) => {
-            Object.entries(map || {}).forEach(([slotId, item]) => {
-                if (itemHasRepairableDamage(item, maxDamage, isItemVisiblePresent)) targets.push({ map, slotId });
-            });
-        });
-        return targets;
+    function damagedInventoryTargets({ sources = [], maxDamage = {}, isItemVisiblePresent = null, isProtectedKnownSlot } = {}) {
+        const targets = sources.flatMap(({ map, container }) =>
+            Object.keys(map || {}).map(slotId => ({ map, slotId, container })),
+        );
+        return damagedItemTargets(writableTargets(targets, isProtectedKnownSlot), { maxDamage, isItemVisiblePresent });
     }
 
     function setTargetCounts(targets, { desired, getMaxStack = () => 64, hasVerifiedStackLimit = () => true, maxBedrockStackCount = 127 } = {}) {

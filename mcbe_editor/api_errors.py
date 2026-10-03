@@ -120,10 +120,8 @@ def save_refusal_payload(error: ValueError, *, code: str) -> dict[str, object]:
 def add_exception_cleanup_details(payload: dict[str, object], error: BaseException) -> dict[str, object]:
     """Expose recoverable cleanup leftovers without replacing the primary error."""
 
-    cleanup_warning = getattr(error, "cleanup_warning", None)
-    if cleanup_warning:
-        payload["cleanup_warning"] = cleanup_warning
-    snapshot_path = getattr(error, "source_snapshot_path", None)
-    if snapshot_path:
-        payload["source_snapshot_path"] = snapshot_path
+    for field in ("cleanup_warning", "source_snapshot_path", "pre_restore_backup"):
+        value = getattr(error, field, None)
+        if value:
+            payload[field] = value
     return payload

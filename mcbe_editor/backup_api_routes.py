@@ -6,13 +6,22 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .api_errors import error_payload
+from .api_errors import add_exception_cleanup_details, error_payload
 from .backup_consistency import BackupSourceChangedError
 from .backup_consistency import source_snapshot as _source_snapshot
 from .backup_settings import get_backup_settings, save_backup_settings
 from .i18n import t
+from .restore_recovery import recovery_command
 from .service_errors import public_error_text
 from .world import ensure_valid_world_path
+
+# Startup recovery stays deferred while the server status is unknown, so the
+# message names the recovery command for the world. The cause can name the
+# folder that holds the original world.
+RESTORE_OUTCOME_UNKNOWN = (
+    "Wiederherstellung unterbrochen. Nicht erneut wiederherstellen oder speichern. Minecraft und Server schließen, "
+    "im Anwendungsordner „{command}“ ausführen und danach die Welt neu laden. Ursache: {error}"
+)
 
 
 @dataclass(frozen=True)
@@ -192,6 +201,22 @@ def restore_backup_preview(data: dict, deps: BackupRouteDeps):
         return deps.api_error(t("Fehler bei der Restore-Vorschau: {error}", error=public_error_text(exc)), 500)
 
 
+def _restore_outcome_unknown(data: dict, deps: BackupRouteDeps, exc: Exception):
+    deps.log_api_exception("backup.restore", exc)
+    deps.audit_event(
+        "backup.restore", "failure", world_path=data.get("world_path"),
+        details={"backup_file": data.get("backup_file"), "write_outcome_unknown": True}, error=str(exc),
+    )
+    command = recovery_command(str(data["world_path"]), "--confirm-server-stopped")
+    payload = error_payload(
+        RESTORE_OUTCOME_UNKNOWN,
+        code="restore_outcome_unknown",
+        params={"command": command, "error": public_error_text(exc)},
+    )
+    payload.update(write_outcome_unknown=True, reload_required=True)
+    return deps.jsonify(add_exception_cleanup_details(payload, exc)), 500
+
+
 def restore_backup(data: dict, deps: BackupRouteDeps):
     blocked = deps.require_world_write_allowed()
     if blocked:
@@ -239,50 +264,31 @@ def restore_backup(data: dict, deps: BackupRouteDeps):
         )
         payload = error_payload(message, code="final_write_gate_blocked")
         payload["write_gate"] = exc.write_gate
-        pre_restore_backup = getattr(exc, "pre_restore_backup", None)
-        if pre_restore_backup:
-            payload["pre_restore_backup"] = pre_restore_backup
-        cleanup_warning = getattr(exc, "cleanup_warning", None)
-        if cleanup_warning:
-            payload["cleanup_warning"] = cleanup_warning
-        snapshot_path = getattr(exc, "source_snapshot_path", None)
-        if snapshot_path:
-            payload["source_snapshot_path"] = snapshot_path
-        return deps.jsonify(payload), 409
+        return deps.jsonify(add_exception_cleanup_details(payload, exc)), 409
     except ValueError as exc:
+        if getattr(exc, "write_outcome_unknown", False) is True:
+            return _restore_outcome_unknown(data, deps, exc)
         message = str(exc)
         status = 409 if message.startswith("Restore abgelehnt:") else 400
         deps.audit_event("backup.restore", "failure", world_path=data.get("world_path"), details={"backup_file": data.get("backup_file")}, error=message)
-        cleanup_warning = getattr(exc, "cleanup_warning", None)
-        pre_restore_backup = getattr(exc, "pre_restore_backup", None)
-        if cleanup_warning or pre_restore_backup:
+        recovery_details = add_exception_cleanup_details({}, exc)
+        if recovery_details:
             payload = error_payload(exc, code="restore_rejected")
-            if cleanup_warning:
-                payload["cleanup_warning"] = cleanup_warning
-            if pre_restore_backup:
-                payload["pre_restore_backup"] = pre_restore_backup
-            snapshot_path = getattr(exc, "source_snapshot_path", None)
-            if snapshot_path:
-                payload["source_snapshot_path"] = snapshot_path
+            payload.update(recovery_details)
             return deps.jsonify(payload), status
         return deps.api_error(exc, status)
     except Exception as exc:
+        if getattr(exc, "write_outcome_unknown", False) is True:
+            return _restore_outcome_unknown(data, deps, exc)
         deps.log_api_exception("backup.restore", exc)
         deps.audit_event("backup.restore", "failure", world_path=data.get("world_path"), details={"backup_file": data.get("backup_file")}, error=str(exc))
-        cleanup_warning = getattr(exc, "cleanup_warning", None)
-        pre_restore_backup = getattr(exc, "pre_restore_backup", None)
-        if cleanup_warning or pre_restore_backup:
+        recovery_details = add_exception_cleanup_details({}, exc)
+        if recovery_details:
             payload = error_payload(
                 "Fehler bei der Wiederherstellung: {error}",
                 code="restore_failed",
                 params={"error": public_error_text(exc)},
             )
-            if cleanup_warning:
-                payload["cleanup_warning"] = cleanup_warning
-            if pre_restore_backup:
-                payload["pre_restore_backup"] = pre_restore_backup
-            snapshot_path = getattr(exc, "source_snapshot_path", None)
-            if snapshot_path:
-                payload["source_snapshot_path"] = snapshot_path
+            payload.update(recovery_details)
             return deps.jsonify(payload), 500
         return deps.api_error(t("Fehler bei der Wiederherstellung: {error}", error=public_error_text(exc)), 500)

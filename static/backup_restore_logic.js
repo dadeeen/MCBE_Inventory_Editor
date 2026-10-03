@@ -493,6 +493,15 @@
                     renderWriteGate(outcome.writeGate, { requestOrder: statusRequestOrder });
                 }
                 if (!outcome.ok) {
+                    if (data.reload_required === true || data.write_outcome_unknown === true) {
+                        // The directory swap may have completed. Do not keep the
+                        // old player editable or report an automatic reload as success.
+                        resetLoadedPlayerState();
+                        setPlayers([]);
+                        renderPlayersList();
+                        renderPlayerToolOptions();
+                        renderWorldAnalysis();
+                    }
                     logRestoreStatus(outcome.statusMessage, outcome.statusType);
                     if (outcome.toast) showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
                     return;

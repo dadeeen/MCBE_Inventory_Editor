@@ -75,7 +75,7 @@ StrPath = str | os.PathLike[str]
 JsonObject = dict[str, Any]
 
 
-def _set_error_detail(error: BaseException, name: str, value: str) -> None:
+def _set_error_detail(error: BaseException, name: str, value: str | bool) -> None:
     """Attach API recovery details without changing the original exception type."""
 
     setattr(error, name, value)
@@ -1644,6 +1644,10 @@ def restore_backup(
             )
             LOGGER.exception("Rollback-Verzeichnis blieb nach erfolgreichem Restore zurück: %s", rollback_dir)
     except Exception as exc:
+        if transaction_journal and not transaction_resolved:
+            # A rename may already have changed the world. Retain recovery state
+            # and report neither a durable commit nor a rollback.
+            _set_error_detail(exc, "write_outcome_unknown", True)
         operation_error = exc
         raise
     finally:
@@ -1665,11 +1669,7 @@ def restore_backup(
                         _set_error_detail(operation_error, "temp_restore_path", temp_restore_dir)
                     LOGGER.exception("Temporärer Restore-Ordner konnte nach fehlgeschlagenem Restore nicht entfernt werden: %s", temp_restore_dir)
         elif os.path.exists(temp_restore_dir) and unresolved_transaction:
-            warning = t(
-                "Die Restore-Transaktion ist noch nicht eindeutig abgeschlossen. "
-                "Der Staging-Ordner bleibt für die sichere Wiederaufnahme beim nächsten beschreibbaren Start erhalten: {path}",
-                path=temp_restore_dir,
-            )
+            warning = t("Der Staging-Ordner bleibt für die Wiederaufnahme erhalten: {path}", path=temp_restore_dir)
             if operation_error is not None:
                 existing = getattr(operation_error, "cleanup_warning", None)
                 _set_error_detail(operation_error, "cleanup_warning", f"{existing} {warning}" if existing else warning)

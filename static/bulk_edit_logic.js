@@ -363,10 +363,15 @@
         function wireRepairAll() {
             elements.repairAllButton?.addEventListener("click", () => {
                 if (guardEditingAction()) return;
+                const sources = [
+                    { container: "inventory", map: getInventory?.() || {} },
+                    { container: "ender_chest", map: getEnderChestInventory?.() || {} },
+                ];
                 const repairTargets = window.MCBEInventoryState.damagedInventoryTargets({
-                    sources: [{ map: getInventory?.() || {} }, { map: getEnderChestInventory?.() || {} }],
+                    sources,
                     maxDamage: getMaxDamage?.() || {},
                     isItemVisiblePresent: itemIsVisiblePresent,
+                    isProtectedKnownSlot,
                 });
                 const plan = logic.repairAllPlan({ targetCount: repairTargets.length });
                 if (!plan.ok) {

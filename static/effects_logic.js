@@ -187,6 +187,7 @@
             [elements.foodSaturation, "food_saturation"],
         ];
         let conversionApplied = false;
+        let conversionSourceDimension = null;
 
         function formElements() {
             return elements;
@@ -207,6 +208,11 @@
             if (!abilityView?.locationConversionModel || !abilityView?.applyLocationConversionModel) return;
             const values = abilityView.readStatsFormValues(formElements());
             const sourceDimension = getPlayerStats?.()?.dimension_id;
+            // Applying the form starts a new conversion from the accepted dimension.
+            if (sourceDimension !== conversionSourceDimension) {
+                conversionApplied = false;
+                conversionSourceDimension = sourceDimension;
+            }
             const targetDimension = values.dimensionId;
             const source = Number(sourceDimension);
             const target = Number(targetDimension);
@@ -541,6 +547,7 @@
                 return;
             }
 
+            let liveUndoInput = null;
             listModel.rowModels.forEach(model => {
                 const index = model.index;
                 const row = effectsView.effectRowElement(model);
@@ -549,18 +556,23 @@
                         abilityView.applyControlState(control, { disabled: control.disabled, title: control.title, blocked: true });
                     });
                 }
-                const captureLiveEffectUndo = () => {
-                    if (row.dataset.undoCaptured !== "1") {
-                        pushUndo?.();
-                        row.dataset.undoCaptured = "1";
-                    }
-                };
                 [
                     [".eff-level", "input"],
                     [".eff-duration", "input"],
                     [".eff-particles", "change"],
                 ].forEach(([selector, eventName]) => {
                     const input = row.querySelector(selector);
+                    const captureLiveEffectUndo = () => {
+                        // Group typing only within this focused control. Checkbox
+                        // changes are discrete actions, including repeated clicks.
+                        if (liveUndoInput !== input || eventName === "change") {
+                            pushUndo?.();
+                            liveUndoInput = input;
+                        }
+                    };
+                    input?.addEventListener("blur", () => {
+                        if (liveUndoInput === input) liveUndoInput = null;
+                    });
                     input?.addEventListener(eventName, () => {
                         if (isEditingBlocked()) return;
                         logic.clampInputToDeclaredRange(input);

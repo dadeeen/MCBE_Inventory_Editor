@@ -232,6 +232,19 @@ def test_recovery_help_names_the_installation_interpreter(tmp_path, monkeypatch)
     assert restore_recovery.recovery_help_command() == f"{expected} -m mcbe_editor.restore_recovery --help"
 
 
+def test_recovery_command_quotes_a_world_path_with_spaces(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(restore_recovery.sys, "executable", str(tmp_path / ".venv" / "Scripts" / "python.exe"))
+    world_path = str(tmp_path / "Minecraft Bedrock" / "world")
+
+    command = restore_recovery.recovery_command(world_path, "--confirm-server-stopped")
+
+    expected = Path(".venv", "Scripts", "python.exe")
+    assert command.startswith(f"{expected} -m mcbe_editor.restore_recovery ")
+    assert command.endswith(" --confirm-server-stopped")
+    assert f"\"{world_path}\"" in command or f"'{world_path}'" in command
+
+
 def test_recovery_help_quotes_an_interpreter_outside_the_application(tmp_path, monkeypatch):
     interpreter = tmp_path / "shared env" / "python.exe"
     application = tmp_path / "application"
