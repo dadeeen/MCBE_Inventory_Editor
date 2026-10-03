@@ -3,10 +3,9 @@ import re
 from collections.abc import Mapping
 from typing import Any, TypedDict
 
+from mcbe_editor import item_data as _item_data
 from mcbe_editor import nbt
 from mcbe_editor.item_data import (
-    EFFECTS,
-    ENCHANTMENTS,
     get_max_damage,
     get_max_stack,
     has_verified_stack_limit,
@@ -626,7 +625,7 @@ def _active_effects_opaque_entry_count(player_tag):
             opaque_count += 1
             continue
         effect_id = _effect_id_from_tag(effect_tag)
-        if effect_id in EFFECTS:
+        if effect_id in _item_data.catalog_values()["EFFECTS"]:
             if effect_id in seen_editable_ids:
                 # The browser edits effects by their Vanilla ID. A second normal
                 # entry with the same ID has no unambiguous editable identity and
@@ -1048,13 +1047,15 @@ def _enchantment_level_from_tag(ench_tag) -> int:
     return _safe_int_from_tag(ench_tag.get("lvl"), 0)
 
 
-def _editable_known_enchantment_values(ench_tag, enchantments_db=ENCHANTMENTS) -> tuple[int, int] | None:
+def _editable_known_enchantment_values(ench_tag, enchantments_db=None) -> tuple[int, int] | None:
     """Return an editable known enchantment without normalizing malformed NBT.
 
     Known IDs with a missing, unparsable, or out-of-range level are still
     valuable original data. They stay opaque and are preserved verbatim instead
     of being exposed as an invalid UI value that blocks unrelated saves.
     """
+    if enchantments_db is None:
+        enchantments_db = _item_data.catalog_values()["ENCHANTMENTS"]
 
     if not hasattr(ench_tag, "get"):
         return None
@@ -1078,7 +1079,9 @@ def _editable_known_enchantment_values(ench_tag, enchantments_db=ENCHANTMENTS) -
     return ench_id, ench_level
 
 
-def _extract_known_enchantments(ench_list, enchantments_db=ENCHANTMENTS, seen_ids=None):
+def _extract_known_enchantments(ench_list, enchantments_db=None, seen_ids=None):
+    if enchantments_db is None:
+        enchantments_db = _item_data.catalog_values()["ENCHANTMENTS"]
     enchantments = []
     seen_ids = seen_ids if seen_ids is not None else set()
     if not _is_list_tag(ench_list):
@@ -1095,7 +1098,9 @@ def _extract_known_enchantments(ench_list, enchantments_db=ENCHANTMENTS, seen_id
     return enchantments
 
 
-def _item_known_enchantments(item, enchantments_db=ENCHANTMENTS):
+def _item_known_enchantments(item, enchantments_db=None):
+    if enchantments_db is None:
+        enchantments_db = _item_data.catalog_values()["ENCHANTMENTS"]
     enchantments = []
     seen_enchantment_ids = set()
     if not hasattr(item, "get") or "tag" not in item:
@@ -1110,7 +1115,9 @@ def _item_known_enchantments(item, enchantments_db=ENCHANTMENTS):
     return enchantments
 
 
-def _enchantments_match_original(item, enchantments, enchantments_db=ENCHANTMENTS) -> bool:
+def _enchantments_match_original(item, enchantments, enchantments_db=None) -> bool:
+    if enchantments_db is None:
+        enchantments_db = _item_data.catalog_values()["ENCHANTMENTS"]
     return _item_known_enchantments(item, enchantments_db=enchantments_db) == enchantments
 
 
@@ -1123,7 +1130,9 @@ def _copy_enchantment_tag_with_level(original_tag, ench_id: int, ench_lvl: int):
     return ench_tag
 
 
-def _has_unknown_enchantments(ench_list, enchantments_db=ENCHANTMENTS) -> bool:
+def _has_unknown_enchantments(ench_list, enchantments_db=None) -> bool:
+    if enchantments_db is None:
+        enchantments_db = _item_data.catalog_values()["ENCHANTMENTS"]
     if not _is_list_tag(ench_list):
         return True
     return any(_enchantment_id_from_tag(ench) not in enchantments_db for ench in ench_list)
@@ -1255,7 +1264,7 @@ def _item_has_protected_nbt(item) -> bool:
                 return True
             editable_values = _editable_known_enchantment_values(ench)
             ench_id = _enchantment_id_from_tag(ench)
-            if ench_id in ENCHANTMENTS:
+            if ench_id in _item_data.catalog_values()["ENCHANTMENTS"]:
                 if editable_values is None or ench_id in seen_editable_enchantment_ids:
                     return True
                 seen_editable_enchantment_ids.add(ench_id)
@@ -1316,7 +1325,7 @@ def _item_protected_nbt_summary(item) -> list[str]:
                 extra_count += 1
             editable_values = _editable_known_enchantment_values(ench)
             ench_id = _enchantment_id_from_tag(ench)
-            if ench_id in ENCHANTMENTS:
+            if ench_id in _item_data.catalog_values()["ENCHANTMENTS"]:
                 if editable_values is None or ench_id in seen_editable_enchantment_ids:
                     protected_enchantment_count += 1
                 else:
@@ -2270,10 +2279,10 @@ def parse_effects(player_tag):
         if _effect_control_fields_opaque(eff):
             effect_data["opaque"] = True
             effect_data["opaque_reason"] = t("Effekt enthält nicht unterstützte NBT-Typen oder Werte und wird geschützt erhalten.")
-        elif e_id in EFFECTS and e_id in seen_editable_ids:
+        elif e_id in _item_data.catalog_values()["EFFECTS"] and e_id in seen_editable_ids:
             effect_data["opaque"] = True
             effect_data["opaque_reason"] = "Doppelter Effekt mit derselben ID wird geschützt erhalten."
-        elif e_id in EFFECTS:
+        elif e_id in _item_data.catalog_values()["EFFECTS"]:
             seen_editable_ids.add(e_id)
         effects.append(effect_data)
     return effects
@@ -2307,7 +2316,7 @@ def validate_effect(effect_data):
         raise ValueError("Ungültige Effekt-Daten empfangen.") from None
     if not (0 <= e_id <= 255):
         raise ValueError(t("Effekt-ID außerhalb des gültigen Bereichs (0-255): {value}", value=e_id))
-    if e_id not in EFFECTS:
+    if e_id not in _item_data.catalog_values()["EFFECTS"]:
         raise ValueError(f"Unbekannte Effekt-ID: {e_id}")
     if not (0 <= amplifier <= 255):
         raise ValueError(t("Verstärkung außerhalb des gültigen Bereichs (0-255): {value}", value=amplifier))
@@ -2548,7 +2557,7 @@ def item_payload_matches_original(base_item_tag, validated_item, enchantments_db
     original_name, original_lore = _original_display_fields(base_item_tag)
     if original_name != validated_item["display_name"] or original_lore != validated_item["lore"]:
         return False
-    return _item_known_enchantments(base_item_tag, enchantments_db or ENCHANTMENTS) == validated_item["enchantments"]
+    return _item_known_enchantments(base_item_tag, enchantments_db or _item_data.catalog_values()["ENCHANTMENTS"]) == validated_item["enchantments"]
 
 
 OPAQUE_ENCHANTMENT_TAG_ERROR = "Verzauberungen können nicht bearbeitet werden, weil vorhandene Enchantment-Tags einen unbekannten NBT-Typ verwenden."
@@ -2569,7 +2578,7 @@ def _default_enchantment_list_name(tag_comp, original_known_ids_by_list, list_is
 
 
 def apply_editable_item_tags(item_compound, item_data, enchantments_db=None):
-    enchantments_db = enchantments_db or ENCHANTMENTS
+    enchantments_db = enchantments_db or _item_data.catalog_values()["ENCHANTMENTS"]
     display_name = item_data["display_name"]
     lore = item_data["lore"]
     enchantments = item_data["enchantments"]
@@ -3321,7 +3330,7 @@ def apply_effects(player_tag, effects_list):
     if _is_list_tag(active_effects_tag):
         for original_effect in active_effects_tag:
             effect_id = _effect_id_from_tag(original_effect)
-            if effect_id in EFFECTS and hasattr(original_effect, "get"):
+            if effect_id in _item_data.catalog_values()["EFFECTS"] and hasattr(original_effect, "get"):
                 if _effect_control_fields_opaque(original_effect) or effect_id in seen_original_editable_effect_ids:
                     original_protected_known_effects.append(original_effect)
                     original_protected_known_effect_ids.add(effect_id)
@@ -3350,7 +3359,7 @@ def apply_effects(player_tag, effects_list):
             # originals; a normal row with the same ID remains independently
             # editable.
             continue
-        if effect_id not in EFFECTS:
+        if effect_id not in _item_data.catalog_values()["EFFECTS"]:
             if effect_id in original_unknown_effect_ids:
                 # The server always preserves original unknown effects below.
                 # Do not rewrite them from lossy JSON/UI data. Multiple opaque

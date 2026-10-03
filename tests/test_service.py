@@ -148,8 +148,6 @@ class ServiceTests(unittest.TestCase):
             effective_addable = frozenset({"minecraft:stone", "minecraft:white_cushion"})
             effective_block_only = frozenset({"minecraft:black_wool_double_slab"})
             with (
-                patch("mcbe_editor.services.ADDABLE_ITEM_IDS", effective_addable),
-                patch("mcbe_editor.services.BLOCK_ONLY_ITEM_IDS", effective_block_only),
                 patch.object(item_data_module, "ADDABLE_ITEM_IDS", effective_addable),
                 patch.object(item_data_module, "BLOCK_ONLY_ITEM_IDS", effective_block_only),
             ):
@@ -1059,7 +1057,7 @@ class ServiceTests(unittest.TestCase):
                     encode_player_key(LOCAL_PLAYER_KEY),
                     True,
                     import_token=token,
-                    base_revision=guarded_service._player_revision(raw),
+                    base_revision=service._player_revision(raw),
                     write_gate_check=block_immediately_before_write,
                 )
             self.assertEqual(late_gate_checks, ["check", "check", "check"])

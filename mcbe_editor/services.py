@@ -2,23 +2,11 @@ import contextlib
 import hashlib
 import logging
 import os
+from functools import wraps
 
-from mcbe_editor import nbt
+from mcbe_editor import item_data, nbt
 from mcbe_editor.item_availability import item_availability_client_payload
-from mcbe_editor.item_data import (
-    ADDABLE_ITEM_IDS,
-    BLOCK_ITEM_IDS,
-    BLOCK_ONLY_ITEM_IDS,
-    COMPAT_ITEM_ALIASES,
-    DEFAULT_MAX_STACK,
-    DURABILITY,
-    EFFECTS,
-    ENCHANTMENT_COMPATIBILITY,
-    ITEM_COMPONENTS,
-    MAX_DATA_VALUE,
-    STACK_LIMITS,
-    selectable_item_catalog,
-)
+from mcbe_editor.item_data import selectable_item_catalog
 
 from .backup import (
     BACKUP_KIND_MANUAL,
@@ -109,6 +97,14 @@ from .write_transaction import WritePlan, WriteState
 LOGGER = logging.getLogger(__name__)
 
 
+def _catalog_operation(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        with item_data.use_item_catalog(self.item_catalog):
+            return func(self, *args, **kwargs)
+    return wrapper
+
+
 class BedrockEditorService:
     def __init__(
         self,
@@ -116,7 +112,12 @@ class BedrockEditorService:
         enchantments_db,
         db_factory=LevelDbAdapter,
         readonly_db_factory=ReadonlyLevelDbAdapter,
+        *,
+        item_catalog=None,
     ):
+        """Without ``item_catalog``, operations read the current module data; that suits tests and standalone scripts."""
+
+        self.item_catalog = item_catalog
         self.items_db = items_db
         self.enchantments_db = enchantments_db
         self.db_factory = db_factory
@@ -374,6 +375,7 @@ class BedrockEditorService:
             return {}
         return items_by_slot_for_origin(source_list_tag)
 
+    @_catalog_operation
     def list_players(self, world_path):
         db = None
         with self._locked_world(world_path):
@@ -395,7 +397,9 @@ class BedrockEditorService:
     def load_world(self, world_path):
         return self.load_player(world_path, encode_player_key(LOCAL_PLAYER_KEY))
 
+    @_catalog_operation
     def load_player(self, world_path, encoded_player_key):
+        catalog = item_data.catalog_values()
         db = None
         with self._locked_world(world_path):
             try:
@@ -445,9 +449,9 @@ class BedrockEditorService:
                 )
                 selectable_items_db = selectable_item_catalog(
                     self.items_db,
-                    addable_item_ids=ADDABLE_ITEM_IDS,
-                    block_only_item_ids=BLOCK_ONLY_ITEM_IDS,
-                    compat_item_aliases=COMPAT_ITEM_ALIASES,
+                    addable_item_ids=catalog["ADDABLE_ITEM_IDS"],
+                    block_only_item_ids=catalog["BLOCK_ONLY_ITEM_IDS"],
+                    compat_item_aliases=catalog["COMPAT_ITEM_ALIASES"],
                 )
 
                 return {
@@ -470,21 +474,22 @@ class BedrockEditorService:
                     },
                     "capabilities": self._capabilities_for_players(world_path, players),
                     "items_db": selectable_items_db,
-                    "compat_item_aliases": COMPAT_ITEM_ALIASES,
-                    "addable_items": sorted(ADDABLE_ITEM_IDS),
-                    "block_only_items": sorted(BLOCK_ONLY_ITEM_IDS),
-                    "block_items": sorted(BLOCK_ITEM_IDS),
+                    "compat_item_aliases": catalog["COMPAT_ITEM_ALIASES"],
+                    "addable_items": sorted(catalog["ADDABLE_ITEM_IDS"]),
+                    "block_only_items": sorted(catalog["BLOCK_ONLY_ITEM_IDS"]),
+                    "block_items": sorted(catalog["BLOCK_ITEM_IDS"]),
                     "item_availability": item_availability_client_payload(),
                     "ench_db": {k: {"name_de": v[0], "name_en": v[1], "max_lvl": v[2]} for k, v in self.enchantments_db.items()},
-                    "enchantment_compatibility": ENCHANTMENT_COMPATIBILITY,
-                    "item_components": ITEM_COMPONENTS,
-                    "effects_db": EFFECTS,
-                    "stack_limits": {**STACK_LIMITS, "__default__": DEFAULT_MAX_STACK},
-                    "max_damage": {**DURABILITY, "__default__": MAX_DATA_VALUE},
+                    "enchantment_compatibility": catalog["ENCHANTMENT_COMPATIBILITY"],
+                    "item_components": catalog["ITEM_COMPONENTS"],
+                    "effects_db": catalog["EFFECTS"],
+                    "stack_limits": {**catalog["STACK_LIMITS"], "__default__": catalog["DEFAULT_MAX_STACK"]},
+                    "max_damage": {**catalog["DURABILITY"], "__default__": catalog["MAX_DATA_VALUE"]},
                 }
             finally:
                 close_db_preserving_active_exception(db, context="Spieler laden")
 
+    @_catalog_operation
     def stored_player_revision(self, world_path, encoded_player_key) -> str | None:
         """Revision of the player's stored record, "" if it is gone.
 
@@ -508,6 +513,7 @@ class BedrockEditorService:
     def save_world(self, world_path, inventory_list, stats, base_revision=None):
         return self.save_player(world_path, encode_player_key(LOCAL_PLAYER_KEY), inventory_list, stats, base_revision=base_revision)
 
+    @_catalog_operation
     def save_player(
         self,
         world_path,
@@ -823,6 +829,7 @@ class BedrockEditorService:
             finally:
                 close_db_preserving_active_exception(db, context="Spieler-Speichern vor dem Commit")
 
+    @_catalog_operation
     def compatibility_report(self, world_path, encoded_player_key=None):
         db = None
         with self._locked_world(world_path):
@@ -899,6 +906,7 @@ class BedrockEditorService:
                 t("Spielermigration abgelehnt: Welt, Quelle oder Ziel haben sich seit der Vorschau geändert. Bitte Migration erneut prüfen.")
             )
 
+    @_catalog_operation
     def preview_player_state_transfer(self, world_path, encoded_source_player_key, encoded_target_player_key):
         db = None
         with self._locked_world(world_path):
@@ -1022,6 +1030,7 @@ class BedrockEditorService:
                     db = None
         return failures, rollback_required
 
+    @_catalog_operation
     def transfer_player_state(
         self,
         world_path,
@@ -1163,6 +1172,7 @@ class BedrockEditorService:
                 result["cleanup_warning"] = cleanup_warning
             return result
 
+    @_catalog_operation
     def export_player(self, world_path, encoded_player_key):
         db = None
         with self._locked_world(world_path):
@@ -1260,6 +1270,7 @@ class BedrockEditorService:
                     db = None
         return failures, rollback_required
 
+    @_catalog_operation
     def preview_player_export(self, export_zip, target_world_path):
         ensure_valid_world_path(target_world_path)
         snapshot_path, import_token = snapshot_player_export_for_import(export_zip, target_world_path)
@@ -1324,6 +1335,7 @@ class BedrockEditorService:
             result["cleanup_warning"] = cleanup_warning
         return result
 
+    @_catalog_operation
     def import_player(
         self,
         export_zip,
