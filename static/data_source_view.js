@@ -48,12 +48,13 @@
     }
 
     function itemDbStatusRank(status = null) {
-        if (!status) return 1;
+        if (!status || status.reload_warning) return 1;
         return status.status === "ok" && status.verification?.verified === true ? 0 : 1;
     }
 
     function itemDbStatusValue(status = null) {
         if (!status) return t("lädt");
+        if (status.reload_warning) return t("Item-DB-Aktualisierung fehlgeschlagen.");
         if (status.status === "unavailable") return t("Status nicht verfügbar");
         if (status.status !== "ok") return t("Herkunft fehlt");
         return status.verification?.verified === true ? t("geprüft") : t("Prüfung offen");
@@ -61,6 +62,7 @@
 
     function itemDbSourceText(status = null) {
         if (!status) return t("Status wird geladen");
+        if (status.reload_warning) return status.reload_warning;
         if (status.status === "unavailable") return status.message || t("Item-DB-Status konnte nicht geladen werden.");
         const meta = status.source_version || {};
         if (status.source_version_present) {
