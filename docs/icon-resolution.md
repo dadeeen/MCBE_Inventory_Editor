@@ -154,6 +154,16 @@ its manifest publication metadata without a recursive file walk on each load.
 The signature also covers item catalog membership and block classification.
 Each scan uses one catalog snapshot, so a concurrent catalog update cannot mix
 resolution rules within an index. A later request validates against its catalog.
+Status and scan requests prepare their configured sources once, then reuse that
+selection for the context identifier and scanner. Source signatures still check
+the files, including the consistency check before publishing a rebuilt pack index.
+
+Cached warnings retain their message keys, parameters and affected source
+indices. Responses translate them into the request's language. Source and overall
+status reflect unresolved content even when other icons are available. Pack
+selection warnings and their counts belong to the requesting world rather than
+its shared index. Older indexes remain readable; writable scans rebuild legacy
+diagnostics, while read-only access retains the icons and offers a rescan hint.
 
 Persistent index files are retained until explicit source changes or Vanilla
 updates invalidate them. Loading more worlds does not evict their publications.

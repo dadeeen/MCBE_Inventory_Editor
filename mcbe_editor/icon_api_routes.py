@@ -14,6 +14,7 @@ from typing import Any
 from .api_errors import error_payload
 from .archive_errors import ZIP_READ_ERRORS
 from .i18n import t
+from .icon_diagnostics import warning_text
 from .icons import (
     add_icon_source,
     clear_icon_cache,
@@ -69,11 +70,12 @@ class IconRouteDeps:
 # 18-px-Ausschnitt einer Entity-Textur praktisch nur als schwarzer Kasten
 # ankommt. Extraktion und Cache laufen unverändert weiter, damit die
 # Manifest-Schemaversion und die Icon-Caches der Nutzer gültig bleiben.
-_INTERNAL_ICON_INDEX_FIELDS = ("_by_token", "display_icons", "_context_id")
+_INTERNAL_ICON_INDEX_FIELDS = ("_by_token", "display_icons", "_context_id", "_warning_records", "_legacy_warnings")
 
 
 def _public_icon_index(index: dict) -> dict:
     public = {key: value for key, value in index.items() if key not in _INTERNAL_ICON_INDEX_FIELDS}
+    public["warnings"] = [warning_text(record) for record in index.get("_warning_records", index.get("warnings", []))]
     context = index.get("_context_id")
     if context:
         def with_context(entry):
@@ -103,8 +105,10 @@ def _selection_diagnostics(index: dict, warnings: list[str]) -> dict:
     if not warnings:
         return index
     # Selection errors belong to the request, not to a shared Vanilla index.
-    return {**index, "warnings": [*index.get("warnings", []), *warnings],
-            "health": {**index.get("health", {}), "status": "warning"}}
+    combined = [*index.get("warnings", []), *warnings]
+    return {**index, "warnings": combined,
+            "_warning_records": [*index.get("_warning_records", index.get("warnings", [])), *warnings],
+            "health": {**index.get("health", {}), "status": "warning", "warning_count": len(combined)}}
 
 
 def _scan_and_store_icons(
@@ -117,11 +121,12 @@ def _scan_and_store_icons(
     with _icon_operation(deps):
         if extra_sources is None:
             extra_sources, selection_warnings = _requested_icon_context({}, deps)
-        context_id = icon_context_id(configured_icon_sources(deps.settings_path, extra_sources=extra_sources))
+        sources = configured_icon_sources(deps.settings_path, extra_sources=extra_sources)
+        context_id = icon_context_id(sources)
         index = scan_icons(
             settings_path=deps.settings_path,
             force=force,
-            extra_sources=extra_sources,
+            prepared_sources=sources,
             context_id=context_id,
         )
         deps.set_icon_index(index)
@@ -134,12 +139,12 @@ def _icon_extra_sources_from_world(world_path: str | None) -> list[dict]:
 
 def _status_icon_index(deps: IconRouteDeps, world_path: str | None) -> dict:
     sources, warnings = _requested_icon_context({} if world_path is None else {"world_path": world_path}, deps)
-    context = icon_context_id(configured_icon_sources(deps.settings_path, extra_sources=sources))
     # A worker-local index is not proof that the underlying pack files still
     # match. Only a validated publication or successful scan may supply icons.
     index = {"success": True, "enabled": True, "icons": {}, "_by_token": {}, "count": 0, "sources": [], "roots": [], "warnings": []}
     if deps.read_only:
         try:
+            context = icon_context_id(configured_icon_sources(deps.settings_path, extra_sources=sources))
             cached = load_cached_icon_index(deps.settings_path, context_id=context)
             if cached is None:
                 latest = load_cached_icon_index(deps.settings_path)
@@ -150,6 +155,10 @@ def _status_icon_index(deps: IconRouteDeps, world_path: str | None) -> dict:
                     cached = latest
             if cached is not None:
                 index = cached
+                if cached.get("_legacy_warnings"):
+                    warnings.append(t(
+                        "Bitte Icons einmal mit Schreibzugriff neu scannen, um ältere Diagnosemeldungen in der gewählten Sprache anzuzeigen."
+                    ))
             else:
                 warnings.append(t("Kein gültiger Icon-Index vorhanden. Bitte die Icons einmal mit Schreibzugriff laden oder aktualisieren."))
         except Exception as exc:
@@ -253,7 +262,10 @@ def icons_sources(deps: IconRouteDeps, *, world_path: str | None = None):
         with _icon_operation(deps):
             index = deps.get_icon_index() if world_path is None else _status_icon_index(deps, world_path)
             public = _public_icon_index(index)
-            public["configured_sources"] = configured_icon_sources(deps.settings_path)
+            public["configured_sources"] = [
+                {**source, "pack_error": warning_text(source["pack_error"])} if source.get("pack_error") else source
+                for source in configured_icon_sources(deps.settings_path)
+            ]
             public["manual_sources"] = load_icon_sources(deps.settings_path).get("sources", [])
             public["settings_path"] = deps.settings_path
             return deps.jsonify(public)

@@ -17,6 +17,7 @@ from uuid import UUID
 
 from .archive_errors import ZIP_READ_ERRORS
 from .i18n import t
+from .icon_diagnostics import IconSourceError, error_record, warning_record
 from .path_safety import is_linklike
 
 MAX_METADATA_BYTES = 2 * 1024 * 1024
@@ -32,12 +33,12 @@ def strip_json_comments(text: str) -> str:
 
 def parse_json(raw: bytes):
     if len(raw) > MAX_METADATA_BYTES:
-        raise ValueError(t("Pack-Metadaten überschreiten das Größenlimit."))
+        raise IconSourceError("Pack-Metadaten überschreiten das Größenlimit.")
     def unique_object(pairs):
         result = {}
         for key, value in pairs:
             if key in result:
-                raise ValueError(t("Pack-Metadaten enthalten einen mehrfach belegten Schlüssel: {key}", key=key))
+                raise IconSourceError("Pack-Metadaten enthalten einen mehrfach belegten Schlüssel: {key}", key=key)
             result[key] = value
         return result
 
@@ -53,21 +54,21 @@ def read_json_file(path: Path, root: Path):
 
 def _read_archive_json(zf: zipfile.ZipFile, entry: zipfile.ZipInfo):
     if entry.file_size > MAX_METADATA_BYTES:
-        raise ValueError(t("Pack-Metadaten überschreiten das Größenlimit."))
+        raise IconSourceError("Pack-Metadaten überschreiten das Größenlimit.")
     try:
         with zf.open(entry) as stream:
             raw = stream.read(MAX_METADATA_BYTES + 1)
     except ZIP_READ_ERRORS as exc:
         # ZIP decoders expose different exception types for corrupt/encrypted
         # streams. Contain failures at this read boundary, before parsing JSON.
-        raise ValueError(t("Pack-Metadaten können nicht entpackt werden: {path}", path=entry.filename)) from exc
+        raise IconSourceError("Pack-Metadaten können nicht entpackt werden: {path}", path=entry.filename) from exc
     return parse_json(raw)
 
 
 def relative_name(value: str) -> str:
     name = value.replace("\\", "/")
     if not name or "\x00" in name or ":" in name or name.startswith("/") or any(part in {"", ".", ".."} for part in name.split("/")):
-        raise ValueError(t("Ungültiger relativer Pfad in Pack-Metadaten."))
+        raise IconSourceError("Ungültiger relativer Pfad in Pack-Metadaten.")
     return name
 
 
@@ -94,19 +95,19 @@ class PackReader:
                     raise error
 
                 def linked(path):
-                    raise ValueError(t("Pack enthält einen Symlink oder Reparse-Point: {path}", path=path))
+                    raise IconSourceError("Pack enthält einen Symlink oder Reparse-Point: {path}", path=path)
 
                 for path in _directory_files(self.path, onerror=failed, onlink=linked):
                     entries[path.relative_to(self.path).as_posix()] = path
                     if len(entries) > MAX_PACK_FILES:
-                        raise ValueError(t("Pack überschreitet das Dateilimit."))
+                        raise IconSourceError("Pack überschreitet das Dateilimit.")
             else:
                 self.archive = self.stack.enter_context(_open_source_file(self.path, self.path.parent))
                 self.archive_stat = os.fstat(self.archive.fileno())
                 self.zf = self.stack.enter_context(zipfile.ZipFile(self.archive))
                 infos = self.zf.infolist()
                 if len(infos) > MAX_PACK_FILES:
-                    raise ValueError(t("Pack überschreitet das Dateilimit."))
+                    raise IconSourceError("Pack überschreitet das Dateilimit.")
                 for info in infos:
                     if info.is_dir():
                         continue
@@ -116,13 +117,13 @@ class PackReader:
                             continue
                         name = name[len(self.prefix):]
                     if name in entries:
-                        raise ValueError(t("Pack enthält einen mehrfach belegten Dateipfad: {path}", path=name))
+                        raise IconSourceError("Pack enthält einen mehrfach belegten Dateipfad: {path}", path=name)
                     entries[name] = info
             self.files = {name: entry for name, entry in entries.items() if not name.startswith("subpacks/")}
             if self.subpack:
                 prefix = f"subpacks/{relative_name(self.subpack)}/"
                 if not any(name.startswith(prefix) for name in entries):
-                    raise ValueError(t("Ausgewähltes Subpack fehlt im Pack."))
+                    raise IconSourceError("Ausgewähltes Subpack fehlt im Pack.")
                 self.files.update({name[len(prefix):]: entry for name, entry in entries.items() if name.startswith(prefix)})
             return self
         except BaseException:
@@ -138,7 +139,7 @@ class PackReader:
                 if not os.path.samestat(self.archive_stat, current) or (
                     self.archive_stat.st_size, self.archive_stat.st_mtime_ns
                 ) != (current.st_size, current.st_mtime_ns):
-                    raise ValueError(t("Pack wurde während des Einlesens verändert."))
+                    raise IconSourceError("Pack wurde während des Einlesens verändert.")
         finally:
             self.stack.close()
 
@@ -160,18 +161,18 @@ def _manifest(path: Path) -> tuple[dict, str]:
         with _open_source_file(path, path.parent) as stream, zipfile.ZipFile(stream) as zf:
             infos = zf.infolist()
             if len(infos) > MAX_PACK_FILES:
-                raise ValueError(t("Pack überschreitet das Dateilimit."))
+                raise IconSourceError("Pack überschreitet das Dateilimit.")
             manifests = [info for info in infos if PurePosixPath(relative_name(info.filename.rstrip("/"))).name == "manifest.json" and not info.is_dir()]
             manifests = [info for info in manifests if len(PurePosixPath(info.filename).parts) <= 2]
             if not manifests:
                 raise FileNotFoundError("manifest.json")
             if len(manifests) != 1 or manifests[0].file_size > MAX_METADATA_BYTES:
-                raise ValueError(t("Pack-Manifest fehlt oder ist nicht eindeutig."))
+                raise IconSourceError("Pack-Manifest fehlt oder ist nicht eindeutig.")
             info = manifests[0]
             prefix = relative_name(info.filename).removesuffix("manifest.json")
             raw = _read_archive_json(zf, info)
     if not isinstance(raw, dict) or not isinstance(raw.get("header"), dict):
-        raise ValueError(t("Ungültiges Pack-Manifest."))
+        raise IconSourceError("Ungültiges Pack-Manifest.")
     return raw, prefix
 
 
@@ -180,12 +181,12 @@ def _version(value) -> str:
         return ".".join(map(str, value))
     if isinstance(value, str) and re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][\w.-]+)?", value):
         return value
-    raise ValueError(t("Ungültige Pack-Version."))
+    raise IconSourceError("Ungültige Pack-Version.")
 
 
 def _pack_key(entry: dict, id_field: str) -> tuple[str, str]:
     if not isinstance(entry, dict) or not isinstance(entry.get(id_field), str) or "version" not in entry:
-        raise ValueError(t("Ungültiges Pack-Manifest."))
+        raise IconSourceError("Ungültiges Pack-Manifest.")
     return str(UUID(entry[id_field])), _version(entry["version"])
 
 
@@ -234,7 +235,7 @@ def select_world_packs(world_path: str | None) -> PackSelection:
     if not world_path:
         return selection
     if "\x00" in world_path:
-        raise ValueError(t("Ungültiger Weltpfad."))
+        raise IconSourceError("Ungültiger Weltpfad.")
     world = Path(world_path).expanduser().absolute()
     for folder, kind in (("resource_packs", "resources"), ("behavior_packs", "data")):
         listing = world / f"world_{folder}.json"
@@ -264,7 +265,7 @@ def select_world_packs(world_path: str | None) -> PackSelection:
                         continue
                     inspected += 1
                     if inspected > MAX_PACKS:
-                        raise ValueError(t("Pack-Suche überschreitet das Paketlimit."))
+                        raise IconSourceError("Pack-Suche überschreitet das Paketlimit.")
                     try:
                         manifest, prefix = _manifest(path)
                         if not any(isinstance(module, dict) and module.get("type") == kind for module in manifest.get("modules", [])):
@@ -297,13 +298,13 @@ def select_world_packs(world_path: str | None) -> PackSelection:
             try:
                 key = _pack_key(entry, "pack_id")
                 if activated_ids.count(key[0]) > 1:
-                    raise ValueError(t("Pack ist mehrfach aktiviert."))
+                    raise IconSourceError("Pack ist mehrfach aktiviert.")
                 matches = candidates.get(key, [])
                 if not matches:
-                    raise ValueError(t("Passendes Pack mit dieser Kennung und Version fehlt oder ist nicht lesbar."))
+                    raise IconSourceError("Passendes Pack mit dieser Kennung und Version fehlt oder ist nicht lesbar.")
                 best = [match for match in matches if match["_rank"] == matches[0]["_rank"]]
                 if len(best) != 1:
-                    raise ValueError(t("Mehrere Packs haben dieselbe Kennung und Version."))
+                    raise IconSourceError("Mehrere Packs haben dieselbe Kennung und Version.")
                 source = dict(best[0])
                 manifest = source.pop("_manifest")
                 source.pop("_rank")
@@ -312,12 +313,12 @@ def select_world_packs(world_path: str | None) -> PackSelection:
                 subpacks = manifest.get("subpacks", [])
                 subpack = entry.get("subpack", "")
                 if subpacks and not subpack:
-                    raise ValueError(t("Subpack-Auswahl fehlt; eine geräteabhängige Variante wird nicht geraten."))
+                    raise IconSourceError("Subpack-Auswahl fehlt; eine geräteabhängige Variante wird nicht geraten.")
                 if subpack:
                     if not isinstance(subpack, str) or "/" in relative_name(subpack):
-                        raise ValueError(t("Ungültige Subpack-Auswahl."))
+                        raise IconSourceError("Ungültige Subpack-Auswahl.")
                     if not any(isinstance(value, dict) and value.get("folder_name") == subpack for value in subpacks):
-                        raise ValueError(t("Ausgewähltes Subpack ist nicht im Manifest enthalten."))
+                        raise IconSourceError("Ausgewähltes Subpack ist nicht im Manifest enthalten.")
                     source["subpack"] = subpack
                 selection.sources.append(source)
             except (ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -353,7 +354,7 @@ def describe_icon_source(source: dict) -> dict:
     except FileNotFoundError:
         return source
     except (OSError, ValueError, KeyError, TypeError, RecursionError, zipfile.BadZipFile, RuntimeError) as exc:
-        return {**source, "pack_kind": "invalid", "pack_error": str(exc)}
+        return {**source, "pack_kind": "invalid", "pack_error": error_record(exc)}
     modules = manifest.get("modules", [])
     if not isinstance(modules, list):
         modules = []
@@ -361,6 +362,6 @@ def describe_icon_source(source: dict) -> dict:
     if kind:
         described = {**source, "pack_kind": kind, "pack_prefix": prefix}
         if manifest.get("subpacks") and not source.get("subpack"):
-            described["pack_error"] = t("Subpack-Auswahl fehlt; eine geräteabhängige Variante wird nicht geraten.")
+            described["pack_error"] = warning_record("Subpack-Auswahl fehlt; eine geräteabhängige Variante wird nicht geraten.")
         return described
-    return {**source, "pack_kind": "invalid", "pack_error": t("Ungültiges Pack-Manifest.")}
+    return {**source, "pack_kind": "invalid", "pack_error": warning_record("Ungültiges Pack-Manifest.")}

@@ -2776,5 +2776,8 @@
   "Kein gültiger Icon-Index vorhanden. Bitte die Icons einmal mit Schreibzugriff laden oder aktualisieren.": "No valid icon index is available. Please load or update the icons once with write access.",
   "Icon-Index konnte nicht geladen werden. Bitte erneut laden oder Icons neu scannen.": "The icon index could not be loaded. Please reload or rescan icons.",
   "Pack-Metadaten können nicht entpackt werden: {path}": "The pack metadata could not be decompressed: {path}",
-  "deklarierte Bilddatei ist leer oder zu groß": "the declared image file is empty or too large"
+  "deklarierte Bilddatei ist leer oder zu groß": "the declared image file is empty or too large",
+  "bereit mit Einschränkungen": "ready with limitations",
+  "{path}: {type}: {error}": "{path}: {type}: {error}",
+  "Bitte Icons einmal mit Schreibzugriff neu scannen, um ältere Diagnosemeldungen in der gewählten Sprache anzuzeigen.": "Please rescan icons once with write access to display older diagnostics in the selected language."
 }

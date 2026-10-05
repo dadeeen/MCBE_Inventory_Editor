@@ -1,5 +1,6 @@
 import json
 import os
+from mcbe_editor.icon_diagnostics import warning_text
 from mcbe_editor.icons import _MAX_FILE_BYTES, scan_icons
 import pytest
 
@@ -175,7 +176,7 @@ def test_icon_scan_keeps_readable_siblings_of_unreadable_directory(monkeypatch, 
     assert scanned == 1
     assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
     assert len(warnings) == 1
-    assert "PermissionError: unreadable subtree" in warnings[0]
+    assert "PermissionError: unreadable subtree" in warning_text(warnings[0])
 
 
 def test_icon_scan_reports_linked_pack_that_can_be_added_directly(monkeypatch, tmp_path):
@@ -224,7 +225,7 @@ def test_icon_scan_continues_after_entry_with_unreadable_type(monkeypatch, tmp_p
 
     assert scanned == 1
     assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
-    assert warnings == [f"{root}: PermissionError: entry type unavailable"]
+    assert [warning_text(record) for record in warnings] == [f"{root}: PermissionError: entry type unavailable"]
 
 
 from mcbe_editor.icons import add_icon_source, load_icon_sources, remove_icon_source
@@ -1002,4 +1003,4 @@ def test_archive_changed_during_scan_publishes_no_partial_candidates(tmp_path, m
     assert scanned == 2
     assert not candidates and not display
     assert len(warnings) == 1
-    assert "verändert" in warnings[0]
+    assert "verändert" in warning_text(warnings[0])
