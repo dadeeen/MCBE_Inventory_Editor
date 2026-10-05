@@ -17,6 +17,7 @@ export function snapshot(item, test = {}) {
 }
 
 export function referenceItem(test, seed = false) {
+    if (seed && test.seed_item) return referenceItem({ ...test, ...test.seed_item });
     const item = test.potion ? Potions.resolve(test.potion.effect, test.potion.delivery) : new ItemStack(test.id, test.amount);
     if (item.typeId !== test.id || item.amount !== test.amount) throw new Error("Reference identity/count changed: " + test.case_id);
     if (!seed || test.seeded_metadata) {

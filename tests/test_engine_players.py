@@ -43,6 +43,24 @@ def test_durability_measurements_detect_wrong_values_missing_components_and_unre
     assert catalog_result(events, list(limits), limits, {"minecraft:fishing_rod": 384})["status"] == "fail"
 
 
+def test_player_profile_fits_both_containers_and_has_mixed_new_and_preserved_items():
+    from scripts.engine_checks.runner import ROOT
+    from scripts.engine_checks.service_profile import make_service_cases
+
+    catalog = json.loads((ROOT / "mcbe_editor/resources/item_db.json").read_text(encoding="utf-8"))
+    observations = {item: {"max_amount": limit, "max_durability": catalog["durability"].get(item)}
+                    for item, limit in catalog["stack_limits"].items()}
+    cases = make_service_cases(observations, catalog["stack_limits"], catalog["enchantments"])
+    locations = assignments(cases)
+    assert len(cases) == 45
+    for field, last_slot in (("Inventory", 35), ("EnderChestInventory", 26)):
+        local = [case for case in cases if locations[case["case_id"]][0] == field]
+        assert len(local) <= 24
+        assert any(locations[case["case_id"]][1] == last_slot for case in local)
+        assert {case["mode"] for case in local if case.get("coverage") == "mixed-metadata"} == {"create", "preserve", "decorate"}
+        assert any(case.get("coverage") == "mixed-clear" for case in local)
+
+
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "extra", "count", "control", "slot-type", "container"])
 def test_real_player_disk_observer_rejects_corruption(mutation):
     from mcbe_editor import nbt

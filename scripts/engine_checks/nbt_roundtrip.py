@@ -284,6 +284,14 @@ def run(run_dir: Path, action: str) -> dict:
 
     run_dir = run_dir.resolve(strict=True)
     report = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    if action == "rules":
+        from .editor_rules import check_editor_rules
+
+        matrix_path = run_dir / "matrix.json"
+        if (report.get("format") != "mcbe-engine-check-v1" or report.get("phases", {}).get("matrix") != "pass"
+                or sha256(matrix_path) != report.get("extended", {}).get("matrix_sha256")):
+            raise ProbeError("A complete, unchanged engine matrix is required")
+        return check_editor_rules(json.loads(matrix_path.read_text(encoding="utf-8")), report["catalog"]["observations"])
     if report.get("format") != "mcbe-engine-check-v1" or report.get("phases", {}).get("seed") != "pass":
         raise ProbeError("A completed engine seed phase is required")
     case_path = run_dir / "cases.json"
@@ -332,7 +340,7 @@ def run(run_dir: Path, action: str) -> dict:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[2] not in {"edit", "verify"}:
-        raise SystemExit("Usage: python -m scripts.engine_checks.nbt_roundtrip RUN_DIR edit|verify")
+    if len(sys.argv) != 3 or sys.argv[2] not in {"edit", "verify", "rules"}:
+        raise SystemExit("Usage: python -m scripts.engine_checks.nbt_roundtrip RUN_DIR edit|verify|rules")
     configure_worker_catalog(Path(sys.argv[1]))
     print(json.dumps(run(Path(sys.argv[1]), sys.argv[2]), sort_keys=True))

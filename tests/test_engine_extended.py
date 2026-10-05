@@ -11,9 +11,11 @@ from scripts.engine_checks.extended import (
     DATA_VARIANTS,
     ENCHANTMENT_IDS,
     ENCHANTMENT_NAMES,
+    MIXED_ITEM_ENCHANTMENTS,
     POTION_DATA_VALUES,
     POTION_ITEMS,
     extend_cases,
+    enchantment_registry_result,
     matrix_result,
     validate_behavior_events,
 )
@@ -25,7 +27,8 @@ from scripts.engine_checks.runner import ROOT
 @pytest.fixture
 def measured_matrix():
     db = json.loads((ROOT / "mcbe_editor/resources/item_db.json").read_text(encoding="utf-8"))
-    ids = sorted({*DATA_VARIANTS, *POTION_ITEMS.values(), "minecraft:stone", "minecraft:oak_sign", "minecraft:red_cushion", "minecraft:diamond_pickaxe"})
+    ids = sorted({*DATA_VARIANTS, *POTION_ITEMS.values(), *MIXED_ITEM_ENCHANTMENTS,
+                  "minecraft:stone", "minecraft:oak_sign", "minecraft:red_cushion"})
     enchantments = {name: db["enchantments"][str(ENCHANTMENT_IDS[name])][2] for name in ENCHANTMENT_NAMES}
     events = [{"kind": "matrix_registry", "enchantments": enchantments, "effects": list(POTION_DATA_VALUES), "deliveries": list(POTION_ITEMS)}]
     for item_id in ids:
@@ -82,6 +85,54 @@ def test_extended_plan_covers_levels_pairs_variants_and_metadata_merge_cases(mea
     assert len(indexed) == len(cases)
     assert any(indexed[pair["left"]]["name"] != indexed[pair["right"]]["name"] for pair in plan["merges"])
     assert any(indexed[pair["left"]]["lore"] != indexed[pair["right"]]["lore"] for pair in plan["merges"])
+    mixed = [case for case in cases if case.get("coverage") == "mixed-metadata"]
+    assert len(mixed) == 24
+    assert all(len(case["enchantments"]) >= 4 and case["name"] and case["lore"] and case["damage"] > 0 for case in mixed)
+    assert {case["mode"] for case in mixed} == {"create", "decorate", "preserve"}
+    cleared = [case for case in cases if case.get("coverage") == "mixed-clear"]
+    assert len(cleared) == 8
+    for case in cleared:
+        assert expected_snapshot(case, seed=True)["enchantments"]
+        assert expected_snapshot(case)["enchantments"] == []
+        assert expected_snapshot(case)["name"] == ""
+        assert expected_snapshot(case)["lore"] == []
+        assert expected_snapshot(case)["damage"] == 0
+    for item_id in MIXED_ITEM_ENCHANTMENTS:
+        assert any(case["id"] == item_id and case["damage"] == observations[item_id]["max_durability"]
+                   and case.get("coverage") == "durability-boundary" for case in cases)
+
+
+def test_enchantment_change_report_preserves_new_removed_and_changed_facts(measured_matrix):
+    events, _ids, db = deepcopy(measured_matrix)
+    events[0]["enchantments"]["future_enchantment"] = 7
+    events[0]["enchantments"].pop("mending")
+    events[0]["enchantments"]["unbreaking"] = 4
+    report = enchantment_registry_result(events, db)
+    assert report["status"] == "fail"
+    assert report["added"] == {"future_enchantment": 7}
+    assert report["removed"] == ["mending"]
+    assert report["level_mismatches"] == {"unbreaking": {"catalog": 3, "engine": 4}}
+
+
+@pytest.mark.parametrize("bad", [True, 0, 256, "3"])
+def test_enchantment_change_report_rejects_malformed_observations(measured_matrix, bad):
+    events, _ids, db = deepcopy(measured_matrix)
+    events[0]["enchantments"]["unbreaking"] = bad
+    with pytest.raises(ProbeError, match="Invalid engine"):
+        enchantment_registry_result(events, db)
+
+
+def test_mixed_seed_and_final_state_are_distinct_and_do_not_share_expectations(measured_matrix):
+    events, ids, db = measured_matrix
+    observations = {item: {"max_amount": db["stack_limits"][item], "max_durability": db["durability"].get(item)} for item in ids}
+    cases = make_cases(ids, observations, db["stack_limits"])
+    extend_cases(cases, observations, matrix_result(events, ids, db))
+    edited = next(case for case in cases if case.get("coverage") == "mixed-metadata" and case["mode"] == "decorate")
+    original = deepcopy(expected_snapshot(edited, seed=True))
+    assert original["name"] != expected_snapshot(edited)["name"]
+    assert original["damage"] != expected_snapshot(edited)["damage"]
+    edited["enchantments"][0]["level"] = 2
+    assert expected_snapshot(edited, seed=True) == original
 
 
 def test_seeded_enchantments_have_independent_explicit_expectations():

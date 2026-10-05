@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from itertools import combinations, product
 
 from .cases import append_case
@@ -35,18 +36,36 @@ POTION_DATA_VALUES = {"minecraft:" + effect: value for value, effect in enumerat
 POTION_ITEMS = {"Consume": "minecraft:potion", "ThrownSplash": "minecraft:splash_potion", "ThrownLingering": "minecraft:lingering_potion"}
 
 
-def matrix_result(events: list[dict], expected_ids: list[str], db: dict) -> dict:
+def enchantment_registry_result(events: list[dict], db: dict) -> dict:
+    """Report reviewed facts separately from newly observed engine facts."""
     registries = [event for event in events if event["kind"] == "matrix_registry"]
     if len(registries) != 1:
         raise ProbeError("Missing or duplicate extended registry")
-    registry = registries[0]
-    enchantments = registry.get("enchantments")
-    if not isinstance(enchantments, dict) or set(enchantments) != set(ENCHANTMENT_NAMES):
-        raise ProbeError("Unreviewed or incomplete enchantment registry")
-    for name, maximum in enchantments.items():
-        recorded = db["enchantments"].get(str(ENCHANTMENT_IDS[name]))
-        if type(maximum) is not int or not 1 <= maximum <= 255 or not recorded or maximum != recorded[2]:
-            raise ProbeError(f"Engine enchantment limit disagrees with the editor: {name}")
+    enchantments = registries[0].get("enchantments")
+    if not isinstance(enchantments, dict) or any(
+        not isinstance(name, str) or not re.fullmatch(r"[a-z0-9_.:-]{1,128}", name)
+        or type(level) is not int or not 1 <= level <= 255 for name, level in enchantments.items()
+    ):
+        raise ProbeError("Invalid engine enchantment registry")
+    added = {name: enchantments[name] for name in sorted(enchantments.keys() - ENCHANTMENT_IDS.keys())}
+    removed = sorted(ENCHANTMENT_IDS.keys() - enchantments.keys())
+    mismatches = {}
+    for name in sorted(ENCHANTMENT_IDS.keys() & enchantments.keys()):
+        recorded = db.get("enchantments", {}).get(str(ENCHANTMENT_IDS[name]))
+        maximum = recorded[2] if isinstance(recorded, list) and len(recorded) >= 3 else None
+        if type(maximum) is not int or maximum != enchantments[name]:
+            mismatches[name] = {"catalog": maximum if type(maximum) is int else None, "engine": enchantments[name]}
+    return {"status": "fail" if added or removed or mismatches else "pass",
+            "expected_count": len(ENCHANTMENT_IDS), "observed_count": len(enchantments),
+            "added": added, "removed": removed, "level_mismatches": mismatches}
+
+
+def matrix_result(events: list[dict], expected_ids: list[str], db: dict) -> dict:
+    changes = enchantment_registry_result(events, db)
+    if changes["status"] != "pass":
+        raise ProbeError("Unreviewed or changed enchantment registry; see enchantment_registry in summary.json")
+    registry = next(event for event in events if event["kind"] == "matrix_registry")
+    enchantments = registry["enchantments"]
     for field in ("effects", "deliveries"):
         values = registry.get(field)
         if not isinstance(values, list) or not values or any(not isinstance(value, str) or not value for value in values):
@@ -90,6 +109,44 @@ def matrix_result(events: list[dict], expected_ids: list[str], db: dict) -> dict
             "rejected_pair_checks": sum(not pair[direction] for item in items.values() for pair in item["pairs"] for direction in ("forward", "reverse"))}
 
 
+MIXED_ITEM_ENCHANTMENTS = {
+    "minecraft:diamond_pickaxe": ("efficiency", "fortune", "unbreaking", "mending"),
+    "minecraft:diamond_sword": ("sharpness", "looting", "unbreaking", "mending"),
+    "minecraft:diamond_boots": ("protection", "feather_falling", "depth_strider", "unbreaking", "mending"),
+    "minecraft:diamond_chestplate": ("protection", "thorns", "unbreaking", "mending"),
+    "minecraft:bow": ("power", "punch", "unbreaking", "mending"),
+    "minecraft:crossbow": ("quick_charge", "piercing", "unbreaking", "mending"),
+    "minecraft:trident": ("impaling", "loyalty", "channeling", "unbreaking", "mending"),
+    "minecraft:fishing_rod": ("luck_of_the_sea", "lure", "unbreaking", "mending"),
+}
+
+
+def append_mixed_cases(cases: list[dict], observations: dict, levels: dict, *, item_ids=None) -> int:
+    """A bounded set of practical equipment states, including metadata removal."""
+    selected = tuple(MIXED_ITEM_ENCHANTMENTS if item_ids is None else item_ids)
+    start = len(cases)
+    for mode in ("create", "preserve", "decorate", "clear"):
+        for item_id in selected:
+            if item_id not in observations or not observations[item_id].get("max_durability"):
+                raise ProbeError(f"Missing durable mixed-metadata fixture: {item_id}")
+            fields = {
+                "name": f" §b{item_id.removeprefix('minecraft:')} 世界 ",
+                "lore": ["Grüße aus dem Editor", "", "  unverändert"],
+                "damage": observations[item_id]["max_durability"] // 2,
+                "enchantments": [{"id": name, "level": levels[name]} for name in MIXED_ITEM_ENCHANTMENTS[item_id]],
+            }
+            seed = {**fields, "name": "Original 世界", "lore": ["Original", "", "  erhalten"], "damage": 1,
+                    "enchantments": [{"id": entry["id"], "level": 1} for entry in fields["enchantments"]]}
+            if mode == "preserve":
+                seed = fields
+            if mode == "clear":
+                fields = {"name": "", "lore": [], "damage": 0, "enchantments": []}
+            append_case(cases, observations, item_id, "decorate" if mode == "clear" else mode, 1,
+                        **fields, **({"seed_item": seed} if mode != "create" else {}),
+                        coverage="mixed-clear" if mode == "clear" else "mixed-metadata")
+    return len(cases) - start
+
+
 def extend_cases(cases: list[dict], observations: dict, matrix: dict) -> dict:
     counts = {"enchantment_levels": 0, "enchantment_pairs": 0, "enchantment_references": 0,
               "data_variants": 0, "potion_variants": 0, "durability_boundaries": 0, "merge_pairs": 0}
@@ -118,7 +175,7 @@ def extend_cases(cases: list[dict], observations: dict, matrix: dict) -> dict:
                 counts["enchantment_pairs"] += 1
         maximum_damage = observations[item_id].get("max_durability")
         if maximum_damage:
-            for damage in sorted({0, 1, maximum_damage // 2, maximum_damage - 1}):
+            for damage in sorted({0, 1, maximum_damage // 2, maximum_damage - 1, maximum_damage}):
                 add(item_id, damage=damage, coverage="durability-boundary")
                 counts["durability_boundaries"] += 1
     for item_id, values in DATA_VARIANTS.items():
@@ -136,6 +193,7 @@ def extend_cases(cases: list[dict], observations: dict, matrix: dict) -> dict:
                 damage=POTION_DATA_VALUES[potion["effect"]], data_value=POTION_DATA_VALUES[potion["effect"]],
                 name="" if mode == "preserve" else "§bGeprüfter Trank", coverage="potion-variant")
             counts["potion_variants"] += 1
+    counts["mixed_metadata_cases"] = append_mixed_cases(cases, observations, matrix["enchantments"])
     merges = []
     for item_id in sorted(observations):
         case = next((case for case in cases if case["id"] == item_id and case["mode"] == "create" and case["amount"] == 1), None)

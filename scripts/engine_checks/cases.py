@@ -48,6 +48,8 @@ def make_cases(item_ids: list[str], observations: dict, limits: dict) -> list[di
 def expected_snapshot(case: dict, *, seed: bool = False) -> dict | None:
     if seed and case["mode"] == "create":
         return None
+    if seed and "seed_item" in case:
+        return expected_snapshot({**case, **case["seed_item"]})
     seeded = seed and not case.get("seeded_metadata")
     result = {
         "id": case["id"], "amount": case["amount"],

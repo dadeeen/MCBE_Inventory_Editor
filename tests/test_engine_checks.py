@@ -305,10 +305,14 @@ def test_public_summary_drops_raw_world_data_logs_and_failure_paths():
         "catalog_sha256": "a" * 64, "phases": {}, "not_covered": [],
         "failure": "PRIVATE_PATH", "world_nbt": "PRIVATE_NBT",
         "catalog": {"status": "fail", "errors": {"minecraft:stone": "PRIVATE_LOG"}, "observations": {"private": "PRIVATE_OBSERVATION"}},
+        "enchantment_registry": {"status": "fail", "added": {"future": 2}, "log": "PRIVATE_REGISTRY_LOG"},
+        "editor_rules": {"status": "fail", "applicability_checks": 42, "log": "PRIVATE_RULE_LOG"},
     }
     summary = json.dumps(public_summary(report))
     assert "PRIVATE_" not in summary
     assert '"status": "fail"' in summary
+    assert '"future": 2' in summary
+    assert '"applicability_checks": 42' in summary
 
 
 @pytest.mark.parametrize("engine_exit", [0, 1])

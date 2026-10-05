@@ -24,7 +24,7 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
     before_records = read_records(world)
     locations = assignments(cases)
     service = BedrockEditorService(ITEMS, ENCHANTMENTS)
-    saves = no_ops = stale_rejections = intermediate_checks = 0
+    saves = no_ops = stale_rejections = intermediate_checks = mixed_moves = mixed_recreations = 0
     results = []
 
     def containers(root):
@@ -98,12 +98,18 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         else:
             raise ProbeError("Player service accepted a stale revision")
         # Move across both containers and back through production origin tracking.
-        selected = next(((left_slot, right_slot) for left_slot, left in sorted(loaded["inventory"].items())
-                         for right_slot, right in sorted(loaded["ender_chest"].items())
+        mixed_slots = {field: {locations[case["case_id"]][1] for case in cases
+                              if case.get("coverage") == "mixed-metadata" and locations[case["case_id"]][0] == field}
+                       for field in ("Inventory", "EnderChestInventory")}
+        selected = next(((left_slot, right_slot) for left_slot, left in sorted(
+                            loaded["inventory"].items(), key=lambda entry: (entry[0] not in mixed_slots["Inventory"], entry[0]))
+                         for right_slot, right in sorted(
+                            loaded["ender_chest"].items(), key=lambda entry: (entry[0] not in mixed_slots["EnderChestInventory"], entry[0]))
                          if (left["name"], left["count"]) != (right["name"], right["count"])), None)
         if selected is None:
             raise ProbeError("Player service fixture needs distinguishable items for cross-container moves")
         inventory_slot, ender_slot = selected
+        mixed_moves += 2 * int(inventory_slot in mixed_slots["Inventory"] and ender_slot in mixed_slots["EnderChestInventory"])
         for _ in range(2):
             expected = containers(load_player_nbt(read_records(world)[raw_key]).tag)
             left_item, right_item = expected["Inventory"][inventory_slot], expected["EnderChestInventory"][ender_slot]
@@ -118,7 +124,9 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
             verify_intermediate(expected_bytes)
             loaded = service.load_player(str(world), key)
         # Delete and recreate one new item, preserving all other slots.
-        created = next(case for case in cases if case["mode"] == "create" and locations[case["case_id"]][0] == "Inventory")
+        created = next(case for case in sorted(cases, key=lambda entry: entry.get("coverage") != "mixed-metadata")
+                       if case["mode"] == "create" and locations[case["case_id"]][0] == "Inventory")
+        mixed_recreations += int(created.get("coverage") == "mixed-metadata")
         _, slot = locations[created["case_id"]]
         inventory = deepcopy(loaded["inventory"])
         del inventory[slot]
@@ -139,4 +147,5 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         raise ProbeError("Player service changed unrelated database records")
     return results, {"status": "pass", "backed_up_saves": saves, "no_op_checks": no_ops,
                      "stale_revision_rejections": stale_rejections, "cross_container_moves": 2 * len(raw_keys),
-                     "intermediate_state_checks": intermediate_checks}
+                     "intermediate_state_checks": intermediate_checks,
+                     "mixed_metadata_moves": mixed_moves, "mixed_metadata_recreations": mixed_recreations}

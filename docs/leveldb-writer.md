@@ -227,37 +227,35 @@ future Bedrock format.
 
 ### Bedrock Dedicated Server evidence
 
-The engine reference is the official BDS **1.26.51.1** archive with SHA-256
-`ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`.
-With CPython 3.12.14 and no Amulet runtime, the extended profile covers
-13,037 cases across 1,623 item IDs in 502 carriers. The service profile covers
-37 cases and ten backed-up saves on two synthetic player records; the add-on
-profile covers twelve cases across six item IDs. All three profiles pass two
-engine save/reload cycles. These carriers and synthetic players do not cover
-real-player login, client saving or mount gameplay; the client checks below
-cover them for the tested worlds.
+The [engine-check profiles](engine-checks.md) exercise the production
+pure-Python writer against an explicitly selected official BDS build. They
+cover item records in generated carriers, two synthetic player formats and
+an owned conformance add-on through two engine save/reload cycles. The separate
+real-client profile covers actual Inventory and Ender Chest persistence.
+Server versions, case counts and archive/source hashes are maintained in
+[Verified builds](engine-checks.md#verified-builds).
 
 ### Minecraft client evidence
 
-The Minecraft client **1.26.52** on Windows and the editor on CPython 3.12.14,
-on a new creative world and on a copy of an older survival world, over four
-rounds of editor save, game load, play and game save:
+Manual acceptance coverage uses Minecraft client **1.26.52** on Windows and
+the editor on CPython **3.12.14**, with a fresh creative world and a copy of an
+existing survival world. The verified behavior includes:
 
-- A save while the world was open in Minecraft was refused as "in use"; after
-  leaving the world, the same save succeeded.
-- Minecraft integrated each editor log when it opened the world and wrote its
-  own MANIFEST and tables. An editor log written next to a log that Minecraft
-  had left behind after closing the world took precedence as intended.
-- Inventory items, Ender Chest contents, an effect and a newly created horse
-  appeared in the game as written. The horse could be tamed and ridden, and
-  Minecraft saved that state.
-- Each editor batch contained only the intended records. Unchanged player
-  fields and untouched slots stayed byte-identical, and the native reference
-  read the same records as the editor after every round.
-- Restoring an editor backup produced a world byte-identical to that backup,
-  and the game showed the restored state.
+- Saves are refused as "in use" while Minecraft has the world open and succeed
+  after the world is closed.
+- Minecraft incorporates editor logs when opening the world and writes its own
+  MANIFEST and tables. Editor changes take precedence over an older log left by
+  Minecraft after closing the world.
+- Inventory items, Ender Chest contents, an effect and an editor-created horse
+  appear in the game as written. The horse supports taming and riding, and
+  Minecraft saves that state.
+- Each editor batch contains only the intended records. Unchanged player
+  fields and untouched slots remain byte-identical, and the native reference
+  reads the same records as the editor.
+- Restoring an editor backup reproduces the world's files byte for byte, and
+  Minecraft loads the restored state.
 
-The client checks used a horse. The
+This client coverage includes a horse. The
 [mount acceptance experiment](mount-game-validation.md) covers all supported
 mount types with v0.5.21 and the native backend.
 

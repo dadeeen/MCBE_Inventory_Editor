@@ -10,6 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from .cases import append_case, make_cases
+from .extended import ENCHANTMENT_IDS, MIXED_ITEM_ENCHANTMENTS, append_mixed_cases
 from .protocol import ProbeError
 
 PLAYER_KEYS = (b"~local_player", b"player_server_mcbe_engine_probe")
@@ -17,7 +18,7 @@ SERVICE_IDS = ("minecraft:stone", "minecraft:bow", "minecraft:diamond_pickaxe", 
                "minecraft:enchanted_book", "minecraft:oak_sign", "minecraft:red_cushion", "minecraft:compass", "minecraft:shield")
 
 
-def make_service_cases(observations: dict, limits: dict) -> list[dict]:
+def make_service_cases(observations: dict, limits: dict, enchantments: dict) -> list[dict]:
     cases = make_cases(list(SERVICE_IDS), observations, limits)
     for item, mode, enchantment, level in (("minecraft:bow", "create", "power", 5),
                                           ("minecraft:diamond_pickaxe", "decorate", "efficiency", 5),
@@ -26,6 +27,8 @@ def make_service_cases(observations: dict, limits: dict) -> list[dict]:
     for mode in ("preserve", "decorate"):
         append_case(cases, observations, "minecraft:splash_potion", mode, 1, damage=21, data_value=21, seeded_metadata=True,
                     potion={"effect": "minecraft:healing", "delivery": "ThrownSplash"}, name="" if mode == "preserve" else "Geprüfter Heiltrank")
+    levels = {name: enchantments[str(numeric_id)][2] for name, numeric_id in ENCHANTMENT_IDS.items()}
+    append_mixed_cases(cases, observations, levels, item_ids=[item for item in SERVICE_IDS if item in MIXED_ITEM_ENCHANTMENTS])
     return cases
 
 

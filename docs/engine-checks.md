@@ -93,11 +93,24 @@ coverage. It tests:
 - Every registered item against all 42 reviewed enchantments, then every pair of
   applicable enchantments in both insertion orders. Known API incompatibility
   exceptions are recorded as rejected observations; unexpected errors fail.
+- Both accepted and rejected item/enchantment combinations against the production
+  editor's compatibility rules. Pair observations are compared with the catalog's
+  Vanilla conflict-hint groups in both orders. Ordinary books remain preservation-only,
+  and enchanted books omit conflict hints; these explicit policy exceptions have
+  separate counters. Conflict hints do not prohibit NBT editing.
+- Representative incompatible creations, every enchantment's levels -1, 0 and
+  maximum plus one, and every durable item's damage -1 and maximum plus one through
+  the production item builder. Rejected operations must leave their input NBT intact.
 - Every accepted item/enchantment at every legal level; accepted pairs at their
   maximum levels; and engine-created enchanted originals preserved byte for byte.
   Plain `book` permits engine enchantments but is intentionally preservation-only
   in the editor; new enchanted books use `enchanted_book`.
-- Durability boundaries 0, 1, half and maximum minus one for every durable item.
+- Durability boundaries 0, 1, half, maximum minus one and the exact maximum for
+  every durable item. This checks stored damage, not the next gameplay use.
+- Eight equipment profiles with four or five enchantments together with custom
+  names, multiline lore and damage. Creation, byte-for-byte preservation, editing
+  existing values and clearing the editable metadata are separate cases. The
+  engine creates the preserved/original states; the editor creates the changed states.
 - All reviewed data values for beds, banners, goat horns, ominous bottles,
   suspicious stews and empty maps, created by both engine commands and the editor.
 - All 47 potion effects across all three runtime delivery types. Engine-created
@@ -114,11 +127,18 @@ coverage. It tests:
   miss the hopper, producing intermittent fixture failures.
 
 This is a finite domain, **not every possible combination**. In particular,
-arbitrary three-or-more-enchantment products, every enchantment-level product,
+arbitrary combinations outside the explicit pairs and equipment profiles, every enchantment-level product,
 all metadata combinations, combat, equipping, consumption, brewing and crafting
 are not covered. The editor intentionally permits some NBT enchantment pairs
 that normal Vanilla application rules reject; measured rejection is not a new
 restriction on preserved/editable NBT.
+
+The allowlisted summary includes added/removed enchantment identifiers and changed
+maximum levels in `enchantment_registry`, and rule mismatches and negative-check
+counts in `editor_rules`. An unfamiliar identifier or level mismatch fails before
+world edits. Measurements do not update the editor's reviewed tables automatically.
+The offline worker loads the exact candidate catalog and the repository's
+compatibility rules, independently of a local compatibility-file override.
 
 ## Full player-service suite
 
@@ -132,16 +152,20 @@ backups, stale revision rejection, untouched typed player fields and every
 unrelated LevelDB record. Both results are independently checked; items then
 return to engine carriers for two real save/reload cycles.
 
+The 45 item cases include mixed-metadata bow and pickaxe profiles in both
+containers. Cross-container moves and deletion/recreation select these profiles;
+their typed NBT is checked after each operation. The real-client profile uses
+the same cases with three required connections.
+
 Cross-container moves use items with different IDs or counts. The worker checks
 the exact occupied slots and typed item NBT after each move, deletion and
 recreation, with five intermediate-state checks per player. Extra slots, lost
 items and changed untouched metadata fail immediately, before a later operation
 could hide the error. These assertions also apply to the real-client profile.
 
-These player envelopes are **not evidence of client login or engine player
-persistence**. A simulated-player experiment on BDS 1.26.50.5 did not produce
-persistent player records, so simulated players are not used to claim that
-coverage. The real-client profile provides that separate evidence.
+These synthetic player envelopes cover the editor's service operations.
+Client login and engine player persistence require the separate real-client
+profile.
 
 ## Controlled add-on suite
 
@@ -197,39 +221,42 @@ access; the runner does not change system networking permissions.
 
 ## Verified builds
 
-All results below are for editor v0.5.23. They come from local Docker runs,
+The results below use **BDS 1.26.52.3**, editor runtime **v0.6.2**
+and the source snapshots identified below. They come from local Docker runs,
 not from the manually dispatched workflow. The scope exclusions above apply.
-
-**BDS 1.26.50.5, item suite:** 1,623 registry IDs, 6,040 item cases in 233
-generated carriers, two engine save/reload cycles, and 6,492 rejected invalid
-creation amounts. There were no registry differences or unresolved limits with
-the reviewed candidate catalog, which became the bundled catalog. The measured
-values and archive/catalog hashes are documented in [item-stack-limits.md](item-stack-limits.md).
-
-**BDS 1.26.51.1, all profiles**, with the reviewed durability values in the
-bundled catalog:
+The bundled catalog has no registry, stack-limit or durability differences from
+this engine. The provenance of its reviewed values is documented in
+[item-stack-limits.md](item-stack-limits.md).
+The roundtrip covers the entire measured registry, including cushions, the
+straw bed and poplar items.
 
 | Profile | Completed checks |
 | --- | --- |
-| Extended | 1,623 IDs; 13,037 item cases; 2 engine save/reload cycles; 6,492 invalid creation amounts rejected |
+| Extended | 1,623 IDs; 13,153 item cases; 2 engine save/reload cycles; 6,492 invalid creation amounts rejected |
 | Enchantments | 68,166 applicability checks; 9,102 ordered pair checks, including 652 engine rejections; 2,028 level cases, 3,386 accepted pair cases and 795 preserved references |
-| Variants/boundaries | 120 data-variant cases, 282 potion cases and 336 durability boundaries |
+| Editor rules | 68,166 applicability comparisons and 5,658 conflict-hint comparisons with no differences; 84 incompatible creations, 126 invalid levels and 168 invalid damage values rejected |
+| Variants/boundaries | 120 data-variant cases, 282 potion cases, 420 durability boundaries and 32 mixed-metadata cases across 8 equipment profiles |
 | Stack/gameplay | 1,648 merge pairs including full-container remainders; 6 hopper/drop cases |
-| Drop-fixture regression | 60 successful hopper/drop operations (10 repetitions of each gameplay case) in a copy of a generated, reload-verified world; all 13,037 carrier item cases independently verified before and after |
-| Player service | 37 item cases; 2 synthetic player formats; 10 backed-up writes with 10 intermediate NBT checks, 4 cross-container moves, 2 no-op checks and 2 stale revision rejections; 2 engine reloads |
+| Player service | 45 item cases; 2 synthetic player formats; 10 backed-up writes with 10 intermediate NBT checks, 4 cross-container moves and 2 recreations of mixed-metadata items, 2 no-op checks and 2 stale revision rejections; 2 engine reloads |
 | Controlled add-on | 12 cases including 2 custom item types and Vanilla controls; 2 engine reloads; 2 unregistered creation attempts rejected |
-| Real client | Client-reported 26.51 on BDS 1.26.51.1; 3 connections; 37 item cases across Inventory and Ender Chest; 5 backed-up writes, 2 cross-container moves, 1 no-op check and 1 stale revision rejection; 2 engine reloads with independent disk checks |
+| Real client | 3 connections; 45 item cases across Inventory and Ender Chest; 5 backed-up writes with 5 intermediate NBT checks, 2 cross-container moves and 1 recreation of mixed-metadata items, 1 no-op check and 1 stale revision rejection; 2 engine reloads with independent disk checks |
 
-The official Linux archive SHA-256 was
-`ad91d3b824e51ea50b5bb601c295cbd8f543a29b14315c2ad89ff27311e2d860`,
-and the tested raw catalog snapshot SHA-256 was
-`f7cdb1d9da1348e856920f7b66539339e3c7792c15b769b5267179f518003ad9`.
-Raw file hashes are line-ending sensitive. The real-client row comes from one
-complete `client` run with the Beta API and local offline-server profile
-described above; results of failed runs are not combined with it. The
-intermediate-state checks for cross-container moves are covered by the
-automated service suite and an offline copy of the generated client seed, not
-by a three-connection real-client run.
+The rule comparison explicitly accounts for 42 ordinary-book preservation
+exceptions and 861 enchanted-book pairs without conflict hints. All 42
+enchantment identifiers and maximum levels agree with the reviewed catalog.
+The real-client row represents one complete three-connection run with the Beta
+API and local offline-server profile described above. Results from failed or
+partial runs are not combined with it.
+
+SHA-256 provenance:
+
+- Official Linux archive: `f6348d84fa714d04ca194f207e89453ca6bba0a1359396475271a52a150471c6`.
+- Raw catalog snapshot: `7c6789be2cb159fe90350ba76bd214f5e28d60257d3a8a14a0deb41ec9e16954`.
+- Editor sources: `c1a490938f1e60402bb0f2f6cb90603ec1c0c659703e90a698b5e9d5cc0f767f`.
+- Probe sources: `a4ca5eb7080680c3d7a69651b01ae3f2c647c07485446294d8fc7d55850c0fcc`.
+
+Source hashes use the runner's `source_hashes()` procedure. Raw file hashes are
+line-ending sensitive.
 
 ## Local use
 
@@ -245,9 +272,9 @@ SHA-256 and pass the actual server version (which may differ from the client
 version or `bedrock-samples` release):
 
 ```powershell
-$archive = '.engine-tests/downloads/bedrock-server-1.26.51.1.zip'
+$archive = '.engine-tests/downloads/bedrock-server-1.26.52.3.zip'
 $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
-.venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.51.1
+.venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.52.3
 ```
 
 The default `--suite all` sequentially runs `extended`, `service` and `addons`,

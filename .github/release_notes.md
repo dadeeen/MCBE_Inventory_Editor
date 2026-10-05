@@ -2,6 +2,7 @@ Runtime package for the Minecraft Bedrock Inventory Editor.
 
 ## Unreleased
 
+- **Engine checks:** compare editor enchantment rules and conflict hints with measured Minecraft behavior, exercise combined equipment metadata and exact durability limits, and report changed enchantment facts. Player-service checks move and recreate equipment with multiple enchantments and custom metadata.
 - **Backups:** corrupt ZIP data, encrypted members and unsupported compression formats do not interrupt listing or count as valid recovery copies. Invalid backup dates fall back to the file time.
 - **World pack icons:** the world's resource and behavior pack lists select packs by UUID, version and priority. Static item icons follow their declared textures, including custom names and references between packs. Missing or ambiguous packs and unsupported rendering rules produce diagnostics; unresolved icons use standard icons or placeholders. Status and warning counts reflect these limitations, and cached diagnostics follow the selected language. An unreadable optional pack directory does not discard verified local packs.
 - **Icon caching and world switching:** worlds with the same sources share an index, including Vanilla-only worlds. Loading a player reuses a valid index, while pack or item-catalog changes trigger validation and rebuilding when needed. Loading more worlds preserves existing index files. Late responses from earlier requests cannot replace the selected world's icons. Read-only mode uses prepared indexes.

@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 from .addon import ADDON_LIMITS, DATA_MODULE_ID, make_addon_cases, prepare_addon
 from .cases import make_cases, validate_case_events
 from .client_profile import CLIENT_API_VERSION, CONTROL_NAME, CONTROL_SLOTS, enable_client_experiment
-from .extended import extend_cases, matrix_result, validate_behavior_events
+from .extended import enchantment_registry_result, extend_cases, matrix_result, validate_behavior_events
 from .protocol import ProbeError, Transcript, catalog_result
 from .service_profile import assignments, make_service_cases
 
@@ -285,7 +285,8 @@ def editor_provenance() -> dict:
 
 def nbt_worker(run_dir: Path, action: str) -> dict:
     env = {**os.environ, "MCBE_DATA_ROOT": str(run_dir / "app-data"), "MCBE_BACKUP_ROOT": str(run_dir / "backups"),
-           "MCBE_ITEM_DB_PATH": str(run_dir / "catalog.json"), "PYTHONIOENCODING": "utf-8"}
+           "MCBE_ITEM_DB_PATH": str(run_dir / "catalog.json"), "PYTHONIOENCODING": "utf-8",
+           "MCBE_ENCHANTMENT_COMPATIBILITY_PATH": str(ROOT / "mcbe_editor/enchantment_compatibility.json")}
     result = subprocess.run([sys.executable, "-m", "scripts.engine_checks.nbt_roundtrip", str(run_dir), action], cwd=ROOT,
                             env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, check=False)
     (run_dir / f"nbt-{action}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
@@ -310,10 +311,16 @@ def public_summary(report: dict) -> dict:
                                                  "durability_mismatches", "new_durability_candidates") if key in catalog},
         "roundtrip": report.get("roundtrip", {"status": "not_completed"}),
         "extended": report.get("extended", {"status": "not_selected"}),
+        "enchantment_registry": {key: value for key, value in report.get("enchantment_registry", {"status": "not_selected"}).items()
+                                 if key in {"status", "expected_count", "observed_count", "added", "removed", "level_mismatches"}},
+        "editor_rules": {key: value for key, value in report.get("editor_rules", {"status": "not_selected"}).items()
+                         if key in {"status", "applicability_checks", "pair_conflict_checks", "incompatible_creation_checks",
+                                    "enchantment_level_checks", "durability_rejection_checks", "intentional_exceptions", "differences"}},
         "addon": report.get("addon", {"status": "not_selected"}),
         "player_service": {key: player_service[key] for key in ("status", "synthetic_players", "real_players", "backed_up_saves",
                                                                "no_op_checks", "stale_revision_rejections", "cross_container_moves",
-                                                               "intermediate_state_checks", "client_login_verified") if key in player_service},
+                                                               "intermediate_state_checks", "client_login_verified",
+                                                               "mixed_metadata_moves", "mixed_metadata_recreations") if key in player_service},
         "client": {key: client[key] for key in ("status", "required_connections", "completed_connections", "profile") if key in client},
     }
 
@@ -391,7 +398,7 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
         if suite in {"items", "extended", "addons", "service", "client"}:
             cases = make_cases(expected_ids, catalog["observations"], db["stack_limits"])
             if suite in {"service", "client"}:
-                cases = make_service_cases(catalog["observations"], db["stack_limits"])
+                cases = make_service_cases(catalog["observations"], db["stack_limits"], db["enchantments"])
             if suite == "client":
                 enable_client_experiment(server)
                 configure_server(server, client_port=client_port)
@@ -412,7 +419,9 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                 report["addon"] = {"status": "incomplete", "profile": "owned conformance pack; no Vanilla overrides",
                                    "item_ids": sorted(ADDON_LIMITS), "catalog_kept_vanilla": True}
             if suite == "extended":
-                matrix = matrix_result(phase("matrix"), expected_ids, db)
+                events = phase("matrix")
+                report["enchantment_registry"] = enchantment_registry_result(events, db)
+                matrix = matrix_result(events, expected_ids, db)
                 write_json(run_dir / "matrix.json", matrix)
                 plan = extend_cases(cases, catalog["observations"], matrix)
                 write_json(run_dir / "behavior-cases.json", plan)
@@ -422,6 +431,10 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                                       "behavior_cases_sha256": sha256(run_dir / "behavior-cases.json"),
                                       "item_enchantment_checks": matrix["item_enchantment_checks"], "ordered_pair_checks": matrix["ordered_pair_checks"],
                                       "rejected_pair_checks": matrix["rejected_pair_checks"]}
+                write_json(run_dir / "run.json", report)
+                report["editor_rules"] = nbt_worker(run_dir, "rules")
+                if report["editor_rules"]["status"] != "pass":
+                    raise ProbeError("Editor rules disagree with the engine; see editor_rules in summary.json")
             if not cases:
                 raise ProbeError("No eligible item roundtrip cases")
             write_json(run_dir / "cases.json", cases)
@@ -447,7 +460,7 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                 report["phases"]["behavior"] = "pass"
                 report["extended"]["status"] = "pass"
                 report["not_covered"].remove("stack merging and gameplay item transport")
-                report["not_covered"].append("higher-order enchantment/metadata products beyond the explicit pair and boundary cases")
+                report["not_covered"].append("enchantment/metadata products beyond the explicit pairs, equipment profiles and boundary cases")
             if suite == "addons":
                 report["addon"]["status"] = "pass"
             if suite in {"service", "client"}:
