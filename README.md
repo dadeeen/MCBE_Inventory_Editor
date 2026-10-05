@@ -55,11 +55,22 @@ That origin explains the scope: a reviewed set of player fields, edited with the
 | Player values | Health, game mode, XP, hunger, saturation, position, effects, and walking and flying speeds |
 | Safety | Pre-write backups, restore checks, revision checks, write gates, and world locks |
 | Player transfer | Versioned local ↔ multiplayer migration and complete `.mcbe-player.zip` import/export |
-| Icons | Vanilla icon download, local resource packs, `.mcpack`, `.zip`, and custom icon folders |
+| Icons | Shared Vanilla icons, active world packs, `.mcpack`, `.zip`, and custom icon folders |
 | Mounts | Experimental creation of horses, donkeys, mules, skeleton horses, and camels |
 | Diagnostics | World status, runtime checks, reports, and private raw-player export |
 
 The app is not a public hosting service, server administration panel, or unrestricted raw NBT editor.
+
+Icons follow the world's active resource and behavior packs, their versions and
+priority, including declared static item textures. Only active world packs are
+selected automatically; explicitly added editor sources apply globally. Worlds
+using the same sources share one index. Vanilla icons use a common local cache.
+
+Missing packs and unsupported variants produce diagnostics and standard icons
+or placeholders. Custom block models, dynamic rendering and the Minecraft
+client's global pack settings are outside this support. Read-only mode uses
+previously prepared indexes. See [icon resolution](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md) for
+the supported formats, priorities and cache behavior.
 
 ## Local Windows setup
 

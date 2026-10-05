@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import json
 import threading
-import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,18 +12,22 @@ from subprocess import TimeoutExpired
 from typing import Any
 
 from .api_errors import error_payload
+from .archive_errors import ZIP_READ_ERRORS
 from .i18n import t
 from .icons import (
     add_icon_source,
+    clear_icon_cache,
     configured_icon_sources,
+    icon_context_id,
+    load_cached_icon_candidate,
     load_cached_icon_index,
     load_icon_sources,
     move_icon_source,
     remove_icon_source,
     scan_icons,
     set_icon_source_enabled,
-    world_icon_roots,
 )
+from .resource_packs import select_world_packs
 from .service_errors import public_error_text
 from .world_locks import locked_operation
 
@@ -66,20 +69,42 @@ class IconRouteDeps:
 # 18-px-Ausschnitt einer Entity-Textur praktisch nur als schwarzer Kasten
 # ankommt. Extraktion und Cache laufen unverändert weiter, damit die
 # Manifest-Schemaversion und die Icon-Caches der Nutzer gültig bleiben.
-_INTERNAL_ICON_INDEX_FIELDS = ("_by_token", "display_icons")
+_INTERNAL_ICON_INDEX_FIELDS = ("_by_token", "display_icons", "_context_id")
 
 
 def _public_icon_index(index: dict) -> dict:
-    return {key: value for key, value in index.items() if key not in _INTERNAL_ICON_INDEX_FIELDS}
+    public = {key: value for key, value in index.items() if key not in _INTERNAL_ICON_INDEX_FIELDS}
+    context = index.get("_context_id")
+    if context:
+        def with_context(entry):
+            return {**entry, "url": f"{entry['url']}?context={context}"} if entry.get("url") else entry
+
+        public["icons"] = {key: with_context(entry) for key, entry in index.get("icons", {}).items()}
+        if "health" in index:
+            public["health"] = {**index["health"], "sample": [with_context(entry) for entry in index["health"].get("sample", [])]}
+    return public
 
 
-def _current_world_icon_sources(deps: IconRouteDeps) -> list[dict]:
-    """Recover the latest world metadata while the caller holds _icon_operation."""
+def _requested_icon_context(data: dict, deps: IconRouteDeps) -> tuple[list[dict], list[str]]:
+    """Bind an explicit world, or recover the latest context for legacy clients."""
+    if "world_path" in data:
+        world = deps.json_string(data, "world_path")
+        selected = select_world_packs(world)
+        return selected.sources, selected.warnings
     # Sources may have changed. Reuse only metadata for a new validated scan,
     # preferring the shared publication over a stale worker-local index.
     published = load_cached_icon_index(deps.settings_path, validate_sources=False)
     previous = published if published is not None else deps.get_icon_index()
-    return [source for source in previous.get("sources", []) if isinstance(source, dict) and source.get("world")]
+    sources = [source for source in previous.get("sources", []) if isinstance(source, dict) and source.get("world")]
+    return sources, []
+
+
+def _selection_diagnostics(index: dict, warnings: list[str]) -> dict:
+    if not warnings:
+        return index
+    # Selection errors belong to the request, not to a shared Vanilla index.
+    return {**index, "warnings": [*index.get("warnings", []), *warnings],
+            "health": {**index.get("health", {}), "status": "warning"}}
 
 
 def _scan_and_store_icons(
@@ -87,62 +112,76 @@ def _scan_and_store_icons(
     *,
     force: bool = False,
     extra_sources: list[dict] | None = None,
+    selection_warnings: list[str] | None = None,
 ) -> dict:
     with _icon_operation(deps):
         if extra_sources is None:
-            extra_sources = _current_world_icon_sources(deps)
+            extra_sources, selection_warnings = _requested_icon_context({}, deps)
+        context_id = icon_context_id(configured_icon_sources(deps.settings_path, extra_sources=extra_sources))
         index = scan_icons(
             settings_path=deps.settings_path,
             force=force,
             extra_sources=extra_sources,
+            context_id=context_id,
         )
         deps.set_icon_index(index)
-        return index
+        return _selection_diagnostics(index, selection_warnings or [])
 
 
 def _icon_extra_sources_from_world(world_path: str | None) -> list[dict]:
-    sources = []
-    for root in world_icon_roots(world_path):
-        sources.append(
-            {
-                "path": str(root),
-                "enabled": True,
-                "label": t("Aus gewählter Welt abgeleitete Resource Packs"),
-                "auto": True,
-                "world": True,
-            }
-        )
-    return sources
+    return select_world_packs(world_path).sources
 
 
-def icons_status(deps: IconRouteDeps):
-    index = deps.get_icon_index()
+def _status_icon_index(deps: IconRouteDeps, world_path: str | None) -> dict:
+    sources, warnings = _requested_icon_context({} if world_path is None else {"world_path": world_path}, deps)
+    context = icon_context_id(configured_icon_sources(deps.settings_path, extra_sources=sources))
+    # A worker-local index is not proof that the underlying pack files still
+    # match. Only a validated publication or successful scan may supply icons.
+    index = {"success": True, "enabled": True, "icons": {}, "_by_token": {}, "count": 0, "sources": [], "roots": [], "warnings": []}
     if deps.read_only:
         try:
-            cached = load_cached_icon_index(deps.settings_path)
+            cached = load_cached_icon_index(deps.settings_path, context_id=context)
+            if cached is None:
+                latest = load_cached_icon_index(deps.settings_path)
+                if latest and (latest.get("_context_id") == context or (
+                    latest.get("_context_id") is None
+                    and icon_context_id(latest.get("sources", [])) == context
+                )):
+                    cached = latest
             if cached is not None:
                 index = cached
-                deps.set_icon_index(index)
+            else:
+                warnings.append(t("Kein gültiger Icon-Index vorhanden. Bitte die Icons einmal mit Schreibzugriff laden oder aktualisieren."))
         except Exception as exc:
             deps.log_api_exception("icons.status.cache", exc)
-        return deps.jsonify(_public_icon_index(index))
+        deps.set_icon_index(index)
+        return _selection_diagnostics(index, warnings)
     try:
         # scan_icons uses the shared source-signature cache, so this is cheap on
         # a hit and refreshes worker-local indexes after another worker changed
         # sources or published a Vanilla cache.
-        index = _scan_and_store_icons(deps)
+        index = _scan_and_store_icons(deps, extra_sources=sources, selection_warnings=warnings)
     except Exception as exc:
         deps.log_api_exception("icons.status", exc)
-        index = deps.get_icon_index()
-    return deps.jsonify(_public_icon_index(index))
+        deps.set_icon_index(index)
+        return _selection_diagnostics(index, [*warnings, t("Icon-Index konnte nicht geladen werden. Bitte erneut laden oder Icons neu scannen.")])
+    return index
+
+
+def icons_status(deps: IconRouteDeps, *, world_path: str | None = None):
+    try:
+        return deps.jsonify(_public_icon_index(_status_icon_index(deps, world_path)))
+    except ValueError as exc:
+        return deps.api_error(str(exc), 400)
 
 
 def icons_scan(data: dict, deps: IconRouteDeps):
     if deps.read_only:
         return deps.api_error("Icon-Scan ist im Read-Only-Modus deaktiviert.", 403)
     try:
-        extra_sources = _icon_extra_sources_from_world(deps.json_string(data, "world_path"))
-        index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
+        world = deps.json_string(data, "world_path")
+        selected = select_world_packs(world)
+        index = _scan_and_store_icons(deps, force=True, extra_sources=selected.sources, selection_warnings=selected.warnings)
         return deps.jsonify(_public_icon_index(index))
     except ValueError as exc:
         return deps.api_error(str(exc), 400)
@@ -154,6 +193,7 @@ def icons_scan(data: dict, deps: IconRouteDeps):
 def icons_vanilla_update(data: dict, deps: IconRouteDeps):
     try:
         with _icon_operation(deps):
+            extra_sources, warnings = _requested_icon_context(data, deps)
             force = deps.json_bool(data, "force", False)
             # Normal updates always resolve the latest release.  The updater
             # itself reuses a validated ZIP automatically when it already
@@ -175,7 +215,8 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
             if returncode == 0:
                 result["update_committed"] = True
                 try:
-                    index = _scan_and_store_icons(deps, force=True)
+                    clear_icon_cache(deps.settings_path)
+                    index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources, selection_warnings=warnings)
                     result.update(_public_icon_index(index))
                 except Exception as exc:
                     deps.log_api_exception("icons.vanilla_update_rescan", exc)
@@ -207,13 +248,17 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
         return deps.api_error(t("Fehler beim Vanilla-Icon-Update: {error}", error=public_error_text(exc)), 500)
 
 
-def icons_sources(deps: IconRouteDeps):
-    with _icon_operation(deps):
-        public = _public_icon_index(deps.get_icon_index())
-        public["configured_sources"] = configured_icon_sources(deps.settings_path)
-        public["manual_sources"] = load_icon_sources(deps.settings_path).get("sources", [])
-        public["settings_path"] = deps.settings_path
-        return deps.jsonify(public)
+def icons_sources(deps: IconRouteDeps, *, world_path: str | None = None):
+    try:
+        with _icon_operation(deps):
+            index = deps.get_icon_index() if world_path is None else _status_icon_index(deps, world_path)
+            public = _public_icon_index(index)
+            public["configured_sources"] = configured_icon_sources(deps.settings_path)
+            public["manual_sources"] = load_icon_sources(deps.settings_path).get("sources", [])
+            public["settings_path"] = deps.settings_path
+            return deps.jsonify(public)
+    except ValueError as exc:
+        return deps.api_error(str(exc), 400)
 
 
 def icons_sources_add(data: dict, deps: IconRouteDeps):
@@ -223,9 +268,9 @@ def icons_sources_add(data: dict, deps: IconRouteDeps):
         with _icon_operation(deps):
             # Source mutations invalidate the shared cache. Capture its world
             # context first, under the same lock as the mutation and rescan.
-            extra_sources = _current_world_icon_sources(deps)
+            extra_sources, warnings = _requested_icon_context(data, deps)
             source = add_icon_source(deps.settings_path, path)
-            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources, selection_warnings=warnings)
         deps.audit_event("icons.source_add", "success", details={"path": source.get("path")})
         public = _public_icon_index(index)
         public["added_source"] = source
@@ -254,10 +299,10 @@ def icons_sources_remove(data: dict, deps: IconRouteDeps):
     try:
         path = deps.json_string(data, "path")
         with _icon_operation(deps):
-            extra_sources = _current_world_icon_sources(deps)
+            extra_sources, warnings = _requested_icon_context(data, deps)
             remove_icon_source(deps.settings_path, path)
             settings_changed = True
-            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources, selection_warnings=warnings)
         deps.audit_event("icons.source_remove", "success", details={"path": path})
         return deps.jsonify(_public_icon_index(index))
     except ValueError as exc:
@@ -286,10 +331,10 @@ def icons_sources_set_enabled(data: dict, deps: IconRouteDeps):
         path = deps.json_string(data, "path")
         enabled = deps.json_bool(data, "enabled", True)
         with _icon_operation(deps):
-            extra_sources = _current_world_icon_sources(deps)
+            extra_sources, warnings = _requested_icon_context(data, deps)
             set_icon_source_enabled(deps.settings_path, path, enabled)
             settings_changed = True
-            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources, selection_warnings=warnings)
         deps.audit_event("icons.source_enable" if enabled else "icons.source_disable", "success", details={"path": path})
         return deps.jsonify(_public_icon_index(index))
     except ValueError as exc:
@@ -319,10 +364,10 @@ def icons_sources_move(data: dict, deps: IconRouteDeps):
         path = deps.json_string(data, "path")
         direction = deps.json_string(data, "direction")
         with _icon_operation(deps):
-            extra_sources = _current_world_icon_sources(deps)
+            extra_sources, warnings = _requested_icon_context(data, deps)
             move_icon_source(deps.settings_path, path, direction)
             settings_changed = True
-            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources)
+            index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources, selection_warnings=warnings)
         deps.audit_event("icons.source_move", "success", details={"path": path, "direction": direction})
         return deps.jsonify(_public_icon_index(index))
     except ValueError as exc:
@@ -384,11 +429,19 @@ def icons_pick_folder(deps: IconRouteDeps):
         deps.gui_picker_lock.release()
 
 
-def icon_file(token: str, deps: IconRouteDeps):
+def icon_file(token: str, deps: IconRouteDeps, *, context_id: str | None = None):
     # Index replacement is atomic. Keep serving the previous immutable
     # candidate while a long-running update prepares the next index.
-    candidate = deps.get_icon_index().get("_by_token", {}).get(token)
-    if not candidate and not deps.read_only:
+    index = deps.get_icon_index()
+    candidate = index.get("_by_token", {}).get(token) if context_id is None or index.get("_context_id") == context_id else None
+    if context_id is not None and candidate is None:
+        try:
+            candidate = load_cached_icon_candidate(deps.settings_path, context_id, token)
+        except ValueError:
+            return deps.api_error("Icon nicht gefunden.", 404)
+        except OSError as exc:
+            deps.log_api_exception("icons.file_context", exc)
+    if not candidate and context_id is None and not deps.read_only:
         try:
             candidate = _scan_and_store_icons(deps).get("_by_token", {}).get(token)
         except Exception as exc:
@@ -399,7 +452,7 @@ def icon_file(token: str, deps: IconRouteDeps):
         data = candidate.read_bytes()
     except ValueError as exc:
         return deps.api_error(str(exc), 413)
-    except (OSError, KeyError, zipfile.BadZipFile) as exc:
+    except (OSError, KeyError, *ZIP_READ_ERRORS) as exc:
         deps.log_api_exception("icons.file", exc)
         return deps.api_error(t("Icon konnte nicht gelesen werden: {error}", error=public_error_text(exc)), 404)
     if len(data) > 2 * 1024 * 1024:

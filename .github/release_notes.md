@@ -3,8 +3,14 @@ Runtime package for the Minecraft Bedrock Inventory Editor.
 ## Unreleased
 
 - **Backups:** corrupt ZIP data, encrypted members and unsupported compression formats do not interrupt listing or count as valid recovery copies. Invalid backup dates fall back to the file time.
+- **World pack icons:** the world's resource and behavior pack lists select packs by UUID, version and priority. Static item icons follow their declared textures, including custom names and references between packs. Missing or ambiguous packs and unsupported rendering rules produce diagnostics; unresolved icons use standard icons or placeholders. An unreadable optional pack directory does not discard verified local packs.
+- **Icon caching and world switching:** worlds with the same sources share an index, including Vanilla-only worlds. Loading a player reuses a valid index, while pack or item-catalog changes trigger validation and rebuilding when needed. Loading more worlds preserves existing index files. Late responses from earlier requests cannot replace the selected world's icons. Read-only mode uses prepared indexes.
 - **Player discovery:** replaced database tables trigger fresh discovery even when their size and timestamps match the originals.
-- **Saving:** saves reuse parsed source and validated output NBT while retaining output validation and write safeguards.
+- **Loading and saving:** icon loading avoids duplicate JSON decoding and repeated archive metadata reads. Saves reuse parsed source and validated output NBT while retaining output validation and write safeguards. Damaged compressed icon images return a handled error.
+
+When upgrading an installation that uses additional packs, update Vanilla icons
+once to prepare the base texture mappings. Rescanning alone cannot add these
+mappings to an older Vanilla cache.
 
 ## What changed in v0.6.2
 

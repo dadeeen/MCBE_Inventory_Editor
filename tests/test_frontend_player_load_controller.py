@@ -1033,7 +1033,7 @@ def test_frontend_player_load_controller_hides_overlay_after_load_failure() -> N
     )
 
 
-def test_frontend_player_load_controller_does_not_rescan_icons_in_read_only_mode() -> None:
+def test_frontend_player_load_controller_uses_shared_icon_status_when_loading_players() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -1048,32 +1048,34 @@ def test_frontend_player_load_controller_does_not_rescan_icons_in_read_only_mode
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
 
             (async () => {
-                const iconLoads = [];
-                const state = {
-                    worldPath: "C:/World",
-                    players: [{ player_key: "local", label: "Alex" }],
-                    currentServerGuardEpoch: 0,
-                };
-                const controller = context.window.MCBEPlayerLoadController.createPlayerLoadController({
-                    appConfig: { read_only: true },
-                    getState: () => state,
-                    setState: patch => Object.assign(state, patch),
-                    api: {
-                        loadPlayer: async () => ({
-                            success: true,
-                            player: { label: "Alex", exportable: true },
-                            inventory: {},
-                            ender_chest: {},
-                            stats: {},
-                        }),
-                    },
-                    loadLocalIconIndex: options => iconLoads.push(options),
-                    exportBlocked: () => true,
-                });
+                for (const readOnly of [false, true]) {
+                    const iconLoads = [];
+                    const state = {
+                        worldPath: "C:/World",
+                        players: [{ player_key: "local", label: "Alex" }],
+                        currentServerGuardEpoch: 0,
+                    };
+                    const controller = context.window.MCBEPlayerLoadController.createPlayerLoadController({
+                        appConfig: { read_only: readOnly },
+                        getState: () => state,
+                        setState: patch => Object.assign(state, patch),
+                        api: {
+                            loadPlayer: async () => ({
+                                success: true,
+                                player: { label: "Alex", exportable: true },
+                                inventory: {},
+                                ender_chest: {},
+                                stats: {},
+                            }),
+                        },
+                        loadLocalIconIndex: options => iconLoads.push(options),
+                        exportBlocked: () => true,
+                    });
 
-                await controller.loadPlayer("local", true, { showLoadingOverlay: false });
+                    await controller.loadPlayer("local", true, { showLoadingOverlay: false });
 
-                assert.deepStrictEqual(JSON.parse(JSON.stringify(iconLoads)), [{ rescan: false }]);
+                    assert.deepStrictEqual(JSON.parse(JSON.stringify(iconLoads)), [{ rescan: false }]);
+                }
             })().catch(error => {
                 console.error(error);
                 process.exit(1);

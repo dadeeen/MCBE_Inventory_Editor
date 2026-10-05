@@ -46,6 +46,19 @@
         } = elements;
         let iconSourceSummary = { count: 0, roots: [], warnings: [] };
         let iconRescanRunning = false;
+        let iconRequestId = 0;
+
+        function currentIconWorld() {
+            return getWorldPath() || getSelectedWorldPath() || "";
+        }
+
+        function beginIconRequest() {
+            return { id: ++iconRequestId, world: currentIconWorld() };
+        }
+
+        function iconRequestIsCurrent(request) {
+            return request.id === iconRequestId && request.world === currentIconWorld();
+        }
 
         function summaryFromIconData(data) {
             const { icons: _icons, _by_token: _byToken, ...summary } = data || {};
@@ -69,7 +82,8 @@
             return data;
         }
 
-        function applyIconIndexData(data) {
+        function applyIconIndexData(data, request = beginIconRequest()) {
+            if (!iconRequestIsCurrent(request)) return null;
             iconSourceSummary = summaryFromIconData(data);
             onIconData({
                 data,
@@ -182,25 +196,38 @@
         }
 
         async function loadLocalIconIndex({ rescan = false, throwOnError = false } = {}) {
+            const request = beginIconRequest();
             try {
                 const data = rescan && canRescanIcons()
-                    ? await postJson("/api/icons/scan", { world_path: getWorldPath() || getSelectedWorldPath() || "" })
-                    : await parseJsonResponse(await fetchImpl("/api/icons/status"));
+                    ? await postJson("/api/icons/scan", { world_path: request.world })
+                    : await parseJsonResponse(await fetchImpl(
+                        request.world ? `/api/icons/status?world_path=${encodeURIComponent(request.world)}` : "/api/icons/status"
+                    ));
+                if (!iconRequestIsCurrent(request)) return null;
                 requireSuccess(
                     data,
                     rescan ? t("Icon-Scan fehlgeschlagen.") : t("Icon-Status konnte nicht geladen werden."),
                 );
-                applyIconIndexData(data);
+                return applyIconIndexData(data, request);
             } catch (err) {
+                if (!iconRequestIsCurrent(request)) return null;
                 consoleObj.warn("Local icon index unavailable", err);
                 onIconStatusUnavailable(err);
                 if (throwOnError) throw err;
+                return null;
             }
         }
 
         async function refreshIconSources({ rescan = false, throwOnError = false } = {}) {
-            await loadLocalIconIndex({ rescan, throwOnError });
-            return iconSourceSummary;
+            return await loadLocalIconIndex({ rescan, throwOnError });
+        }
+
+        async function applyMutationIconIndexData(data, request) {
+            if (iconRequestIsCurrent(request)) return applyIconIndexData(data, request);
+            // A source mutation can commit after a newer load. Its old-world
+            // index must not be applied, but its saved changes still need a
+            // fresh view in the currently selected world.
+            return await loadLocalIconIndex({ rescan: true, throwOnError: true });
         }
 
         async function addIconSource(path) {
@@ -215,12 +242,13 @@
             }
             if (addButton) addButton.disabled = true;
             showLoading(t("Icon-Quelle wird geprüft und indiziert..."));
+            const request = beginIconRequest();
             try {
                 const data = requireSuccess(
-                    await postJson("/api/icons/sources/add", { path: clean }),
+                    await postJson("/api/icons/sources/add", { path: clean, world_path: request.world }),
                     t("Icon-Quelle konnte nicht hinzugefügt werden.")
                 );
-                applyIconIndexData(data);
+                await applyMutationIconIndexData(data, request);
                 if (sourcePathInput) sourcePathInput.value = "";
                 showToast(t("Icon-Quelle gespeichert. {count} Icons erkannt.", { count: data.count || 0 }), "success");
             } catch (err) {
@@ -239,12 +267,13 @@
             }
             const ok = await showConfirmDialog(t("Icon-Quelle entfernen? Gespeichert ist nur der Pfad; Texturen werden nicht gelöscht."));
             if (!ok) return;
+            const request = beginIconRequest();
             try {
                 const data = requireSuccess(
-                    await postJson("/api/icons/sources/remove", { path }),
+                    await postJson("/api/icons/sources/remove", { path, world_path: request.world }),
                     t("Icon-Quelle konnte nicht entfernt werden.")
                 );
-                applyIconIndexData(data);
+                await applyMutationIconIndexData(data, request);
                 showToast(t("Icon-Quelle entfernt."), "success");
             } catch (err) {
                 showToast(err?.message || t("Icon-Quelle konnte nicht entfernt werden."), "error");
@@ -257,12 +286,13 @@
                 showToast(READ_ONLY_SOURCES_MESSAGE, "warning");
                 return;
             }
+            const request = beginIconRequest();
             try {
                 const data = requireSuccess(
-                    await postJson("/api/icons/sources/set_enabled", { path, enabled }),
+                    await postJson("/api/icons/sources/set_enabled", { path, enabled, world_path: request.world }),
                     t("Icon-Quelle konnte nicht aktualisiert werden.")
                 );
-                applyIconIndexData(data);
+                await applyMutationIconIndexData(data, request);
                 showToast(enabled ? t("Icon-Quelle aktiviert.") : t("Icon-Quelle deaktiviert."), "success");
             } catch (err) {
                 showToast(err?.message || t("Icon-Quelle konnte nicht aktualisiert werden."), "error");
@@ -275,12 +305,13 @@
                 showToast(READ_ONLY_SOURCES_MESSAGE, "warning");
                 return;
             }
+            const request = beginIconRequest();
             try {
                 const data = requireSuccess(
-                    await postJson("/api/icons/sources/move", { path, direction }),
+                    await postJson("/api/icons/sources/move", { path, direction, world_path: request.world }),
                     t("Icon-Quelle konnte nicht verschoben werden.")
                 );
-                applyIconIndexData(data);
+                await applyMutationIconIndexData(data, request);
                 showToast(t("Icon-Quelle verschoben."), "success");
             } catch (err) {
                 showToast(err?.message || t("Icon-Quelle konnte nicht verschoben werden."), "error");
@@ -319,8 +350,9 @@
                 active,
             });
             updateStatus(t("Vanilla-Icons werden aus Mojang/bedrock-samples geladen..."), "running", true);
+            const request = beginIconRequest();
             try {
-                const data = await postJson("/api/icons/vanilla/update", {}, progress?.headers);
+                const data = await postJson("/api/icons/vanilla/update", { world_path: request.world }, progress?.headers);
                 if (data.success) progress?.finalizing();
                 if (data.output) appendUpdateOutput(`\n=== ${t("Vanilla-Icons")} ===\n${data.output}`);
                 if (!data.success) {
@@ -335,7 +367,7 @@
                     showToast(data.scan_warning, "warning", 8000);
                     return { ...data, success: false, error: data.scan_warning };
                 }
-                applyIconIndexData(data);
+                await applyMutationIconIndexData(data, request);
                 const mapped = data.manifest?.mapped_items ?? data.count ?? 0;
                 const known = data.manifest?.known_items ?? "?";
                 const message = t("Vanilla-Icons aktualisiert: {mapped} von {known} Item-IDs zugeordnet.", { mapped, known });
@@ -378,6 +410,7 @@
                 showLoading(t("Icon-Quellen werden erneut gescannt..."));
                 try {
                     const summary = await refreshIconSources({ rescan: true, throwOnError: true });
+                    if (!summary) return;
                     const count = Number(summary.count || 0);
                     showToast(count ? t("Icon-Scan abgeschlossen: {count} Icons.", { count }) : t("Icon-Scan abgeschlossen: keine passenden Texturen gefunden."), count ? "success" : "warning");
                 } catch (err) {

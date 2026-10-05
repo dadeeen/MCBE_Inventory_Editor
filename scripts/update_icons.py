@@ -1066,44 +1066,9 @@ def _validate_model_icon_mapping(
 
 
 def _strip_json_comments(text: str) -> str:
-    """Remove JSONC-style comments from Mojang texture files."""
+    from mcbe_editor.resource_packs import strip_json_comments
 
-    result: list[str] = []
-    in_string = False
-    escaped = False
-    index = 0
-    while index < len(text):
-        char = text[index]
-        nxt = text[index + 1] if index + 1 < len(text) else ""
-        if in_string:
-            result.append(char)
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            index += 1
-            continue
-        if char == '"':
-            in_string = True
-            result.append(char)
-            index += 1
-            continue
-        if char == "/" and nxt == "/":
-            index += 2
-            while index < len(text) and text[index] not in "\r\n":
-                index += 1
-            continue
-        if char == "/" and nxt == "*":
-            index += 2
-            while index + 1 < len(text) and not (text[index] == "*" and text[index + 1] == "/"):
-                index += 1
-            index = min(index + 2, len(text))
-            continue
-        result.append(char)
-        index += 1
-    return "".join(result)
+    return strip_json_comments(text)
 
 
 def _texture_paths_from_entry(entry: Any) -> list[str]:
@@ -1918,6 +1883,8 @@ def build_icon_cache(
             manifest = {
                 "schema_version": 6,
                 "resolutions": resolutions,
+                "item_texture_data": item_textures,
+                "item_icon_definitions": item_definitions,
                 "generated_at": utc_now(),
                 "source": "Mojang/bedrock-samples full release",
                 "release": release_info,

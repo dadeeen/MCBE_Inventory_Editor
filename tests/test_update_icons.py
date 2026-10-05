@@ -80,6 +80,8 @@ def test_item_definition_is_used_even_when_filename_and_atlas_key_differ(tmp_pat
     result = build_icon_cache(archive, ["apple"], tmp_path / "icons", {})
     assert result["items"]["minecraft:apple"] == "items/actual"
     assert result["resolutions"]["minecraft:apple"]["basis"] == "item_definition"
+    assert result["item_texture_data"]["fruit"] == ["items/actual"]
+    assert result["item_icon_definitions"]["apple"] == {"textures": {"default": "fruit"}}
 
 
 def test_missing_declared_texture_does_not_silently_use_ingredient(tmp_path):

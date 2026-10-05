@@ -1742,7 +1742,7 @@ def icon_route_deps() -> icon_api_routes.IconRouteDeps:
 @app.route("/api/icons/status", methods=["GET"])
 @rate_limit("read")
 def icons_status_route():
-    return icon_api_routes.icons_status(icon_route_deps())
+    return icon_api_routes.icons_status(icon_route_deps(), world_path=request.args.get("world_path"))
 
 
 @app.route("/api/icons/scan", methods=["POST"])
@@ -1765,7 +1765,7 @@ def icons_vanilla_update_route():
 @app.route("/api/icons/sources", methods=["GET"])
 @rate_limit("read")
 def icons_sources_route():
-    return icon_api_routes.icons_sources(icon_route_deps())
+    return icon_api_routes.icons_sources(icon_route_deps(), world_path=request.args.get("world_path"))
 
 
 @app.route("/api/icons/sources/add", methods=["POST"])
@@ -1819,7 +1819,7 @@ def icons_pick_folder_route():
 @app.route("/api/icons/<token>", methods=["GET"])
 @rate_limit("icons")
 def icon_file_route(token: str):
-    return icon_api_routes.icon_file(token, icon_route_deps())
+    return icon_api_routes.icon_file(token, icon_route_deps(), context_id=request.args.get("context"))
 
 
 def note_heartbeat_received() -> None:
