@@ -156,7 +156,7 @@ A reader that opens tables on demand detects changes but reads no fixed state. T
 
 A table, log or MANIFEST missing after CURRENT or the MANIFEST changed counts as a change; without that change it is damage, and other file errors such as missing permissions are reported as they are. Loading reports a change with its own message and asks to load the world again. The reader does not lock against concurrent external writes.
 
-Finding a world's players reads every record. Each service's bounded `PlayerDirectory` retains lists for at most eight worlds. The directory is not persisted.
+Finding a world's players reads every record. Each application worker shares one bounded `PlayerDirectory` across its catalog-bound services, retaining lists for at most eight worlds. Item-catalog updates preserve these lists because discovery depends on database contents rather than item rules. Each service still binds its own catalog when parsing or editing selected players. The directory is not persisted.
 
 A cached list is keyed by the reader's parsed MANIFEST/WAL digests and the number, file identity, size and modification time of every live table. Opened tables contribute their descriptor identity even if their paths refer to replacement files; tables opened on demand must match the identity captured for the token. Held descriptors are checked before cache lookup and after discovery. A changed file or indeterminate state cannot publish a cached list. A matching fresh reader reuses the list with labels localized for the current request.
 

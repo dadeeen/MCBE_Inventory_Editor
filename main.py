@@ -47,6 +47,7 @@ from mcbe_editor.config import _host_for_origin, host_reaches_beyond_loopback
 from mcbe_editor.db import register_runtime_leveldb_write_guard
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
 from mcbe_editor.distribution import data_root_snapshot, distribution_snapshot
+from mcbe_editor.player_directory import PlayerDirectory
 from mcbe_editor.presence import WorldPresenceTracker
 from mcbe_editor.server_guard import ServerGuardStore
 from mcbe_editor.service_errors import WriteNotAttemptedError
@@ -363,9 +364,12 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = APP_CONFIG.session_cookie_secure
 app.secret_key = SETUP_STATE.secret_key() or APP_CONFIG.secret_key
+# Discovery depends on database state, so it outlives catalog-bound services.
+_PLAYER_DIRECTORY = PlayerDirectory()
 editor_service = BedrockEditorService(
     item_data_module.ITEMS, item_data_module.ENCHANTMENTS,
     item_catalog=item_data_module.current_item_catalog(),
+    player_directory=_PLAYER_DIRECTORY,
 )
 _ITEM_DB_RUNTIME_SIGNATURE = _item_db_file_signature()
 _ITEM_DB_RELOAD_FAILURE = None
@@ -1389,7 +1393,10 @@ def reload_item_db_after_update() -> dict:
         if signature is None:
             raise OSError("Item database is unavailable.")
         catalog = item_data_module.prepare_item_catalog(_item_db_runtime_path())
-        service = BedrockEditorService(catalog["ITEMS"], catalog["ENCHANTMENTS"], item_catalog=catalog)
+        service = BedrockEditorService(
+            catalog["ITEMS"], catalog["ENCHANTMENTS"], item_catalog=catalog,
+            player_directory=_PLAYER_DIRECTORY,
+        )
         status = status_snapshots.item_db_status_snapshot(APP_CONFIG, SimpleNamespace(**catalog), APP_ROOT)
         if _item_db_file_signature() != signature:
             raise ValueError("Item database changed while loading.")

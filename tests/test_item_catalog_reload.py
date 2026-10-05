@@ -7,13 +7,15 @@ import importlib
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import pytest
 
 from mcbe_editor import inventory, item_data, nbt, services
 from mcbe_editor.bedrock_nbt import save_player_nbt
 from mcbe_editor.leveldb_writer import LevelDbWriter
-from mcbe_editor.players import encode_player_key
+from mcbe_editor.player_directory import PlayerDirectory
+from mcbe_editor.players import PlayerScanner, encode_player_key
 
 
 PROBE_ITEM = "minecraft:catalog_probe"
@@ -52,9 +54,10 @@ def write_catalog(path, generation=1):
     return raw
 
 
-def make_service(catalog):
+def make_service(catalog, *, player_directory=None):
     return services.BedrockEditorService(
         catalog["ITEMS"], catalog["ENCHANTMENTS"], db_factory=LevelDbWriter, item_catalog=catalog,
+        player_directory=player_directory,
     )
 
 
@@ -195,7 +198,8 @@ def test_concurrent_service_reads_keep_their_whole_catalog(tmp_path, monkeypatch
     path = tmp_path / "catalog.json"
     write_catalog(path, 1)
     first = item_data.reload_item_database(path)
-    old_service = make_service(first)
+    directory = PlayerDirectory()
+    old_service = make_service(first, player_directory=directory)
     old_world = make_world(tmp_path / "old-world")
     new_world = make_world(tmp_path / "new-world")
     entered, release = threading.Event(), threading.Event()
@@ -213,7 +217,8 @@ def test_concurrent_service_reads_keep_their_whole_catalog(tmp_path, monkeypatch
             assert entered.wait(5)
             write_catalog(path, 2)
             second = item_data.reload_item_database(path)
-            new_read = pool.submit(make_service(second).load_player, new_world, PLAYER_KEY)
+            new_service = make_service(second, player_directory=directory)
+            new_read = pool.submit(new_service.load_player, new_world, PLAYER_KEY)
             assert_generation(new_read.result(timeout=5), 2)
         finally:
             release.set()
@@ -249,15 +254,25 @@ def application(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "_item_db_runtime_path", lambda: path)
     monkeypatch.setattr(main, "_item_db_operation_root", lambda: tmp_path / "locks")
     monkeypatch.setattr(main, "editor_service", main.editor_service)
+    monkeypatch.setattr(main, "_PLAYER_DIRECTORY", PlayerDirectory())
     monkeypatch.setattr(main, "_ITEM_DB_RUNTIME_SIGNATURE", None)
     monkeypatch.setattr(main, "_ITEM_DB_RELOAD_FAILURE", None)
     main.reload_item_db_after_update()
     return main, path
 
 
-def test_application_publishes_new_service_without_reloading_code(application, monkeypatch):
+@pytest.fixture
+def discovery_scans():
+    with patch.object(PlayerScanner, "list_players", autospec=True, side_effect=PlayerScanner.list_players) as counted:
+        yield counted
+
+
+def test_application_publishes_new_service_without_reloading_code(application, monkeypatch, tmp_path, discovery_scans):
     main, path = application
     old = main.editor_service
+    world = make_world(tmp_path / "world")
+    assert_generation(old.load_player(world, PLAYER_KEY), 1)
+    assert discovery_scans.call_count == 1
     cls = main.BedrockEditorService
     parse = inventory.parse_effects
     monkeypatch.setattr(importlib, "reload", lambda *_: pytest.fail("Module reload called"))
@@ -271,12 +286,18 @@ def test_application_publishes_new_service_without_reloading_code(application, m
     assert old.item_catalog["STACK_LIMITS"][PROBE_ITEM] == 1
     assert main.editor_service.item_catalog["STACK_LIMITS"][PROBE_ITEM] == 2
     assert main._item_db_file_signature() == main._ITEM_DB_RUNTIME_SIGNATURE
+    assert_generation(main.editor_service.load_player(world, PLAYER_KEY), 2)
+    assert_generation(old.load_player(world, PLAYER_KEY), 1)
+    assert discovery_scans.call_count == 1
 
 
 @pytest.mark.parametrize("failure", ["json", "non_object", "service", "status", "changed", "missing"])
-def test_application_does_not_publish_incomplete_update(application, monkeypatch, failure):
+def test_application_does_not_publish_incomplete_update(application, monkeypatch, failure, tmp_path, discovery_scans):
     main, path = application
     old = main.editor_service
+    world = make_world(tmp_path / "world")
+    players = old.list_players(world)
+    assert discovery_scans.call_count == 1
     catalog = item_data.current_item_catalog()
     signature = main._ITEM_DB_RUNTIME_SIGNATURE
     write_catalog(path, 2)
@@ -305,6 +326,93 @@ def test_application_does_not_publish_incomplete_update(application, monkeypatch
     assert item_data.current_item_catalog() is catalog
     assert signature == main._ITEM_DB_RUNTIME_SIGNATURE
     assert item_data.get_max_stack(PROBE_ITEM) == 1
+    assert old.list_players(world) == players
+    assert discovery_scans.call_count == 1
+
+
+def test_shared_directory_after_reload_rechecks_replaced_table(application, tmp_path, discovery_scans):
+    from tests.test_player_directory import _replacement_player_table
+
+    main, path = application
+    _root, table, replacement, _old, _new = _replacement_player_table(tmp_path)
+    world = str(tmp_path)
+    assert main.editor_service.list_players(world)["players"][0]["editable"]
+    write_catalog(path, 2)
+    main.reload_item_db_after_update()
+    assert main.editor_service.list_players(world)["players"][0]["editable"]
+    assert discovery_scans.call_count == 1
+
+    # The replacement retains both size and timestamp; its identity must still
+    # invalidate the shared list after the catalog-bound service was replaced.
+    table.unlink()
+    replacement.rename(table)
+    listed = main.editor_service.list_players(world)
+    assert not listed["players"][0]["editable"]
+    assert discovery_scans.call_count == 2
+    with pytest.raises(ValueError, match="read-only"):
+        main.editor_service.load_player(world, PLAYER_KEY)
+    assert discovery_scans.call_count == 2
+
+
+@pytest.mark.parametrize("primed", [False, True])
+def test_read_started_before_reload_can_finish_using_shared_directory(application, tmp_path, monkeypatch, discovery_scans, primed):
+    main, path = application
+    old = main.editor_service
+    world = make_world(tmp_path / "world")
+    if primed:
+        old.list_players(world)
+    entered, release = threading.Event(), threading.Event()
+    read_player = old._read_player
+
+    def pause_read(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return read_player(*args, **kwargs)
+
+    monkeypatch.setattr(old, "_read_player", pause_read)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(old.load_player, world, PLAYER_KEY)
+        try:
+            assert entered.wait(5)
+            write_catalog(path, 2)
+            main.reload_item_db_after_update()
+        finally:
+            release.set()
+        assert_generation(pending.result(timeout=5), 1)
+    assert_generation(main.editor_service.load_player(world, PLAYER_KEY), 2)
+    assert discovery_scans.call_count == 1
+
+
+def test_repeated_catalog_reload_keeps_directory_bounded_and_worlds_separate(application, tmp_path, discovery_scans):
+    main, path = application
+    worlds = []
+    raw = save_player_nbt(nbt.NamedTag(nbt.CompoundTag({"Inventory": nbt.ListTag([], 10)})))
+    for index in range(9):
+        world_path = tmp_path / f"world-{index}"
+        world = make_world(world_path)
+        remote_key = f"player_synthetic_{index}".encode()
+        writer = LevelDbWriter(str(world_path / "db"))
+        try:
+            writer.put(remote_key, raw)
+        finally:
+            writer.close()
+        expected = {PLAYER_KEY, encode_player_key(remote_key)}
+        write_catalog(path, index + 2)
+        main.reload_item_db_after_update()
+        listed = main.editor_service.list_players(world)
+        assert {player["player_key"] for player in listed["players"]} == expected
+        worlds.append((world, expected))
+    assert discovery_scans.call_count == 9
+    write_catalog(path, 11)
+    main.reload_item_db_after_update()
+    for world, expected in worlds[1:]:
+        listed = main.editor_service.list_players(world)
+        assert {player["player_key"] for player in listed["players"]} == expected
+    assert discovery_scans.call_count == 9
+    world, expected = worlds[0]
+    listed = main.editor_service.list_players(world)
+    assert {player["player_key"] for player in listed["players"]} == expected
+    assert discovery_scans.call_count == 10  # The oldest of nine worlds was evicted.
 
 
 def test_external_bad_catalog_keeps_serving_and_retries_when_repaired(application, monkeypatch):
@@ -379,14 +487,15 @@ def test_existing_function_defaults_follow_the_bound_catalog(tmp_path):
     assert extract(enchantment) == (PROBE_ENCHANTMENT, 2)
 
 
-def test_service_saves_use_their_catalog_limits_after_publication(tmp_path, monkeypatch):
+def test_service_saves_use_their_catalog_limits_after_publication(tmp_path, monkeypatch, discovery_scans):
     monkeypatch.setenv("MCBE_EDITOR_MODE", "local")
     monkeypatch.setenv("MCBE_DATA_ROOT", str(tmp_path / "data"))
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
     path = tmp_path / "catalog.json"
     write_catalog(path, 1)
     first = item_data.reload_item_database(path)
-    old = make_service(first)
+    directory = PlayerDirectory()
+    old = make_service(first, player_directory=directory)
     world = make_world(tmp_path / "world")
     loaded = old.load_player(world, PLAYER_KEY)
     items = list(loaded["inventory"].values())
@@ -396,11 +505,15 @@ def test_service_saves_use_their_catalog_limits_after_publication(tmp_path, monk
     with pytest.raises(ValueError, match="Vanilla-Stacklimit 1"):
         old.save_player(world, PLAYER_KEY, items, {}, base_revision=loaded["player_revision"])
     assert old.load_player(world, PLAYER_KEY)["player_revision"] == loaded["player_revision"]
-    current = make_service(second)
+    current = make_service(second, player_directory=directory)
     result = current.save_player(world, PLAYER_KEY, items, {}, base_revision=loaded["player_revision"])
     assert result["success"] is True
     assert result["no_op"] is False
     assert current.load_player(world, PLAYER_KEY)["inventory"][0]["count"] == 2
+    assert old.load_player(world, PLAYER_KEY)["inventory"][0]["count"] == 2
+    with pytest.raises(ValueError, match="seit dem Laden geändert"):
+        old.save_player(world, PLAYER_KEY, None, {}, base_revision=loaded["player_revision"])
+    assert discovery_scans.call_count == 1
 
 
 def test_publication_waits_for_active_service_mutations(application, monkeypatch):

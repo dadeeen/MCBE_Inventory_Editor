@@ -114,6 +114,7 @@ class BedrockEditorService:
         readonly_db_factory=ReadonlyLevelDbAdapter,
         *,
         item_catalog=None,
+        player_directory: PlayerDirectory | None = None,
     ):
         """Without ``item_catalog``, operations read the current module data; that suits tests and standalone scripts."""
 
@@ -122,7 +123,7 @@ class BedrockEditorService:
         self.enchantments_db = enchantments_db
         self.db_factory = db_factory
         self.readonly_db_factory = readonly_db_factory
-        self._player_directory = PlayerDirectory()
+        self._player_directory = player_directory if player_directory is not None else PlayerDirectory()
 
     @staticmethod
     def _lock_key(world_path: str) -> str:
