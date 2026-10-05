@@ -33,6 +33,8 @@ jobs:
           python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
       - name: Ruff lint
         run: ruff check .
+      - name: Ruff format
+        run: ruff format --check .
 
   typecheck:
     name: Typed core check
@@ -49,31 +51,6 @@ jobs:
           python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
       - name: Mypy typed core
         run: python -m mypy
-
-  quality-advisory:
-    name: Advisory quality checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - name: Install dev dependencies
-        run: |
-          python -m pip install --require-hashes -r requirements/bootstrap.lock
-          python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
-      - name: Ruff format advisory
-        run: |
-          set +e
-          output="$(ruff format --check . 2>&1)"
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            count="$(printf '%s\n' "$output" | grep -c '^Would reformat:' || true)"
-            echo "::warning title=Ruff format advisory::${count} file(s) would be reformatted. This is advisory and does not block CI."
-          fi
-          exit 0
 
   integrity:
     name: Dependency and lockfile integrity

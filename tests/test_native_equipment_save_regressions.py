@@ -29,9 +29,14 @@ def _item(name, slot=None, **extra):
 
 
 def _empty_root_item():
-    return nbt.CompoundTag({
-        "Name": nbt.StringTag(""), "Count": nbt.ByteTag(0), "Damage": nbt.ShortTag(0), "WasPickedUp": nbt.ByteTag(0),
-    })
+    return nbt.CompoundTag(
+        {
+            "Name": nbt.StringTag(""),
+            "Count": nbt.ByteTag(0),
+            "Damage": nbt.ShortTag(0),
+            "WasPickedUp": nbt.ByteTag(0),
+        }
+    )
 
 
 def _armor(helmet=None):
@@ -75,7 +80,12 @@ def test_native_inventory_change_keeps_hidden_root_equipment(tmp_path, monkeypat
     next(item for item in payload if item["slot"] == 0)["count"] = 2
 
     result = service.save_player(
-        str(world), key, payload, {}, base_revision=loaded["player_revision"], root_equipment_editable=True,
+        str(world),
+        key,
+        payload,
+        {},
+        base_revision=loaded["player_revision"],
+        root_equipment_editable=True,
     )
 
     assert result["success"] is True and result["no_op"] is False
@@ -106,7 +116,12 @@ def test_native_cross_player_root_copy_preserves_source_and_item_nbt(tmp_path, m
     copied_item["slot"] = target_slot
 
     result = service.save_player(
-        str(world), target_key, [copied_item], {}, base_revision=target_loaded["player_revision"], root_equipment_editable=True,
+        str(world),
+        target_key,
+        [copied_item],
+        {},
+        base_revision=target_loaded["player_revision"],
+        root_equipment_editable=True,
     )
 
     assert result["success"] is True and result["no_op"] is False

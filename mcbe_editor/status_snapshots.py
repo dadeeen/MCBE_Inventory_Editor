@@ -133,11 +133,9 @@ def item_db_status_snapshot(app_config: Any, item_data_module: Any, app_root: Pa
         else "Herkunft unbekannt: Die Datenbank ist vorhanden, aber ohne Quellmetadaten."
     )
     item_components = getattr(item_data_module, "ITEM_COMPONENTS", {})
-    item_component_counts = {
-        str(component): len(values)
-        for component, values in item_components.items()
-        if isinstance(values, dict)
-    } if isinstance(item_components, dict) else {}
+    item_component_counts = (
+        {str(component): len(values) for component, values in item_components.items() if isinstance(values, dict)} if isinstance(item_components, dict) else {}
+    )
     return {
         "status": status,
         "message": message,

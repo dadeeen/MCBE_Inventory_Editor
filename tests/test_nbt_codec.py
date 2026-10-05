@@ -10,17 +10,22 @@ from mcbe_editor import nbt
 
 @pytest.mark.parametrize("little_endian", [True, False])
 def test_all_tag_types_roundtrip(little_endian):
-    root = nbt.CompoundTag({
-        "byte": nbt.ByteTag(-128), "short": nbt.ShortTag(-32768),
-        "int": nbt.IntTag(2147483647), "long": nbt.LongTag(-(2**63)),
-        "float": nbt.FloatTag(-0.0), "double": nbt.DoubleTag(1.25),
-        "bytes": nbt.ByteArrayTag([-128, 0, 127]),
-        "ints": nbt.IntArrayTag([-(2**31), 0, 2**31 - 1]),
-        "longs": nbt.LongArrayTag([-(2**63), 0, 2**63 - 1]),
-        "text": nbt.StringTag("Grüße\x00世界😀"),
-        "list": nbt.ListTag([nbt.CompoundTag({"x": nbt.IntTag(7)})]),
-        **{f"empty{i}": nbt.ListTag([], i) for i in range(13)},
-    })
+    root = nbt.CompoundTag(
+        {
+            "byte": nbt.ByteTag(-128),
+            "short": nbt.ShortTag(-32768),
+            "int": nbt.IntTag(2147483647),
+            "long": nbt.LongTag(-(2**63)),
+            "float": nbt.FloatTag(-0.0),
+            "double": nbt.DoubleTag(1.25),
+            "bytes": nbt.ByteArrayTag([-128, 0, 127]),
+            "ints": nbt.IntArrayTag([-(2**31), 0, 2**31 - 1]),
+            "longs": nbt.LongArrayTag([-(2**63), 0, 2**63 - 1]),
+            "text": nbt.StringTag("Grüße\x00世界😀"),
+            "list": nbt.ListTag([nbt.CompoundTag({"x": nbt.IntTag(7)})]),
+            **{f"empty{i}": nbt.ListTag([], i) for i in range(13)},
+        }
+    )
     raw = nbt.NamedTag(root, "root").save_to(little_endian=little_endian)
     parsed = nbt.load(raw, little_endian=little_endian)
     assert parsed.save_to(little_endian=little_endian) == raw
@@ -69,14 +74,17 @@ def test_every_truncated_prefix_is_rejected():
             nbt.load(raw[:size])
 
 
-@pytest.mark.parametrize("raw", [
-    b"\x0a\0\0\x01\x01\0x\x01\x01\x01\0x\x02\0",  # duplicate key
-    b"\x09\0\0\x00\x01\0\0\0",  # nonempty TAG_End list
-    b"\x09\0\0\x03\xff\xff\xff\xff",  # negative length
-    b"\x07\0\0\xff\xff\xff\x7f",  # impossible array length
-    b"\x0a\0\0\0junk",  # trailing data
-    b"\x0d\0\0",  # unknown type
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"\x0a\0\0\x01\x01\0x\x01\x01\x01\0x\x02\0",  # duplicate key
+        b"\x09\0\0\x00\x01\0\0\0",  # nonempty TAG_End list
+        b"\x09\0\0\x03\xff\xff\xff\xff",  # negative length
+        b"\x07\0\0\xff\xff\xff\x7f",  # impossible array length
+        b"\x0a\0\0\0junk",  # trailing data
+        b"\x0d\0\0",  # unknown type
+    ],
+)
 def test_ambiguous_or_malformed_data_is_rejected(raw):
     with pytest.raises(nbt.NBTError):
         nbt.load(raw)

@@ -1,4 +1,5 @@
 """Synthetic on-disk fixtures; no native LevelDB or private worlds required."""
+
 from __future__ import annotations
 
 import hashlib
@@ -96,20 +97,17 @@ def _table(blocks, compression):
 
 
 def _new_file(level, number, data, first, last):
-    return (b"\x07" + _varint(level) + _varint(number) + _varint(len(data))
-            + _length_prefixed(first) + _length_prefixed(last))
+    return b"\x07" + _varint(level) + _varint(number) + _varint(len(data)) + _length_prefixed(first) + _length_prefixed(last)
 
 
 @pytest.mark.parametrize("compression", [0, 2, 4])
 @pytest.mark.parametrize("suffix", ["ldb", "sst"])
 def test_synthetic_tables_merge_with_wal_versions_and_tombstones(tmp_path, compression, suffix):
     old_entries = [(_key(b"apple", 1), b"old"), (_key(b"apricot", 2), b"fruit"), (_key(b"zebra", 3), b"stripe")]
-    new_blocks = [[(_key(b"apple", 5, 0), b""), (_key(b"apple", 4), b"obsolete")],
-                  [(_key(b"banana", 6), b"yellow"), (_key(b"berry", 7), b"red")]]
+    new_blocks = [[(_key(b"apple", 5, 0), b""), (_key(b"apple", 4), b"obsolete")], [(_key(b"banana", 6), b"yellow"), (_key(b"berry", 7), b"red")]]
     old = _table([old_entries], compression)
     new = _table(new_blocks, compression)
-    manifest = (_new_file(1, 3, old, old_entries[0][0], old_entries[-1][0])
-                + _new_file(0, 4, new, new_blocks[0][0][0], new_blocks[-1][-1][0]))
+    manifest = _new_file(1, 3, old, old_entries[0][0], old_entries[-1][0]) + _new_file(0, 4, new, new_blocks[0][0][0], new_blocks[-1][-1][0])
     # A deletion and an overwrite in the WAL must dominate the table records.
     wal = struct.pack("<QI", 8, 2) + b"\x00" + _length_prefixed(b"banana")
     wal += b"\x01" + _length_prefixed(b"berry") + _length_prefixed(b"new red")
@@ -436,8 +434,7 @@ def _flushing_world(tmp_path):
 
     old = [(_key(b"a", 1), b"old a"), (_key(b"b", 2), b"old b")]
     old_table = _table([old], 0)
-    root = _world_db(tmp_path, manifest=_new_file(1, 3, old_table, old[0][0], old[-1][0]),
-                     wal=_write_batch(10, [(b"a", b"new a")]))
+    root = _world_db(tmp_path, manifest=_new_file(1, 3, old_table, old[0][0], old[-1][0]), wal=_write_batch(10, [(b"a", b"new a")]))
     (root / "000003.ldb").write_bytes(old_table)
     return root
 

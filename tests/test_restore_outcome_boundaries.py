@@ -33,10 +33,16 @@ def restore_case(tmp_path, monkeypatch):
     (world / "db" / "CURRENT").write_bytes(b"current database")
     request = {"world_path": str(world), "backup_file": created["backup_file"], "backup_token": preview["backup_token"]}
     deps = BackupRouteDeps(
-        service=service, jsonify=lambda payload: payload, api_error=Mock(), log_api_exception=Mock(),
-        json_string=lambda data, key: data[key], require_world_write_allowed=lambda: None,
-        require_final_world_write_allowed=lambda operation: None, presence_conflict_response=lambda *args, **kwargs: None,
-        audit_event=Mock(), final_write_gate_blocked_error=type("GateError", (Exception,), {}),
+        service=service,
+        jsonify=lambda payload: payload,
+        api_error=Mock(),
+        log_api_exception=Mock(),
+        json_string=lambda data, key: data[key],
+        require_world_write_allowed=lambda: None,
+        require_final_world_write_allowed=lambda operation: None,
+        presence_conflict_response=lambda *args, **kwargs: None,
+        audit_event=Mock(),
+        final_write_gate_blocked_error=type("GateError", (Exception,), {}),
     )
     return world, request, deps
 

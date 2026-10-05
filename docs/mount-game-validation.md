@@ -38,7 +38,6 @@ adult fields. The editor animals were all adults.
    a raised platform to distinguish the test population from existing animals.
 3. In Minecraft, summon three named reference animals of each type, then use
    Save & Quit. Names such as `REF_horse_1` identify the reference records.
-   The 60-command preparation function completed successfully in the game.
 4. Preserve the reference-only copy. With the world closed, call
    `create_horse_mount_with_service` through `BedrockEditorService` under
    Python 3.14, once per editor animal. Use the real native LevelDB backend,
@@ -57,9 +56,8 @@ adult fields. The editor animals were all adults.
 The references used Minecraft's documented named
 [`summon` command](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/commandsreference/examples/commands/summon?view=minecraft-bedrock-stable).
 Mounting used the documented
-[`ride` command](https://learn.microsoft.com/en-us/minecraft/creator/commands/commands/ride?view=minecraft-bedrock-stable),
-for example `/ride @s start_riding @e[type=minecraft:horse,x=246,y=86,z=392,r=5,c=1] teleport_rider`.
-These coordinates identify a pen in this particular test copy.
+[`ride` command](https://learn.microsoft.com/en-us/minecraft/creator/commands/commands/ride?view=minecraft-bedrock-stable)
+with a selector restricted to the selected test pen.
 
 ## Data checks and observed differences
 
@@ -97,16 +95,14 @@ on type, these include random attributes, color/mark definitions, `Temper`,
 `canPickupItems`, identity/storage references, position, rotation and sitting
 state. This comparison is an empirical sample, not a complete entity schema.
 
-The second save additionally recorded gameplay transitions: the ridden horse
-and donkey changed `Temper`; the ridden mule became tamed, acquired the local
-player's world-internal owner reference, tamed definitions and inventory tags;
-one camel entered its sitting state. The mule's heart particles were visible
-during mounting. Its saved owner was checked against the local player's
-`UniqueID`. These transitions did not change the configured attributes.
+The saved state after mounting includes `Temper` changes for the horse and
+donkey, tamed definitions and inventory tags for the mule, and a sitting state
+for one camel. The mule's owner reference matches the local player's `UniqueID`.
+Configured attributes remain unchanged.
 
 An independent Amulet-NBT oracle in the separate Python 3.12 reference
 environment parsed all 30 records from all three snapshots: **90 record
-checks**. Recursive types/values matched the new codec, and both serializers
+checks**. Recursive types/values matched the project codec, and both serializers
 reproduced every original record byte for byte. The same snapshot integrity
 checks also run in the clean Python 3.14 application environment without the
 oracle dependency.
@@ -125,5 +121,4 @@ steering, measured jump height/speed, breeding, every equipment/inventory
 combination, all color combinations, baby creation, other dimensions or
 multiplayer ownership behavior. Other Minecraft animals are outside this
 five-type creation scope. Future game versions and unusual/corrupted worlds
-still require separate validation. No numerical failure probability or
-near-certainty claim follows from this finite experiment.
+still require separate validation.

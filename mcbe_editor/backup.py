@@ -18,6 +18,7 @@ from functools import wraps
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, TypeGuard, cast
 
+from .archive_errors import ZIP_READ_ERRORS as _ZIP_READ_ERRORS
 from .backup_consistency import BackupSourceChangedError, reject_linklike_entry, source_snapshot
 from .backup_settings import BackupLimitError, get_backup_settings
 from .backup_types import BackupDescriptor, BackupListEntry, BackupPath, RestoreToken
@@ -370,7 +371,11 @@ def _restore_journals_below(root_path: str, *, max_depth: int, max_dirs: int) ->
 
 
 def recover_interrupted_restores(
-    scan_roots: Iterable[StrPath], *, max_depth: int = 4, max_dirs: int = 2000, recovery_gate_check: Callable[[], object] | None = None,
+    scan_roots: Iterable[StrPath],
+    *,
+    max_depth: int = 4,
+    max_dirs: int = 2000,
+    recovery_gate_check: Callable[[], object] | None = None,
 ) -> list[JsonObject]:
     """Recover journaled restores found inside configured world roots."""
 
@@ -485,11 +490,11 @@ def _parse_created_at(value: object) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-    except ValueError:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    except (ValueError, OverflowError):
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
 
 
 def _backup_metadata(world_path: str, *, kind: str, created_at: datetime, restore_source: str | None = None) -> JsonObject:
@@ -535,11 +540,7 @@ def _read_backup_metadata(zipf: zipfile.ZipFile, filename: str) -> JsonObject:
         if isinstance(candidate, dict):
             kind = candidate.get("kind")
             created_at = _parse_created_at(candidate.get("created_at"))
-            if (
-                candidate.get("schema_version") == BACKUP_METADATA_VERSION
-                and isinstance(kind, str)
-                and kind in BACKUP_KINDS - {BACKUP_KIND_LEGACY}
-            ):
+            if candidate.get("schema_version") == BACKUP_METADATA_VERSION and isinstance(kind, str) and kind in BACKUP_KINDS - {BACKUP_KIND_LEGACY}:
                 metadata = {
                     **candidate,
                     "kind": kind,
@@ -740,7 +741,10 @@ def _seed_verified_integrity_cache(backups_dir: str, path: str) -> None:
 
 @_world_locked
 def prune_backups(
-    world_path: str, keep_paths: Iterable[str | None] | None = None, *, retention_classes: Iterable[str] | None = None,
+    world_path: str,
+    keep_paths: Iterable[str | None] | None = None,
+    *,
+    retention_classes: Iterable[str] | None = None,
 ) -> None:
     limits = _retention_limits()
     target_classes = set(retention_classes or (RETENTION_ROLLING, RETENTION_RECOVERY))
@@ -802,7 +806,10 @@ def _verify_zip_integrity(zip_path: StrPath | BinaryIO) -> None:
     try:
         with zipfile.ZipFile(zip_path, "r") as zipf:
             bad_member = zipf.testzip()
-    except zipfile.BadZipFile as exc:
+    except _ZIP_READ_ERRORS as exc:
+        # testzip also raises for damaged compressed streams, encrypted members
+        # and unsupported methods (NotImplementedError is a RuntimeError).
+        # Normalize only at this archive-reading boundary.
         raise ValueError("Backup-Datei ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
     except OSError as exc:
         # The text of an OSError names the full path; the server log keeps it.
@@ -898,7 +905,10 @@ def _publish_archive_no_clobber(temp_path: str, target_path: str) -> bool:
 
 
 def _backup_file_descriptor(
-    path: str, *, integrity_cache: JsonObject | None = None, cache_dirty: list[bool] | None = None,
+    path: str,
+    *,
+    integrity_cache: JsonObject | None = None,
+    cache_dirty: list[bool] | None = None,
 ) -> BackupDescriptor | None:
     """Read cheap listing/retention metadata without streaming all ZIP members."""
 
@@ -947,7 +957,11 @@ def _is_complete_backup_file(path: str) -> bool:
 
 @_world_locked
 def create_backup(
-    world_path: str, *, prune_after: bool = True, backup_kind: str = BACKUP_KIND_AUTOMATIC, restore_source: str | None = None,
+    world_path: str,
+    *,
+    prune_after: bool = True,
+    backup_kind: str = BACKUP_KIND_AUTOMATIC,
+    restore_source: str | None = None,
 ) -> BackupPath:
     if not os.path.exists(world_path):
         raise FileNotFoundError("Welt-Ordner existiert nicht.")
@@ -1271,11 +1285,14 @@ def _check_backup_totals(total_bytes: int, entry_count: int, limit_mib: int) -> 
     if entry_count > MAX_BACKUP_MEMBERS:
         raise ValueError(t("Backup enthält zu viele Dateien (max {limit}).", limit=MAX_BACKUP_MEMBERS))
     if total_bytes > limit_mib * 1024 * 1024:
-        raise BackupLimitError(t(
-            "Backup überschreitet maximal {limit} MiB unkomprimiert (benötigt: {required} MiB). "
-            "Bitte das Backup-Limit unter Werkzeuge & Einstellungen → Backup-Manager anpassen.",
-            limit=limit_mib, required=(total_bytes + 1024 * 1024 - 1) // (1024 * 1024),
-        ))
+        raise BackupLimitError(
+            t(
+                "Backup überschreitet maximal {limit} MiB unkomprimiert (benötigt: {required} MiB). "
+                "Bitte das Backup-Limit unter Werkzeuge & Einstellungen → Backup-Manager anpassen.",
+                limit=limit_mib,
+                required=(total_bytes + 1024 * 1024 - 1) // (1024 * 1024),
+            )
+        )
 
 
 def _backup_tree_stats(world_path: str, backups_dir: str) -> tuple[int, int]:
@@ -1315,10 +1332,13 @@ def _ensure_space(path: str, required_bytes: int) -> None:
     reserve = max(_MIN_FREE_SPACE_RESERVE, required_bytes // 20)
     free = shutil.disk_usage(path).free
     if free < required_bytes + reserve:
-        raise ValueError(t(
-            "Nicht genügend freier Speicherplatz für Backup/Restore: benötigt ca. {required} MiB einschließlich Reserve, verfügbar {free} MiB.",
-            required=(required_bytes + reserve + 1024 * 1024 - 1) // (1024 * 1024), free=free // (1024 * 1024),
-        ))
+        raise ValueError(
+            t(
+                "Nicht genügend freier Speicherplatz für Backup/Restore: benötigt ca. {required} MiB einschließlich Reserve, verfügbar {free} MiB.",
+                required=(required_bytes + reserve + 1024 * 1024 - 1) // (1024 * 1024),
+                free=free // (1024 * 1024),
+            )
+        )
 
 
 def _archive_size(archive_path: str, world_path: str) -> int:
@@ -1541,7 +1561,11 @@ def preview_backup(world_path: str, backup_file: str) -> JsonObject:
 
 @_world_locked
 def restore_backup(
-    world_path: str, backup_file: str, *, resolved_backup_path: str | None = None, pre_restore_check: Callable[[], object] | None = None,
+    world_path: str,
+    backup_file: str,
+    *,
+    resolved_backup_path: str | None = None,
+    pre_restore_check: Callable[[], object] | None = None,
     expected_source_snapshot: str | None = None,
 ) -> list[str]:
     # Service-level restore first resolves the selected backup, then creates a
@@ -1590,10 +1614,9 @@ def restore_backup(
         # saved and stopped again during extraction, leaving the final gate open
         # while the pre-restore backup no longer contains the latest world state.
         if source_snapshot(world_path) != source_before:
-            raise BackupSourceChangedError(t(
-                "Restore abgelehnt: Die Zielwelt wurde während der Vorbereitung verändert. "
-                "Bitte Server vollständig stoppen und den Restore erneut starten."
-            ))
+            raise BackupSourceChangedError(
+                t("Restore abgelehnt: Die Zielwelt wurde während der Vorbereitung verändert. Bitte Server vollständig stoppen und den Restore erneut starten.")
+            )
         # Metadata scans can take time too; preserve a final server-status check
         # after the scan, immediately before starting the directory transaction.
         if pre_restore_check:

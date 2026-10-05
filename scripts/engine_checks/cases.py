@@ -11,16 +11,27 @@ CONTROL_NAME = "MCBE untouched control"
 
 def append_case(cases: list[dict], observations: dict, item_id: str, mode: str, amount: int, **extra) -> None:
     index = len(cases)
-    cases.append({
-        "case_id": f"case_{index:05d}", "id": item_id, "mode": mode, "amount": amount,
-        "carrier": f"{CARRIER_PREFIX}{index // SLOTS_PER_CARRIER:04d}", "slot": index % SLOTS_PER_CARRIER,
-        "name": "", "lore": [], "damage": 0, "enchantments": [], **extra,
-        "durable": observations[item_id].get("max_durability") is not None,
-    })
+    cases.append(
+        {
+            "case_id": f"case_{index:05d}",
+            "id": item_id,
+            "mode": mode,
+            "amount": amount,
+            "carrier": f"{CARRIER_PREFIX}{index // SLOTS_PER_CARRIER:04d}",
+            "slot": index % SLOTS_PER_CARRIER,
+            "name": "",
+            "lore": [],
+            "damage": 0,
+            "enchantments": [],
+            **extra,
+            "durable": observations[item_id].get("max_durability") is not None,
+        }
+    )
 
 
 def make_cases(item_ids: list[str], observations: dict, limits: dict) -> list[dict]:
     cases = []
+
     def add(item_id, mode, amount, **extra):
         append_case(cases, observations, item_id, mode, amount, **extra)
 
@@ -48,10 +59,14 @@ def make_cases(item_ids: list[str], observations: dict, limits: dict) -> list[di
 def expected_snapshot(case: dict, *, seed: bool = False) -> dict | None:
     if seed and case["mode"] == "create":
         return None
+    if seed and "seed_item" in case:
+        return expected_snapshot({**case, **case["seed_item"]})
     seeded = seed and not case.get("seeded_metadata")
     result = {
-        "id": case["id"], "amount": case["amount"],
-        "name": "" if seed else case["name"], "lore": [] if seed else case["lore"],
+        "id": case["id"],
+        "amount": case["amount"],
+        "name": "" if seed else case["name"],
+        "lore": [] if seed else case["lore"],
         "damage": 0 if seeded or "data_value" in case else case["damage"],
         "enchantments": [] if seeded else sorted(case["enchantments"], key=lambda enchantment: enchantment["id"]),
     }

@@ -66,8 +66,7 @@ class Transcript:
         return self.events
 
 
-def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits: dict[str, int],
-                   recorded_durability: dict[str, int] | None = None) -> dict:
+def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits: dict[str, int], recorded_durability: dict[str, int] | None = None) -> dict:
     if any(type(limit) is not int or not 1 <= limit <= 127 for limit in recorded_limits.values()):
         raise ProbeError("Invalid recorded catalog stack limit")
     registries = [event for event in events if event["kind"] == "registry"]
@@ -103,7 +102,8 @@ def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits:
     missing = sorted(set(expected_ids) - set(observed))
     mismatches = {
         item: {"catalog": recorded_limits[item], "engine": observed[item]["max_amount"]}
-        for item in expected_ids if item in observed and item in recorded_limits and recorded_limits[item] != observed[item]["max_amount"]
+        for item in expected_ids
+        if item in observed and item in recorded_limits and recorded_limits[item] != observed[item]["max_amount"]
     }
     unsupported = sorted(item for item in expected_ids if item in observed and observed[item]["max_amount"] > 127)
     registry_missing = sorted(set(expected_ids) - set(registered))
@@ -115,20 +115,28 @@ def catalog_result(events: list[dict], expected_ids: list[str], recorded_limits:
             raise ProbeError("Invalid recorded catalog durability")
         durability_mismatches = {
             item: {"catalog": recorded_durability[item], "engine": observed[item]["max_durability"]}
-            for item in expected_ids if item in observed and item in recorded_durability
-            and recorded_durability[item] != observed[item]["max_durability"]
+            for item in expected_ids
+            if item in observed and item in recorded_durability and recorded_durability[item] != observed[item]["max_durability"]
         }
-        durability_candidates = {item: entry["max_durability"] for item, entry in observed.items()
-                                 if item not in recorded_durability and entry["max_durability"] is not None}
+        durability_candidates = {
+            item: entry["max_durability"] for item, entry in observed.items() if item not in recorded_durability and entry["max_durability"] is not None
+        }
     return {
-        "status": "fail" if mismatches or durability_mismatches or unsupported else "partial" if (
-            missing or errors or registry_missing or registry_extra or candidates or durability_candidates
-        ) else "pass",
-        "expected_count": len(expected_ids), "observed_count": len(set(expected_ids) & observed.keys()),
-        "missing": missing, "mismatches": mismatches, "outside_editor_count_range": unsupported,
+        "status": "fail"
+        if mismatches or durability_mismatches or unsupported
+        else "partial"
+        if (missing or errors or registry_missing or registry_extra or candidates or durability_candidates)
+        else "pass",
+        "expected_count": len(expected_ids),
+        "observed_count": len(set(expected_ids) & observed.keys()),
+        "missing": missing,
+        "mismatches": mismatches,
+        "outside_editor_count_range": unsupported,
         "registry_missing": registry_missing,
         "registry_extra": registry_extra,
-        "observations": dict(sorted(observed.items())), "errors": dict(sorted(errors.items())),
+        "observations": dict(sorted(observed.items())),
+        "errors": dict(sorted(errors.items())),
         "new_limit_candidates": candidates,
-        "durability_mismatches": durability_mismatches, "new_durability_candidates": durability_candidates,
+        "durability_mismatches": durability_mismatches,
+        "new_durability_candidates": durability_candidates,
     }

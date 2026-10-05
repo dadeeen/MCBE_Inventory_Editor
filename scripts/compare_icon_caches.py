@@ -44,7 +44,9 @@ def compare_caches(before: Path, after: Path, output: Path) -> dict:
             unchanged += 1
             continue
         row = {
-            "id": item, "before": old["items"].get(item), "after": new["items"].get(item),
+            "id": item,
+            "before": old["items"].get(item),
+            "after": new["items"].get(item),
             "image_changed": previous != current,
             "before_sha256": hashlib.sha256(previous).hexdigest() if previous else None,
             "after_sha256": hashlib.sha256(current).hexdigest() if current else None,
@@ -56,19 +58,21 @@ def compare_caches(before: Path, after: Path, output: Path) -> dict:
             preview = '<span class="missing">Missing</span>'
             if raw:
                 preview = '<img alt="' + label + '" src="data:image/png;base64,' + base64.b64encode(raw).decode("ascii") + '">'
-            previews.append(f'<div><b>{label}</b>{preview}<small>{html.escape(source or "missing")}</small></div>')
+            previews.append(f"<div><b>{label}</b>{preview}<small>{html.escape(source or 'missing')}</small></div>")
         details = html.escape(json.dumps(row["resolution"], ensure_ascii=False))
-        cards.append(f'<article><h2>{html.escape(item)}</h2><section>{"".join(previews)}</section><details><summary>Resolution</summary><pre>{details}</pre></details></article>')
+        cards.append(
+            f"<article><h2>{html.escape(item)}</h2><section>{''.join(previews)}</section><details><summary>Resolution</summary><pre>{details}</pre></details></article>"
+        )
     report = {
-        "release": new.get("release"), "unchanged": unchanged, "changed": len(rows),
+        "release": new.get("release"),
+        "unchanged": unchanged,
+        "changed": len(rows),
         "new_missing": sorted(set(old["items"]) - set(new["items"])),
         "newly_mapped": sorted(set(new["items"]) - set(old["items"])),
-        "before_missing": old["missing_items"], "after_missing": new["missing_items"],
+        "before_missing": old["missing_items"],
+        "after_missing": new["missing_items"],
         "resolution_counts": dict(Counter(value["basis"] for value in new.get("resolutions", {}).values())),
-        "review_required": {
-            key: value for key, value in new.get("resolutions", {}).items()
-            if value.get("basis") == "legacy_heuristic" or value.get("issue")
-        },
+        "review_required": {key: value for key, value in new.get("resolutions", {}).items() if value.get("basis") == "legacy_heuristic" or value.get("issue")},
         "changes": rows,
     }
     output.mkdir(parents=True, exist_ok=True)
@@ -82,17 +86,19 @@ section{display:flex;gap:12px}section>div{width:50%;display:flex;align-items:cen
 img,.missing{width:96px;height:96px;object-fit:contain;image-rendering:pixelated;background:#15222c;padding:12px;border-radius:6px}
 small{font:12px monospace;overflow-wrap:anywhere;width:100%}details{font-size:12px;margin-top:15px}pre{white-space:pre-wrap;overflow-wrap:anywhere}
 </style><h1>Inventory icon comparison</h1>"""
-    page += f'<p>{len(rows)} changed entries · {unchanged} unchanged · {len(report["new_missing"])} newly missing</p>'
-    page += '<p>Matching release metadata; input identity depends on the recorded archive and catalog hashes. '
-    page += 'Local review only; previews are not a guarantee of in-game equivalence.</p>'
-    page += '<details><summary>Resolution strategies and remaining approximations</summary><pre>'
-    page += html.escape(json.dumps(report["resolution_counts"], indent=2)) + '</pre><p>'
-    page += str(len(report["review_required"])) + ' entries still use compatibility heuristics or have an unresolved condition.</p><pre>'
-    page += html.escape("\n".join(report["review_required"])) + '</pre></details>'
-    page += ('<input aria-label="Filter item IDs" placeholder="Filter item IDs…" '
-             'oninput="for(const a of document.querySelectorAll(\'article\'))'
-             'a.hidden=!a.querySelector(\'h2\').textContent.includes(this.value.toLowerCase())">')
-    page += '<main>' + "".join(cards) + '</main></html>'
+    page += f"<p>{len(rows)} changed entries · {unchanged} unchanged · {len(report['new_missing'])} newly missing</p>"
+    page += "<p>Matching release metadata; input identity depends on the recorded archive and catalog hashes. "
+    page += "Local review only; previews are not a guarantee of in-game equivalence.</p>"
+    page += "<details><summary>Resolution strategies and remaining approximations</summary><pre>"
+    page += html.escape(json.dumps(report["resolution_counts"], indent=2)) + "</pre><p>"
+    page += str(len(report["review_required"])) + " entries still use compatibility heuristics or have an unresolved condition.</p><pre>"
+    page += html.escape("\n".join(report["review_required"])) + "</pre></details>"
+    page += (
+        '<input aria-label="Filter item IDs" placeholder="Filter item IDs…" '
+        "oninput=\"for(const a of document.querySelectorAll('article'))"
+        "a.hidden=!a.querySelector('h2').textContent.includes(this.value.toLowerCase())\">"
+    )
+    page += "<main>" + "".join(cards) + "</main></html>"
     (output / "comparison.html").write_text(page, encoding="utf-8")
     return report
 

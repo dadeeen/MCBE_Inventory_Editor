@@ -21,8 +21,8 @@ Measured `mcbe_editor/nbt.py` SHA-256:
   loaded objects; roundtrip timings included parsing and serialization together.
 - Seven warmed `timeit` samples per operation; median reported. Codec order
   alternated using a seeded shuffle. GC was disabled during timed batches.
-  Initial batches targeted 60 ms. These are microbenchmarks on a working desktop,
-  not formal latency guarantees or application benchmarks.
+  Timing batches target 60 ms unless otherwise noted. These are microbenchmarks
+  on a working desktop, not formal latency guarantees or application benchmarks.
 - Memory was measured separately in fresh subprocesses using Windows process
   counters, after retaining a stated number of decoded records and collecting
   garbage. Working-set increases include native allocations as well as Python
@@ -65,17 +65,15 @@ Approximate additional resident working set after retaining decoded objects:
 The measured subprocess baseline was lower for the project codec: approximately 22 MiB
 resident versus 38 MiB after importing Amulet/NumPy. This does not imply lower
 total editor memory for every workload: retained project objects grow faster.
-Windows private committed bytes were also recorded locally, but are not
-presented as physical RAM usage.
 
 ## Python 3.14 and interpretation
 
-The project-only run on CPython 3.14.4 did not remove the performance gap:
-player roundtrips were approximately 3.0 ms and 14.0 ms; the integer and byte
-array roundtrips were 43.8 ms and 105.4 ms. The animal batch had a noisy initial
-39.4 ms median (32.4–59.8 ms sample range). A targeted repeat with at least five
-iterations per sample and a 150 ms target measured 27.2 ms. These runs are not
-sufficient to rank Python 3.12 against 3.14 precisely.
+On CPython 3.14.4, roundtrip medians for the project codec are approximately
+3.0 ms and 14.0 ms for the two player records, 43.8 ms for the integer array and 105.4 ms
+for the byte array. The 30-animal workload measures 39.4 ms with a 60 ms batch
+target (32.4–59.8 ms sample range), and 27.2 ms with a 150 ms target and at least
+five iterations per sample. This sensitivity to sampling settings limits
+precise comparisons between Python 3.12 and 3.14.
 
 The project codec is therefore not performance-neutral. Individual measured
 player roundtrips are in the low-millisecond range, but repeated parsing and

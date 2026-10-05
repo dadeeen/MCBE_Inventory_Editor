@@ -273,8 +273,7 @@ def _write_release_cache(tmp_path, release="v1.26.40.5"):
     listing_items = {f"test_item_{index}": f"Test Item {index}" for index in range(1_000)}
     listing_metadata = {
         "microsoft_item_listing_url": (
-            "https://learn.microsoft.com/en-us/minecraft/creator/reference/content/"
-            "vanillalistingsreference/items?view=minecraft-bedrock-stable"
+            "https://learn.microsoft.com/en-us/minecraft/creator/reference/content/vanillalistingsreference/items?view=minecraft-bedrock-stable"
         ),
         "microsoft_item_listing_fetched_at": "2026-08-14T12:00:00+00:00",
         "microsoft_item_listing_content_hash": hashlib.sha256(b"learn-listing").hexdigest(),

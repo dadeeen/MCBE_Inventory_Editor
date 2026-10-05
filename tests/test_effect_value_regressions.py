@@ -6,15 +6,17 @@ from mcbe_editor import inventory, nbt
 
 
 def _effect(effect_id=1, **fields):
-    return nbt.CompoundTag({
-        "Id": nbt.ByteTag(effect_id),
-        "Amplifier": nbt.ByteTag(0),
-        "Duration": nbt.IntTag(601),
-        "Ambient": nbt.ByteTag(0),
-        "ShowParticles": nbt.ByteTag(1),
-        "ShowIcon": nbt.ByteTag(1),
-        **fields,
-    })
+    return nbt.CompoundTag(
+        {
+            "Id": nbt.ByteTag(effect_id),
+            "Amplifier": nbt.ByteTag(0),
+            "Duration": nbt.IntTag(601),
+            "Ambient": nbt.ByteTag(0),
+            "ShowParticles": nbt.ByteTag(1),
+            "ShowIcon": nbt.ByteTag(1),
+            **fields,
+        }
+    )
 
 
 @pytest.mark.parametrize("field", ["Ambient", "ShowParticles", "ShowIcon"])
@@ -78,8 +80,12 @@ def test_native_save_keeps_protected_and_untouched_effect_bytes(tmp_path, monkey
     loaded = service.load_player(str(world), encode_player_key(LOCAL_PLAYER_KEY))
 
     result = service.save_player(
-        str(world), encode_player_key(LOCAL_PLAYER_KEY), None, {"health": 18},
-        effects_list=loaded["effects"], base_revision=loaded["player_revision"],
+        str(world),
+        encode_player_key(LOCAL_PLAYER_KEY),
+        None,
+        {"health": 18},
+        effects_list=loaded["effects"],
+        base_revision=loaded["player_revision"],
     )
 
     assert result["success"] is True and result["no_op"] is False

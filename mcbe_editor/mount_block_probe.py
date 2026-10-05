@@ -36,9 +36,7 @@ KNOWN_SUBCHUNK_VERSIONS = frozenset({0, 1, 8, 9})
 # a chunk whose generation is known to be finished, an absent record is therefore
 # a definite answer ("air"), not missing data.
 EMPTY_SUBCHUNK_BLOCK_NAME = "minecraft:air"
-CHUNK_NOT_FINALIZED_PLACEMENT_MESSAGE = (
-    "Chunk-Generierung ist nicht abgeschlossen oder nicht sicher nachweisbar; Position bleibt ungeprüft."
-)
+CHUNK_NOT_FINALIZED_PLACEMENT_MESSAGE = "Chunk-Generierung ist nicht abgeschlossen oder nicht sicher nachweisbar; Position bleibt ungeprüft."
 SUPPORTED_PALETTE_INDEX_BITS = frozenset({0, 1, 2, 3, 4, 5, 6, 8, 16})
 BLOCKS_PER_SUBCHUNK = 16 * 16 * 16
 MAX_PALETTE_ENTRIES_TO_DECODE = 8192
@@ -725,9 +723,7 @@ def _palette_count_candidates(raw: bytes, palette_offset: int) -> list[dict[str,
     return candidates
 
 
-def _decode_palette_entry_for_index(
-    raw: bytes, palette_offset: int, palette_index: int, *, implicit_singleton: bool = False
-) -> dict[str, Any]:
+def _decode_palette_entry_for_index(raw: bytes, palette_offset: int, palette_index: int, *, implicit_singleton: bool = False) -> dict[str, Any]:
     """Decode the target palette entry using the most plausible count encoding.
 
     Real Bedrock subchunks may encode the palette count either as a varint or as
@@ -740,7 +736,7 @@ def _decode_palette_entry_for_index(
     best: dict[str, Any] | None = None
     best_score: int | None = None
     count_candidates = _palette_count_candidates(raw, palette_offset)
-    if implicit_singleton and raw[palette_offset:palette_offset + 1] == bytes([TAG_COMPOUND]):
+    if implicit_singleton and raw[palette_offset : palette_offset + 1] == bytes([TAG_COMPOUND]):
         # Zero-bit persistent storage writes its sole compound without a count.
         # Retain the existing count-prefixed compatibility path otherwise.
         count_candidates = [{"encoding": "implicit_singleton", "count": 1, "end_offset": palette_offset}]

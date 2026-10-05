@@ -45,10 +45,15 @@ def _synthetic_mount_workspace(tmp_path, monkeypatch, owner_tag=None, position=(
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic mount test", encoding="utf-8")
-    player = nbt.CompoundTag({
-        "Inventory": nbt.ListTag([]), "Health": nbt.FloatTag(20), "PlayerGameType": nbt.IntTag(0),
-        "DimensionId": nbt.IntTag(0), "Pos": nbt.ListTag([nbt.FloatTag(value) for value in position]),
-    })
+    player = nbt.CompoundTag(
+        {
+            "Inventory": nbt.ListTag([]),
+            "Health": nbt.FloatTag(20),
+            "PlayerGameType": nbt.IntTag(0),
+            "DimensionId": nbt.IntTag(0),
+            "Pos": nbt.ListTag([nbt.FloatTag(value) for value in position]),
+        }
+    )
     if owner_tag is not None:
         player["UniqueID"] = owner_tag
     values = {b"~local_player": nbt.NamedTag(player).save_to(**SAVE_KWARGS)}
@@ -84,11 +89,13 @@ def _synthetic_mount_workspace(tmp_path, monkeypatch, owner_tag=None, position=(
     loaded = service.load_player(str(world), key)
     assert loaded["player"]["editable"] is True
     deps = MountRouteDeps(
-        service=service, jsonify=lambda value: value,
+        service=service,
+        jsonify=lambda value: value,
         api_error=lambda error, status=400: {"success": False, "error": str(error), "status": status},
         log_api_exception=lambda *_args: None,
         json_string=lambda data, name, default="": str(data.get(name, default)),
-        require_world_db_access_allowed=lambda: None, audit_event=lambda *_args, **_kwargs: None,
+        require_world_db_access_allowed=lambda: None,
+        audit_event=lambda *_args, **_kwargs: None,
         server_online_epoch=lambda: 0,
     )
     player_deps = SimpleNamespace(service=service, json_string=deps.json_string, json_bool=lambda data, name, default=False: data.get(name, default))
@@ -127,9 +134,16 @@ def test_tamed_mount_without_player_owner_is_rejected_before_backup(tmp_path, mo
 def test_workspace_mounts_preserve_owner_and_shared_chunk_references(tmp_path, monkeypatch, tamed) -> None:
     owner = -4294967295
     fixture = _synthetic_mount_workspace(tmp_path, monkeypatch, nbt.LongTag(owner) if tamed else None)
-    mounts = [{"mount_type": mount_type, "create_mode": "synthetic_full", "tamed": tamed,
-               "allow_unchecked_placement": True, "preferred_offset": {"x": 2, "z": offset}}
-              for mount_type, offset in [("minecraft:donkey", 2), ("minecraft:mule", 6)]]
+    mounts = [
+        {
+            "mount_type": mount_type,
+            "create_mode": "synthetic_full",
+            "tamed": tamed,
+            "allow_unchecked_placement": True,
+            "preferred_offset": {"x": 2, "z": offset},
+        }
+        for mount_type, offset in [("minecraft:donkey", 2), ("minecraft:mule", 6)]
+    ]
     result = mount_api_routes.save_workspace({**fixture.request, "mounts": mounts}, fixture.deps, fixture.player_deps)
     assert result["success"] is True
     assert len(fixture.batches) == 1
@@ -153,13 +167,21 @@ def test_missing_neighbor_chunk_does_not_allow_mount_in_known_stone(tmp_path, mo
     fixture = _synthetic_mount_workspace(tmp_path, monkeypatch, position=(13.8, 65.62, 8.5))
     base = bytes(8)
     solid = {(x, y, z) for x in range(16) for y in range(16) for z in range(16)}
-    fixture.values.update({
-        base + b"\x2c": b"\x29", base + b"\x36": (2).to_bytes(4, "little"),
-        base + b"\x2f\x03": _single_layer_payload_with_palette_indices(solid),
-        base + b"\x2f\x04": _single_layer_payload_with_palette_indices(solid - {(13, 0, 8), (13, 1, 8)}),
-    })
-    mount = {"mount_type": "minecraft:horse", "create_mode": "synthetic_full", "placement_radius": 2,
-             "preferred_offset": {"x": 2, "z": 0}, "allow_unchecked_placement": True}
+    fixture.values.update(
+        {
+            base + b"\x2c": b"\x29",
+            base + b"\x36": (2).to_bytes(4, "little"),
+            base + b"\x2f\x03": _single_layer_payload_with_palette_indices(solid),
+            base + b"\x2f\x04": _single_layer_payload_with_palette_indices(solid - {(13, 0, 8), (13, 1, 8)}),
+        }
+    )
+    mount = {
+        "mount_type": "minecraft:horse",
+        "create_mode": "synthetic_full",
+        "placement_radius": 2,
+        "preferred_offset": {"x": 2, "z": 0},
+        "allow_unchecked_placement": True,
+    }
     preview = mount_api_routes._preview_from_request({**fixture.request, **mount}, fixture.deps)[2]
     assert placement_safety_from_preview(preview)["safe_to_place"] is False
     assert any(candidate["id"] == preview["selected_candidate_id"] for candidate in preview["candidate_positions"])

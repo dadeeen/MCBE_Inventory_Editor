@@ -30,8 +30,13 @@ def test_marker_only_ability_save_is_noop_without_creating_tags_or_backups(tmp_p
     service = BedrockEditorService(ITEMS, ENCHANTMENTS, db_factory=writer, readonly_db_factory=PathFakeDb)
 
     result = service.save_player(
-        str(world), encode_player_key(LOCAL_PLAYER_KEY), None, {}, abilities_dict=payload,
-        allow_create_abilities=allow_create, base_revision=service._player_revision(raw),
+        str(world),
+        encode_player_key(LOCAL_PLAYER_KEY),
+        None,
+        {},
+        abilities_dict=payload,
+        allow_create_abilities=allow_create,
+        base_revision=service._player_revision(raw),
     )
 
     assert result["success"] is True and result["no_op"] is True
@@ -52,9 +57,17 @@ SPEED_FIELDS = [
 def test_unrepresentable_ability_speed_is_protected(field, tag_name, out_of_range, value):
     stored = out_of_range if value == "out_of_range" else float(value)
     other_field, other_tag = ("fly_speed", "flySpeed") if field != "fly_speed" else ("walk_speed", "walkSpeed")
-    player = nbt.CompoundTag({"abilities": nbt.CompoundTag({
-        tag_name: nbt.FloatTag(stored), other_tag: nbt.FloatTag(0.1), "mayfly": nbt.ByteTag(0),
-    })})
+    player = nbt.CompoundTag(
+        {
+            "abilities": nbt.CompoundTag(
+                {
+                    tag_name: nbt.FloatTag(stored),
+                    other_tag: nbt.FloatTag(0.1),
+                    "mayfly": nbt.ByteTag(0),
+                }
+            )
+        }
+    )
     before_speed = player["abilities"][tag_name].save_to()
     flags = inventory.protected_player_nbt_flags(player)["ability_fields_opaque"]
     assert flags[field] == tag_name
@@ -114,15 +127,17 @@ def test_game_mode_derived_abilities_are_neither_parsed_nor_written():
 
 
 def _movement_player(base=0.1, current=None, *, tag_cls=nbt.FloatTag, modifiers=None, abilities=True):
-    entry = nbt.CompoundTag({
-        "Name": nbt.StringTag("minecraft:movement"),
-        "Base": tag_cls(base),
-        "Current": tag_cls(base if current is None else current),
-        "DefaultMax": nbt.FloatTag(3.4028234663852886e38),
-        "DefaultMin": nbt.FloatTag(0.0),
-        "Max": nbt.FloatTag(3.4028234663852886e38),
-        "Min": nbt.FloatTag(0.0),
-    })
+    entry = nbt.CompoundTag(
+        {
+            "Name": nbt.StringTag("minecraft:movement"),
+            "Base": tag_cls(base),
+            "Current": tag_cls(base if current is None else current),
+            "DefaultMax": nbt.FloatTag(3.4028234663852886e38),
+            "DefaultMin": nbt.FloatTag(0.0),
+            "Max": nbt.FloatTag(3.4028234663852886e38),
+            "Min": nbt.FloatTag(0.0),
+        }
+    )
     if modifiers is not None:
         entry["Modifiers"] = modifiers
     health = nbt.CompoundTag({"Name": nbt.StringTag("minecraft:health"), "Base": nbt.FloatTag(20.0), "Current": nbt.FloatTag(20.0)})

@@ -224,9 +224,9 @@ def _untouched_player_nbt(raw: bytes, payload: dict) -> dict:
         if entries is not None and not isinstance(entries, reference.ListTag):
             continue  # An opaque container is not an editable item list.
         preserved[name] = [
-            serialized(item) for item in (() if entries is None else entries)
-            if not (isinstance(item, reference.CompoundTag) and isinstance(item.get("Slot"), reference.ByteTag)
-                    and item["Slot"].py_data in replaced_slots)
+            serialized(item)
+            for item in (() if entries is None else entries)
+            if not (isinstance(item, reference.CompoundTag) and isinstance(item.get("Slot"), reference.ByteTag) and item["Slot"].py_data in replaced_slots)
         ]
         omit(root, (name,))
 
@@ -262,8 +262,7 @@ def _untouched_player_nbt(raw: bytes, payload: dict) -> dict:
     if payload.get("effects") and isinstance(root.get("ActiveEffects"), reference.ListTag):
         changed_effect = payload["effects"][0]["id"]
         for effect in root["ActiveEffects"]:
-            if (isinstance(effect, reference.CompoundTag) and isinstance(effect.get("Id"), reference.ByteTag)
-                    and effect["Id"].py_data & 0xFF == changed_effect):
+            if isinstance(effect, reference.CompoundTag) and isinstance(effect.get("Id"), reference.ByteTag) and effect["Id"].py_data & 0xFF == changed_effect:
                 omit(effect, ("Amplifier", "Duration"))
                 break
     preserved["root"] = named.save_to(compressed=False, little_endian=True, string_encoder=reference.utf8_escape_encoder)

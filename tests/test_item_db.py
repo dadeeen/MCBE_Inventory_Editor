@@ -160,9 +160,11 @@ class TestEnchantmentCompatibility(unittest.TestCase):
         from mcbe_editor.inventory import build_inventory_nbt
 
         for item, enchantment in (("minecraft:lodestone_compass", 28), ("minecraft:mace", 10), ("minecraft:mace", 11)):
-            result = build_inventory_nbt(nbt.CompoundTag({"Inventory": nbt.ListTag([])}),
-                                         [{"slot": 0, "name": item, "count": 1, "damage": 0,
-                                           "enchantments": [{"id": enchantment, "lvl": 1}]}], ENCHANTMENTS)
+            result = build_inventory_nbt(
+                nbt.CompoundTag({"Inventory": nbt.ListTag([])}),
+                [{"slot": 0, "name": item, "count": 1, "damage": 0, "enchantments": [{"id": enchantment, "lvl": 1}]}],
+                ENCHANTMENTS,
+            )
             self.assertEqual(result[0]["tag"]["ench"][0]["id"].py_data, enchantment)
 
     def test_compatibility_data_is_loaded_from_tracked_json(self):
@@ -428,9 +430,7 @@ class TestAddableItemIds(unittest.TestCase):
                 label = " ".join(ITEMS[item_id][index].casefold().split())
                 groups.setdefault(label, set()).add(item_id)
             shared = {
-                label: sorted(item_ids)
-                for label, item_ids in groups.items()
-                if len(item_ids) > 1 and reviewed_homonyms.get((language, label)) != item_ids
+                label: sorted(item_ids) for label, item_ids in groups.items() if len(item_ids) > 1 and reviewed_homonyms.get((language, label)) != item_ids
             }
             self.assertEqual(shared, {}, language)
 

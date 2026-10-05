@@ -1,4 +1,5 @@
 """Malformed CSRF tokens must produce ordinary HTTP rejection responses."""
+
 from dataclasses import replace
 
 import pytest

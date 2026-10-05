@@ -20,6 +20,8 @@ from mcbe_editor.leveldb_writer import LevelDbWriter
 from mcbe_editor.players import PlayerScanner, encode_player_key
 from mcbe_editor.services import BedrockEditorService
 from mcbe_editor.world import LOCAL_PLAYER_KEY
+from mcbe_editor.player_directory import PlayerDirectory
+from tests.test_readonly_format_regressions import _key, _new_file, _table, _world_db
 
 
 def _player_bytes(*, inventory=True, xp=1):
@@ -27,6 +29,117 @@ def _player_bytes(*, inventory=True, xp=1):
     if inventory:
         tag["Inventory"] = nbt.ListTag([])
     return nbt.NamedTag(tag).save_to(compressed=False, little_endian=True)
+
+
+def _replacement_player_table(tmp_path):
+    key = _key(LOCAL_PLAYER_KEY, 1)
+    old = nbt.NamedTag(nbt.CompoundTag({"Inventory": nbt.ListTag([], 10)})).save_to(compressed=False, little_endian=True)
+    new = nbt.NamedTag(nbt.CompoundTag({"Inventory": nbt.StringTag("bad")})).save_to(compressed=False, little_endian=True)
+    assert len(old) == len(new)
+    table = _table([[(key, old)]], 0)
+    root = _world_db(tmp_path, manifest=_new_file(0, 3, table, key, key))
+    path = root / "000003.ldb"
+    path.write_bytes(table)
+    replacement = tmp_path / "replacement.ldb"
+    replacement.write_bytes(_table([[(key, new)]], 0))
+    info = path.stat()
+    os.utime(replacement, ns=(info.st_atime_ns, info.st_mtime_ns))
+    return root, path, replacement, old, new
+
+
+def test_held_reader_directory_uses_open_file_identity_after_external_replacement(tmp_path):
+    root, path, replacement, old, new = _replacement_player_table(tmp_path)
+    directory = PlayerDirectory()
+    first = ReadonlyLevelDbAdapter(str(root))
+    second = None
+    try:
+        # Rename first: replacing an open destination directly is not portable
+        # on Windows, even with delete sharing enabled.
+        path.rename(tmp_path / "held-old.ldb")
+        replacement.rename(path)
+        assert directory.list_players(first)[0]["editable"]
+        second = ReadonlyLevelDbAdapter(str(root))
+        assert first.content_token() != second.content_token()
+        assert first.get(LOCAL_PLAYER_KEY) == old
+        assert second.get(LOCAL_PLAYER_KEY) == new
+        assert directory.list_players(second) == PlayerScanner(second).list_players()
+        assert not directory.list_players(second)[0]["editable"]
+        service = BedrockEditorService(ITEMS, ENCHANTMENTS)
+        service._player_directory = directory
+        with pytest.raises(ValueError, match="read-only"):
+            service.load_player(str(tmp_path), encode_player_key(LOCAL_PLAYER_KEY))
+    finally:
+        first.close()
+        if second is not None:
+            second.close()
+
+
+def test_lazy_reader_rejects_replacement_between_cache_token_and_discovery(tmp_path):
+    from mcbe_editor.leveldb_readonly import WorldChangedWhileReadingError
+
+    root, path, replacement, _old, _new = _replacement_player_table(tmp_path)
+    directory = PlayerDirectory()
+    reader = ReadonlyLevelDbAdapter(str(root), hold_tables=False)
+    try:
+        reader.content_token()
+        path.rename(tmp_path / "old.ldb")
+        replacement.rename(path)
+        with pytest.raises(WorldChangedWhileReadingError):
+            directory.list_players(reader)
+        assert not directory._entries
+    finally:
+        reader.close()
+    fresh = ReadonlyLevelDbAdapter(str(root), hold_tables=False)
+    try:
+        assert not directory.list_players(fresh)[0]["editable"]
+        assert directory.list_players(fresh) == PlayerScanner(fresh).list_players()
+    finally:
+        fresh.close()
+
+
+def test_held_reader_token_survives_table_path_removal(tmp_path):
+    root, path, _replacement, old, _new = _replacement_player_table(tmp_path)
+    reader = ReadonlyLevelDbAdapter(str(root))
+    reference = ReadonlyLevelDbAdapter(str(root))
+    try:
+        expected = reference.content_token()
+        path.rename(tmp_path / "compacted-away.ldb")
+        assert reader.content_token() == expected
+        assert reader.get(LOCAL_PLAYER_KEY) == old
+    finally:
+        reader.close()
+        reference.close()
+
+
+@pytest.mark.parametrize("during_scan", [False, True])
+def test_in_place_table_change_cannot_publish_under_original_identity(tmp_path, monkeypatch, during_scan):
+    from mcbe_editor.leveldb_readonly import WorldChangedWhileReadingError
+
+    root, path, replacement, _old, _new = _replacement_player_table(tmp_path)
+    directory = PlayerDirectory()
+    reader = ReadonlyLevelDbAdapter(str(root))
+    scan = PlayerScanner.list_players
+
+    def rewrite():
+        info = path.stat()
+        path.write_bytes(replacement.read_bytes())
+        os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1_000_000_000))
+
+    def changed_scan(scanner):
+        result = scan(scanner)
+        rewrite()
+        return result
+
+    try:
+        if during_scan:
+            monkeypatch.setattr(PlayerScanner, "list_players", changed_scan)
+        else:
+            rewrite()
+        with pytest.raises(WorldChangedWhileReadingError):
+            directory.list_players(reader)
+        assert not directory._entries
+    finally:
+        reader.close()
 
 
 def _write(world, entries):
@@ -47,8 +160,12 @@ def _raw(world, key=LOCAL_PLAYER_KEY):
 
 def _save(service, world, *, key=LOCAL_PLAYER_KEY, xp=2, **kwargs):
     return service.save_player(
-        str(world), encode_player_key(key), None, {"xp_level": xp},
-        base_revision=hashlib.sha256(_raw(world, key)).hexdigest(), **kwargs,
+        str(world),
+        encode_player_key(key),
+        None,
+        {"xp_level": xp},
+        base_revision=hashlib.sha256(_raw(world, key)).hexdigest(),
+        **kwargs,
     )
 
 
@@ -58,12 +175,15 @@ def world(tmp_path, monkeypatch):
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic directory test", encoding="utf-8")
-    _write(world, {
-        LOCAL_PLAYER_KEY: _player_bytes(),
-        b"player_remote": _player_bytes(),
-        b"unusual-key": _player_bytes(),
-        b"chunk-data": b"not NBT",
-    })
+    _write(
+        world,
+        {
+            LOCAL_PLAYER_KEY: _player_bytes(),
+            b"player_remote": _player_bytes(),
+            b"unusual-key": _player_bytes(),
+            b"chunk-data": b"not NBT",
+        },
+    )
     return world
 
 
@@ -112,9 +232,12 @@ def test_directory_updates_changed_player_shape_and_request_language(world, serv
     with app.test_request_context("/", headers={"Accept-Language": "en"}):
         service.list_players(str(world))
         saved = service.save_player(
-            str(world), encode_player_key(LOCAL_PLAYER_KEY),
-            [{"slot": 0, "name": "minecraft:stone", "count": 1, "damage": 0}], {},
-            base_revision=hashlib.sha256(_raw(world)).hexdigest(), allow_create_inventory=True,
+            str(world),
+            encode_player_key(LOCAL_PLAYER_KEY),
+            [{"slot": 0, "name": "minecraft:stone", "count": 1, "damage": 0}],
+            {},
+            base_revision=hashlib.sha256(_raw(world)).hexdigest(),
+            allow_create_inventory=True,
         )
         assert saved["success"]
     with app.test_request_context("/", headers={"Accept-Language": "de"}):
@@ -276,6 +399,39 @@ def test_no_op_and_rejected_save_keep_existing_directory(world, service, scans):
     assert scans.call_count == 1
 
 
+def test_no_op_save_parses_source_and_serialized_result_once_each(world, service):
+    raw = _raw(world)
+    before = {path.name: path.read_bytes() for path in (world / "db").iterdir()}
+    with patch.object(nbt, "load", wraps=nbt.load) as parsed:
+        result = service.save_player(
+            str(world),
+            encode_player_key(LOCAL_PLAYER_KEY),
+            None,
+            {},
+            base_revision=hashlib.sha256(raw).hexdigest(),
+        )
+    assert parsed.call_count == 2
+    assert all(call.args[0] == raw for call in parsed.call_args_list)
+    assert result["no_op"] and result["backup_file"] is None
+    assert {path.name: path.read_bytes() for path in (world / "db").iterdir()} == before
+
+
+def test_save_rejects_unreadable_serialized_output_before_backup_or_write(world, service, monkeypatch):
+    raw = _raw(world)
+    before = {path.name: path.read_bytes() for path in (world / "db").iterdir()}
+    monkeypatch.setattr(services_module, "save_player_nbt", lambda _tag: b"unreadable serialized NBT")
+    monkeypatch.setattr(services_module, "create_backup", lambda *a, **kw: pytest.fail("Invalid output must fail before backup"))
+    with pytest.raises(ValueError, match="nicht wieder lesbar"):
+        service.save_player(
+            str(world),
+            encode_player_key(LOCAL_PLAYER_KEY),
+            None,
+            {"xp_level": 7},
+            base_revision=hashlib.sha256(raw).hexdigest(),
+        )
+    assert {path.name: path.read_bytes() for path in (world / "db").iterdir()} == before
+
+
 def test_directory_eviction_requires_rediscovery_not_cross_world_reuse(world, service, scans):
     from mcbe_editor.player_directory import PlayerDirectory
 
@@ -333,7 +489,10 @@ def test_simultaneous_saves_from_the_same_revision_commit_only_once(world, servi
         barrier.wait(timeout=10)
         try:
             result = service.save_player(
-                str(world), encode_player_key(LOCAL_PLAYER_KEY), None, {"xp_level": xp},
+                str(world),
+                encode_player_key(LOCAL_PLAYER_KEY),
+                None,
+                {"xp_level": xp},
                 base_revision=loaded["player_revision"],
             )
             assert result["success"]

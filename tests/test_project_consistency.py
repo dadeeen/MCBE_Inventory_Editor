@@ -16,10 +16,9 @@ def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
 
     assert "pip install --upgrade pip" not in workflow
     assert "pip install --upgrade pip" not in dockerfile
-    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 9
+    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 8
     docker_bootstrap = (
-        "pip install --no-cache-dir --no-index --only-binary=:all: "
-        "--find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
+        "pip install --no-cache-dir --no-index --only-binary=:all: --find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
     )
     assert docker_bootstrap in dockerfile
     assert "pip==26.2.1" in bootstrap_source
@@ -45,8 +44,12 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "runtime.in",
         "runtime.lock",
         "runtime.txt",
-        "nbt-reference.in", "nbt-reference.txt", "nbt-reference.lock",
-        "leveldb-reference.in", "leveldb-reference.txt", "leveldb-reference.lock",
+        "nbt-reference.in",
+        "nbt-reference.txt",
+        "nbt-reference.lock",
+        "leveldb-reference.in",
+        "leveldb-reference.txt",
+        "leveldb-reference.lock",
     }
     actual = {path.name for path in (_base.ROOT / "requirements").iterdir() if path.is_file()}
 
@@ -56,11 +59,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
     assert not list(_base.ROOT.glob("requirements*.lock"))
 
     project_dependencies = tomllib.loads(_base._read("pyproject.toml"))["project"]["dependencies"]
-    runtime_dependencies = [
-        line.strip()
-        for line in _base._read("requirements/runtime.in").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+    runtime_dependencies = [line.strip() for line in _base._read("requirements/runtime.in").splitlines() if line.strip() and not line.lstrip().startswith("#")]
     assert runtime_dependencies == project_dependencies
 
     for name in ("bootstrap", "runtime", "docker", "dev", "nbt-reference", "leveldb-reference"):
@@ -107,6 +106,7 @@ def test_lockfile_check_seeds_existing_pins_before_compile(tmp_path: Path, monke
 
 def test_reference_lock_generation_requires_supported_wheel_platform(monkeypatch, capsys):
     from scripts import compile_lockfiles
+
     monkeypatch.setattr(compile_lockfiles.sys, "version_info", (3, 12, 14))
     monkeypatch.setattr(compile_lockfiles.sys, "platform", "linux")
     monkeypatch.setattr(sys, "argv", ["compile_lockfiles.py", "--include-references"])

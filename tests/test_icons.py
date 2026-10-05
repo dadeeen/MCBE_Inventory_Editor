@@ -1,5 +1,6 @@
 import json
 import os
+from mcbe_editor.icon_diagnostics import warning_text
 from mcbe_editor.icons import _MAX_FILE_BYTES, scan_icons
 import pytest
 
@@ -33,8 +34,7 @@ def test_raw_texture_collisions_do_not_depend_on_file_order(monkeypatch, tmp_pat
     import zipfile
 
     root = tmp_path / ("pack.zip" if archive else "pack")
-    entries = [("blocks/brick", b"wrong material"), ("items/brick", b"brick sprite"),
-               ("blocks/lever", b"lever material"), ("items/lever", b"lever sprite")]
+    entries = [("blocks/brick", b"wrong material"), ("items/brick", b"brick sprite"), ("blocks/lever", b"lever material"), ("items/lever", b"lever sprite")]
     if reverse:
         entries.reverse()
     if archive:
@@ -175,7 +175,7 @@ def test_icon_scan_keeps_readable_siblings_of_unreadable_directory(monkeypatch, 
     assert scanned == 1
     assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
     assert len(warnings) == 1
-    assert "PermissionError: unreadable subtree" in warnings[0]
+    assert "PermissionError: unreadable subtree" in warning_text(warnings[0])
 
 
 def test_icon_scan_reports_linked_pack_that_can_be_added_directly(monkeypatch, tmp_path):
@@ -224,7 +224,7 @@ def test_icon_scan_continues_after_entry_with_unreadable_type(monkeypatch, tmp_p
 
     assert scanned == 1
     assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
-    assert warnings == [f"{root}: PermissionError: entry type unavailable"]
+    assert [warning_text(record) for record in warnings] == [f"{root}: PermissionError: entry type unavailable"]
 
 
 from mcbe_editor.icons import add_icon_source, load_icon_sources, remove_icon_source
@@ -698,6 +698,8 @@ def test_parallel_vanilla_icon_updates_are_serialized(monkeypatch, tmp_path):
 
     deps = SimpleNamespace(
         data_root=str(tmp_path),
+        settings_path=str(tmp_path / "sources.json"),
+        get_icon_index=lambda: {},
         json_bool=lambda data, key, default: data.get(key, default),
         run_update_icons=slow_update,
         looks_like_network_failure=lambda _output: False,
@@ -722,6 +724,8 @@ def test_vanilla_icon_update_ignores_legacy_manual_cache_choice(tmp_path):
     calls = []
     deps = SimpleNamespace(
         data_root=str(tmp_path),
+        settings_path=str(tmp_path / "sources.json"),
+        get_icon_index=lambda: {},
         json_bool=lambda data, key, default: data.get(key, default),
         run_update_icons=lambda **kwargs: calls.append(kwargs) or (1, "expected test failure"),
         looks_like_network_failure=lambda _output: False,
@@ -753,8 +757,17 @@ def test_icon_index_cache_tolerates_invalid_numeric_counters(tmp_path):
 
     cache = tmp_path / "icon_index_cache.json"
     cache.write_text(
-        json.dumps({"version": _INDEX_FILE_VERSION, "sources_signature": "sig", "sources": [], "icons": {}, "warnings": [],
-                    "scanned_files": "broken", "variant_aliases": "broken"}),
+        json.dumps(
+            {
+                "version": _INDEX_FILE_VERSION,
+                "sources_signature": "sig",
+                "sources": [],
+                "icons": {},
+                "warnings": [],
+                "scanned_files": "broken",
+                "variant_aliases": "broken",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -799,6 +812,8 @@ def test_vanilla_icon_update_reports_rescan_failure_after_successful_publish(mon
     audit_events = []
     deps = SimpleNamespace(
         data_root=str(tmp_path),
+        settings_path=str(tmp_path / "sources.json"),
+        get_icon_index=lambda: {},
         json_bool=lambda data, key, default: data.get(key, default),
         run_update_icons=lambda **_kwargs: (0, "ok"),
         looks_like_network_failure=lambda _output: False,
@@ -924,3 +939,76 @@ def test_icon_index_cache_tolerates_invalid_utf8(tmp_path):
 
     assert _load_cached_result(cache, "sig", None) is None
     assert load_cached_icon_index(str(tmp_path / "icon_sources.json")) is None
+
+
+def test_published_icon_cache_is_decoded_once_and_still_validates_sources(tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    from mcbe_editor import icons
+
+    root = tmp_path / "pack"
+    texture = root / "textures/items/apple.png"
+    texture.parent.mkdir(parents=True)
+    texture.write_bytes(b"apple")
+    settings = str(tmp_path / "sources.json")
+    monkeypatch.setattr(icons, "configured_icon_sources", lambda *a, **kw: [{"path": str(root), "enabled": True}])
+    original = icons.scan_icons(settings, force=True)
+    with patch.object(icons.json, "loads", wraps=json.loads) as decoded:
+        loaded = icons.load_cached_icon_index(settings)
+    assert decoded.call_count == 1
+    assert loaded["icons"] == original["icons"]
+    assert loaded["_by_token"][loaded["icons"]["minecraft:apple"]["token"]].read_bytes() == b"apple"
+    root.rename(tmp_path / "removed-pack")
+    assert icons.load_cached_icon_index(settings) is None
+    assert icons.load_cached_icon_index(settings, validate_sources=False) is not None
+
+
+def test_archive_scan_uses_one_file_state_and_keeps_icon_tokens(tmp_path):
+    import zipfile
+    from unittest.mock import patch
+
+    from mcbe_editor import icons
+
+    path = tmp_path / "pack.mcpack"
+    with zipfile.ZipFile(path, "w") as archive:
+        for i in range(100):
+            archive.writestr(f"textures/items/custom_{i}.png", b"icon")
+    candidates = {}
+    with patch.object(icons, "_safe_stat", wraps=icons._safe_stat) as stats:
+        scanned, warnings = icons._scan_archive(path, "pack", candidates, {}, 0)
+    assert scanned == len(candidates) == 100
+    assert not warnings
+    assert stats.call_count <= 2
+    info = path.stat()
+    with zipfile.ZipFile(path) as archive:
+        for member in archive.infolist():
+            revision = f"{info.st_size}:{info.st_mtime_ns}:{member.CRC}:{member.file_size}"
+            token = icons._token_for_text(f"{path.resolve()}::{member.filename}::{revision}")
+            assert any(candidate.token == token for candidate in candidates.values())
+    assert candidates["minecraft:custom_0"].read_bytes() == b"icon"
+
+
+def test_archive_changed_during_scan_publishes_no_partial_candidates(tmp_path, monkeypatch):
+    import zipfile
+
+    from mcbe_editor import icons
+
+    path = tmp_path / "pack.mcpack"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("textures/items/apple.png", b"apple")
+        archive.writestr("textures/display/axolotl_gold.png", b"axolotl")
+    original = zipfile.ZipFile.infolist
+
+    def changed(archive):
+        result = original(archive)
+        info = path.stat()
+        os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1_000_000_000))
+        return result
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", changed)
+    candidates, display = {}, {}
+    scanned, warnings = icons._scan_archive(path, "pack", candidates, display, 0)
+    assert scanned == 2
+    assert not candidates and not display
+    assert len(warnings) == 1
+    assert "verändert" in warning_text(warnings[0])

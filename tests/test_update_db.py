@@ -568,11 +568,20 @@ class TestMicrosoftItemListings(unittest.TestCase):
         self.assertEqual(update_db.CURATED_ENGINE_DURABILITY["minecraft:wolf_armor"], 64)
         self.assertEqual(update_db.CURATED_ENGINE_DURABILITY["minecraft:crossbow"], 464)
         # Updating a pre-engine-check catalog must not resurrect Java/old values.
-        _, reviewed = update_db.merge_item_limits({}, {
-            "minecraft:fishing_rod": 64, "minecraft:carrot_on_a_stick": 25, "minecraft:chainmail_helmet": 195,
-        }, {}, {})
-        self.assertEqual({name: reviewed[name] for name in ("minecraft:fishing_rod", "minecraft:carrot_on_a_stick", "minecraft:chainmail_helmet")},
-                         {"minecraft:fishing_rod": 384, "minecraft:carrot_on_a_stick": 26, "minecraft:chainmail_helmet": 165})
+        _, reviewed = update_db.merge_item_limits(
+            {},
+            {
+                "minecraft:fishing_rod": 64,
+                "minecraft:carrot_on_a_stick": 25,
+                "minecraft:chainmail_helmet": 195,
+            },
+            {},
+            {},
+        )
+        self.assertEqual(
+            {name: reviewed[name] for name in ("minecraft:fishing_rod", "minecraft:carrot_on_a_stick", "minecraft:chainmail_helmet")},
+            {"minecraft:fishing_rod": 384, "minecraft:carrot_on_a_stick": 26, "minecraft:chainmail_helmet": 165},
+        )
         stack_limits, durability = update_db.merge_item_limits(
             {"minecraft:legacy": 16},
             {"minecraft:legacy": 12},
@@ -1126,7 +1135,7 @@ def test_commit_update_files_records_no_op_verification_without_growing_history(
     source_version = tmp_path / "source_version.json"
     history = tmp_path / "source_version_history.json"
     item_db.write_text('{"schema_version":3,"items":{}}\n', encoding="utf-8")
-    source_version.write_text('{}\n', encoding="utf-8")
+    source_version.write_text("{}\n", encoding="utf-8")
     history.write_text('[{"resource_pack_release":"old"}]\n', encoding="utf-8")
     original_history = history.read_bytes()
     metadata = {
@@ -1466,7 +1475,9 @@ def test_download_progress_reports_real_bytes_before_archive_validation(monkeypa
     monkeypatch.setattr(update_db, "report_progress", lambda phase, **counts: snapshots.append({"phase": phase, **counts}))
 
     update_db.download_with_progress(
-        response.url, tmp_path / "download.zip", expected_size=len(payload) if known_size else None,
+        response.url,
+        tmp_path / "download.zip",
+        expected_size=len(payload) if known_size else None,
     )
 
     downloaded = [row for row in snapshots if row["phase"] == "downloading"]

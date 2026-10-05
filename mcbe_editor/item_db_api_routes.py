@@ -100,9 +100,7 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
         if expected_review_token:
             current_review = update_review_snapshot(deps, only)
             if not current_review or not hmac.compare_digest(expected_review_token, current_review["token"]):
-                raise ValueError(
-                    "Die im Dry-Run geprüften Quellen oder Ausgangsdaten haben sich geändert. Bitte den Dry-Run erneut ausführen."
-                )
+                raise ValueError("Die im Dry-Run geprüften Quellen oder Ausgangsdaten haben sich geändert. Bitte den Dry-Run erneut ausführen.")
             use_cache = True
 
         returncode, output = deps.run_update_db(
@@ -156,9 +154,7 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
             )
             if not receipt_failed:
                 result["error"] = t(
-                    "Item-DB-Update konnte die Online-Quellen nicht erreichen."
-                    if category == "network-or-dns"
-                    else "Item-DB-Update ist fehlgeschlagen."
+                    "Item-DB-Update konnte die Online-Quellen nicht erreichen." if category == "network-or-dns" else "Item-DB-Update ist fehlgeschlagen."
                 )
             if category == "network-or-dns":
                 result["hint"] = t(

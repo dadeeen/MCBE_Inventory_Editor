@@ -3,6 +3,187 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_icon_load_ignores_stale_success_and_failure_in_every_world_context() -> None:
+    run_node(
+        textwrap.dedent(r"""
+        (async () => {
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/icon_sources_controller.js", "utf8"), context);
+            for (const nextWorld of ["A", "B", ""]) {
+                for (const failure of [false, true]) {
+                    let world = "A";
+                    const pending = [], applied = [], unavailable = [];
+                    const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                        fetchImpl: (url, options) => new Promise((resolve, reject) => pending.push({url, options, resolve, reject})),
+                        parseJsonResponse: async data => data,
+                        withCsrf: () => ({}),
+                        getWorldPath: () => world,
+                        onIconData: ({ data }) => applied.push(data.marker),
+                        onIconStatusUnavailable: error => unavailable.push(error),
+                    });
+                    const older = controller.loadLocalIconIndex({ rescan: true, throwOnError: true });
+                    world = nextWorld;
+                    const newer = controller.loadLocalIconIndex({ rescan: true });
+                    pending[1].resolve({ success: true, marker: "current", icons: {} });
+                    await newer;
+                    if (failure) pending[0].reject(new Error("old request failed"));
+                    else pending[0].resolve({ success: true, marker: "old", icons: {} });
+                    assert.strictEqual(await older, null);
+                    assert.deepStrictEqual(applied, ["current"]);
+                    assert.deepStrictEqual(unavailable, []);
+                    assert.strictEqual(JSON.parse(pending[0].options.body).world_path, "A");
+                    assert.strictEqual(JSON.parse(pending[1].options.body).world_path, nextWorld);
+                }
+            }
+            // Leaving a world invalidates its result even before a new player
+            // has loaded far enough to request icons.
+            let world = "A", resolve, applied = false;
+            const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                fetchImpl: () => new Promise(done => { resolve = done; }),
+                parseJsonResponse: async data => data, withCsrf: () => ({}),
+                getWorldPath: () => world, onIconData: () => { applied = true; },
+            });
+            const request = controller.loadLocalIconIndex();
+            world = "B";
+            resolve({ success: true, icons: {} });
+            assert.strictEqual(await request, null);
+            assert.strictEqual(applied, false);
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+    )
+
+
+def test_icon_mutations_refresh_the_current_world_when_their_response_is_stale() -> None:
+    run_node(
+        textwrap.dedent(r"""
+        (async () => {
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/icon_sources_controller.js", "utf8"), context);
+            const actions = [
+                controller => controller.addIconSource("pack"),
+                controller => controller.removeIconSource("pack"),
+                controller => controller.setIconSourceEnabled("pack", false),
+                controller => controller.moveIconSource("pack", "up"),
+                controller => controller.updateVanillaIcons(),
+            ];
+            for (const action of actions) {
+                for (const mutationFirst of [true, false]) {
+                    let world = "A";
+                    const pending = [], applied = [];
+                    const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                        fetchImpl: (url, options) => new Promise(resolve => pending.push({ url, options, resolve })),
+                        parseJsonResponse: async data => data, withCsrf: () => ({}),
+                        getWorldPath: () => world, onIconData: ({ data }) => applied.push(data.marker),
+                    });
+                    const first = mutationFirst ? action(controller) : controller.loadLocalIconIndex();
+                    await new Promise(setImmediate);
+                    if (mutationFirst) world = "B";
+                    const second = mutationFirst ? controller.loadLocalIconIndex({ rescan: true }) : action(controller);
+                    await new Promise(setImmediate);
+                    const mutationRequest = pending.find(request =>
+                        request.url.startsWith("/api/icons/sources/") || request.url === "/api/icons/vanilla/update");
+                    assert.strictEqual(JSON.parse(mutationRequest.options.body).world_path, "A");
+                    pending[1].resolve({ success: true, marker: "current", icons: {} });
+                    await second;
+                    pending[0].resolve({ success: true, marker: "stale", icons: {} });
+                    await new Promise(setImmediate);
+                    if (mutationFirst) {
+                        // The source change really happened. Refresh its result
+                        // for B without ever displaying A's stale icon index.
+                        assert.deepStrictEqual(applied, ["current"]);
+                        assert.strictEqual(pending[2].url, "/api/icons/scan");
+                        assert.strictEqual(JSON.parse(pending[2].options.body).world_path, "B");
+                        pending[2].resolve({ success: true, marker: "refreshed", icons: {} });
+                    }
+                    await first;
+                    assert.deepStrictEqual(applied, mutationFirst ? ["current", "refreshed"] : ["current"]);
+                }
+            }
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+    )
+
+
+def test_icon_status_binds_the_selected_world_and_encodes_its_path() -> None:
+    run_node(
+        textwrap.dedent(r"""
+        (async () => {
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/icon_sources_controller.js", "utf8"), context);
+            for (const world of ["C:/Welten/A & B #1/Überwelt", ""]) {
+                const requested = [];
+                const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                    appConfig: { read_only: true },
+                    getSelectedWorldPath: () => world,
+                    fetchImpl: async url => { requested.push(url); return { success: true, icons: {} }; },
+                    parseJsonResponse: async data => data,
+                });
+                await controller.loadLocalIconIndex({ rescan: true });
+                assert.strictEqual(requested.length, 1);
+                const url = new URL(requested[0], "http://localhost");
+                assert.strictEqual(url.pathname, "/api/icons/status");
+                assert.strictEqual(url.searchParams.get("world_path"), world || null);
+            }
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+    )
+
+
+def test_stale_icon_mutation_reports_a_failed_refresh_instead_of_success() -> None:
+    run_node(
+        textwrap.dedent(r"""
+        (async () => {
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/icon_sources_controller.js", "utf8"), context);
+            const actions = [
+                controller => controller.addIconSource("pack"),
+                controller => controller.removeIconSource("pack"),
+                controller => controller.setIconSourceEnabled("pack", false),
+                controller => controller.moveIconSource("pack", "up"),
+                controller => controller.updateVanillaIcons(),
+            ];
+            for (const action of actions) {
+                let world = "A";
+                const pending = [], toasts = [], unavailable = [];
+                const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                    fetchImpl: (url, options) => new Promise(resolve => pending.push({ url, options, resolve })),
+                    parseJsonResponse: async data => data, withCsrf: () => ({}),
+                    getWorldPath: () => world,
+                    showToast: (message, type) => toasts.push({ message, type }),
+                    onIconStatusUnavailable: error => unavailable.push(error.message),
+                    consoleObj: { warn() {}, error() {} },
+                });
+                const mutation = action(controller);
+                await new Promise(setImmediate);
+                world = "B";
+                const newer = controller.loadLocalIconIndex({ rescan: true });
+                pending[1].resolve({ success: true, icons: {} });
+                await newer;
+                pending[0].resolve({ success: true, icons: {} });
+                await new Promise(setImmediate);
+                assert.strictEqual(pending[2].url, "/api/icons/scan");
+                pending[2].resolve({ success: false, error: "Icon-Scan fehlgeschlagen." });
+                await mutation;
+                assert.deepStrictEqual(unavailable, ["Icon-Scan fehlgeschlagen."]);
+                assert.deepStrictEqual(toasts, [{ message: "Icon-Scan fehlgeschlagen.", type: "error" }]);
+            }
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+    )
+
+
 def test_frontend_icon_sources_controller_loads_applies_and_renders() -> None:
     run_node(
         textwrap.dedent(

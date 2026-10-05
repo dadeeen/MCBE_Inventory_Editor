@@ -75,8 +75,17 @@ def test_a_known_gate_rejection_is_not_an_unknown_outcome():
     assert not state.outcome_unknown
 
 
-@pytest.mark.parametrize("entries,mode", [({}, "batch"), ({"key": b"value"}, "batch"), ({b"key": "value"}, "batch"),
-                                         ({b"key": None}, "single"), ({b"a": b"a", b"b": b"b"}, "single"), ({b"key": b"value"}, "other")])
+@pytest.mark.parametrize(
+    "entries,mode",
+    [
+        ({}, "batch"),
+        ({"key": b"value"}, "batch"),
+        ({b"key": "value"}, "batch"),
+        ({b"key": None}, "single"),
+        ({b"a": b"a", b"b": b"b"}, "single"),
+        ({b"key": b"value"}, "other"),
+    ],
+)
 def test_invalid_plans_fail_before_an_attempt(entries, mode):
     state = WriteState()
     with pytest.raises(ValueError):

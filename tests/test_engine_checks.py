@@ -47,10 +47,18 @@ def test_transcript_requires_exact_version_and_complete_counts():
         transcript().feed("Version: 1.26.51.1")
 
 
-@pytest.mark.parametrize("line", [
-    wire("item", 2), wire("begin", 1), wire("surprise", 1), wire("item", 1, run_id="stale-run"),
-    wire("item", 1, phase="reload1"), "[INFO] " + PREFIX + "{broken", wire("item", True),
-])
+@pytest.mark.parametrize(
+    "line",
+    [
+        wire("item", 2),
+        wire("begin", 1),
+        wire("surprise", 1),
+        wire("item", 1, run_id="stale-run"),
+        wire("item", 1, phase="reload1"),
+        "[INFO] " + PREFIX + "{broken",
+        wire("item", True),
+    ],
+)
 def test_transcript_rejects_missing_stale_duplicate_and_malformed_events(line):
     with pytest.raises(ProbeError):
         transcript().feed(line)
@@ -208,21 +216,41 @@ def synthetic_carriers(cases):
         grouped.setdefault(case["carrier"], []).append(case)
     records = {b"unrelated": b"leave untouched"}
     for index, (name, entries) in enumerate(grouped.items()):
-        items = [nbt.CompoundTag({
-            "Slot": nbt.ByteTag(26), "Name": nbt.StringTag("minecraft:stone"), "Count": nbt.ByteTag(1), "Damage": nbt.ShortTag(0),
-            "tag": nbt.CompoundTag({"display": nbt.CompoundTag({"Name": nbt.StringTag(CONTROL_NAME)})}),
-        })]
+        items = [
+            nbt.CompoundTag(
+                {
+                    "Slot": nbt.ByteTag(26),
+                    "Name": nbt.StringTag("minecraft:stone"),
+                    "Count": nbt.ByteTag(1),
+                    "Damage": nbt.ShortTag(0),
+                    "tag": nbt.CompoundTag({"display": nbt.CompoundTag({"Name": nbt.StringTag(CONTROL_NAME)})}),
+                }
+            )
+        ]
         for case in entries:
             if case["mode"] == "create":
                 continue
-            items.append(nbt.CompoundTag({
-                "Slot": nbt.ByteTag(case["slot"]), "Name": nbt.StringTag(case["id"]), "Count": nbt.ByteTag(case["amount"]), "Damage": nbt.ShortTag(0),
-                "tag": nbt.CompoundTag({"future_probe": nbt.LongTag(2**50)}),
-            }))
-        actor = nbt.NamedTag(nbt.CompoundTag({
-            "identifier": nbt.StringTag("minecraft:chest_minecart"), "CustomName": nbt.StringTag(name),
-            "ChestItems": nbt.ListTag(items), "Untouched": nbt.LongArrayTag([2**50, -1]),
-        }))
+            items.append(
+                nbt.CompoundTag(
+                    {
+                        "Slot": nbt.ByteTag(case["slot"]),
+                        "Name": nbt.StringTag(case["id"]),
+                        "Count": nbt.ByteTag(case["amount"]),
+                        "Damage": nbt.ShortTag(0),
+                        "tag": nbt.CompoundTag({"future_probe": nbt.LongTag(2**50)}),
+                    }
+                )
+            )
+        actor = nbt.NamedTag(
+            nbt.CompoundTag(
+                {
+                    "identifier": nbt.StringTag("minecraft:chest_minecart"),
+                    "CustomName": nbt.StringTag(name),
+                    "ChestItems": nbt.ListTag(items),
+                    "Untouched": nbt.LongArrayTag([2**50, -1]),
+                }
+            )
+        )
         records[b"actorprefix" + index.to_bytes(8, "big")] = save_player_nbt(actor)
     return records
 
@@ -301,14 +329,24 @@ def test_public_summary_drops_raw_world_data_logs_and_failure_paths():
     from scripts.engine_checks.runner import public_summary
 
     report = {
-        "status": "fail", "suite": "items", "engine": {"version": "1.26.50.5"}, "editor": {"commit": "abc"},
-        "catalog_sha256": "a" * 64, "phases": {}, "not_covered": [],
-        "failure": "PRIVATE_PATH", "world_nbt": "PRIVATE_NBT",
+        "status": "fail",
+        "suite": "items",
+        "engine": {"version": "1.26.50.5"},
+        "editor": {"commit": "abc"},
+        "catalog_sha256": "a" * 64,
+        "phases": {},
+        "not_covered": [],
+        "failure": "PRIVATE_PATH",
+        "world_nbt": "PRIVATE_NBT",
         "catalog": {"status": "fail", "errors": {"minecraft:stone": "PRIVATE_LOG"}, "observations": {"private": "PRIVATE_OBSERVATION"}},
+        "enchantment_registry": {"status": "fail", "added": {"future": 2}, "log": "PRIVATE_REGISTRY_LOG"},
+        "editor_rules": {"status": "fail", "applicability_checks": 42, "log": "PRIVATE_RULE_LOG"},
     }
     summary = json.dumps(public_summary(report))
     assert "PRIVATE_" not in summary
     assert '"status": "fail"' in summary
+    assert '"future": 2' in summary
+    assert '"applicability_checks": 42' in summary
 
 
 @pytest.mark.parametrize("engine_exit", [0, 1])
@@ -370,9 +408,15 @@ configure_worker_catalog(Path(sys.argv[1]))
 from mcbe_editor import item_data
 assert item_data.get_max_stack('minecraft:stone') == int(sys.argv[2])
 """
-    result = subprocess.run([sys.executable, "-c", source, str(tmp_path), str(candidate_limit)], cwd=ROOT,
-                            env={**os.environ, "MCBE_ITEM_DB_PATH": str(tmp_path / "catalog.json")},
-                            capture_output=True, text=True, timeout=30, check=False)
+    result = subprocess.run(
+        [sys.executable, "-c", source, str(tmp_path), str(candidate_limit)],
+        cwd=ROOT,
+        env={**os.environ, "MCBE_ITEM_DB_PATH": str(tmp_path / "catalog.json")},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
     assert result.returncode == 0, result.stderr
 
 
@@ -412,9 +456,17 @@ def test_run_cannot_pass_with_editor_sources_changed_during_measurement(tmp_path
     source.write_text("original_source = True\n", encoding="utf-8")
     archive, digest = server_zip(tmp_path)
     monkeypatch.setattr(runner, "ROOT", root)
-    monkeypatch.setattr(runner, "docker_command", lambda *_args, **_kwargs: json.dumps({
-        "Os": "linux", "Architecture": "amd64", "Id": "sha256:" + "a" * 64,
-    }))
+    monkeypatch.setattr(
+        runner,
+        "docker_command",
+        lambda *_args, **_kwargs: json.dumps(
+            {
+                "Os": "linux",
+                "Architecture": "amd64",
+                "Id": "sha256:" + "a" * 64,
+            }
+        ),
+    )
 
     def changed_source(*_args):
         source.write_text("original_source = False\n", encoding="utf-8")
@@ -460,9 +512,7 @@ def test_final_disk_verification_detects_data_loss_after_the_last_engine_observa
     verify_saved_items(records, cases)
     key = next(key for key in records if key.startswith(b"actorprefix"))
     actor = load_player_nbt(records[key])
-    target_case = next(case for case in cases if case["damage"]) if mutation == "damage" else next(
-        case for case in cases if case["name"]
-    )
+    target_case = next(case for case in cases if case["damage"]) if mutation == "damage" else next(case for case in cases if case["name"])
     target = next(item for item in actor.tag["ChestItems"] if item["Slot"].py_data == target_case["slot"])
     if mutation == "identity":
         target["Name"] = nbt.StringTag("minecraft:stone")
@@ -493,8 +543,9 @@ def test_disk_verification_accepts_only_canonical_empty_engine_slots(mutation):
     records.update(build_item_writes(records, cases))
     key = next(key for key in records if key.startswith(b"actorprefix"))
     actor = load_player_nbt(records[key])
-    empty = nbt.CompoundTag({"Slot": nbt.ByteTag(24), "Name": nbt.StringTag(""), "Count": nbt.ByteTag(0),
-                             "Damage": nbt.ShortTag(0), "WasPickedUp": nbt.ByteTag(0)})
+    empty = nbt.CompoundTag(
+        {"Slot": nbt.ByteTag(24), "Name": nbt.StringTag(""), "Count": nbt.ByteTag(0), "Damage": nbt.ShortTag(0), "WasPickedUp": nbt.ByteTag(0)}
+    )
     if mutation == "identity":
         empty["Name"] = nbt.StringTag("minecraft:stone")
     elif mutation == "count-type":
@@ -591,8 +642,7 @@ def test_offline_worker_rejects_a_database_junction_before_opening_it(tmp_path, 
     try:
         cases = make_cases(["minecraft:stone"], {"minecraft:stone": {"max_amount": 64}}, {})
         write_json(run_dir / "cases.json", cases)
-        write_json(run_dir / "run.json", {"format": "mcbe-engine-check-v1", "phases": {"seed": "pass"},
-                                          "cases_sha256": sha256(run_dir / "cases.json")})
+        write_json(run_dir / "run.json", {"format": "mcbe-engine-check-v1", "phases": {"seed": "pass"}, "cases_sha256": sha256(run_dir / "cases.json")})
         monkeypatch.setattr(nbt_roundtrip, "read_records", lambda _world: pytest.fail("Junction target was opened"))
         with pytest.raises(ProbeError, match="escaped"):
             nbt_roundtrip.run(run_dir, "edit")
@@ -622,7 +672,7 @@ def test_interrupted_report_write_keeps_the_last_complete_json(tmp_path, monkeyp
             return getattr(self.handle, name)
 
         def write(self, text):
-            self.handle.write(text[:len(text) // 2])
+            self.handle.write(text[: len(text) // 2])
             self.handle.flush()
             raise OSError("synthetic interrupted JSON write")
 

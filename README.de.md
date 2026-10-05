@@ -34,8 +34,6 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
 
 Während eines Updates zeigt die Fortschrittsanzeige die geladenen MB und bei bekannter Gesamtgröße einen Prozentwert. Danach wechselt sie zu Archivprüfung, Datenverarbeitung bzw. Icon-Erstellung und Abschluss. Ein beendeter Download bedeutet noch kein abgeschlossenes Update; passende Downloads aus dem Cache werden gesondert angezeigt.
 
-Falls noch kein Release vorhanden ist, können erfahrene Nutzer die Source-Einrichtung weiter unten verwenden.
-
 Stapelgrößen stammen aus ausdrücklichen Mojang-Komponenten und geprüften Bedrock-Werten. Fehlt für ein aktualisiertes Item eine bestätigte Grenze, sind neue Stapel zunächst auf **1** begrenzt und **Max-Stack** ist deaktiviert. Vorhandene Mengen bleiben unverändert erhalten; der Editor leitet aus Namen oder Registry-Einträgen keine 64er-Grenze ab. Das Update-Protokoll nennt die Anzahl noch ungeprüfter Grenzen.
 
 ## Warum es dieses Projekt gibt
@@ -55,11 +53,23 @@ Diese Herkunft erklärt den Zuschnitt: ein geprüfter Satz von Spielerfeldern, b
 | Spielerwerte | Gesundheit, Spielmodus, XP, Hunger, Sättigung, Position, Effekte sowie Lauf- und Fluggeschwindigkeit |
 | Sicherheit | Backups vor Schreibvorgängen, Restore-Prüfungen, Revisionen, Schreibsperren und Welt-Locks |
 | Spielertransfer | Versionierte Migration lokal ↔ Multiplayer sowie vollständiger `.mcbe-player.zip`-Import/-Export |
-| Icons | Vanilla-Icon-Download, lokale Ressourcenpakete, `.mcpack`, `.zip` und eigene Icon-Ordner |
+| Icons | Gemeinsame Vanilla-Icons, aktive Welt-Packs, `.mcpack`, `.zip` und eigene Icon-Ordner |
 | Mounts | Experimentelle Erzeugung von Pferden, Eseln, Maultieren, Skelettpferden und Kamelen |
 | Diagnose | Weltstatus, Runtime-Prüfungen, Berichte und privater Spieler-Rohdatenexport |
 
 Die App ist kein öffentlicher Hostingdienst, kein Server-Administrationspanel und kein uneingeschränkter Roh-NBT-Editor.
+
+Icons berücksichtigen die aktiven Ressourcen- und Verhaltenspakete der Welt,
+deren Versionen und Priorität sowie deklarierte statische Item-Texturen.
+Nur aktive Welt-Packs werden automatisch berücksichtigt; ausdrücklich im Editor
+hinzugefügte Quellen gelten global. Welten mit denselben Quellen teilen einen
+Index. Die Vanilla-Icons liegen in einem gemeinsamen lokalen Cache.
+
+Fehlende Packs und nicht unterstützte Varianten führen zu Diagnosehinweisen und
+Standard-Icons oder Ersatzsymbolen. Eigene Blockmodelle, dynamische Darstellung und
+globale Pack-Einstellungen des Minecraft-Clients sind nicht abgedeckt. Der Read-only-Modus
+verwendet zuvor vorbereitete Indizes. Die [Icon-Auflösung](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md)
+beschreibt unterstützte Formate, Prioritäten und Cache-Verhalten.
 
 ## Lokaler Windows-Start
 

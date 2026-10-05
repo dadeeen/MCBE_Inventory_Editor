@@ -47,6 +47,7 @@ from mcbe_editor.config import _host_for_origin, host_reaches_beyond_loopback
 from mcbe_editor.db import register_runtime_leveldb_write_guard
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
 from mcbe_editor.distribution import data_root_snapshot, distribution_snapshot
+from mcbe_editor.player_directory import PlayerDirectory
 from mcbe_editor.presence import WorldPresenceTracker
 from mcbe_editor.server_guard import ServerGuardStore
 from mcbe_editor.service_errors import WriteNotAttemptedError
@@ -363,9 +364,13 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = APP_CONFIG.session_cookie_secure
 app.secret_key = SETUP_STATE.secret_key() or APP_CONFIG.secret_key
+# Discovery depends on database state, so it outlives catalog-bound services.
+_PLAYER_DIRECTORY = PlayerDirectory()
 editor_service = BedrockEditorService(
-    item_data_module.ITEMS, item_data_module.ENCHANTMENTS,
+    item_data_module.ITEMS,
+    item_data_module.ENCHANTMENTS,
     item_catalog=item_data_module.current_item_catalog(),
+    player_directory=_PLAYER_DIRECTORY,
 )
 _ITEM_DB_RUNTIME_SIGNATURE = _item_db_file_signature()
 _ITEM_DB_RELOAD_FAILURE = None
@@ -418,6 +423,7 @@ AUDIT_LOG = AuditLogger(
     max_bytes=APP_CONFIG.audit_log_max_bytes,
 )
 
+
 def _setup_storage_can_complete_auth(config=APP_CONFIG, setup_state=SETUP_STATE) -> bool:
     """Return whether the persistent setup page can resolve this auth state."""
 
@@ -446,7 +452,10 @@ def validate_startup_security(bind_host: str) -> None:
     env_auth = bool(APP_CONFIG.auth_password_hash or APP_CONFIG.auth_password)
     persistent_auth = bool(SETUP_STATE.password_hash())
     if _wide_bind_has_unresolved_unwritable_setup(
-        wide_bind=wide_bind, env_auth_available=env_auth, persistent_auth_available=persistent_auth, setup_state=SETUP_STATE,
+        wide_bind=wide_bind,
+        env_auth_available=env_auth,
+        persistent_auth_available=persistent_auth,
+        setup_state=SETUP_STATE,
     ):
         raise RuntimeError(
             "The service is reachable in LAN/Docker mode, but first-run setup is not complete "
@@ -1264,7 +1273,9 @@ def source_version_history_entries() -> list[dict]:
 
 def item_db_status_snapshot() -> dict:
     snapshot = status_snapshots.item_db_status_snapshot(
-        APP_CONFIG, SimpleNamespace(**item_data_module.current_item_catalog()), APP_ROOT,
+        APP_CONFIG,
+        SimpleNamespace(**item_data_module.current_item_catalog()),
+        APP_ROOT,
     )
     if _ITEM_DB_RELOAD_FAILURE is not None:
         snapshot["verification"] = {**snapshot["verification"], "verified": False, "reason": "runtime-reload-failed"}
@@ -1389,7 +1400,12 @@ def reload_item_db_after_update() -> dict:
         if signature is None:
             raise OSError("Item database is unavailable.")
         catalog = item_data_module.prepare_item_catalog(_item_db_runtime_path())
-        service = BedrockEditorService(catalog["ITEMS"], catalog["ENCHANTMENTS"], item_catalog=catalog)
+        service = BedrockEditorService(
+            catalog["ITEMS"],
+            catalog["ENCHANTMENTS"],
+            item_catalog=catalog,
+            player_directory=_PLAYER_DIRECTORY,
+        )
         status = status_snapshots.item_db_status_snapshot(APP_CONFIG, SimpleNamespace(**catalog), APP_ROOT)
         if _item_db_file_signature() != signature:
             raise ValueError("Item database changed while loading.")
@@ -1742,7 +1758,7 @@ def icon_route_deps() -> icon_api_routes.IconRouteDeps:
 @app.route("/api/icons/status", methods=["GET"])
 @rate_limit("read")
 def icons_status_route():
-    return icon_api_routes.icons_status(icon_route_deps())
+    return icon_api_routes.icons_status(icon_route_deps(), world_path=request.args.get("world_path"))
 
 
 @app.route("/api/icons/scan", methods=["POST"])
@@ -1765,7 +1781,7 @@ def icons_vanilla_update_route():
 @app.route("/api/icons/sources", methods=["GET"])
 @rate_limit("read")
 def icons_sources_route():
-    return icon_api_routes.icons_sources(icon_route_deps())
+    return icon_api_routes.icons_sources(icon_route_deps(), world_path=request.args.get("world_path"))
 
 
 @app.route("/api/icons/sources/add", methods=["POST"])
@@ -1819,7 +1835,7 @@ def icons_pick_folder_route():
 @app.route("/api/icons/<token>", methods=["GET"])
 @rate_limit("icons")
 def icon_file_route(token: str):
-    return icon_api_routes.icon_file(token, icon_route_deps())
+    return icon_api_routes.icon_file(token, icon_route_deps(), context_id=request.args.get("context"))
 
 
 def note_heartbeat_received() -> None:

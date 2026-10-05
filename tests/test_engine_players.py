@@ -17,30 +17,56 @@ def synthetic_player(cases):
 
     containers = {field: [] for field in CONTROL_SLOTS}
     for field, slot in CONTROL_SLOTS.items():
-        containers[field].append(nbt.CompoundTag({
-            "Slot": nbt.ByteTag(slot), "Name": nbt.StringTag("minecraft:stone"), "Count": nbt.ByteTag(1), "Damage": nbt.ShortTag(0),
-            "tag": nbt.CompoundTag({"display": nbt.CompoundTag({"Name": nbt.StringTag(CONTROL_NAME)})}),
-        }))
+        containers[field].append(
+            nbt.CompoundTag(
+                {
+                    "Slot": nbt.ByteTag(slot),
+                    "Name": nbt.StringTag("minecraft:stone"),
+                    "Count": nbt.ByteTag(1),
+                    "Damage": nbt.ShortTag(0),
+                    "tag": nbt.CompoundTag({"display": nbt.CompoundTag({"Name": nbt.StringTag(CONTROL_NAME)})}),
+                }
+            )
+        )
     locations = assignments(cases)
     for case in cases:
         if case["mode"] == "create":
             continue
         field, slot = locations[case["case_id"]]
-        containers[field].append(nbt.CompoundTag({"Slot": nbt.ByteTag(slot), "Name": nbt.StringTag(case["id"]),
-                                                "Count": nbt.ByteTag(case["amount"]), "Damage": nbt.ShortTag(0)}))
-    return nbt.NamedTag(nbt.CompoundTag({**{field: nbt.ListTag(items) for field, items in containers.items()},
-                                       "Opaque": nbt.LongArrayTag([2**50, -1])}))
+        containers[field].append(
+            nbt.CompoundTag({"Slot": nbt.ByteTag(slot), "Name": nbt.StringTag(case["id"]), "Count": nbt.ByteTag(case["amount"]), "Damage": nbt.ShortTag(0)})
+        )
+    return nbt.NamedTag(nbt.CompoundTag({**{field: nbt.ListTag(items) for field, items in containers.items()}, "Opaque": nbt.LongArrayTag([2**50, -1])}))
 
 
 def test_durability_measurements_detect_wrong_values_missing_components_and_unreviewed_items():
-    events = [{"kind": "registry", "ids": ["minecraft:fishing_rod"]},
-              {"kind": "item", "id": "minecraft:fishing_rod", "max_amount": 1, "max_durability": 384, "components": []}]
+    events = [
+        {"kind": "registry", "ids": ["minecraft:fishing_rod"]},
+        {"kind": "item", "id": "minecraft:fishing_rod", "max_amount": 1, "max_durability": 384, "components": []},
+    ]
     limits = {"minecraft:fishing_rod": 1}
     assert catalog_result(events, list(limits), limits, {"minecraft:fishing_rod": 384})["status"] == "pass"
     assert catalog_result(events, list(limits), limits, {"minecraft:fishing_rod": 64})["status"] == "fail"
     assert catalog_result(events, list(limits), limits, {})["status"] == "partial"
     events[1]["max_durability"] = None
     assert catalog_result(events, list(limits), limits, {"minecraft:fishing_rod": 384})["status"] == "fail"
+
+
+def test_player_profile_fits_both_containers_and_has_mixed_new_and_preserved_items():
+    from scripts.engine_checks.runner import ROOT
+    from scripts.engine_checks.service_profile import make_service_cases
+
+    catalog = json.loads((ROOT / "mcbe_editor/resources/item_db.json").read_text(encoding="utf-8"))
+    observations = {item: {"max_amount": limit, "max_durability": catalog["durability"].get(item)} for item, limit in catalog["stack_limits"].items()}
+    cases = make_service_cases(observations, catalog["stack_limits"], catalog["enchantments"])
+    locations = assignments(cases)
+    assert len(cases) == 45
+    for field, last_slot in (("Inventory", 35), ("EnderChestInventory", 26)):
+        local = [case for case in cases if locations[case["case_id"]][0] == field]
+        assert len(local) <= 24
+        assert any(locations[case["case_id"]][1] == last_slot for case in local)
+        assert {case["mode"] for case in local if case.get("coverage") == "mixed-metadata"} == {"create", "preserve", "decorate"}
+        assert any(case.get("coverage") == "mixed-clear" for case in local)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "extra", "count", "control", "slot-type", "container"])
@@ -77,7 +103,8 @@ def test_client_transport_is_explicit_ipv4_loopback_only(tmp_path):
     assert isolated[isolated.index("--network") + 1] == "none" and "--publish" not in isolated
     connected = container_arguments(tmp_path, "test", "sha256:" + "a" * 64, client_port=19134)
     assert [connected[index + 1] for index, value in enumerate(connected) if value == "--publish"] == [
-        "127.0.0.1:19134:19132/tcp", "127.0.0.1:19134:19132/udp",
+        "127.0.0.1:19134:19132/tcp",
+        "127.0.0.1:19134:19132/udp",
     ]
     configure_server(tmp_path, client_port=19134)
     properties = dict(line.split("=", 1) for line in (tmp_path / "server.properties").read_text().splitlines())
@@ -90,9 +117,17 @@ def test_client_transport_is_explicit_ipv4_loopback_only(tmp_path):
 
 
 def test_client_summary_never_contains_player_identifiers():
-    report = {"status": "fail", "suite": "client", "engine": {}, "editor": {}, "catalog_sha256": "a" * 64,
-              "phases": {}, "not_covered": [], "client": {"status": "fail", "key": "PRIVATE_KEY", "name": "PRIVATE_NAME"},
-              "nbt_edit": {"player_service": {"status": "pass", "raw": "PRIVATE_NBT", "xuid": "PRIVATE_XUID"}}}
+    report = {
+        "status": "fail",
+        "suite": "client",
+        "engine": {},
+        "editor": {},
+        "catalog_sha256": "a" * 64,
+        "phases": {},
+        "not_covered": [],
+        "client": {"status": "fail", "key": "PRIVATE_KEY", "name": "PRIVATE_NAME"},
+        "nbt_edit": {"player_service": {"status": "pass", "raw": "PRIVATE_NBT", "xuid": "PRIVATE_XUID"}},
+    }
     assert "PRIVATE_" not in json.dumps(public_summary(report))
 
 
@@ -180,8 +215,7 @@ def test_all_suites_keep_failures_and_partial_results(tmp_path, monkeypatch, sta
         return tmp_path, {"status": statuses[len(observed) - 1]}
 
     monkeypatch.setattr(cli, "run_probe", run)
-    monkeypatch.setattr(sys, "argv", ["engine-checks", "--archive", str(tmp_path / "server.zip"), "--sha256", "a" * 64,
-                                    "--server-version", "1.26.51.1"])
+    monkeypatch.setattr(sys, "argv", ["engine-checks", "--archive", str(tmp_path / "server.zip"), "--sha256", "a" * 64, "--server-version", "1.26.51.1"])
     assert cli.main() == exit_code
     assert observed == ["extended", "service", "addons"]
 

@@ -26,9 +26,13 @@ def enable_client_experiment(server: Path) -> None:
     if len(raw) < 8 or struct.unpack("<I", raw[4:8])[0] != len(raw) - 8:
         raise ProbeError("Unexpected generated level.dat framing")
     level = nbt.load(raw[8:], compressed=False, little_endian=True)
-    level.tag["experiments"] = nbt.CompoundTag({
-        "gametest": nbt.ByteTag(1), "experiments_ever_used": nbt.ByteTag(1), "saved_with_toggled_experiments": nbt.ByteTag(1),
-    })
+    level.tag["experiments"] = nbt.CompoundTag(
+        {
+            "gametest": nbt.ByteTag(1),
+            "experiments_ever_used": nbt.ByteTag(1),
+            "saved_with_toggled_experiments": nbt.ByteTag(1),
+        }
+    )
     payload = level.save_to(compressed=False, little_endian=True)
     path.write_bytes(raw[:4] + struct.pack("<I", len(payload)) + payload)
 
@@ -57,8 +61,7 @@ def player_items(root, field: str) -> dict:
 
 
 def control_case(field: str) -> dict:
-    return {"case_id": field + "/control", "id": "minecraft:stone", "amount": 1, "name": CONTROL_NAME,
-            "lore": [], "damage": 0, "enchantments": []}
+    return {"case_id": field + "/control", "id": "minecraft:stone", "amount": 1, "name": CONTROL_NAME, "lore": [], "damage": 0, "enchantments": []}
 
 
 def verify_player_items(raw: bytes, cases: list[dict], *, seed: bool = False) -> dict:
@@ -70,8 +73,9 @@ def verify_player_items(raw: bytes, cases: list[dict], *, seed: bool = False) ->
     locations = assignments(cases)
     containers = {field: player_items(root, field) for field in CONTROL_SLOTS}
     for field, items in containers.items():
-        expected = {CONTROL_SLOTS[field]} | {locations[case["case_id"]][1] for case in cases
-                                            if locations[case["case_id"]][0] == field and (not seed or case["mode"] != "create")}
+        expected = {CONTROL_SLOTS[field]} | {
+            locations[case["case_id"]][1] for case in cases if locations[case["case_id"]][0] == field and (not seed or case["mode"] != "create")
+        }
         if set(items) != expected:
             raise ProbeError("Client persistence lost items or contains unexpected slots")
         control = control_case(field)
@@ -106,8 +110,10 @@ def find_client_player_key(records: dict[bytes, bytes]) -> bytes:
         except Exception:
             raise ProbeError("Unreadable player-like record in fresh client world") from None
         is_account_index = (
-            key.startswith(b"player_") and not key.startswith(b"player_server_")
-            and isinstance(root, nbt.CompoundTag) and set(root) == {"MsaId", "ServerId"}
+            key.startswith(b"player_")
+            and not key.startswith(b"player_server_")
+            and isinstance(root, nbt.CompoundTag)
+            and set(root) == {"MsaId", "ServerId"}
             and all(isinstance(root[field], nbt.StringTag) for field in ("MsaId", "ServerId"))
         )
         if not is_account_index:

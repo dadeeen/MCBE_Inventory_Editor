@@ -130,7 +130,11 @@ def test_staging_sync_failure_preserves_current_world_and_archive(restore_world,
 @pytest.mark.parametrize("error_number", [errno.EINVAL, errno.ENOSYS, errno.ENOTSUP, errno.EIO, errno.EACCES])
 def test_restore_directory_sync_does_not_hide_io_or_permission_errors(monkeypatch, error_number):
     operating_system = SimpleNamespace(
-        name="posix", O_DIRECTORY=1, O_RDONLY=0, open=Mock(return_value=123), close=Mock(),
+        name="posix",
+        O_DIRECTORY=1,
+        O_RDONLY=0,
+        open=Mock(return_value=123),
+        close=Mock(),
         fsync=Mock(side_effect=OSError(error_number, "synthetic restore directory error")),
     )
     monkeypatch.setattr(backup, "os", operating_system)

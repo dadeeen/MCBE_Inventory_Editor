@@ -182,9 +182,7 @@ class WriteOutcomeUnknownError(UserFacingError, RuntimeError):
     def __init__(self, original_error: Exception, *, backup_file: str | None = None) -> None:
         self.original_error = original_error
         self.backup_file = backup_file
-        super().__init__(
-            t("Ob die Änderungen bereits geschrieben wurden, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen.")
-        )
+        super().__init__(t("Ob die Änderungen bereits geschrieben wurden, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen."))
 
 
 class PlayerImportPreviewStaleError(ValueError):

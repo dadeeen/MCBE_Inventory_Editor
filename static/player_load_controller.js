@@ -471,7 +471,7 @@
                 }
                 saveWorkspace({ player_key: playerKey, player_label: data.player?.label || playerKey, world_path: state.worldPath, world_name: state.selectedWorld?.name || state.worldPath });
                 updateProtectedKnownSlotsFromMeta(nextHiddenUnknownSlots);
-                loadLocalIconIndex({ rescan: appConfig?.read_only !== true });
+                loadLocalIconIndex({ rescan: false });
                 if (inventoryContainer) inventoryContainer.style.display = "flex";
                 if (btnExportPlayer) btnExportPlayer.disabled = !data.player?.exportable || exportBlocked();
                 updateImportControls();

@@ -8,9 +8,15 @@ from scripts.compare_icon_caches import compare_caches
 def cache(root, content, *, release="same"):
     (root / "textures/items").mkdir(parents=True)
     (root / "textures/items/brick_block.png").write_bytes(content)
-    (root / "manifest.json").write_text(json.dumps({
-        "items": {"minecraft:brick_block": "blocks/brick"}, "missing_items": [], "release": release,
-    }))
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "items": {"minecraft:brick_block": "blocks/brick"},
+                "missing_items": [],
+                "release": release,
+            }
+        )
+    )
 
 
 def test_comparison_detects_render_changes_without_source_path_changes(tmp_path):

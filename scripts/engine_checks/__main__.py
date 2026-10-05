@@ -22,8 +22,17 @@ def main() -> int:
     statuses = []
     try:
         for suite in ("extended", "service", "addons") if args.suite == "all" else (args.suite,):
-            directory, report = run_probe(args.archive.resolve(), args.sha256, args.server_version, args.image, args.work_root, suite,
-                                          args.timeout, args.catalog, client_port=args.client_port)
+            directory, report = run_probe(
+                args.archive.resolve(),
+                args.sha256,
+                args.server_version,
+                args.image,
+                args.work_root,
+                suite,
+                args.timeout,
+                args.catalog,
+                client_port=args.client_port,
+            )
             statuses.append(report["status"])
             print(f"Engine check ({suite}): {report['status']}\nLocal report: {directory / 'run.json'}", flush=True)
             if report.get("failure"):

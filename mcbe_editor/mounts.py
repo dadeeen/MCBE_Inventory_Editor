@@ -247,11 +247,13 @@ def player_reference_from_snapshot(snapshot: dict[str, Any], player_key: str) ->
 
 
 def _candidate_position(base: dict[str, float], dx: float, dy: float, dz: float) -> dict[str, float]:
-    return normalize_mount_position({
-        "x": round(base["x"] + dx, 3),
-        "y": round(base["y"] + ENTITY_FOOT_Y_FROM_PLAYER_Y + dy, 3),
-        "z": round(base["z"] + dz, 3),
-    })
+    return normalize_mount_position(
+        {
+            "x": round(base["x"] + dx, 3),
+            "y": round(base["y"] + ENTITY_FOOT_Y_FROM_PLAYER_Y + dy, 3),
+            "z": round(base["z"] + dz, 3),
+        }
+    )
 
 
 def _normalized_preferred_offset(value: Any) -> tuple[float, float, float] | None:

@@ -102,6 +102,7 @@ def _catalog_operation(func):
     def wrapper(self, *args, **kwargs):
         with item_data.use_item_catalog(self.item_catalog):
             return func(self, *args, **kwargs)
+
     return wrapper
 
 
@@ -114,6 +115,7 @@ class BedrockEditorService:
         readonly_db_factory=ReadonlyLevelDbAdapter,
         *,
         item_catalog=None,
+        player_directory: PlayerDirectory | None = None,
     ):
         """Without ``item_catalog``, operations read the current module data; that suits tests and standalone scripts."""
 
@@ -122,7 +124,7 @@ class BedrockEditorService:
         self.enchantments_db = enchantments_db
         self.db_factory = db_factory
         self.readonly_db_factory = readonly_db_factory
-        self._player_directory = PlayerDirectory()
+        self._player_directory = player_directory if player_directory is not None else PlayerDirectory()
 
     @staticmethod
     def _lock_key(world_path: str) -> str:
@@ -545,11 +547,12 @@ class BedrockEditorService:
                 db = self._open_db_readonly(world_path)
                 player_key = decode_player_key(encoded_player_key)
                 player_bytes = self._read_player(db, player_key)
-                player_info = self._get_player_info(db, player_key, raw_bytes=player_bytes)
+                player_info, player_named_tag = self._get_player_info_and_tag(db, player_key, raw_bytes=player_bytes)
                 if not player_info["editable"]:
                     raise ValueError(f"Dieser Spieler ist read-only: {player_info['reason']}")
                 self._assert_player_revision_current(player_bytes, base_revision)
-                player_named_tag = load_player_nbt(player_bytes)
+                if player_named_tag is None:
+                    player_named_tag = load_player_nbt(player_bytes)
                 player_tag = player_named_tag.tag
                 original_inventory_data, _ = nbt_to_json(player_tag)
                 inventory_list = filter_read_only_root_equipment_payload(inventory_list)
@@ -666,8 +669,7 @@ class BedrockEditorService:
                 apply_player_stats(player_tag, stats)
 
                 serialized_bytes = save_player_nbt(player_named_tag)
-                assert_serialized_player_roundtrip(serialized_bytes)
-                item_source_digests = self._item_source_digests(load_player_nbt(serialized_bytes).tag)
+                item_source_digests = self._item_source_digests(assert_serialized_player_roundtrip(serialized_bytes).tag)
                 player_changed = serialized_bytes != player_bytes
                 if not player_changed and extra_batch_builder is None:
                     return {

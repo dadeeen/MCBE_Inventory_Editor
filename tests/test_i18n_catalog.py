@@ -164,21 +164,12 @@ def test_updater_exceptions_and_direct_output_do_not_bypass_localization() -> No
     missing: list[str] = []
 
     def contains_tr(node: ast.AST) -> bool:
-        return any(
-            isinstance(child, ast.Call)
-            and isinstance(child.func, ast.Name)
-            and child.func.id == "tr"
-            for child in ast.walk(node)
-        )
+        return any(isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id == "tr" for child in ast.walk(node))
 
     for path in paths:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
-        parents = {
-            child: parent
-            for parent in ast.walk(tree)
-            for child in ast.iter_child_nodes(parent)
-        }
+        parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
 
         def enclosing_scope(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> ast.AST:
             while not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -204,9 +195,7 @@ def test_updater_exceptions_and_direct_output_do_not_bypass_localization() -> No
                     missing.append(f"{path.relative_to(ROOT)}:{node.lineno}: exception")
             if isinstance(node, ast.Call) and node.args and isinstance(node.func, ast.Name) and node.func.id in {"log", "step", "input"}:
                 literal_text = " ".join(
-                    str(child.value)
-                    for child in ast.walk(node.args[0])
-                    if isinstance(child, ast.Constant) and isinstance(child.value, str)
+                    str(child.value) for child in ast.walk(node.args[0]) if isinstance(child, ast.Constant) and isinstance(child.value, str)
                 )
                 if GERMAN_TEXT_RE.search(literal_text) and not contains_tr(node.args[0]):
                     missing.append(f"{path.relative_to(ROOT)}:{node.lineno}: {node.func.id}")

@@ -85,8 +85,10 @@ def test_full_runner_reports_retained_failure_diagnostics(tmp_path, monkeypatch,
 @pytest.mark.parametrize("failure", [ImportError("missing oracle"), OSError("unloadable DLL")])
 def test_reference_runner_rejects_missing_or_broken_oracles(monkeypatch, capsys, failure):
     monkeypatch.setattr(test_full, "_missing_core_dependencies", lambda: [])
+
     def unavailable(_name):
         raise failure
+
     monkeypatch.setattr(test_full.importlib, "import_module", unavailable)
     monkeypatch.setattr(test_full, "_run_pytest", lambda _command: pytest.fail("Must fail before optional tests can skip"))
     assert test_full.main(["--require-references", "-q"]) == 2

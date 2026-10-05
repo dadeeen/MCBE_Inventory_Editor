@@ -138,11 +138,7 @@ _bundled_limits = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))
 _bundled_component_ids = set(_bundled_limits.get("behavior_item_source", {}).get("stack_limit_items", []))
 CURATED_ENGINE_STACK_LIMITS = {
     **CURATED_ENGINE_STACK_LIMITS,
-    **{
-        item_id: limit
-        for item_id, limit in _bundled_limits.get("stack_limits", {}).items()
-        if item_id not in _bundled_component_ids
-    },
+    **{item_id: limit for item_id, limit in _bundled_limits.get("stack_limits", {}).items() if item_id not in _bundled_component_ids},
 }
 
 # The engine suite also verifies every durability component. Keep those reviewed
@@ -616,9 +612,7 @@ def load_local_enchantment_max_levels(path: Path = ENCHANTMENT_MAX_LEVELS_PATH) 
             raise RuntimeError(tr("Lokale Verzauberungs-Maximalstufen enthalten einen ungültigen Identifier"))
         identifier = _canonical_enchantment_identifier(raw_identifier)
         if identifier != raw_identifier or not re.fullmatch(r"[a-z0-9_]+", identifier):
-            raise RuntimeError(
-                tr("Lokale Verzauberungs-Maximalstufen enthalten keinen kanonischen Identifier: {identifier}", identifier=repr(raw_identifier))
-            )
+            raise RuntimeError(tr("Lokale Verzauberungs-Maximalstufen enthalten keinen kanonischen Identifier: {identifier}", identifier=repr(raw_identifier)))
         if isinstance(raw_level, bool) or not isinstance(raw_level, int) or not 1 <= raw_level <= 255:
             raise RuntimeError(tr("Ungültige lokale Maximalstufe für {identifier}: {level}", identifier=identifier, level=repr(raw_level)))
         levels[identifier] = raw_level
@@ -646,9 +640,7 @@ def load_local_enchantment_numeric_ids(path: Path = ENCHANTMENT_MAX_LEVELS_PATH)
             raise RuntimeError(tr("Lokale numerische Verzauberungs-IDs enthalten einen ungültigen Identifier"))
         identifier = _canonical_enchantment_identifier(raw_identifier)
         if identifier != raw_identifier or not re.fullmatch(r"[a-z0-9_]+", identifier):
-            raise RuntimeError(
-                tr("Lokale numerische Verzauberungs-IDs enthalten keinen kanonischen Identifier: {identifier}", identifier=repr(raw_identifier))
-            )
+            raise RuntimeError(tr("Lokale numerische Verzauberungs-IDs enthalten keinen kanonischen Identifier: {identifier}", identifier=repr(raw_identifier)))
         if isinstance(raw_id, bool) or not isinstance(raw_id, int) or not 0 <= raw_id <= 32767:
             raise RuntimeError(tr("Ungültige lokale numerische ID für {identifier}: {numeric_id}", identifier=identifier, numeric_id=repr(raw_id)))
         duplicate = used_ids.get(raw_id)
@@ -846,9 +838,7 @@ def _validate_downloaded_zip(path: Path) -> None:
             total_uncompressed = 0
             for member in members:
                 if member.file_size < 0 or member.file_size > MAX_RESOURCE_PACK_MEMBER_BYTES:
-                    raise RuntimeError(
-                        tr("Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member}", member=member.filename)
-                    )
+                    raise RuntimeError(tr("Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member}", member=member.filename))
                 total_uncompressed += member.file_size
                 if total_uncompressed > MAX_RESOURCE_PACK_UNCOMPRESSED_BYTES:
                     raise RuntimeError(tr("Resource-Pack-Download ist entpackt unerwartet groß."))
@@ -1406,17 +1396,8 @@ def compute_block_only_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str,
     block_ids = _vanilla_registry_ids(zf, "mojang-blocks.json")
     if not item_ids or not block_ids:
         return []
-    technical_registry_ids = {
-        item_id for item_id in item_ids if is_technical_block_only_item_id(item_id)
-    }
-    return sorted(
-        technical_registry_ids
-        | {
-            key
-            for key in items
-            if is_technical_block_only_item_id(key) or (key not in item_ids and key in block_ids)
-        }
-    )
+    technical_registry_ids = {item_id for item_id in item_ids if is_technical_block_only_item_id(item_id)}
+    return sorted(technical_registry_ids | {key for key in items if is_technical_block_only_item_id(key) or (key not in item_ids and key in block_ids)})
 
 
 def compute_addable_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]]) -> list[str]:
@@ -1927,9 +1908,7 @@ def merge_enchantments(
         raise RuntimeError(tr("Lokale Maximalstufen fehlen für neue Mojang-Verzauberungen: {identifiers}", identifiers=", ".join(missing_levels)))
     missing_numeric_ids = sorted(mojang_identifiers - set(local_numeric_ids))
     if missing_numeric_ids:
-        raise RuntimeError(
-            tr("Lokale numerische IDs fehlen für neue Mojang-Verzauberungen: {identifiers}", identifiers=", ".join(missing_numeric_ids))
-        )
+        raise RuntimeError(tr("Lokale numerische IDs fehlen für neue Mojang-Verzauberungen: {identifiers}", identifiers=", ".join(missing_numeric_ids)))
 
     numeric_id_owners: dict[int, str] = {}
     for identifier in mojang_identifiers:
@@ -2700,10 +2679,12 @@ def main() -> int:
                     final_stack_limits = new_stack_limits
                 unverified_stack_count = len(set(new_addable_items) - set(new_stack_limits))
                 if unverified_stack_count:
-                    log(tr(
-                        "Ungeprüfte Stacklimits: {count}. Neue Stapel dieser Items bleiben auf Menge 1 begrenzt.",
-                        count=unverified_stack_count,
-                    ))
+                    log(
+                        tr(
+                            "Ungeprüfte Stacklimits: {count}. Neue Stapel dieser Items bleiben auf Menge 1 begrenzt.",
+                            count=unverified_stack_count,
+                        )
+                    )
                 message = tr(
                     "Stack-Limits: {old_count} -> {new_count}",
                     old_count=len(old_stack_limits),

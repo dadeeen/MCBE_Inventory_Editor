@@ -531,11 +531,7 @@ def _movement_attribute_entries(player_tag):
         return []
     if not _is_list_tag(attributes):
         return []
-    return [
-        entry
-        for entry in attributes
-        if _is_compound_tag(entry) and str(get_tag_value(entry.get("Name"), "")).strip() == MOVEMENT_ATTRIBUTE_NAME
-    ]
+    return [entry for entry in attributes if _is_compound_tag(entry) and str(get_tag_value(entry.get("Name"), "")).strip() == MOVEMENT_ATTRIBUTE_NAME]
 
 
 def movement_speed_lock_reason(player_tag) -> str | None:
@@ -1373,9 +1369,7 @@ def _entity_variant_has_opaque_numeric_fields(item, field_names) -> bool:
     # Every representation that the variant writer synchronizes must be safe.
     # An outer numeric value must not make an opaque nested field editable.
     return any(
-        key in compound and not isinstance(compound[key], INTEGER_TAG_TYPES)
-        for compound in _entity_data_candidate_compounds(item)
-        for key in field_names
+        key in compound and not isinstance(compound[key], INTEGER_TAG_TYPES) for compound in _entity_data_candidate_compounds(item) for key in field_names
     )
 
 
@@ -1737,8 +1731,7 @@ def _item_entity_variant(item) -> EntityVariantInfo | None:
             # Language keys are useful for display, but editing them without
             # numeric Variant + age state could create a bucket whose label and
             # spawned entity disagree.
-            "can_edit": numeric_variant and numeric_age
-            and not _entity_variant_has_opaque_numeric_fields(item, ("Variant", "IsBaby", "Baby", "Age")),
+            "can_edit": numeric_variant and numeric_age and not _entity_variant_has_opaque_numeric_fields(item, ("Variant", "IsBaby", "Baby", "Age")),
         }
     return _tropical_fish_bucket_variant(item, actor)
 
@@ -2298,10 +2291,7 @@ def parse_abilities(player_tag):
     ab = player_tag["abilities"]
     if not _is_compound_tag(ab):
         return {"_opaque": True}
-    speeds = {
-        field_name: _finite_float(_ability_read_value(ab, field_name, default), default)
-        for field_name, default in ABILITY_DEFAULTS.items()
-    }
+    speeds = {field_name: _finite_float(_ability_read_value(ab, field_name, default), default) for field_name, default in ABILITY_DEFAULTS.items()}
     return {**speeds, **movement}
 
 
@@ -2641,13 +2631,14 @@ def apply_editable_item_tags(item_compound, item_data, enchantments_db=None):
                 raise ValueError(t("Item-Metadaten können nicht bearbeitet werden, weil der vorhandene Item-tag einen unbekannten NBT-Typ verwendet."))
             else:
                 # Reuse unchanged strings so their original encoded bytes survive.
-                disp_comp["Lore"] = nbt.ListTag([
-                    original_lore_tag[index]
-                    if index < len(original_lore_values) and original_lore_values[index] == line
-                    and isinstance(original_lore_tag[index], nbt.StringTag)
-                    else literal_string_tag(line)
-                    for index, line in enumerate(lore)
-                ])
+                disp_comp["Lore"] = nbt.ListTag(
+                    [
+                        original_lore_tag[index]
+                        if index < len(original_lore_values) and original_lore_values[index] == line and isinstance(original_lore_tag[index], nbt.StringTag)
+                        else literal_string_tag(line)
+                        for index, line in enumerate(lore)
+                    ]
+                )
         # A non-empty original means the user really removed the lore. Opaque entries
         # stay: the editor cannot show them faithfully, so it must not delete them.
         elif original_lore_values and not original_lore_has_opaque_entries:
@@ -3123,9 +3114,7 @@ def validate_item_original_bounds(validated_item, base_item_tag, duplicate_label
 
     lore = validated_item["lore"]
     lore = [
-        line if index < len(original_lore) and original_lore[index] == line
-        else line.replace("\n", " ").replace("\r", " ")
-        for index, line in enumerate(lore)
+        line if index < len(original_lore) and original_lore[index] == line else line.replace("\n", " ").replace("\r", " ") for index, line in enumerate(lore)
     ]
     validated_item["lore"] = lore
     lore_too_long = len(lore) > MAX_LORE_LINES or any(len(line) > MAX_TEXT_LENGTH for line in lore)

@@ -37,9 +37,7 @@ def test_bundled_item_availability_has_reviewed_complete_classification() -> Non
     assert ITEM_AVAILABILITY["source_release"] == BUNDLED_ITEM_DB_SOURCE_RELEASE
     assert sum(map(len, classifications.values())) == 137
 
-    regular_spawn_eggs = {
-        item_id for item_id in classifications["creative"] if item_id.endswith("_spawn_egg")
-    }
+    regular_spawn_eggs = {item_id for item_id in classifications["creative"] if item_id.endswith("_spawn_egg")}
     command_spawn_eggs = set(classifications["command_only"])
     all_addable_spawn_eggs = {item_id for item_id in ADDABLE_ITEM_IDS if item_id.endswith("_spawn_egg")}
     assert len(regular_spawn_eggs) == 86
@@ -55,11 +53,7 @@ def test_bundled_item_availability_has_reviewed_complete_classification() -> Non
 
 
 def test_bundled_item_availability_covers_every_category_with_a_reference() -> None:
-    referenced = {
-        category
-        for reference in ITEM_AVAILABILITY["references"]
-        for category in reference["categories"]
-    }
+    referenced = {category for reference in ITEM_AVAILABILITY["references"] for category in reference["categories"]}
 
     assert referenced == set(ITEM_AVAILABILITY_CATEGORIES)
     assert all(reference["url"].startswith("https://") for reference in ITEM_AVAILABILITY["references"])

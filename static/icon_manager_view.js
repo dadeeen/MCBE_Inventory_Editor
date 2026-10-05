@@ -66,7 +66,10 @@
         const cache = summary.cache || {};
         const cacheLabel = cache.state === "hit" ? t("Cache genutzt") : cache.state === "rebuilt" ? t("Index neu aufgebaut") : t("Cache unbekannt");
         const enabledSourceCount = Number(health.enabled_sources || sources.filter(src => src.enabled !== false).length || 0);
-        const healthLabel = Number(summary.count || 0) > 0 ? t("bereit") : (enabledSourceCount ? t("keine Treffer") : t("Fallback aktiv"));
+        const hasWarnings = warnings.length > 0 || health.status === "warning";
+        const healthLabel = Number(summary.count || 0) > 0
+            ? (hasWarnings ? t("bereit mit Einschränkungen") : t("bereit"))
+            : (enabledSourceCount ? t("keine Treffer") : t("Fallback aktiv"));
         const sampleRows = (health.sample || []).map(row => `
         <div class="icon-preview-sample ${row.found ? "" : "muted"}" title="${escapeAttr(row.item_id || "")}">
             <div class="icon-preview-thumb">${row.found && row.url ? `<img src="${escapeAttr(row.url)}" alt="">` : `<span>${escapeHtml(itemEmoji(row.item_id) || "□")}</span>`}</div>

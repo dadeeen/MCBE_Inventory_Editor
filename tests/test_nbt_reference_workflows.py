@@ -94,9 +94,26 @@ def _worker(backend, world, output, request):
     runtime = output.parent / (output.stem + "-runtime")
     env = {**os.environ, "MCBE_DATA_ROOT": str(runtime), "MCBE_BACKUP_ROOT": str(runtime / "backups"), "PYTHONIOENCODING": "utf-8"}
     completed = subprocess.run(
-        [sys.executable, "-m", "tests.nbt_workflow_worker", "--backend", backend,
-         "--world", str(world), "--request", str(request_file), "--output", str(output)],
-        cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
+        [
+            sys.executable,
+            "-m",
+            "tests.nbt_workflow_worker",
+            "--backend",
+            backend,
+            "--world",
+            str(world),
+            "--request",
+            str(request_file),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=900,
     )
     assert completed.returncode == 0, f"{backend} {request['operation']} worker failed:\n{completed.stderr}"
     report = json.loads(output.read_text(encoding="utf-8"))
@@ -132,15 +149,26 @@ def workflow_world(tmp_path):
         tag["Inventory"][0]["Count"] = reference.ByteTag(32 + index)
         tag["abilities"]["mayfly"] = reference.ByteTag(index)
         tag["abilities"]["FutureAbility"] = reference.ByteArrayTag([index, -128, 127])
-        tag["Attributes"] = reference.ListTag([
-            reference.CompoundTag({"Name": reference.StringTag("minecraft:health"), "Current": reference.FloatTag(14 + index),
-                                   "Max": reference.FloatTag(20), "FutureStat": reference.IntArrayTag([index, -2])}),
-            reference.CompoundTag({"Name": reference.StringTag(f"addon:identity_{index}"), "Current": reference.FloatTag(-0.0)}),
-        ])
-        tag["recipe_unlocking"] = reference.CompoundTag({
-            "unlocked_recipes": reference.ListTag([reference.StringTag(f"synthetic:recipe_{index}"), reference.StringTag("synthetic:shared")]),
-            "used_contexts": reference.IntTag(1 << index), "FutureRecipe": reference.LongArrayTag([index, 2**62]),
-        })
+        tag["Attributes"] = reference.ListTag(
+            [
+                reference.CompoundTag(
+                    {
+                        "Name": reference.StringTag("minecraft:health"),
+                        "Current": reference.FloatTag(14 + index),
+                        "Max": reference.FloatTag(20),
+                        "FutureStat": reference.IntArrayTag([index, -2]),
+                    }
+                ),
+                reference.CompoundTag({"Name": reference.StringTag(f"addon:identity_{index}"), "Current": reference.FloatTag(-0.0)}),
+            ]
+        )
+        tag["recipe_unlocking"] = reference.CompoundTag(
+            {
+                "unlocked_recipes": reference.ListTag([reference.StringTag(f"synthetic:recipe_{index}"), reference.StringTag("synthetic:shared")]),
+                "used_contexts": reference.IntTag(1 << index),
+                "FutureRecipe": reference.LongArrayTag([index, 2**62]),
+            }
+        )
         tag["TimeSinceRest"] = reference.IntTag(42 + index)
         tag["HasDiedBefore"] = reference.ByteTag(index)
         if index:
@@ -163,9 +191,15 @@ def _mount_cases():
         ("camel", {}, (False,)),
     ):
         for tamed in tamed_values:
-            cases.append({"mount_type": f"minecraft:{mount_type}", "create_mode": "synthetic_full", "mount_stats": stats,
-                          "tamed": tamed, "horse_profile": {"mode": "custom", "color": 6, "mark_variant": 4,
-                                                            "health": 30, "movement": 0.3375, "jump_strength": 1, "temper": 99}})
+            cases.append(
+                {
+                    "mount_type": f"minecraft:{mount_type}",
+                    "create_mode": "synthetic_full",
+                    "mount_stats": stats,
+                    "tamed": tamed,
+                    "horse_profile": {"mode": "custom", "color": 6, "mark_variant": 4, "health": 30, "movement": 0.3375, "jump_strength": 1, "temper": 99},
+                }
+            )
     for index, case in enumerate(cases):
         # Exercise both appending to an existing digp and a negative/new chunk.
         case["position"] = {"x": 1.5, "y": 65.0, "z": 1.5} if index % 2 == 0 else {"x": -17.5, "y": 70.0, "z": 32.5}
@@ -191,7 +225,7 @@ def _assert_mounts(original, worlds, report, cases):
             assert result["success"] is True and result["write_committed"] is True
             assert result["post_create_validation"]["ok"] is True
             tag = _load(after[key])
-            suffix = key[len(b"actorprefix"):]
+            suffix = key[len(b"actorprefix") :]
             assert len(suffix) == 8
             uid = -(int.from_bytes(suffix[:4], "big") << 32) + int.from_bytes(suffix[4:], "big")
             assert tag["UniqueID"].py_data == uid == result["unique_id"]
@@ -205,7 +239,7 @@ def _assert_mounts(original, worlds, report, cases):
             position = case["position"]
             digp = b"digp" + struct.pack("<ii", int(position["x"] // 16), int(position["z"] // 16))
             assert bytes.fromhex(result["digp_key_hex"]) == digp
-            assert suffix not in [expected_digp[digp][offset:offset + 8] for offset in range(0, len(expected_digp[digp]), 8)]
+            assert suffix not in [expected_digp[digp][offset : offset + 8] for offset in range(0, len(expected_digp[digp]), 8)]
             expected_digp[digp] += suffix
         _equal({key: after[key] for key in digp_keys}, expected_digp, "Existing digp entries changed or new actor reference missing")
 
@@ -229,11 +263,18 @@ def test_mount_template_clone_matches_amulet(workflow_world, tmp_path, mode, act
     if not active_template:
         template["IsTamed"] = reference.ByteTag(0)
         template["OwnerNew"] = reference.LongTag(-1)
-        template["definitions"] = reference.ListTag([reference.StringTag(value) for value in (
-            "+minecraft:mule", "+minecraft:mule_adult", "+minecraft:mule_wild", "+minecraft:mule_unchested",
-        )])
-    marker = reference.CompoundTag({"zero": reference.FloatTag(-0.0), "array": reference.LongArrayTag([2**62, -1]),
-                                    "raw": reference.StringTag("a␛xffb")})
+        template["definitions"] = reference.ListTag(
+            [
+                reference.StringTag(value)
+                for value in (
+                    "+minecraft:mule",
+                    "+minecraft:mule_adult",
+                    "+minecraft:mule_wild",
+                    "+minecraft:mule_unchested",
+                )
+            ]
+        )
+    marker = reference.CompoundTag({"zero": reference.FloatTag(-0.0), "array": reference.LongArrayTag([2**62, -1]), "raw": reference.StringTag("a␛xffb")})
     template["FutureTemplateData"] = marker
     suffix = struct.pack(">II", 2, 400)
     template["UniqueID"] = reference.LongTag(-(2 << 32) + 400)
@@ -242,8 +283,14 @@ def test_mount_template_clone_matches_amulet(workflow_world, tmp_path, mode, act
     digp_key = b"digp" + struct.pack("<ii", int(x // 16), int(z // 16))
     previous_digp = _snapshot(workflow_world, (digp_key,))[1][digp_key] or b""
     _write_records(workflow_world, {b"actorprefix" + suffix: _bytes(template), digp_key: previous_digp + suffix})
-    cases = [{"mount_type": "minecraft:horse", "create_mode": mode, "position": {"x": -0.5, "y": 65.0, "z": 0.5},
-              "horse_profile": {"mode": "random_like_game", "seed": 617}}]
+    cases = [
+        {
+            "mount_type": "minecraft:horse",
+            "create_mode": mode,
+            "position": {"x": -0.5, "y": 65.0, "z": 0.5},
+            "horse_profile": {"mode": "random_like_game", "seed": 617},
+        }
+    ]
     worlds, report = _pair(workflow_world, tmp_path / mode, {"operation": "mounts", "player_key": encode_player_key(LOCAL_PLAYER_KEY), "cases": cases})
     result = report["results"][0]
     assert result["create_mode_effective"] == ("synthetic_full" if active_template else "template_clone")
@@ -262,9 +309,28 @@ def _assert_transfer_contract(source_raw, target_raw, after_raw):
     source, target, after = map(_load, (source_raw, target_raw, after_raw))
     # Independent fixture contract; do not call the production merge/validator
     # or derive expectations from its allowlists.
-    copied = {"Inventory", "EnderChestInventory", "Armor", "Offhand", "Pos", "Rotation", "DimensionId", "Health", "PlayerGameType",
-              "XPLevel", "XPProgress", "foodLevel", "foodSaturationLevel", "ActiveEffects", "TimeSinceRest", "HasDiedBefore",
-              "DeathDimension", "DeathPositionX", "DeathPositionY", "DeathPositionZ"}
+    copied = {
+        "Inventory",
+        "EnderChestInventory",
+        "Armor",
+        "Offhand",
+        "Pos",
+        "Rotation",
+        "DimensionId",
+        "Health",
+        "PlayerGameType",
+        "XPLevel",
+        "XPProgress",
+        "foodLevel",
+        "foodSaturationLevel",
+        "ActiveEffects",
+        "TimeSinceRest",
+        "HasDiedBefore",
+        "DeathDimension",
+        "DeathPositionX",
+        "DeathPositionY",
+        "DeathPositionZ",
+    }
     expected = deepcopy(target)
     for field in copied:
         if field in source:
@@ -280,12 +346,16 @@ def _assert_transfer_contract(source_raw, target_raw, after_raw):
         if entry.py_data not in recipe_ids:
             target_recipes["unlocked_recipes"].append(entry)
     target_recipes["used_contexts"] = reference.IntTag(3)
-    _equal({key: _bytes(value) for key, value in after.items()}, {key: _bytes(value) for key, value in expected.items()},
-           "Transferred gameplay or preserved identity/unknown NBT violates fixture contract")
+    _equal(
+        {key: _bytes(value) for key, value in after.items()},
+        {key: _bytes(value) for key, value in expected.items()},
+        "Transferred gameplay or preserved identity/unknown NBT violates fixture contract",
+    )
 
 
 @pytest.mark.parametrize(
-    "source_key,target_key", [(LOCAL_PLAYER_KEY, SERVER_PLAYER_KEY), (SERVER_PLAYER_KEY, LOCAL_PLAYER_KEY)],
+    "source_key,target_key",
+    [(LOCAL_PLAYER_KEY, SERVER_PLAYER_KEY), (SERVER_PLAYER_KEY, LOCAL_PLAYER_KEY)],
     ids=["local-to-server", "server-to-local"],
 )
 def test_player_transfer_matches_amulet(workflow_world, tmp_path, source_key, target_key):
@@ -360,9 +430,17 @@ def _compare_exports_imports(workflow_world, tmp_path, source_key, new_player, t
             with tempfile.TemporaryDirectory(prefix=f"import-{exporter}-{importer}-", dir=tmp_path) as directory:
                 destination = Path(directory) / "world"
                 _copy_world(baseline, destination)
-                report = _worker(importer, destination, destination.with_suffix(".json"), {
-                    "operation": "import", "archive": str(archives[exporter]), "target": encode_player_key(target_key), "new_player": new_player,
-                })
+                report = _worker(
+                    importer,
+                    destination,
+                    destination.with_suffix(".json"),
+                    {
+                        "operation": "import",
+                        "archive": str(archives[exporter]),
+                        "target": encode_player_key(target_key),
+                        "new_player": new_player,
+                    },
+                )
                 assert report["result"]["created_new_player"] is new_player
                 _, after = _assert_delta(baseline, destination, (target_key,))
                 _equal(after[target_key], source_raw, "Imported NBT differs from original export source")
@@ -374,9 +452,15 @@ def _compare_exports_imports(workflow_world, tmp_path, source_key, new_player, t
 @pytest.mark.parametrize("fault", ["unknown-data", "signed-zero"])
 def test_transfer_comparison_rejects_common_corruption(workflow_world, tmp_path, fault):
     source, target = LOCAL_PLAYER_KEY, SERVER_PLAYER_KEY
-    worlds, _report = _pair(workflow_world, tmp_path / "fault", {
-        "operation": "transfer", "source": encode_player_key(source), "target": encode_player_key(target),
-    })
+    worlds, _report = _pair(
+        workflow_world,
+        tmp_path / "fault",
+        {
+            "operation": "transfer",
+            "source": encode_player_key(source),
+            "target": encode_player_key(target),
+        },
+    )
     originals = _snapshot(workflow_world, (source, target))[1]
     for world in worlds.values():
         corrupted = _load(_snapshot(world, (target,))[1][target])
@@ -391,9 +475,15 @@ def test_transfer_comparison_rejects_common_corruption(workflow_world, tmp_path,
 @pytest.mark.parametrize("fault", ["digp-loss", "unrelated-record", "no-op"])
 def test_mount_comparison_rejects_common_corruption(workflow_world, tmp_path, fault):
     cases = _mount_cases()[:1]
-    worlds, report = _pair(workflow_world, tmp_path / "fault", {
-        "operation": "mounts", "player_key": encode_player_key(LOCAL_PLAYER_KEY), "cases": cases,
-    })
+    worlds, report = _pair(
+        workflow_world,
+        tmp_path / "fault",
+        {
+            "operation": "mounts",
+            "player_key": encode_player_key(LOCAL_PLAYER_KEY),
+            "cases": cases,
+        },
+    )
     for world in worlds.values():
         if fault == "digp-loss":
             key = bytes.fromhex(report["results"][0]["digp_key_hex"])
@@ -435,8 +525,12 @@ def test_private_world_workflows_match_amulet_on_temporary_copies(workflow_world
                 _compare_transfer(baseline, Path(stage), source_key, target_key)
             with tempfile.TemporaryDirectory(prefix="exchange-", dir=work) as stage:
                 _compare_exports_imports(baseline, Path(stage), source_key, False, target_key)
-            case = {"mount_type": "minecraft:horse", "create_mode": "synthetic_full",
-                    "position": {"x": -17.5, "y": 70.0, "z": 32.5}, "horse_profile": {"mode": "random_like_game", "seed": 917}}
+            case = {
+                "mount_type": "minecraft:horse",
+                "create_mode": "synthetic_full",
+                "position": {"x": -17.5, "y": 70.0, "z": 32.5},
+                "horse_profile": {"mode": "random_like_game", "seed": 917},
+            }
             worlds, report = _pair(baseline, work / "mount", {"operation": "mounts", "player_key": player["player_key"], "cases": [case]})
             _assert_mounts(baseline, worlds, report, [case])
             compared += 1

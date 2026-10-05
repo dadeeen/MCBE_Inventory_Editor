@@ -235,9 +235,7 @@ class WorldChangedWhileReadingError(CorruptDatabaseError):
 
     def __init__(self, path: str) -> None:
         self.path = path
-        super().__init__(
-            t("Die Welt wurde während des Lesens verändert, vermutlich vom laufenden Bedrock-Server oder von Minecraft. Lade die Welt erneut.")
-        )
+        super().__init__(t("Die Welt wurde während des Lesens verändert, vermutlich vom laufenden Bedrock-Server oder von Minecraft. Lade die Welt erneut."))
 
 
 def _decode_varint(data: bytes, pos: int) -> tuple[int, int]:
@@ -320,9 +318,7 @@ def _iter_log_records(data: bytes, *, recover_tail: bool = False, tail: LogTail 
             payload_end = payload_start + rec_len
             if rec_type == 0 and rec_len == 0:
                 break  # trailer padding
-            recoverable_type = rec_type in (_RECORD_FULL, _RECORD_FIRST) or (
-                bool(fragments) and rec_type in (_RECORD_MIDDLE, _RECORD_LAST)
-            )
+            recoverable_type = rec_type in (_RECORD_FULL, _RECORD_FIRST) or (bool(fragments) and rec_type in (_RECORD_MIDDLE, _RECORD_LAST))
             if payload_end > block_end:
                 # A partial write can end inside a physical record, but a
                 # record can never legitimately cross a 32 KiB block boundary.
@@ -721,9 +717,7 @@ class _Table:
         return best
 
 
-def _replay_wal(
-    data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, recover_tail: bool = False, tail: LogTail | None = None
-) -> int:
+def _replay_wal(data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, recover_tail: bool = False, tail: LogTail | None = None) -> int:
     """Apply every WAL batch to ``memtable``; return the newest sequence used."""
 
     last_sequence = 0
@@ -777,6 +771,7 @@ class ReadonlyLevelDbAdapter:
         self._metadata_bytes = 0
         self._metadata_digests: list[tuple[str, int, bytes]] = []
         self._content_token: tuple | None = None
+        self._unopened_table_identities: dict[int, tuple[str, tuple[int, int, int, int]]] = {}
 
         current_path = os.path.join(db_path, "CURRENT")
         if not os.path.isfile(current_path):
@@ -851,8 +846,10 @@ class ReadonlyLevelDbAdapter:
             self._last_sequence = max(
                 self._last_sequence,
                 _replay_wal(
-                    self._read_metadata(os.path.join(db_path, filename)), self._memtable,
-                    recover_tail=newest, tail=self._wal_tail if newest else None,
+                    self._read_metadata(os.path.join(db_path, filename)),
+                    self._memtable,
+                    recover_tail=newest,
+                    tail=self._wal_tail if newest else None,
                 ),
             )
 
@@ -878,18 +875,38 @@ class ReadonlyLevelDbAdapter:
         distinguishes a restored/replaced table whose timestamps were retained.
         """
 
+        # Recheck held descriptors, not their paths: an in-place rewrite must
+        # not acquire the immutable table's old token. Removed/replaced paths
+        # are harmless while their original handles remain readable.
+        for table in self._tables.values():
+            if table._handle is not None:
+                stat = os.fstat(table._handle.fileno())
+                if (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino) != table._identity:
+                    raise WorldChangedWhileReadingError(table._path)
         if self._content_token is None:
             tables = []
+            unopened = {}
             for file_no in sorted({file_no for files in self._files.values() for file_no in files}):
+                table = self._tables.get(file_no)
+                if table is not None:
+                    # The pathname can already refer to a replacement while an
+                    # open handle still reads the old table (also after compaction).
+                    tables.append((file_no, os.path.splitext(table._path)[1][1:], *table._identity))
+                    continue
                 for extension in ("ldb", "sst"):
                     try:
                         stat = os.stat(os.path.join(self._db_path, f"{file_no:06d}.{extension}"))
                     except FileNotFoundError:
                         continue
-                    tables.append((file_no, extension, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino))
+                    identity = (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino)
+                    unopened[file_no] = (extension, identity)
+                    tables.append((file_no, extension, *identity))
                     break
                 else:
-                    tables.append((file_no, None, None, None))
+                    # Without an identity, discovery can still try to read, but
+                    # must not publish its result under a reusable cache token.
+                    raise FileNotFoundError(os.path.join(self._db_path, f"{file_no:06d}.ldb"))
+            self._unopened_table_identities = unopened
             self._content_token = (
                 os.path.normcase(os.path.abspath(self._db_path)),
                 tuple(self._metadata_digests),
@@ -908,6 +925,11 @@ class ReadonlyLevelDbAdapter:
                     table = _Table(path, block_cache=self._block_cache, handles=self._table_handles)
                 except FileNotFoundError:
                     continue
+                expected = self._unopened_table_identities.get(file_no)
+                if expected is not None and (extension, table._identity) != expected:
+                    table.close()
+                    raise WorldChangedWhileReadingError(path)
+                self._unopened_table_identities.pop(file_no, None)
                 break
             else:
                 if self._changed_since_opened():

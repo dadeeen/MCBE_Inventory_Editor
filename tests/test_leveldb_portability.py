@@ -45,7 +45,8 @@ def test_native_lock_rejects_a_second_process(tmp_path):
     try:
         child = subprocess.run(
             [sys.executable, "-c", "import leveldb,sys; db=leveldb.LevelDB(sys.argv[1]); db.close()", str(path)],
-            capture_output=True, timeout=20,
+            capture_output=True,
+            timeout=20,
         )
         assert child.returncode != 0
         assert b"lock" in (child.stdout + child.stderr).lower()
@@ -58,10 +59,10 @@ def test_native_reopens_after_process_exit_without_close(tmp_path):
     # of a completed write from the WAL when Python cleanup did not run.
     path = tmp_path / "db"
     child = subprocess.run(
-        [sys.executable, "-c",
-         "import leveldb,os,sys; db=leveldb.LevelDB(sys.argv[1],True); "
-         "db.putBatch({b'a':b'1',b'b':b'2'}); os._exit(0)", str(path)],
-        capture_output=True, timeout=20, env=os.environ.copy(),
+        [sys.executable, "-c", "import leveldb,os,sys; db=leveldb.LevelDB(sys.argv[1],True); db.putBatch({b'a':b'1',b'b':b'2'}); os._exit(0)", str(path)],
+        capture_output=True,
+        timeout=20,
+        env=os.environ.copy(),
     )
     assert child.returncode == 0
     adapter = LevelDbAdapter(str(path))

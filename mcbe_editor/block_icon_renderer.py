@@ -600,7 +600,10 @@ def _draw_triangle(
 
 
 def _draw_quad(
-    canvas: bytearray, texture: Texture, points: list[tuple[float, float]], shade: float,
+    canvas: bytearray,
+    texture: Texture,
+    points: list[tuple[float, float]],
+    shade: float,
     uv: list[tuple[float, float]] | None = None,
 ) -> None:
     if uv is None:

@@ -36,7 +36,7 @@ def utf8_escape_encoder(value: str) -> bytes:
     parts = []
     start = 0
     for match in _ESCAPE.finditer(value):
-        parts.extend((value[start:match.start()].encode("utf-8"), bytes([int(match[1], 16)])))
+        parts.extend((value[start : match.start()].encode("utf-8"), bytes([int(match[1], 16)])))
         start = match.end()
     parts.append(value[start:].encode("utf-8"))
     return b"".join(parts)
@@ -105,7 +105,6 @@ class LongTag(_IntegerTag):
 
 
 class _FloatingTag(BaseTag):
-
     def __init__(self, value=0.0):
         value = float(value)
         try:
@@ -286,8 +285,10 @@ class LongArrayTag(ByteArrayTag):
     _element = LongTag
 
 
-_TYPES = {cls.tag_id: cls for cls in (ByteTag, ShortTag, IntTag, LongTag, FloatTag, DoubleTag,
-                                    ByteArrayTag, StringTag, ListTag, CompoundTag, IntArrayTag, LongArrayTag)}
+_TYPES = {
+    cls.tag_id: cls
+    for cls in (ByteTag, ShortTag, IntTag, LongTag, FloatTag, DoubleTag, ByteArrayTag, StringTag, ListTag, CompoundTag, IntArrayTag, LongArrayTag)
+}
 _FORMATS = {1: "b", 2: "h", 3: "i", 4: "q", 5: "f", 6: "d", 7: "b", 11: "i", 12: "q"}
 
 
@@ -309,7 +310,7 @@ class _Reader:
             raise NBTError("Truncated NBT")
         start = self.pos
         self.pos += size
-        return bytes(self.data[start:self.pos])
+        return bytes(self.data[start : self.pos])
 
     def number(self, fmt):
         return struct.unpack(self.endian + fmt, self.take(struct.calcsize(fmt)))[0]

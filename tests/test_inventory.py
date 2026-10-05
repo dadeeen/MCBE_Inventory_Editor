@@ -2985,9 +2985,7 @@ class TestApplyPlayerStats(unittest.TestCase):
 
     def test_integer_attribute_type_rejects_a_fractional_value(self):
         tag = make_minimal_player_tag()
-        tag["Attributes"] = nbt.ListTag(
-            [nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.IntTag(0)})]
-        )
+        tag["Attributes"] = nbt.ListTag([nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.IntTag(0)})])
         with self.assertRaisesRegex(ValueError, "passt nicht in den vorhandenen NBT-Typ"):
             apply_player_stats(tag, {"xp_progress": 0.6})
 

@@ -70,8 +70,12 @@ def test_import_into_existing_fallback_player_keeps_it_discoverable(tmp_path, mo
     preview = service.preview_player_export(export_path, str(world))
 
     result = service.import_player(
-        export_path, str(world), encode_player_key(target_key), True,
-        import_token=preview["import_token"], base_revision=loaded["player_revision"],
+        export_path,
+        str(world),
+        encode_player_key(target_key),
+        True,
+        import_token=preview["import_token"],
+        base_revision=loaded["player_revision"],
     )
 
     assert result["success"] is True and result["post_write_validated"] is True
@@ -111,8 +115,12 @@ def test_import_rejects_loss_of_fallback_player_identity_before_backup(tmp_path,
         pytest.raises(ValueError, match="Ziel-Key"),
     ):
         service.import_player(
-            export_path, str(world), encode_player_key(target_key), True,
-            import_token=preview["import_token"], base_revision=service._player_revision(target_raw),
+            export_path,
+            str(world),
+            encode_player_key(target_key),
+            True,
+            import_token=preview["import_token"],
+            base_revision=service._player_revision(target_raw),
         )
     backup.assert_not_called()
     writer.assert_not_called()
