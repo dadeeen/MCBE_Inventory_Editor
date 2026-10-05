@@ -52,10 +52,15 @@ def test_updater_does_not_infer_64_from_missing_component_or_item_suffix():
 
 @pytest.mark.parametrize("second_components", [{"minecraft:max_stack_size": {"value": 16}}, {}])
 def test_updater_refuses_conflicting_definitions_instead_of_last_file_wins(second_components):
-    with _component_archive([
-        ("minecraft:future_item", {"minecraft:max_stack_size": 1}),
-        ("minecraft:future_item", second_components),
-    ]) as archive, pytest.raises(RuntimeError, match="Stacklimits"):
+    with (
+        _component_archive(
+            [
+                ("minecraft:future_item", {"minecraft:max_stack_size": 1}),
+                ("minecraft:future_item", second_components),
+            ]
+        ) as archive,
+        pytest.raises(RuntimeError, match="Stacklimits"),
+    ):
         update_db.parse_json_item_component_limits(archive)
 
 
@@ -77,16 +82,35 @@ def test_old_database_default_does_not_restore_an_unverified_64(tmp_path):
     assert item_data.get_max_stack("minecraft:item.bed", limits) == 1
 
 
-@pytest.mark.parametrize("name,limit", [
-    ("oak_boat", 1), ("pale_oak_chest_boat", 1), ("bamboo_chest_raft", 1),
-    ("oak_sign", 16), ("pale_oak_hanging_sign", 16), ("bucket", 16),
-    ("cod_bucket", 1), ("tadpole_bucket", 1), ("hopper_minecart", 1),
-    ("blue_egg", 16), ("armor_stand", 64), ("black_shulker_box", 1),
-    ("music_disc_lava_chicken", 1), ("netherite_horse_armor", 1),
-    ("cake", 64), ("lodestone_compass", 64), ("straw_bed", 16), ("red_cushion", 16),
-    ("poplar_sign", 16), ("poplar_hanging_sign", 16), ("poplar_boat", 1), ("poplar_chest_boat", 1),
-    ("red_wool_stairs", 64), ("shelf_mushroom", 64),
-])
+@pytest.mark.parametrize(
+    "name,limit",
+    [
+        ("oak_boat", 1),
+        ("pale_oak_chest_boat", 1),
+        ("bamboo_chest_raft", 1),
+        ("oak_sign", 16),
+        ("pale_oak_hanging_sign", 16),
+        ("bucket", 16),
+        ("cod_bucket", 1),
+        ("tadpole_bucket", 1),
+        ("hopper_minecart", 1),
+        ("blue_egg", 16),
+        ("armor_stand", 64),
+        ("black_shulker_box", 1),
+        ("music_disc_lava_chicken", 1),
+        ("netherite_horse_armor", 1),
+        ("cake", 64),
+        ("lodestone_compass", 64),
+        ("straw_bed", 16),
+        ("red_cushion", 16),
+        ("poplar_sign", 16),
+        ("poplar_hanging_sign", 16),
+        ("poplar_boat", 1),
+        ("poplar_chest_boat", 1),
+        ("red_wool_stairs", 64),
+        ("shelf_mushroom", 64),
+    ],
+)
 def test_reviewed_engine_limits_are_enforced_on_new_stacks(name, limit):
     item_id = f"minecraft:{name}"
     empty = nbt.CompoundTag({"Inventory": nbt.ListTag([])})
@@ -112,17 +136,24 @@ def test_unverified_new_items_allow_one_and_preserve_real_original_amounts(name,
     with pytest.raises(ValueError, match="ungeprüft"):
         build_inventory_nbt(empty, [{**payload, "count": 64, "original_count": 64}], item_data.ENCHANTMENTS)
 
-    original = nbt.CompoundTag({
-        "Slot": nbt.ByteTag(0), "Name": nbt.StringTag(item_id), "Count": nbt.ByteTag(16),
-        "Damage": nbt.ShortTag(0), "tag": nbt.CompoundTag({"future_data": nbt.LongTag(123)}),
-    })
+    original = nbt.CompoundTag(
+        {
+            "Slot": nbt.ByteTag(0),
+            "Name": nbt.StringTag(item_id),
+            "Count": nbt.ByteTag(16),
+            "Damage": nbt.ShortTag(0),
+            "tag": nbt.CompoundTag({"future_data": nbt.LongTag(123)}),
+        }
+    )
     player = nbt.CompoundTag({"Inventory": nbt.ListTag([original])})
     parsed, _ = nbt_to_json(player)
     saved = build_inventory_nbt(player, [parsed[0]], item_data.ENCHANTMENTS)
     assert saved[0].save_to() == original.save_to()
     moved = build_inventory_nbt(
-        player, [{**parsed[0], "slot": 1, "source_player_key": "synthetic", "source_container": "inventory"}],
-        item_data.ENCHANTMENTS, target_player_key="synthetic",
+        player,
+        [{**parsed[0], "slot": 1, "source_player_key": "synthetic", "source_container": "inventory"}],
+        item_data.ENCHANTMENTS,
+        target_player_key="synthetic",
     )[0]
     assert moved["Slot"].py_data == 1
     assert moved["Count"].py_data == 16

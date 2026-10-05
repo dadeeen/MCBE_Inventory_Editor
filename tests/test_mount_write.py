@@ -46,8 +46,7 @@ def test_template_prefilter_skips_unrelated_records_and_validates_possible_match
 
     horse = nbt.CompoundTag({"identifier": nbt.StringTag("minecraft:horse")}).save_to()
     cow = nbt.CompoundTag({"identifier": nbt.StringTag("minecraft:cow")}).save_to()
-    false_positive = nbt.CompoundTag({"identifier": nbt.StringTag("minecraft:cow"),
-                                    "CustomName": nbt.StringTag("minecraft:horse")}).save_to()
+    false_positive = nbt.CompoundTag({"identifier": nbt.StringTag("minecraft:cow"), "CustomName": nbt.StringTag("minecraft:horse")}).save_to()
     invalid = b"invalid minecraft:horse NBT"
     records = [(ACTOR_PREFIX + bytes([index]), raw) for index, raw in enumerate([cow, false_positive, invalid, horse])]
     records.append((b"unrelated", horse))
@@ -222,11 +221,15 @@ def test_direct_mount_backup_failure_leaves_native_world_files_identical(monkeyp
     world = tmp_path / "world"
     world.mkdir()
     (world / "levelname.txt").write_text("Synthetic backup test", encoding="utf-8")
-    player = nbt.CompoundTag({
-        "Inventory": nbt.ListTag([]), "Health": nbt.FloatTag(20),
-        "PlayerGameType": nbt.IntTag(0), "DimensionId": nbt.IntTag(0),
-        "Pos": nbt.ListTag([nbt.FloatTag(0), nbt.FloatTag(64), nbt.FloatTag(0)]),
-    })
+    player = nbt.CompoundTag(
+        {
+            "Inventory": nbt.ListTag([]),
+            "Health": nbt.FloatTag(20),
+            "PlayerGameType": nbt.IntTag(0),
+            "DimensionId": nbt.IntTag(0),
+            "Pos": nbt.ListTag([nbt.FloatTag(0), nbt.FloatTag(64), nbt.FloatTag(0)]),
+        }
+    )
     db = leveldb.LevelDB(str(world / "db"), True)
     try:
         db.put(b"~local_player", player.save_to())
@@ -241,14 +244,15 @@ def test_direct_mount_backup_failure_leaves_native_world_files_identical(monkeyp
         raise PermissionError("synthetic backup failure")
 
     def snapshot():
-        return {path.relative_to(world).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in world.rglob("*") if path.is_file()}
+        return {path.relative_to(world).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in world.rglob("*") if path.is_file()}
 
     monkeypatch.setattr("mcbe_editor.mount_write.create_backup", fail_backup)
     before = snapshot()
     with pytest.raises(ValueError, match="Backups"):
         create_horse_mount_with_service(
-            service, str(world), encode_player_key(b"~local_player"),
+            service,
+            str(world),
+            encode_player_key(b"~local_player"),
             {"mount_type": "minecraft:horse", "selected_position": {"x": 2, "y": 64, "z": 2}},
         )
     assert len(backup_attempts) == 1
@@ -876,9 +880,7 @@ def test_donkey_and_mule_roll_temper_while_tamed_variants_have_none() -> None:
 def test_donkey_and_mule_temper_is_user_editable_within_the_vanilla_range() -> None:
     db = FakeDb()
     for mount_type in ("minecraft:donkey", "minecraft:mule"):
-        record = build_horse_mount_record(
-            db, {"x": 0.5, "y": 64.0, "z": 0.5}, create_mode="synthetic_full", mount_type=mount_type, mount_stats={"temper": 7}
-        )
+        record = build_horse_mount_record(db, {"x": 0.5, "y": 64.0, "z": 0.5}, create_mode="synthetic_full", mount_type=mount_type, mount_stats={"temper": 7})
         tag = nbt.load(record.actor_value, **LOAD_KWARGS).tag
 
         assert tag["Temper"].py_data == 7, mount_type

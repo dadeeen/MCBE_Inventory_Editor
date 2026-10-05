@@ -47,6 +47,7 @@ ignore = ["N806", "N802", "N803", "N815"]
 
 [tool.ruff.format]
 quote-style = "double"
+line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.12"

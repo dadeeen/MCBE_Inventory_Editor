@@ -44,10 +44,14 @@ def run(backend: str, world: Path, request: dict, output: Path) -> dict:
         report["results"] = []
         for case in request["cases"]:
             result = create_horse_mount_with_service(
-                service, world_path, request["player_key"],
+                service,
+                world_path,
+                request["player_key"],
                 {"mount_type": case["mount_type"], "selected_position": case["position"]},
-                create_mode=case["create_mode"], horse_profile=case.get("horse_profile"),
-                mount_stats=case.get("mount_stats"), tamed=case.get("tamed", False),
+                create_mode=case["create_mode"],
+                horse_profile=case.get("horse_profile"),
+                mount_stats=case.get("mount_stats"),
+                tamed=case.get("tamed", False),
             )
             assert result.get("post_create_validation", {}).get("ok") is True, "Mount validation failed"
             report["results"].append(saved_result(result))
@@ -57,7 +61,11 @@ def run(backend: str, world: Path, request: dict, output: Path) -> dict:
         preview = service.preview_player_state_transfer(world_path, source, target)
         assert preview.get("success") is True and preview.get("transfer_token"), "Transfer preview failed"
         result = service.transfer_player_state(
-            world_path, source, target, confirm_transfer=True, transfer_token=preview["transfer_token"],
+            world_path,
+            source,
+            target,
+            confirm_transfer=True,
+            transfer_token=preview["transfer_token"],
         )
         assert result.get("validation", {}).get("valid") is True, "Transfer validation failed"
         report["result"] = saved_result(result)
@@ -79,8 +87,12 @@ def run(backend: str, world: Path, request: dict, output: Path) -> dict:
         assert preview.get("success") is True and preview.get("importable") is True, "Import preview rejected"
         assert preview.get("import_token"), "Import token missing"
         result = service.import_player(
-            archive, world_path, None if new_player else target, confirm_overwrite=True,
-            import_as_exported_player=new_player, import_token=preview["import_token"],
+            archive,
+            world_path,
+            None if new_player else target,
+            confirm_overwrite=True,
+            import_as_exported_player=new_player,
+            import_token=preview["import_token"],
             base_revision=None if before is None else before["player_revision"],
         )
         assert result.get("post_write_validated") is True, "Import validation failed"

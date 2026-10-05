@@ -84,10 +84,15 @@ def inventory_sprite_keys(item_id: str) -> list[str]:
     if item_id.endswith("_sign"):
         keys.append("sign_" + item_id.removesuffix("_sign"))
         keys.extend({"oak_sign": ["sign"], "dark_oak_sign": ["sign_darkoak"]}.get(item_id, []))
-    keys.extend({
-        "frame": ["item_frame"], "glow_frame": ["glow_item_frame"],
-        "redstone_wire": ["redstone_dust"], "sugar_cane": ["reeds"], "iron_chain": ["chain"],
-    }.get(item_id, []))
+    keys.extend(
+        {
+            "frame": ["item_frame"],
+            "glow_frame": ["glow_item_frame"],
+            "redstone_wire": ["redstone_dust"],
+            "sugar_cane": ["reeds"],
+            "iron_chain": ["chain"],
+        }.get(item_id, [])
+    )
     return keys
 
 

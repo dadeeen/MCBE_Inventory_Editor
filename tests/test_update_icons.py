@@ -36,17 +36,23 @@ def _solid_png(red: int, green: int, blue: int) -> bytes:
 def test_official_bindings_separate_ingredients_blocks_and_inventory_sprites(tmp_path):
     # Entirely synthetic pack: no game-world data or proprietary image fixtures.
     archive = tmp_path / "reference.zip"
-    variants = {"brick_block": ("brick", "cube"), "brick_stairs": ("brick", "stairs"),
-                "quartz_stairs": ("quartz_wall", "stairs"), "resin_brick_slab": ("resin_bricks", "slab"),
-                "resin_brick_stairs": ("resin_bricks", "stairs"), "resin_brick_wall": ("resin_bricks", "wall")}
+    variants = {
+        "brick_block": ("brick", "cube"),
+        "brick_stairs": ("brick", "stairs"),
+        "quartz_stairs": ("quartz_wall", "stairs"),
+        "resin_brick_slab": ("resin_bricks", "slab"),
+        "resin_brick_stairs": ("resin_bricks", "stairs"),
+        "resin_brick_wall": ("resin_bricks", "wall"),
+    }
     blocks = {key: {"textures": texture} for key, (texture, _) in variants.items()}
     blocks["waxed_copper_lantern"] = {"textures": "copper_lantern", "carried_textures": "lantern_inventory"}
     sprite, material = _solid_png(255, 0, 0), _solid_png(0, 255, 0)
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("resource_pack/blocks.json", json.dumps(blocks))
-        zf.writestr("resource_pack/textures/item_texture.json", json.dumps({"texture_data": {
-            key: {"textures": "textures/items/" + key} for key in ("brick", "quartz", "resin_brick")
-        }}))
+        zf.writestr(
+            "resource_pack/textures/item_texture.json",
+            json.dumps({"texture_data": {key: {"textures": "textures/items/" + key} for key in ("brick", "quartz", "resin_brick")}}),
+        )
         terrain = {key: {"textures": "textures/blocks/" + key} for key in ("brick", "quartz_wall", "resin_bricks", "copper_lantern")}
         terrain["lantern_inventory"] = {"textures": "textures/items/lantern"}
         zf.writestr("resource_pack/textures/terrain_texture.json", json.dumps({"texture_data": terrain}))
@@ -71,9 +77,17 @@ def test_official_bindings_separate_ingredients_blocks_and_inventory_sprites(tmp
 def test_item_definition_is_used_even_when_filename_and_atlas_key_differ(tmp_path):
     archive = tmp_path / "definitions.zip"
     with zipfile.ZipFile(archive, "w") as zf:
-        zf.writestr("behavior_pack/items/unrelated_filename.json", json.dumps({"minecraft:item": {
-            "description": {"identifier": "minecraft:apple"}, "components": {"minecraft:icon": {"textures": {"default": "fruit"}}},
-        }}))
+        zf.writestr(
+            "behavior_pack/items/unrelated_filename.json",
+            json.dumps(
+                {
+                    "minecraft:item": {
+                        "description": {"identifier": "minecraft:apple"},
+                        "components": {"minecraft:icon": {"textures": {"default": "fruit"}}},
+                    }
+                }
+            ),
+        )
         zf.writestr("resource_pack/textures/item_texture.json", json.dumps({"texture_data": {"fruit": {"textures": "textures/items/actual"}}}))
         zf.writestr("resource_pack/textures/items/actual.png", b"correct")
         zf.writestr("resource_pack/textures/items/apple.png", b"wrong")
@@ -119,12 +133,27 @@ def test_unmodelled_head_does_not_use_placeholder_skull_material(tmp_path):
 def test_unmodelled_flower_keeps_thumbnail_instead_of_arbitrary_block_side(tmp_path):
     archive = tmp_path / "flower.zip"
     with zipfile.ZipFile(archive, "w") as zf:
-        zf.writestr("resource_pack/blocks.json", json.dumps({"spore_blossom": {
-            "textures": {"down": "flower", "side": "base", "up": "base"},
-        }}))
-        zf.writestr("resource_pack/textures/terrain_texture.json", json.dumps({"texture_data": {
-            "flower": {"textures": "textures/blocks/spore_blossom"}, "base": {"textures": "textures/blocks/spore_blossom_base"},
-        }}))
+        zf.writestr(
+            "resource_pack/blocks.json",
+            json.dumps(
+                {
+                    "spore_blossom": {
+                        "textures": {"down": "flower", "side": "base", "up": "base"},
+                    }
+                }
+            ),
+        )
+        zf.writestr(
+            "resource_pack/textures/terrain_texture.json",
+            json.dumps(
+                {
+                    "texture_data": {
+                        "flower": {"textures": "textures/blocks/spore_blossom"},
+                        "base": {"textures": "textures/blocks/spore_blossom_base"},
+                    }
+                }
+            ),
+        )
         zf.writestr("resource_pack/textures/blocks/spore_blossom.png", _solid_png(255, 0, 255))
         zf.writestr("resource_pack/textures/blocks/spore_blossom_base.png", _solid_png(0, 255, 0))
     result = build_icon_cache(archive, ["spore_blossom"], tmp_path / "icons", {}, block_item_ids={"spore_blossom"})
@@ -1744,8 +1773,11 @@ def test_icon_download_progress_reports_bytes_and_cache_hit_without_fake_downloa
     monkeypatch.setattr(update_icons_module, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(update_icons_module, "_build_validating_opener", lambda *_args, **_kwargs: _IconDownloadOpener(payload))
     monkeypatch.setattr(update_icons_module, "report_progress", lambda phase, **counts: snapshots.append({"phase": phase, **counts}))
-    info = {"resource_pack_asset": "test-full.zip", "resource_pack_asset_size": len(payload),
-            "resource_pack_url": "https://release-assets.githubusercontent.com/example.zip"}
+    info = {
+        "resource_pack_asset": "test-full.zip",
+        "resource_pack_asset_size": len(payload),
+        "resource_pack_url": "https://release-assets.githubusercontent.com/example.zip",
+    }
 
     result = update_icons_module.download_release_zip(info, use_cache=False)
 

@@ -52,11 +52,15 @@ def test_main_forwards_request_locale_to_both_updaters():
     db_runner = Mock(return_value=(0, "db"))
     icon_runner = Mock(return_value=(0, "icons"))
 
-    with main.app.test_request_context(headers={"Accept-Language": "en"}), patch.object(
-        main.update_script_runner,
-        "run_update_db",
-        db_runner,
-    ), patch.object(main.update_script_runner, "run_update_icons", icon_runner):
+    with (
+        main.app.test_request_context(headers={"Accept-Language": "en"}),
+        patch.object(
+            main.update_script_runner,
+            "run_update_db",
+            db_runner,
+        ),
+        patch.object(main.update_script_runner, "run_update_icons", icon_runner),
+    ):
         assert main.run_update_db(dry_run=True) == (0, "db")
         assert main.run_update_icons(use_cache=True) == (0, "icons")
 

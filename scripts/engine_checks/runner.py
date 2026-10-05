@@ -58,9 +58,13 @@ def extract_server(archive: Path, destination: Path, expected_hash: str) -> None
         for info in infos:
             path = PurePosixPath(info.filename)
             parts = path.parts
-            if (not parts or path.is_absolute() or "\\" in info.filename
-                    or any(part in {".", ".."} or ":" in part or part.endswith((".", " ")) for part in parts)
-                    or stat.S_ISLNK(info.external_attr >> 16)):
+            if (
+                not parts
+                or path.is_absolute()
+                or "\\" in info.filename
+                or any(part in {".", ".."} or ":" in part or part.endswith((".", " ")) for part in parts)
+                or stat.S_ISLNK(info.external_attr >> 16)
+            ):
                 raise ProbeError("Unsafe path in server archive")
             key = path.as_posix().casefold()
             if key in seen:
@@ -91,8 +95,13 @@ def prepare_pack(server: Path, config: dict) -> None:
     (pack / "scripts").mkdir(parents=True, exist_ok=True)
     manifest = {
         "format_version": 2,
-        "header": {"name": "MCBE editor engine checks", "description": "Disposable test instrumentation; no Vanilla overrides",
-                   "uuid": PACK_ID, "version": [1, 0, 0], "min_engine_version": [1, 26, 50]},
+        "header": {
+            "name": "MCBE editor engine checks",
+            "description": "Disposable test instrumentation; no Vanilla overrides",
+            "uuid": PACK_ID,
+            "version": [1, 0, 0],
+            "min_engine_version": [1, 26, 50],
+        },
         "modules": [{"type": "script", "language": "javascript", "uuid": SCRIPT_ID, "version": [1, 0, 0], "entry": "scripts/main.js"}],
         "dependencies": [{"module_name": "@minecraft/server", "version": API_VERSION}],
     }
@@ -113,12 +122,24 @@ def prepare_pack(server: Path, config: dict) -> None:
 def configure_server(server: Path, *, client_port: int | None = None) -> None:
     # Only a runner-owned Docker container may start this configuration.
     properties = {
-        "server-name": "MCBE disposable engine check", "level-name": WORLD_NAME,
-        "level-seed": "9172026", "gamemode": "creative", "difficulty": "peaceful",
-        "allow-cheats": "true", "max-players": "1", "online-mode": "false", "allow-list": "false", "transport": "raknet",
-        "enable-lan-visibility": "false", "view-distance": "5", "tick-distance": "4",
-        "max-threads": "2", "content-log-file-enabled": "true", "content-log-console-output-enabled": "true",
-        "emit-server-telemetry": "false", "script-watchdog-enable": "true",
+        "server-name": "MCBE disposable engine check",
+        "level-name": WORLD_NAME,
+        "level-seed": "9172026",
+        "gamemode": "creative",
+        "difficulty": "peaceful",
+        "allow-cheats": "true",
+        "max-players": "1",
+        "online-mode": "false",
+        "allow-list": "false",
+        "transport": "raknet",
+        "enable-lan-visibility": "false",
+        "view-distance": "5",
+        "tick-distance": "4",
+        "max-threads": "2",
+        "content-log-file-enabled": "true",
+        "content-log-console-output-enabled": "true",
+        "emit-server-telemetry": "false",
+        "script-watchdog-enable": "true",
     }
     if client_port is not None:
         if type(client_port) is not int or not 1024 <= client_port <= 65535:
@@ -126,8 +147,7 @@ def configure_server(server: Path, *, client_port: int | None = None) -> None:
         # Current clients require NetherNet's local HTTP/TCP signaling and
         # negotiated UDP transport. Advertise only the host's loopback mapping,
         # never an ephemeral container/private/public address as the target.
-        properties.update({"transport": "nethernet", "server-port": "19132", "server-ip": "0.0.0.0",
-                           "server-udp-ports": f"127.0.0.1:{client_port}:19132"})
+        properties.update({"transport": "nethernet", "server-port": "19132", "server-ip": "0.0.0.0", "server-udp-ports": f"127.0.0.1:{client_port}:19132"})
     (server / "server.properties").write_text("".join(f"{key}={value}\n" for key, value in properties.items()), encoding="utf-8")
     write_json(server / "allowlist.json", [])
     write_json(server / "permissions.json", [])
@@ -154,21 +174,47 @@ def container_arguments(server: Path, name: str, image_id: str, owner: str | Non
     if client_port is not None:
         if type(client_port) is not int or not 1024 <= client_port <= 65535:
             raise ProbeError("Client port must be an integer between 1024 and 65535")
-        network = ["--network", "bridge", "--publish", f"127.0.0.1:{client_port}:19132/tcp",
-                   "--publish", f"127.0.0.1:{client_port}:19132/udp"]
+        network = ["--network", "bridge", "--publish", f"127.0.0.1:{client_port}:19132/tcp", "--publish", f"127.0.0.1:{client_port}:19132/udp"]
     return [
-        "create", "--interactive", "--name", name, "--label", "mcbe.engine-probe=true",
-        "--label", f"mcbe.engine-probe.owner={owner or name}",
-        *network, "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-        "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m", "--memory", "2g", "--cpus", "2", "--pids-limit", "256",
-        "--user", f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") else "0:0",
-        "--workdir", "/server", "--env", "LD_LIBRARY_PATH=/server",
-        "--mount", f"type=bind,source={source},target=/server", "--entrypoint", "/server/bedrock_server", image_id,
+        "create",
+        "--interactive",
+        "--name",
+        name,
+        "--label",
+        "mcbe.engine-probe=true",
+        "--label",
+        f"mcbe.engine-probe.owner={owner or name}",
+        *network,
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--read-only",
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid,size=128m",
+        "--memory",
+        "2g",
+        "--cpus",
+        "2",
+        "--pids-limit",
+        "256",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") else "0:0",
+        "--workdir",
+        "/server",
+        "--env",
+        "LD_LIBRARY_PATH=/server",
+        "--mount",
+        f"type=bind,source={source},target=/server",
+        "--entrypoint",
+        "/server/bedrock_server",
+        image_id,
     ]
 
 
-def run_phase(server: Path, run_dir: Path, phase: str, run_id: str, version: str, image_id: str, timeout: float,
-              *, client_port: int | None = None) -> list[dict]:
+def run_phase(
+    server: Path, run_dir: Path, phase: str, run_id: str, version: str, image_id: str, timeout: float, *, client_port: int | None = None
+) -> list[dict]:
     name = f"mcbe-engine-{uuid.uuid4().hex}"
     owner = uuid.uuid4().hex
     container_id = None
@@ -181,8 +227,16 @@ def run_phase(server: Path, run_dir: Path, phase: str, run_id: str, version: str
         if not re.fullmatch(r"[0-9a-f]{64}", created_id):
             raise ProbeError("Docker did not return an owned container ID")
         container_id = created_id
-        process = subprocess.Popen(["docker", "start", "--attach", "--interactive", container_id], stdin=subprocess.PIPE,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
+        process = subprocess.Popen(
+            ["docker", "start", "--attach", "--interactive", container_id],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
 
         def read_output():
             assert process is not None and process.stdout is not None
@@ -214,8 +268,7 @@ def run_phase(server: Path, run_dir: Path, phase: str, run_id: str, version: str
                 log.flush()
                 previous_events = len(transcript.events)
                 transcript.feed(line)
-                if (client_port is not None and len(transcript.events) > previous_events
-                        and transcript.events[-1].get("stage") == "waiting_for_client"):
+                if client_port is not None and len(transcript.events) > previous_events and transcript.events[-1].get("stage") == "waiting_for_client":
                     write_json(run_dir / "client-status.json", {"phase": phase, "status": "waiting_for_client", "address": "127.0.0.1", "port": client_port})
                 if transcript.done and not stop_sent:
                     if client_port is not None:
@@ -240,8 +293,7 @@ def run_phase(server: Path, run_dir: Path, phase: str, run_id: str, version: str
                 # A timed-out create can have succeeded in the daemon before
                 # the CLI lost its response. Never discover/delete by a shared
                 # label alone: this token is unique to this create attempt.
-                recovered = docker_command(["ps", "--all", "--no-trunc", "--filter", f"label=mcbe.engine-probe.owner={owner}",
-                                            "--format", "{{.ID}}"])
+                recovered = docker_command(["ps", "--all", "--no-trunc", "--filter", f"label=mcbe.engine-probe.owner={owner}", "--format", "{{.ID}}"])
                 if recovered and not re.fullmatch(r"[0-9a-f]{64}", recovered):
                     raise ProbeError("Could not identify one owned container for cleanup")
                 container_id = recovered or None
@@ -279,16 +331,34 @@ def editor_provenance() -> dict:
         result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, timeout=10, check=False)
         return result.stdout if result.returncode == 0 else b"unavailable"
 
-    return {"commit": git("rev-parse", "HEAD").decode().strip(), "dirty": bool(git("status", "--porcelain")),
-            "diff_sha256": hashlib.sha256(git("diff", "HEAD", "--binary")).hexdigest(), **source_hashes()}
+    return {
+        "commit": git("rev-parse", "HEAD").decode().strip(),
+        "dirty": bool(git("status", "--porcelain")),
+        "diff_sha256": hashlib.sha256(git("diff", "HEAD", "--binary")).hexdigest(),
+        **source_hashes(),
+    }
 
 
 def nbt_worker(run_dir: Path, action: str) -> dict:
-    env = {**os.environ, "MCBE_DATA_ROOT": str(run_dir / "app-data"), "MCBE_BACKUP_ROOT": str(run_dir / "backups"),
-           "MCBE_ITEM_DB_PATH": str(run_dir / "catalog.json"), "PYTHONIOENCODING": "utf-8",
-           "MCBE_ENCHANTMENT_COMPATIBILITY_PATH": str(ROOT / "mcbe_editor/enchantment_compatibility.json")}
-    result = subprocess.run([sys.executable, "-m", "scripts.engine_checks.nbt_roundtrip", str(run_dir), action], cwd=ROOT,
-                            env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, check=False)
+    env = {
+        **os.environ,
+        "MCBE_DATA_ROOT": str(run_dir / "app-data"),
+        "MCBE_BACKUP_ROOT": str(run_dir / "backups"),
+        "MCBE_ITEM_DB_PATH": str(run_dir / "catalog.json"),
+        "PYTHONIOENCODING": "utf-8",
+        "MCBE_ENCHANTMENT_COMPATIBILITY_PATH": str(ROOT / "mcbe_editor/enchantment_compatibility.json"),
+    }
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.engine_checks.nbt_roundtrip", str(run_dir), action],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=180,
+        check=False,
+    )
     (run_dir / f"nbt-{action}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
         raise ProbeError(f"Offline NBT {action} failed; see the local nbt-{action}.log")
@@ -301,32 +371,89 @@ def public_summary(report: dict) -> dict:
     player_service = report.get("nbt_edit", {}).get("player_service", {"status": "not_selected"})
     client = report.get("client", {"status": "not_selected"})
     return {
-        "format": "mcbe-engine-summary-v1", "status": report["status"], "suite": report["suite"],
-        "engine": report["engine"], "editor": report["editor"], "catalog_sha256": report["catalog_sha256"],
+        "format": "mcbe-engine-summary-v1",
+        "status": report["status"],
+        "suite": report["suite"],
+        "engine": report["engine"],
+        "editor": report["editor"],
+        "catalog_sha256": report["catalog_sha256"],
         "cases_sha256": report.get("cases_sha256"),
         "catalog_source": report.get("catalog_source", "bundled"),
-        "phases": report["phases"], "not_covered": report["not_covered"],
-        "catalog": {key: catalog[key] for key in ("status", "expected_count", "observed_count", "missing", "mismatches",
-                                                 "outside_editor_count_range", "registry_missing", "registry_extra", "new_limit_candidates",
-                                                 "durability_mismatches", "new_durability_candidates") if key in catalog},
+        "phases": report["phases"],
+        "not_covered": report["not_covered"],
+        "catalog": {
+            key: catalog[key]
+            for key in (
+                "status",
+                "expected_count",
+                "observed_count",
+                "missing",
+                "mismatches",
+                "outside_editor_count_range",
+                "registry_missing",
+                "registry_extra",
+                "new_limit_candidates",
+                "durability_mismatches",
+                "new_durability_candidates",
+            )
+            if key in catalog
+        },
         "roundtrip": report.get("roundtrip", {"status": "not_completed"}),
         "extended": report.get("extended", {"status": "not_selected"}),
-        "enchantment_registry": {key: value for key, value in report.get("enchantment_registry", {"status": "not_selected"}).items()
-                                 if key in {"status", "expected_count", "observed_count", "added", "removed", "level_mismatches"}},
-        "editor_rules": {key: value for key, value in report.get("editor_rules", {"status": "not_selected"}).items()
-                         if key in {"status", "applicability_checks", "pair_conflict_checks", "incompatible_creation_checks",
-                                    "enchantment_level_checks", "durability_rejection_checks", "intentional_exceptions", "differences"}},
+        "enchantment_registry": {
+            key: value
+            for key, value in report.get("enchantment_registry", {"status": "not_selected"}).items()
+            if key in {"status", "expected_count", "observed_count", "added", "removed", "level_mismatches"}
+        },
+        "editor_rules": {
+            key: value
+            for key, value in report.get("editor_rules", {"status": "not_selected"}).items()
+            if key
+            in {
+                "status",
+                "applicability_checks",
+                "pair_conflict_checks",
+                "incompatible_creation_checks",
+                "enchantment_level_checks",
+                "durability_rejection_checks",
+                "intentional_exceptions",
+                "differences",
+            }
+        },
         "addon": report.get("addon", {"status": "not_selected"}),
-        "player_service": {key: player_service[key] for key in ("status", "synthetic_players", "real_players", "backed_up_saves",
-                                                               "no_op_checks", "stale_revision_rejections", "cross_container_moves",
-                                                               "intermediate_state_checks", "client_login_verified",
-                                                               "mixed_metadata_moves", "mixed_metadata_recreations") if key in player_service},
+        "player_service": {
+            key: player_service[key]
+            for key in (
+                "status",
+                "synthetic_players",
+                "real_players",
+                "backed_up_saves",
+                "no_op_checks",
+                "stale_revision_rejections",
+                "cross_container_moves",
+                "intermediate_state_checks",
+                "client_login_verified",
+                "mixed_metadata_moves",
+                "mixed_metadata_recreations",
+            )
+            if key in player_service
+        },
         "client": {key: client[key] for key in ("status", "required_connections", "completed_connections", "profile") if key in client},
     }
 
 
-def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_root: Path, suite: str, timeout: float,
-              catalog_path: Path | None = None, *, client_port: int = 19134) -> tuple[Path, dict]:
+def run_probe(
+    archive: Path,
+    expected_hash: str,
+    version: str,
+    image: str,
+    work_root: Path,
+    suite: str,
+    timeout: float,
+    catalog_path: Path | None = None,
+    *,
+    client_port: int = 19134,
+) -> tuple[Path, dict]:
     if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version):
         raise ProbeError("An exact four-part Bedrock server version is required")
     if not 10 <= timeout <= 1800:
@@ -361,15 +488,38 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
     (run_dir / "catalog.json").write_bytes(catalog_bytes)
     expected_ids = sorted(set(db["addable_items"]))
     report = {
-        "format": "mcbe-engine-check-v1", "run_id": run_id, "started_at": datetime.now(UTC).isoformat(), "status": "incomplete", "suite": suite,
-        "engine": {"version": version, "archive_sha256": expected_hash.lower(), "image_id": image_id, "api_version": API_VERSION,
-                   "network": "none", "vanilla_definitions": True, "experiments": False},
-        "editor": editor_provenance(), "catalog_sha256": sha256(run_dir / "catalog.json"), "phases": {},
+        "format": "mcbe-engine-check-v1",
+        "run_id": run_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "status": "incomplete",
+        "suite": suite,
+        "engine": {
+            "version": version,
+            "archive_sha256": expected_hash.lower(),
+            "image_id": image_id,
+            "api_version": API_VERSION,
+            "network": "none",
+            "vanilla_definitions": True,
+            "experiments": False,
+        },
+        "editor": editor_provenance(),
+        "catalog_sha256": sha256(run_dir / "catalog.json"),
+        "phases": {},
         "catalog_source": "bundled" if catalog_path == bundled_path else "candidate",
-        "not_covered": ["real-player login and save", "singleplayer local-player engine saves", "real-player Ender Chest persistence",
-                        "UI interactions", "complete player service", "mount creation and mount gameplay", "arbitrary third-party add-ons and overrides",
-                        "Education-only behavior", "version migration", "all metadata combinations",
-                        "combat, equipping, consumption, crafting and brewing", "stack merging and gameplay item transport"],
+        "not_covered": [
+            "real-player login and save",
+            "singleplayer local-player engine saves",
+            "real-player Ender Chest persistence",
+            "UI interactions",
+            "complete player service",
+            "mount creation and mount gameplay",
+            "arbitrary third-party add-ons and overrides",
+            "Education-only behavior",
+            "version migration",
+            "all metadata combinations",
+            "combat, equipping, consumption, crafting and brewing",
+            "stack merging and gameplay item transport",
+        ],
     }
     write_json(run_dir / "run.json", report)
     try:
@@ -402,12 +552,18 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
             if suite == "client":
                 enable_client_experiment(server)
                 configure_server(server, client_port=client_port)
-                config.update({"client_profile": True, "client_locations": assignments(cases),
-                               "client_control_slots": CONTROL_SLOTS, "client_control_name": CONTROL_NAME})
-                report["engine"].update({"api_version": CLIENT_API_VERSION, "experiments": True,
-                                         "network": "bridge; IPv4 loopback TCP+UDP only; NetherNet loopback candidate"})
-                report["client"] = {"status": "incomplete", "required_connections": 3, "completed_connections": 0,
-                                    "profile": "real client; offline local dedicated server; Beta API Ender Chest observer"}
+                config.update(
+                    {"client_profile": True, "client_locations": assignments(cases), "client_control_slots": CONTROL_SLOTS, "client_control_name": CONTROL_NAME}
+                )
+                report["engine"].update(
+                    {"api_version": CLIENT_API_VERSION, "experiments": True, "network": "bridge; IPv4 loopback TCP+UDP only; NetherNet loopback candidate"}
+                )
+                report["client"] = {
+                    "status": "incomplete",
+                    "required_connections": 3,
+                    "completed_connections": 0,
+                    "profile": "real client; offline local dedicated server; Beta API Ender Chest observer",
+                }
             if suite == "addons":
                 config["controlled_addon"] = True
                 config["addon_ids"] = sorted(ADDON_LIMITS)
@@ -416,8 +572,12 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                     raise ProbeError("The controlled add-on did not expose its expected item definitions")
                 cases = make_addon_cases({**catalog["observations"], **measured_addon["observations"]})
                 report["phases"]["addon_catalog"] = "pass"
-                report["addon"] = {"status": "incomplete", "profile": "owned conformance pack; no Vanilla overrides",
-                                   "item_ids": sorted(ADDON_LIMITS), "catalog_kept_vanilla": True}
+                report["addon"] = {
+                    "status": "incomplete",
+                    "profile": "owned conformance pack; no Vanilla overrides",
+                    "item_ids": sorted(ADDON_LIMITS),
+                    "catalog_kept_vanilla": True,
+                }
             if suite == "extended":
                 events = phase("matrix")
                 report["enchantment_registry"] = enchantment_registry_result(events, db)
@@ -427,10 +587,15 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                 write_json(run_dir / "behavior-cases.json", plan)
                 config.update({key: plan[key] for key in ("merges", "gameplay")})
                 report["phases"]["matrix"] = "pass"
-                report["extended"] = {"status": "incomplete", **plan["counts"], "matrix_sha256": sha256(run_dir / "matrix.json"),
-                                      "behavior_cases_sha256": sha256(run_dir / "behavior-cases.json"),
-                                      "item_enchantment_checks": matrix["item_enchantment_checks"], "ordered_pair_checks": matrix["ordered_pair_checks"],
-                                      "rejected_pair_checks": matrix["rejected_pair_checks"]}
+                report["extended"] = {
+                    "status": "incomplete",
+                    **plan["counts"],
+                    "matrix_sha256": sha256(run_dir / "matrix.json"),
+                    "behavior_cases_sha256": sha256(run_dir / "behavior-cases.json"),
+                    "item_enchantment_checks": matrix["item_enchantment_checks"],
+                    "ordered_pair_checks": matrix["ordered_pair_checks"],
+                    "rejected_pair_checks": matrix["rejected_pair_checks"],
+                }
                 write_json(run_dir / "run.json", report)
                 report["editor_rules"] = nbt_worker(run_dir, "rules")
                 if report["editor_rules"]["status"] != "pass":
@@ -452,8 +617,13 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
                 report["phases"][name] = "pass"
                 if suite == "client":
                     report["client"]["completed_connections"] += 1
-            report["roundtrip"] = {"status": "pass", "cases": len(cases), "item_ids": len({case['id'] for case in cases}), "save_reload_cycles": 2,
-                                   "write_path": "production item builder, codec, backup and pure-Python WAL batch; test carrier adapter"}
+            report["roundtrip"] = {
+                "status": "pass",
+                "cases": len(cases),
+                "item_ids": len({case["id"] for case in cases}),
+                "save_reload_cycles": 2,
+                "write_path": "production item builder, codec, backup and pure-Python WAL batch; test carrier adapter",
+            }
             if suite == "extended":
                 validate_behavior_events(phase("behavior"), plan)
                 report["behavior_disk"] = nbt_worker(run_dir, "verify")
@@ -491,6 +661,7 @@ def run_probe(archive: Path, expected_hash: str, version: str, image: str, work_
         write_json(run_dir / "run.json", report)
         write_json(run_dir / "summary.json", public_summary(report))
         if suite == "client":
-            write_json(run_dir / "client-status.json", {"status": report["status"],
-                                                      "completed_connections": report.get("client", {}).get("completed_connections", 0)})
+            write_json(
+                run_dir / "client-status.json", {"status": report["status"], "completed_connections": report.get("client", {}).get("completed_connections", 0)}
+            )
     return run_dir, report

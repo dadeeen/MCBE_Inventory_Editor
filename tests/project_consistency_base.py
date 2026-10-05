@@ -34,7 +34,7 @@ def test_python_support_is_consistent_across_project_files():
     assert "Python 3.12" in setup
     assert "Python 3.12, 3.13 and 3.14 are supported." in setup
     assert "EnableDelayedExpansion" in setup
-    assert 'for %%V in (3.14 3.13 3.12)' in setup
+    assert "for %%V in (3.14 3.13 3.12)" in setup
     assert "!PYTHON_CMD! -m venv .venv" in setup
     # The Python install manager exits with negative HRESULT-style codes, which `if not errorlevel 1` accepts.
     assert re.search(r"(?im)^\s*if\s+(?:not\s+)?errorlevel\s+1\s+set\b", setup) is None
@@ -323,8 +323,6 @@ def test_ci_external_actions_are_immutably_pinned_with_version_comments():
     assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1" in workflow
 
 
-
-
 def test_docker_runtime_uses_an_explicit_allowlist_and_validated_manifest():
     dockerfile = _read("Dockerfile")
     dockerignore = _read(".dockerignore")
@@ -428,7 +426,7 @@ def test_windows_entrypoints_are_portable_and_use_reproducible_setup():
 
     setup = sources["setup.bat"]
     assert "pip install --upgrade pip" not in setup
-    assert 'scripts\\windows_setup.py install' in setup
+    assert "scripts\\windows_setup.py install" in setup
     assert "preflight" in setup
     assert "probe-build" not in setup
     assert "pip install -r requirements.txt" not in setup
@@ -521,7 +519,6 @@ def test_docker_disables_unused_control_socket_on_read_only_root():
         assert "bash scripts/docker/smoke_image.sh mcbe-inventory-editor:smoke" in job
     publish = workflow.split("  docker-publish:", 1)[1]
     assert publish.index("bash scripts/docker/smoke_image.sh") < publish.index("- name: Publish runtime image")
-
 
 
 def test_lockfile_check_ignores_platform_specific_piptools_annotations(tmp_path):

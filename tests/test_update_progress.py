@@ -22,14 +22,22 @@ def test_child_process_progress_is_visible_before_process_exits_and_removed_afte
             "print('ready', flush=True); input()"
         )
         with subprocess.Popen(
-            [sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1], env=env,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         ) as child:
             try:
                 assert child.stdout.readline().strip() == "ready"
                 assert child.poll() is None
                 assert update_progress.read_progress(tmp_path, progress_id) == {
-                    "phase": "downloading", "current": 250, "total": 1000, "unit": "bytes",
+                    "phase": "downloading",
+                    "current": 250,
+                    "total": 1000,
+                    "unit": "bytes",
                 }
                 child.communicate("\n", timeout=10)
                 assert child.returncode == 0
@@ -72,20 +80,33 @@ def test_progress_storage_errors_do_not_abort_updates(tmp_path, monkeypatch):
 def progress_app(monkeypatch, tmp_path):
     import main
 
-    monkeypatch.setattr(main, "APP_CONFIG", replace(
-        main.APP_CONFIG, mode="local", host="127.0.0.1", data_root=str(tmp_path),
-        auth_required=False, auth_password=None, auth_password_hash=None, read_only=False,
-    ))
+    monkeypatch.setattr(
+        main,
+        "APP_CONFIG",
+        replace(
+            main.APP_CONFIG,
+            mode="local",
+            host="127.0.0.1",
+            data_root=str(tmp_path),
+            auth_required=False,
+            auth_password=None,
+            auth_password_hash=None,
+            read_only=False,
+        ),
+    )
     monkeypatch.setattr(main, "RUNTIME_BIND_HOST", "127.0.0.1")
     monkeypatch.setattr(main, "SETUP_STATE", FirstRunSetup(tmp_path / "setup.json"))
     monkeypatch.setattr(main, "CSRF_TOKEN", "progress-test-token")
     return main
 
 
-@pytest.mark.parametrize("endpoint,module_name,handler_name", [
-    ("/api/update_db", "item_db_api_routes", "update_db"),
-    ("/api/icons/vanilla/update", "icon_api_routes", "icons_vanilla_update"),
-])
+@pytest.mark.parametrize(
+    "endpoint,module_name,handler_name",
+    [
+        ("/api/update_db", "item_db_api_routes", "update_db"),
+        ("/api/icons/vanilla/update", "icon_api_routes", "icons_vanilla_update"),
+    ],
+)
 def test_progress_can_be_polled_while_post_runs_and_keeps_failed_result(progress_app, monkeypatch, endpoint, module_name, handler_name):
     main = progress_app
     started, release = threading.Event(), threading.Event()

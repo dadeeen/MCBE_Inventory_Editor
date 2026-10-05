@@ -70,8 +70,11 @@ def test_real_writer_failure_preserves_backup_and_reports_outcome(tmp_path, monk
     service.readonly_db_factory = ReadonlyLevelDbAdapter
     mount_deps = replace(fixture.deps, final_write_gate_blocked_error=main.FinalWriteGateBlockedError)
     player_deps = replace(
-        main.player_route_deps(), service=service, jsonify=lambda value: value,
-        api_error=fixture.deps.api_error, log_api_exception=lambda *_: None,
+        main.player_route_deps(),
+        service=service,
+        jsonify=lambda value: value,
+        api_error=fixture.deps.api_error,
+        log_api_exception=lambda *_: None,
         audit_event=lambda *_args, **_kwargs: None,
         require_world_write_allowed=lambda: None,
         require_server_guard_current=lambda _: None,
@@ -79,8 +82,13 @@ def test_real_writer_failure_preserves_backup_and_reports_outcome(tmp_path, monk
         presence_conflict_response=lambda *_args, **_kwargs: None,
     )
     request = fixture.request
-    mount = {"mount_type": "minecraft:donkey", "create_mode": "synthetic_full", "tamed": False,
-             "allow_unchecked_placement": True, "preferred_offset": {"x": 2, "z": 2}}
+    mount = {
+        "mount_type": "minecraft:donkey",
+        "create_mode": "synthetic_full",
+        "tamed": False,
+        "allow_unchecked_placement": True,
+        "preferred_offset": {"x": 2, "z": 2},
+    }
     if operation == "player":
         result = player_api_routes.save_player({**request, "stats": {"health": 18}}, player_deps)
     elif operation == "workspace":
@@ -132,4 +140,3 @@ def test_real_writer_failure_preserves_backup_and_reports_outcome(tmp_path, monk
         assert values[b"~local_player"] == original_player
     actors = [key for key in values if key.startswith(b"actorprefix")]
     assert len(actors) == int(persisted and operation != "player")
-

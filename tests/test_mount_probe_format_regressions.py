@@ -1,4 +1,5 @@
 """Conservative mount placement for incomplete or unsupported terrain formats."""
+
 from __future__ import annotations
 
 import struct
@@ -35,10 +36,12 @@ def _floor_payload(version: int) -> bytes:
 
 
 def _db(payload: bytes, subchunk_y: int = 4) -> FakeDb:
-    return FakeDb({
-        BASE + bytes([SUBCHUNK_PREFIX_TAG, subchunk_y & 0xFF]): payload,
-        BASE + bytes([FINALIZED_STATE_TAG]): struct.pack("<i", 2),
-    })
+    return FakeDb(
+        {
+            BASE + bytes([SUBCHUNK_PREFIX_TAG, subchunk_y & 0xFF]): payload,
+            BASE + bytes([FINALIZED_STATE_TAG]): struct.pack("<i", 2),
+        }
+    )
 
 
 def _probe(db: FakeDb, mode: str, position=None):
@@ -115,7 +118,7 @@ def test_subchunk_key_and_version9_height_must_agree(subchunk_y, mode):
 def test_truncated_unused_palette_entry_cannot_certify_a_safe_surface(version, mode):
     payload = _floor_payload(version)
     offset = (3 if version == 8 else 4) + 512
-    payload = payload[:offset] + struct.pack("<I", 3) + payload[offset + 4:] + b"\x0a"
+    payload = payload[:offset] + struct.pack("<I", 3) + payload[offset + 4 :] + b"\x0a"
     assert _probe(_db(payload), mode)["safe_to_place"] is None
 
 
@@ -125,8 +128,7 @@ def test_ambiguous_palette_compounds_do_not_silently_use_the_last_value(version,
     if duplicate == "name":
         fields = _named_string_tag("name", "minecraft:water") + _named_string_tag("name", "minecraft:stone")
     else:
-        fields = (_named_string_tag("name", "minecraft:stone")
-                  + _named_string_tag("unused", "first") + _named_string_tag("unused", "last"))
+        fields = _named_string_tag("name", "minecraft:stone") + _named_string_tag("unused", "first") + _named_string_tag("unused", "last")
     payload = _floor_payload(version).replace(_block_palette_entry("minecraft:stone"), _named_compound_tag("", fields))
     assert probe_candidate_chunk(_db(payload), POSITION, dimension_id=0)["safe_to_place"] is None
 

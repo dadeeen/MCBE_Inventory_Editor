@@ -1,4 +1,5 @@
 """Pack selection and icon bindings use synthetic, non-playable fixtures."""
+
 from __future__ import annotations
 
 import json
@@ -24,8 +25,11 @@ def isolate(monkeypatch):
 def _pack(root, name, files, *, kind="resources", pack_id=None, version=None, archive=False, subpacks=None):
     pack_id, version = pack_id or str(uuid4()), version or [1, 0, 0]
     path = root / (name + ".mcpack" if archive else name)
-    manifest = {"format_version": 2, "header": {"uuid": pack_id, "version": version, "name": name},
-                "modules": [{"type": kind, "uuid": str(uuid4()), "version": version}]}
+    manifest = {
+        "format_version": 2,
+        "header": {"uuid": pack_id, "version": version, "name": name},
+        "modules": [{"type": kind, "uuid": str(uuid4()), "version": version}],
+    }
     if subpacks is not None:
         manifest["subpacks"] = subpacks
     files = {"manifest.json": manifest, **files}
@@ -52,9 +56,13 @@ def _world(root, name, resources=(), behaviors=()):
 
 
 def _item(identifier="demo:wrench", key="demo:tool"):
-    return {"format_version": "1.21.0", "minecraft:item": {
-        "description": {"identifier": identifier}, "components": {"minecraft:icon": {"textures": {"default": key}}},
-    }}
+    return {
+        "format_version": "1.21.0",
+        "minecraft:item": {
+            "description": {"identifier": identifier},
+            "components": {"minecraft:icon": {"textures": {"default": key}}},
+        },
+    }
 
 
 def _scan(root, world):
@@ -71,10 +79,15 @@ def _bytes(worker, item):
 
 @pytest.mark.parametrize("archive", [False, True])
 def test_declared_namespaced_item_resolves_renamed_png_through_both_packs(tmp_path, archive):
-    _, rp = _pack(tmp_path / "resource_packs", "resources", {
-        "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/custom/renamed_icon"}}},
-        "textures/custom/renamed_icon.png": b"wrench icon",
-    }, archive=archive)
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "resources",
+        {
+            "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/custom/renamed_icon"}}},
+            "textures/custom/renamed_icon.png": b"wrench icon",
+        },
+        archive=archive,
+    )
     _, bp = _pack(tmp_path / "behavior_packs", "behavior", {"items/tool.json": _item()}, kind="data", archive=archive)
     world = _world(tmp_path, "active", [rp], [bp])
     public, worker = _scan(tmp_path, world)
@@ -100,12 +113,20 @@ def test_inactive_installed_packs_cannot_override_active_or_vanilla_world(tmp_pa
 
 @pytest.mark.parametrize("atlas_override", [False, True])
 def test_stack_merges_atlas_and_images_independently_and_honors_priority(tmp_path, atlas_override):
-    _, base = _pack(tmp_path / "resource_packs", "base", {
-        "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/items/a"}}},
-        "textures/items/a.png": b"base", "textures/items/b.png": b"remapped",
-    })
-    override_files = ({"textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/items/b"}}}}
-                      if atlas_override else {"textures/items/a.png": b"override"})
+    _, base = _pack(
+        tmp_path / "resource_packs",
+        "base",
+        {
+            "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/items/a"}}},
+            "textures/items/a.png": b"base",
+            "textures/items/b.png": b"remapped",
+        },
+    )
+    override_files = (
+        {"textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/items/b"}}}}
+        if atlas_override
+        else {"textures/items/a.png": b"override"}
+    )
     _, top = _pack(tmp_path / "resource_packs", "top", override_files)
     _, bp = _pack(tmp_path / "behavior_packs", "behavior", {"items/tool.json": _item()}, kind="data")
     a = _world(tmp_path, "a", [top, base], [bp])
@@ -149,8 +170,12 @@ def test_pack_file_changes_invalidate_index_without_world_or_root_mtime_change(t
 
 @pytest.mark.parametrize("fault", ["missing", "version", "duplicate", "invalid_list", "subpack"])
 def test_unresolved_activation_is_reported_and_does_not_import_unrelated_packs(tmp_path, fault):
-    _, rp = _pack(tmp_path / "resource_packs", "pack", {"textures/items/apple.png": b"wrong"},
-                  subpacks=[{"folder_name": "variant", "memory_tier": 1}] if fault == "subpack" else None)
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "pack",
+        {"textures/items/apple.png": b"wrong"},
+        subpacks=[{"folder_name": "variant", "memory_tier": 1}] if fault == "subpack" else None,
+    )
     if fault == "missing":
         rp = {**rp, "pack_id": str(uuid4())}
     if fault == "version":
@@ -167,10 +192,17 @@ def test_unresolved_activation_is_reported_and_does_not_import_unrelated_packs(t
 
 @pytest.mark.parametrize("archive", [False, True])
 def test_explicit_subpack_uses_only_selected_variant(tmp_path, archive):
-    _, rp = _pack(tmp_path / "resource_packs", "pack", {
-        "textures/items/apple.png": b"base", "subpacks/one/textures/items/apple.png": b"one",
-        "subpacks/two/textures/items/apple.png": b"two",
-    }, archive=archive, subpacks=[{"folder_name": "one"}, {"folder_name": "two"}])
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "pack",
+        {
+            "textures/items/apple.png": b"base",
+            "subpacks/one/textures/items/apple.png": b"one",
+            "subpacks/two/textures/items/apple.png": b"two",
+        },
+        archive=archive,
+        subpacks=[{"folder_name": "one"}, {"folder_name": "two"}],
+    )
     first, one = _scan(tmp_path, _world(tmp_path, "one", [{**rp, "subpack": "one"}]))
     second, two = _scan(tmp_path, _world(tmp_path, "two", [{**rp, "subpack": "two"}]))
     assert _bytes(one, "minecraft:apple") == b"one"
@@ -180,10 +212,16 @@ def test_explicit_subpack_uses_only_selected_variant(tmp_path, archive):
 
 @pytest.mark.parametrize("reference", ["../outside", "/absolute", "C:/absolute", ["textures/items/a", "textures/items/b"], "textures/items/missing"])
 def test_unsafe_missing_or_variant_texture_is_reported_without_filename_guess(tmp_path, reference):
-    _, rp = _pack(tmp_path / "resource_packs", "pack", {
-        "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": reference}}},
-        "textures/items/a.png": b"a", "textures/items/b.png": b"b", "textures/items/wrench.png": b"guess",
-    })
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "pack",
+        {
+            "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": reference}}},
+            "textures/items/a.png": b"a",
+            "textures/items/b.png": b"b",
+            "textures/items/wrench.png": b"guess",
+        },
+    )
     _, bp = _pack(tmp_path / "behavior_packs", "behavior", {"items/tool.json": _item()}, kind="data")
     public, _ = _scan(tmp_path, _world(tmp_path, "world", [rp], [bp]))
     assert "demo:wrench" not in public["icons"]
@@ -211,16 +249,26 @@ def test_pack_list_is_read_only_and_missing_lists_select_vanilla(tmp_path):
 def test_shared_publication_and_custom_item_work_through_http_on_fresh_worker(tmp_path, monkeypatch):
     import main
 
-    _, rp = _pack(tmp_path / "resource_packs", "rp", {
-        "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/icons/file"}}},
-        "textures/icons/file.png": b"custom icon",
-    })
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/icons/file"}}},
+            "textures/icons/file.png": b"custom icon",
+        },
+    )
     _, bp = _pack(tmp_path / "behavior_packs", "bp", {"items/tool.json": _item()}, kind="data")
     world = _world(tmp_path, "world", [rp], [bp])
     public, publisher = _scan(tmp_path, world)
     reader = _deps(tmp_path)
-    deps = replace(main.icon_route_deps(), settings_path=publisher.settings_path, data_root=publisher.data_root,
-                   get_icon_index=reader.get_icon_index, set_icon_index=reader.set_icon_index, read_only=True)
+    deps = replace(
+        main.icon_route_deps(),
+        settings_path=publisher.settings_path,
+        data_root=publisher.data_root,
+        get_icon_index=reader.get_icon_index,
+        set_icon_index=reader.set_icon_index,
+        read_only=True,
+    )
     monkeypatch.setattr(main, "icon_route_deps", lambda: deps)
     client = main.app.test_client()
     assert client.get(public["icons"]["demo:wrench"]["url"]).data == b"custom icon"
@@ -232,21 +280,30 @@ def _vanilla(root, monkeypatch):
     image = path / "textures/items/apple.png"
     image.parent.mkdir(parents=True)
     image.write_bytes(b"vanilla apple")
-    (path / "manifest.json").write_text(json.dumps({
-        "items": {"minecraft:apple": "items/actual_apple"},
-        "item_texture_data": {"fruit_icon": ["items/actual_apple"]},
-        "item_icon_definitions": {"apple": {"texture": "fruit_icon"}},
-    }), encoding="utf-8")
+    (path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "items": {"minecraft:apple": "items/actual_apple"},
+                "item_texture_data": {"fruit_icon": ["items/actual_apple"]},
+                "item_icon_definitions": {"apple": {"texture": "fruit_icon"}},
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(icons, "_vanilla_icon_roots", lambda: [path])
     return path
 
 
 def test_rp_can_redirect_vanilla_atlas_key_without_item_definition(tmp_path, monkeypatch):
     _vanilla(tmp_path, monkeypatch)
-    _, rp = _pack(tmp_path / "resource_packs", "rp", {
-        "textures/item_texture.json": {"texture_data": {"fruit_icon": {"textures": "textures/custom/fruit"}}},
-        "textures/custom/fruit.png": b"new apple",
-    })
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {"texture_data": {"fruit_icon": {"textures": "textures/custom/fruit"}}},
+            "textures/custom/fruit.png": b"new apple",
+        },
+    )
     public, worker = _scan(tmp_path, _world(tmp_path, "world", [rp]))
     assert _bytes(worker, "minecraft:apple") == b"new apple"
     assert not public["warnings"]
@@ -254,9 +311,13 @@ def test_rp_can_redirect_vanilla_atlas_key_without_item_definition(tmp_path, mon
 
 def test_custom_item_can_reference_an_existing_vanilla_sprite(tmp_path, monkeypatch):
     _vanilla(tmp_path, monkeypatch)
-    _, rp = _pack(tmp_path / "resource_packs", "rp", {
-        "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/items/actual_apple"}}},
-    })
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/items/actual_apple"}}},
+        },
+    )
     _, bp = _pack(tmp_path / "behavior_packs", "bp", {"items/tool.json": _item()}, kind="data")
     public, worker = _scan(tmp_path, _world(tmp_path, "world", [rp], [bp]))
     assert _bytes(worker, "demo:wrench") == b"vanilla apple"
@@ -274,10 +335,15 @@ def test_new_vanilla_world_uses_cache_without_scanning_again(tmp_path, monkeypat
 
 
 def test_declared_texture_alias_survives_cache_roundtrip_and_file_size_checks(tmp_path, monkeypatch):
-    _, rp = _pack(tmp_path / "resource_packs", "rp", {
-        "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/custom/tool"}}},
-        "textures/custom/tool.png": b"small",
-    }, archive=True)
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/custom/tool"}}},
+            "textures/custom/tool.png": b"small",
+        },
+        archive=True,
+    )
     _, bp = _pack(tmp_path / "behavior_packs", "bp", {"items/tool.json": _item()}, kind="data")
     world = _world(tmp_path, "world", [rp], [bp])
     _, worker = _scan(tmp_path, world)
@@ -290,10 +356,14 @@ def test_declared_texture_alias_survives_cache_roundtrip_and_file_size_checks(tm
 
 
 def test_json_comments_are_supported_but_duplicate_keys_are_rejected(tmp_path):
-    path, rp = _pack(tmp_path / "resource_packs", "pack", {
-        "textures/item_texture.json": b'{/* comment */ "texture_data":{"apple":{"textures":"textures/items/apple"}}}',
-        "textures/items/apple.png": b"apple",
-    })
+    path, rp = _pack(
+        tmp_path / "resource_packs",
+        "pack",
+        {
+            "textures/item_texture.json": b'{/* comment */ "texture_data":{"apple":{"textures":"textures/items/apple"}}}',
+            "textures/items/apple.png": b"apple",
+        },
+    )
     world = _world(tmp_path, "world", [rp])
     public, worker = _scan(tmp_path, world)
     assert _bytes(worker, "minecraft:apple") == b"apple"
@@ -323,10 +393,15 @@ def test_custom_block_materials_report_the_standard_preview_limit(tmp_path, monk
 
 
 def test_nested_item_definition_and_json_only_changes_refresh_on_another_worker(tmp_path):
-    path, rp = _pack(tmp_path / "resource_packs", "rp", {
-        "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/custom/a"}}},
-        "textures/custom/a.png": b"a", "textures/custom/b.png": b"b",
-    })
+    path, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {"texture_data": {"demo:tool": {"textures": "textures/custom/a"}}},
+            "textures/custom/a.png": b"a",
+            "textures/custom/b.png": b"b",
+        },
+    )
     bp_path, bp = _pack(tmp_path / "behavior_packs", "bp", {"items/tools/wrench.json": _item()}, kind="data")
     world = _world(tmp_path, "world", [rp], [bp])
     _scan(tmp_path, world)
@@ -428,8 +503,9 @@ def test_invalid_pack_data_is_rejected_with_diagnostics(tmp_path, monkeypatch, f
 
 @pytest.mark.parametrize("fault", ["metadata", "subpack"])
 def test_explicit_pack_with_unusable_manifest_does_not_revert_to_filename_guess(tmp_path, fault):
-    path, _ = _pack(tmp_path / "resource_packs", "rp", {"textures/items/apple.png": b"wrong"},
-                    subpacks=[{"folder_name": "variant"}] if fault == "subpack" else None)
+    path, _ = _pack(
+        tmp_path / "resource_packs", "rp", {"textures/items/apple.png": b"wrong"}, subpacks=[{"folder_name": "variant"}] if fault == "subpack" else None
+    )
     if fault == "metadata":
         (path / "manifest.json").write_text("{ broken")
     reader = _deps(tmp_path)

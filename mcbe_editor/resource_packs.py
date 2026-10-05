@@ -34,6 +34,7 @@ def strip_json_comments(text: str) -> str:
 def parse_json(raw: bytes):
     if len(raw) > MAX_METADATA_BYTES:
         raise IconSourceError("Pack-Metadaten überschreiten das Größenlimit.")
+
     def unique_object(pairs):
         result = {}
         for key, value in pairs:
@@ -91,6 +92,7 @@ class PackReader:
         try:
             entries = {}
             if self.path.is_dir():
+
                 def failed(error):
                     raise error
 
@@ -115,7 +117,7 @@ class PackReader:
                     if self.prefix:
                         if not name.startswith(self.prefix):
                             continue
-                        name = name[len(self.prefix):]
+                        name = name[len(self.prefix) :]
                     if name in entries:
                         raise IconSourceError("Pack enthält einen mehrfach belegten Dateipfad: {path}", path=name)
                     entries[name] = info
@@ -124,7 +126,7 @@ class PackReader:
                 prefix = f"subpacks/{relative_name(self.subpack)}/"
                 if not any(name.startswith(prefix) for name in entries):
                     raise IconSourceError("Ausgewähltes Subpack fehlt im Pack.")
-                self.files.update({name[len(prefix):]: entry for name, entry in entries.items() if name.startswith(prefix)})
+                self.files.update({name[len(prefix) :]: entry for name, entry in entries.items() if name.startswith(prefix)})
             return self
         except BaseException:
             self.stack.close()
@@ -136,9 +138,10 @@ class PackReader:
                 from .icons import _checked_source_path
 
                 current = _checked_source_path(self.path, self.path.parent)
-                if not os.path.samestat(self.archive_stat, current) or (
-                    self.archive_stat.st_size, self.archive_stat.st_mtime_ns
-                ) != (current.st_size, current.st_mtime_ns):
+                if not os.path.samestat(self.archive_stat, current) or (self.archive_stat.st_size, self.archive_stat.st_mtime_ns) != (
+                    current.st_size,
+                    current.st_mtime_ns,
+                ):
                     raise IconSourceError("Pack wurde während des Einlesens verändert.")
         finally:
             self.stack.close()
@@ -271,12 +274,22 @@ def select_world_packs(world_path: str | None) -> PackSelection:
                         if not any(isinstance(module, dict) and module.get("type") == kind for module in manifest.get("modules", [])):
                             continue
                         key = _pack_key(manifest["header"], "uuid")
-                        local_candidates.append((key, {
-                            "path": str(path.resolve()), "pack_kind": kind, "pack_prefix": prefix,
-                            "enabled": True, "auto": True, "world": True,
-                            "label": str(manifest["header"].get("name") or path.name),
-                            "_rank": rank, "_manifest": manifest,
-                        }))
+                        local_candidates.append(
+                            (
+                                key,
+                                {
+                                    "path": str(path.resolve()),
+                                    "pack_kind": kind,
+                                    "pack_prefix": prefix,
+                                    "enabled": True,
+                                    "auto": True,
+                                    "world": True,
+                                    "label": str(manifest["header"].get("name") or path.name),
+                                    "_rank": rank,
+                                    "_manifest": manifest,
+                                },
+                            )
+                        )
                     except (OSError, ValueError, KeyError, TypeError, RecursionError, zipfile.BadZipFile, RuntimeError):
                         # An unreadable/unidentified candidate cannot satisfy an
                         # activation. Report the missing registration below.

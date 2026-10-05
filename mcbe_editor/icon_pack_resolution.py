@@ -36,7 +36,7 @@ def _texture_paths(value) -> list[str]:
             raise IconSourceError("Deklarierte Icon-Textur liegt nicht im textures-Ordner.")
         suffix = PurePosixPath(name).suffix.lower()
         if suffix in {".png", ".webp"}:
-            name = name[:-len(suffix)]
+            name = name[: -len(suffix)]
         return [name]
     if isinstance(value, list):
         paths = []
@@ -61,8 +61,9 @@ def _candidate(pack: PackReader, name: str, source: dict):
         return None
     revision = f"{pack.archive_stat.st_size}:{pack.archive_stat.st_mtime_ns}:{entry.CRC}:{entry.file_size}"
     token = _token_for_text(f"{pack.path.resolve()}::{entry.filename}::{revision}")
-    return IconCandidate("", None, source["label"], token, archive_path=pack.path,
-                         archive_member=entry.filename.replace("\\", "/"), source_root=pack.path.parent, declared=True)
+    return IconCandidate(
+        "", None, source["label"], token, archive_path=pack.path, archive_member=entry.filename.replace("\\", "/"), source_root=pack.path.parent, declared=True
+    )
 
 
 def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int, int]]:
@@ -121,8 +122,11 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
         if not source.get("pack_kind"):
             continue
         if source.get("pack_error"):
-            warnings.append(warning_record("Pack {pack} konnte nicht für Icons gelesen werden: {error}",
-                                           pack=source["label"], error=source["pack_error"], sources=[priority]))
+            warnings.append(
+                warning_record(
+                    "Pack {pack} konnte nicht für Icons gelesen werden: {error}", pack=source["label"], error=source["pack_error"], sources=[priority]
+                )
+            )
             continue
         try:
             with PackReader(source) as pack:
@@ -149,10 +153,14 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
                         except ValueError:
                             local_atlas[_atlas_key(key)] = ([], priority)
                     if pack.json("blocks.json", {}) or any(name.startswith("textures/blocks/") for name in pack.files):
-                        warnings.append(warning_record(
-                            "Pack {pack}: Eigene Blockmodelle und Blockmaterial-Vorschauen werden nicht neu gerendert; "
-                            "vorhandene Standard-Icons bleiben verfügbar.", pack=source["label"], sources=[priority],
-                        ))
+                        warnings.append(
+                            warning_record(
+                                "Pack {pack}: Eigene Blockmodelle und Blockmaterial-Vorschauen werden nicht neu gerendert; "
+                                "vorhandene Standard-Icons bleiben verfügbar.",
+                                pack=source["label"],
+                                sources=[priority],
+                            )
+                        )
                 else:
                     for name in pack.files:
                         if not name.startswith("items/") or not name.endswith(".json"):
@@ -177,8 +185,9 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
             for key, value in local_definitions.items():
                 definitions.setdefault(key, value)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError, zipfile.BadZipFile, RuntimeError) as exc:
-            warnings.append(warning_record("Pack {pack} konnte nicht für Icons gelesen werden: {error}",
-                                           pack=source["label"], error=error_record(exc), sources=[priority]))
+            warnings.append(
+                warning_record("Pack {pack} konnte nicht für Icons gelesen werden: {error}", pack=source["label"], error=error_record(exc), sources=[priority])
+            )
 
     # Existing Vanilla manifests contain resolved paths. New publications also
     # retain the declarations, so an RP may remap a key without replacing a PNG.
@@ -233,13 +242,16 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
             continue
         result[item] = (replace(candidate, item_id=item), min(binding_priority, asset_priority))
     if outdated_vanilla:
-        warnings.append(warning_record(
-            "Vanilla-Zuordnungsdaten fehlen. Bitte Vanilla-Icons aktualisieren, damit Pack-Verweise vollständig aufgelöst werden können.",
-            sources=outdated_vanilla,
-        ))
+        warnings.append(
+            warning_record(
+                "Vanilla-Zuordnungsdaten fehlen. Bitte Vanilla-Icons aktualisieren, damit Pack-Verweise vollständig aufgelöst werden können.",
+                sources=outdated_vanilla,
+            )
+        )
     for item, (reason, priority) in sorted(issues.items())[:50]:
-        warnings.append(warning_record("Icon für {item}: {reason}. Standarddarstellung wird verwendet.",
-                                       item=item, reason=warning_record(reason), sources=[priority]))
+        warnings.append(
+            warning_record("Icon für {item}: {reason}. Standarddarstellung wird verwendet.", item=item, reason=warning_record(reason), sources=[priority])
+        )
     if len(issues) > 50:
         remaining_sources = sorted({priority for _, (_, priority) in sorted(issues.items())[50:]})
         warnings.append(warning_record("Weitere nicht auflösbare Item-Icons: {count}.", count=len(issues) - 50, sources=remaining_sources))

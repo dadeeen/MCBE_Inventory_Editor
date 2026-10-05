@@ -1,4 +1,5 @@
 """Icon scan/status continuity and byte access to indexed display assets."""
+
 from __future__ import annotations
 
 import zipfile
@@ -24,12 +25,17 @@ def isolate_sources(monkeypatch):
 def _deps(tmp_path):
     state = {}
     return SimpleNamespace(
-        read_only=False, settings_path=str(tmp_path / "sources.json"), data_root=str(tmp_path),
-        get_icon_index=lambda: state.get("index", {}), set_icon_index=lambda value: state.update(index=value),
-        jsonify=lambda value: value, json_string=lambda data, key: data.get(key, ""),
+        read_only=False,
+        settings_path=str(tmp_path / "sources.json"),
+        data_root=str(tmp_path),
+        get_icon_index=lambda: state.get("index", {}),
+        set_icon_index=lambda value: state.update(index=value),
+        jsonify=lambda value: value,
+        json_string=lambda data, key: data.get(key, ""),
         response=lambda data, **kwargs: {"data": data, **kwargs},
         api_error=lambda message, *args: {"success": False, "error": message},
-        log_api_exception=lambda *args: pytest.fail(f"Unexpected route error: {args}"), audit_event=lambda *args, **kwargs: None,
+        log_api_exception=lambda *args: pytest.fail(f"Unexpected route error: {args}"),
+        audit_event=lambda *args, **kwargs: None,
     )
 
 
@@ -39,10 +45,16 @@ def _world(tmp_path, name, item):
     texture.parent.mkdir(parents=True)
     texture.write_bytes(item.encode())
     pack_id = str(uuid4())
-    (world / "resource_packs/manifest.json").write_text(json.dumps({
-        "format_version": 2, "header": {"uuid": pack_id, "version": [1, 0, 0], "name": name},
-        "modules": [{"type": "resources", "uuid": str(uuid4()), "version": [1, 0, 0]}],
-    }), encoding="utf-8")
+    (world / "resource_packs/manifest.json").write_text(
+        json.dumps(
+            {
+                "format_version": 2,
+                "header": {"uuid": pack_id, "version": [1, 0, 0], "name": name},
+                "modules": [{"type": "resources", "uuid": str(uuid4()), "version": [1, 0, 0]}],
+            }
+        ),
+        encoding="utf-8",
+    )
     (world / "world_resource_packs.json").write_text(json.dumps([{"pack_id": pack_id, "version": [1, 0, 0]}]), encoding="utf-8")
     return world
 
@@ -110,8 +122,10 @@ def test_source_mutations_use_the_request_world_instead_of_the_last_scan(tmp_pat
     routes.icons_scan({"world_path": str(first)}, worker)
     data = {"world_path": str(second), "path": str(pack), "enabled": False, "direction": "up"}
     handler = {
-        "add": routes.icons_sources_add, "remove": routes.icons_sources_remove,
-        "disable": routes.icons_sources_set_enabled, "move": routes.icons_sources_move,
+        "add": routes.icons_sources_add,
+        "remove": routes.icons_sources_remove,
+        "disable": routes.icons_sources_set_enabled,
+        "move": routes.icons_sources_move,
         "vanilla": routes.icons_vanilla_update,
     }[action]
     result = handler(data, worker)
@@ -124,8 +138,13 @@ def test_context_publication_is_shared_through_http_and_keeps_world_priority(tmp
     import main
 
     worker = _deps(tmp_path)
-    deps = replace(main.icon_route_deps(), settings_path=worker.settings_path, data_root=worker.data_root,
-                   get_icon_index=worker.get_icon_index, set_icon_index=worker.set_icon_index)
+    deps = replace(
+        main.icon_route_deps(),
+        settings_path=worker.settings_path,
+        data_root=worker.data_root,
+        get_icon_index=worker.get_icon_index,
+        set_icon_index=worker.set_icon_index,
+    )
     monkeypatch.setattr(main, "icon_route_deps", lambda: deps)
     client = main.app.test_client()
     first = _world(tmp_path, "world_a", "apple")

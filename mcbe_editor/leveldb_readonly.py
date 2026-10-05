@@ -235,9 +235,7 @@ class WorldChangedWhileReadingError(CorruptDatabaseError):
 
     def __init__(self, path: str) -> None:
         self.path = path
-        super().__init__(
-            t("Die Welt wurde während des Lesens verändert, vermutlich vom laufenden Bedrock-Server oder von Minecraft. Lade die Welt erneut.")
-        )
+        super().__init__(t("Die Welt wurde während des Lesens verändert, vermutlich vom laufenden Bedrock-Server oder von Minecraft. Lade die Welt erneut."))
 
 
 def _decode_varint(data: bytes, pos: int) -> tuple[int, int]:
@@ -320,9 +318,7 @@ def _iter_log_records(data: bytes, *, recover_tail: bool = False, tail: LogTail 
             payload_end = payload_start + rec_len
             if rec_type == 0 and rec_len == 0:
                 break  # trailer padding
-            recoverable_type = rec_type in (_RECORD_FULL, _RECORD_FIRST) or (
-                bool(fragments) and rec_type in (_RECORD_MIDDLE, _RECORD_LAST)
-            )
+            recoverable_type = rec_type in (_RECORD_FULL, _RECORD_FIRST) or (bool(fragments) and rec_type in (_RECORD_MIDDLE, _RECORD_LAST))
             if payload_end > block_end:
                 # A partial write can end inside a physical record, but a
                 # record can never legitimately cross a 32 KiB block boundary.
@@ -721,9 +717,7 @@ class _Table:
         return best
 
 
-def _replay_wal(
-    data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, recover_tail: bool = False, tail: LogTail | None = None
-) -> int:
+def _replay_wal(data: bytes, memtable: dict[bytes, tuple[int, int, bytes]], *, recover_tail: bool = False, tail: LogTail | None = None) -> int:
     """Apply every WAL batch to ``memtable``; return the newest sequence used."""
 
     last_sequence = 0
@@ -852,8 +846,10 @@ class ReadonlyLevelDbAdapter:
             self._last_sequence = max(
                 self._last_sequence,
                 _replay_wal(
-                    self._read_metadata(os.path.join(db_path, filename)), self._memtable,
-                    recover_tail=newest, tail=self._wal_tail if newest else None,
+                    self._read_metadata(os.path.join(db_path, filename)),
+                    self._memtable,
+                    recover_tail=newest,
+                    tail=self._wal_tail if newest else None,
                 ),
             )
 

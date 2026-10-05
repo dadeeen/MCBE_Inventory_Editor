@@ -337,9 +337,7 @@ class NbtSafetyTests(unittest.TestCase):
     def test_same_float_location_remains_byte_exact(self):
         player = nbt.CompoundTag(
             {
-                "Pos": nbt.ListTag(
-                    [nbt.FloatTag(-24.052806854248047), nbt.FloatTag(72.62001037597656), nbt.FloatTag(81.74593353271484)]
-                ),
+                "Pos": nbt.ListTag([nbt.FloatTag(-24.052806854248047), nbt.FloatTag(72.62001037597656), nbt.FloatTag(81.74593353271484)]),
                 "DimensionId": nbt.IntTag(0),
                 "FuturePlayerData": nbt.StringTag("keep"),
             }
@@ -373,13 +371,7 @@ class NbtSafetyTests(unittest.TestCase):
             apply_player_stats(missing_position, {"pos": [1.0, 70.0, 1.0]})
         self.assertNotIn("Pos", missing_position)
 
-        missing_dimension = nbt.CompoundTag(
-            {
-                "Pos": nbt.ListTag(
-                    [nbt.FloatTag(8.0), nbt.FloatTag(70.0), nbt.FloatTag(8.0)]
-                )
-            }
-        )
+        missing_dimension = nbt.CompoundTag({"Pos": nbt.ListTag([nbt.FloatTag(8.0), nbt.FloatTag(70.0), nbt.FloatTag(8.0)])})
         self.assertTrue(protected_player_nbt_flags(missing_dimension)["dimension_id_missing"])
         with self.assertRaisesRegex(ValueError, "DimensionId fehlt"):
             apply_player_stats(missing_dimension, {"pos": [1.0, 70.0, 1.0], "dimension_id": 1})
@@ -387,13 +379,7 @@ class NbtSafetyTests(unittest.TestCase):
         self.assertNotIn("DimensionId", missing_dimension)
 
     def test_rejects_float_position_overflow_without_mutating_source(self):
-        player = nbt.CompoundTag(
-            {
-                "Pos": nbt.ListTag(
-                    [nbt.FloatTag(1.0), nbt.FloatTag(2.0), nbt.FloatTag(3.0)]
-                )
-            }
-        )
+        player = nbt.CompoundTag({"Pos": nbt.ListTag([nbt.FloatTag(1.0), nbt.FloatTag(2.0), nbt.FloatTag(3.0)])})
 
         with self.assertRaisesRegex(ValueError, "Zahlenbereich"):
             apply_player_stats(player, {"pos": [3.5e38, 20, 30]})
@@ -402,9 +388,7 @@ class NbtSafetyTests(unittest.TestCase):
     def test_updates_dimension_and_position_in_one_validated_location_write(self):
         player = nbt.CompoundTag(
             {
-                "Pos": nbt.ListTag(
-                    [nbt.DoubleTag(80.0), nbt.DoubleTag(70.0), nbt.DoubleTag(-40.0)]
-                ),
+                "Pos": nbt.ListTag([nbt.DoubleTag(80.0), nbt.DoubleTag(70.0), nbt.DoubleTag(-40.0)]),
                 "DimensionId": nbt.IntTag(0),
             }
         )
@@ -417,9 +401,7 @@ class NbtSafetyTests(unittest.TestCase):
     def test_rejects_dimension_without_position(self):
         player = nbt.CompoundTag(
             {
-                "Pos": nbt.ListTag(
-                    [nbt.DoubleTag(8.0), nbt.DoubleTag(70.0), nbt.DoubleTag(8.0)]
-                ),
+                "Pos": nbt.ListTag([nbt.DoubleTag(8.0), nbt.DoubleTag(70.0), nbt.DoubleTag(8.0)]),
                 "DimensionId": nbt.IntTag(0),
             }
         )
@@ -432,9 +414,7 @@ class NbtSafetyTests(unittest.TestCase):
     def test_rejects_unknown_dimension_before_mutating_position(self):
         player = nbt.CompoundTag(
             {
-                "Pos": nbt.ListTag(
-                    [nbt.DoubleTag(8.0), nbt.DoubleTag(70.0), nbt.DoubleTag(8.0)]
-                ),
+                "Pos": nbt.ListTag([nbt.DoubleTag(8.0), nbt.DoubleTag(70.0), nbt.DoubleTag(8.0)]),
                 "DimensionId": nbt.IntTag(0),
             }
         )
@@ -449,9 +429,7 @@ class NbtSafetyTests(unittest.TestCase):
             with self.subTest(tag_type=type(dimension_tag).__name__):
                 player = nbt.CompoundTag(
                     {
-                        "Pos": nbt.ListTag(
-                            [nbt.DoubleTag(8.0), nbt.DoubleTag(70.0), nbt.DoubleTag(8.0)]
-                        ),
+                        "Pos": nbt.ListTag([nbt.DoubleTag(8.0), nbt.DoubleTag(70.0), nbt.DoubleTag(8.0)]),
                         "DimensionId": dimension_tag,
                     }
                 )

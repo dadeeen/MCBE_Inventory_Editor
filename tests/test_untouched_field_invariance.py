@@ -93,12 +93,24 @@ def test_existing_lore_line_breaks_survive_unrelated_item_or_count_edits(edited_
 @pytest.mark.parametrize("edit", [{"count": 1}, {"damage": 1}, {"lore": ["\u241bx41", "new\nline"]}])
 def test_unchanged_display_strings_keep_literal_escape_bytes_after_edits(edit) -> None:
     literal = "\u241bx41"
-    original = nbt.CompoundTag({"Inventory": nbt.ListTag([
-        _item(0, "minecraft:bow", display=nbt.CompoundTag({
-            "Name": nbt.StringTag(literal),
-            "Lore": nbt.ListTag([nbt.StringTag(literal), nbt.StringTag("old\nline")]),
-        })),
-    ])}).save_to(string_encoder=lambda value: value.encode("utf-8"))
+    original = nbt.CompoundTag(
+        {
+            "Inventory": nbt.ListTag(
+                [
+                    _item(
+                        0,
+                        "minecraft:bow",
+                        display=nbt.CompoundTag(
+                            {
+                                "Name": nbt.StringTag(literal),
+                                "Lore": nbt.ListTag([nbt.StringTag(literal), nbt.StringTag("old\nline")]),
+                            }
+                        ),
+                    ),
+                ]
+            )
+        }
+    ).save_to(string_encoder=lambda value: value.encode("utf-8"))
     player = load_player_nbt(original).tag
     original_display = player["Inventory"][0]["tag"]["display"].save_to()
     parsed, _ = inventory.nbt_to_json(player)
@@ -139,9 +151,16 @@ def test_new_literal_escape_markers_survive_metadata_save(field) -> None:
 
 @pytest.mark.parametrize("value", [0.999999999, -1e-50])
 def test_xp_validation_checks_input_and_stored_float32_before_mutation(value) -> None:
-    player = nbt.CompoundTag({"XPProgress": nbt.FloatTag(0.25), "Attributes": nbt.ListTag([
-        nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.DoubleTag(0.25)}),
-    ])})
+    player = nbt.CompoundTag(
+        {
+            "XPProgress": nbt.FloatTag(0.25),
+            "Attributes": nbt.ListTag(
+                [
+                    nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.DoubleTag(0.25)}),
+                ]
+            ),
+        }
+    )
     before = player.save_to()
     with pytest.raises(ValueError, match="XP-Fortschritt"):
         inventory.apply_player_stats(player, {"xp_progress": value})
@@ -149,9 +168,16 @@ def test_xp_validation_checks_input_and_stored_float32_before_mutation(value) ->
 
 
 def test_xp_float32_value_and_attribute_are_synchronized() -> None:
-    player = nbt.CompoundTag({"XPProgress": nbt.FloatTag(0.25), "Attributes": nbt.ListTag([
-        nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.DoubleTag(0.25)}),
-    ])})
+    player = nbt.CompoundTag(
+        {
+            "XPProgress": nbt.FloatTag(0.25),
+            "Attributes": nbt.ListTag(
+                [
+                    nbt.CompoundTag({"Name": nbt.StringTag("minecraft:player.experience"), "Current": nbt.DoubleTag(0.25)}),
+                ]
+            ),
+        }
+    )
     inventory.apply_player_stats(player, {"xp_progress": 0.99999})
     saved = load_player_nbt(player.save_to()).tag
     assert 0 <= saved["XPProgress"].py_data < 1
@@ -263,9 +289,7 @@ def test_empty_standard_containers_survive_an_identical_round_trip(label: str, t
 
 
 def test_untouched_damageable_item_does_not_gain_a_root_damage_tag() -> None:
-    sword = nbt.CompoundTag(
-        {"Slot": nbt.ByteTag(1), "Name": nbt.StringTag("minecraft:diamond_sword"), "Count": nbt.ByteTag(1)}
-    )
+    sword = nbt.CompoundTag({"Slot": nbt.ByteTag(1), "Name": nbt.StringTag("minecraft:diamond_sword"), "Count": nbt.ByteTag(1)})
     _before, _after, by_slot = _save([_item(0, "minecraft:stone"), sword], edit_slot=0, count=5)
 
     assert "Damage" not in by_slot[1]
@@ -278,9 +302,7 @@ def test_renaming_an_item_does_not_add_a_root_damage_tag() -> None:
     for an unrelated edit would add a tag the original never carried.
     """
 
-    sword = nbt.CompoundTag(
-        {"Slot": nbt.ByteTag(0), "Name": nbt.StringTag("minecraft:diamond_sword"), "Count": nbt.ByteTag(1)}
-    )
+    sword = nbt.CompoundTag({"Slot": nbt.ByteTag(0), "Name": nbt.StringTag("minecraft:diamond_sword"), "Count": nbt.ByteTag(1)})
     _before, _after, by_slot = _save([sword], edit_slot=0, display_name="Neu")
 
     assert "Damage" not in by_slot[0]
@@ -289,9 +311,7 @@ def test_renaming_an_item_does_not_add_a_root_damage_tag() -> None:
 
 
 def test_a_real_damage_change_is_still_written() -> None:
-    sword = nbt.CompoundTag(
-        {"Slot": nbt.ByteTag(0), "Name": nbt.StringTag("minecraft:diamond_sword"), "Count": nbt.ByteTag(1)}
-    )
+    sword = nbt.CompoundTag({"Slot": nbt.ByteTag(0), "Name": nbt.StringTag("minecraft:diamond_sword"), "Count": nbt.ByteTag(1)})
     _before, _after, by_slot = _save([sword], edit_slot=0, damage=100)
 
     assert int(by_slot[0]["tag"]["Damage"].py_data) == 100

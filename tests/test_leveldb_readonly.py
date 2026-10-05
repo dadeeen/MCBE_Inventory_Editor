@@ -116,7 +116,10 @@ def test_crc32c_matches_a_bitwise_reference_at_every_length_and_alignment():
 
 def _new_file_edit(file_no: int, smallest: bytes, largest: bytes) -> bytes:
     return (
-        _varint(_TAG_NEW_FILE) + _varint(0) + _varint(file_no) + _varint(100)
+        _varint(_TAG_NEW_FILE)
+        + _varint(0)
+        + _varint(file_no)
+        + _varint(100)
         + _length_prefixed(smallest + struct.pack("<Q", (1 << 8) | _TYPE_VALUE))
         + _length_prefixed(largest + struct.pack("<Q", (1 << 8) | _TYPE_VALUE))
     )
@@ -254,12 +257,14 @@ def test_wal_tail_recovery_matches_native_engine_without_world_writes(tmp_path, 
         for key, value in expected.items():
             db.put(key, value)
         player["Health"] = nbt.FloatTag(1.0)
-        db.putBatch({
-            b"k00": b"x" * value_size,
-            b"k01": None,
-            b"uncommitted": b"new",
-            b"~local_player": nbt.NamedTag(player).save_to(compressed=False, little_endian=True),
-        })
+        db.putBatch(
+            {
+                b"k00": b"x" * value_size,
+                b"k01": None,
+                b"uncommitted": b"new",
+                b"~local_player": nbt.NamedTag(player).save_to(compressed=False, little_endian=True),
+            }
+        )
     finally:
         db.close()
 
@@ -269,13 +274,13 @@ def test_wal_tail_recovery_matches_native_engine_without_world_writes(tmp_path, 
     if damage == "payload":
         data = data[:-5]
     elif damage == "header":
-        data = data[:last + 4]
+        data = data[: last + 4]
     elif damage == "crc":
         data = data[:-1] + bytes([data[-1] ^ 1])
     else:
         # For a small batch, leave only its header; for a large batch, leave
         # intact FIRST/MIDDLE fragments without the final fragment.
-        data = data[:last] if value_size > 32768 else data[:last + 7]
+        data = data[:last] if value_size > 32768 else data[: last + 7]
     wal.write_bytes(data)
     before = {path.name: path.read_bytes() for path in db_path.iterdir()}
     before_stat = _snapshot_dir(str(db_path))

@@ -4,7 +4,7 @@ from tests.node_runner import run_node
 
 
 def test_sync_effects_preserves_disabled_opaque_and_unknown_rows() -> None:
-    run_node(r'''
+    run_node(r"""
         const assert = require("node:assert/strict");
         const fs = require("fs");
         const vm = require("vm");
@@ -35,7 +35,7 @@ def test_sync_effects_preserves_disabled_opaque_and_unknown_rows() -> None:
         controller.syncEffectsFromUI();
         assert.equal(JSON.stringify(effects.slice(0, 2)), before);
         assert.equal(effects[2].duration, 1200);
-    ''')
+    """)
 
 
 def test_frontend_effects_logic_add_effect_decision() -> None:

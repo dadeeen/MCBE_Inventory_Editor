@@ -37,7 +37,10 @@ def test_default_persistence_and_fresh_process(tmp_path):
     assert saved == {"max_uncompressed_mib": 3072, "source": "saved", "editable": True}
     result = subprocess.run(
         [sys.executable, "-c", "from mcbe_editor.backup_settings import get_backup_settings; print(get_backup_settings()['max_uncompressed_mib'])"],
-        capture_output=True, text=True, check=True, cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=Path(__file__).resolve().parents[1],
     )
     assert result.stdout.strip() == "3072"
 
@@ -64,7 +67,9 @@ def test_invalid_api_setting_never_persists(invalid, tmp_path):
     import main
 
     response = main.app.test_client().post(
-        "/api/backup/settings", json={"max_uncompressed_mib": invalid}, headers={"X-CSRF-Token": main.CSRF_TOKEN},
+        "/api/backup/settings",
+        json={"max_uncompressed_mib": invalid},
+        headers={"X-CSRF-Token": main.CSRF_TOKEN},
     )
     assert response.status_code == 400
     assert not (tmp_path / "data" / "backup_settings.json").exists()
@@ -83,9 +88,14 @@ def test_api_requires_csrf_and_rejects_readonly(tmp_path, monkeypatch):
     client = main.app.test_client()
     assert client.post("/api/backup/settings", json={"max_uncompressed_mib": 2048}).status_code == 403
     monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, read_only=True))
-    assert client.post(
-        "/api/backup/settings", json={"max_uncompressed_mib": 2048}, headers={"X-CSRF-Token": main.CSRF_TOKEN},
-    ).status_code == 403
+    assert (
+        client.post(
+            "/api/backup/settings",
+            json={"max_uncompressed_mib": 2048},
+            headers={"X-CSRF-Token": main.CSRF_TOKEN},
+        ).status_code
+        == 403
+    )
     assert not (tmp_path / "data" / "backup_settings.json").exists()
 
 
@@ -253,7 +263,7 @@ def test_real_zip64_backup_and_service_restore_over_two_gib(tmp_path):
     with payload.open("wb") as handle:
         remaining = total_size
         while remaining:
-            chunk = block[:min(len(block), remaining)]
+            chunk = block[: min(len(block), remaining)]
             handle.write(chunk)
             expected_hash.update(chunk)
             remaining -= len(chunk)

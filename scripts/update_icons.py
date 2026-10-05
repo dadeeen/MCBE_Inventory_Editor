@@ -851,9 +851,7 @@ def _validate_downloaded_zip(path: Path) -> None:
             total_uncompressed = 0
             for member in members:
                 if member.file_size < 0 or member.file_size > MAX_RESOURCE_PACK_MEMBER_BYTES:
-                    raise RuntimeError(
-                        tr("Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member}", member=member.filename)
-                    )
+                    raise RuntimeError(tr("Resource-Pack-Download enthält einen unerwartet großen ZIP-Eintrag: {member}", member=member.filename))
                 total_uncompressed += member.file_size
                 if total_uncompressed > MAX_RESOURCE_PACK_UNCOMPRESSED_BYTES:
                     raise RuntimeError(tr("Resource-Pack-Download ist entpackt unerwartet groß."))
@@ -1137,16 +1135,11 @@ def load_item_icon_targets(path: Path = ITEM_DB_PATH) -> tuple[list[str], list[s
         targets = {
             normalized
             for key in addable_raw
-            if (normalized := normalize_identifier(str(key)))
-            and not is_technical_block_only_item_id(f"minecraft:{normalized}")
+            if (normalized := normalize_identifier(str(key))) and not is_technical_block_only_item_id(f"minecraft:{normalized}")
         }
     else:
         # Rückwärtskompatibilität für ältere externe Item-Datenbanken.
-        targets = {
-            item_id
-            for item_id in catalog_items - block_only
-            if not is_technical_block_only_item_id(f"minecraft:{item_id}")
-        }
+        targets = {item_id for item_id in catalog_items - block_only if not is_technical_block_only_item_id(f"minecraft:{item_id}")}
     excluded = sorted(catalog_items - targets)
     return sorted(targets), excluded, len(catalog_items)
 
@@ -1651,8 +1644,13 @@ def build_icon_cache(
                 texture_data = terrain_textures if is_block else item_textures
                 data_driven_aliases = block_aliases if is_block else item_aliases
                 declared = resolve_icon_definition(
-                    item_id, is_block=is_block, item_icons=item_definitions, blocks=block_definitions,
-                    item_atlas=item_textures, terrain_atlas=terrain_textures, available=available_textures,
+                    item_id,
+                    is_block=is_block,
+                    item_icons=item_definitions,
+                    blocks=block_definitions,
+                    item_atlas=item_textures,
+                    terrain_atlas=terrain_textures,
+                    available=available_textures,
                 )
                 # These reviewed previews render the body only. Vanilla's
                 # carried bindings describe tendrils/the portal eye; the beacon
@@ -1663,8 +1661,13 @@ def build_icon_cache(
                     if item_id == "beacon":
                         body["textures"] = "beacon_core"
                     declared = resolve_icon_definition(
-                        item_id, is_block=is_block, item_icons=item_definitions, blocks={item_id: body},
-                        item_atlas=item_textures, terrain_atlas=terrain_textures, available=available_textures,
+                        item_id,
+                        is_block=is_block,
+                        item_icons=item_definitions,
+                        blocks={item_id: body},
+                        item_atlas=item_textures,
+                        terrain_atlas=terrain_textures,
+                        available=available_textures,
                     )
                     if declared:
                         declared = IconResolution("reviewed_block_preview", declared.atlas, declared.path, declared.faces, declared.issue)
@@ -1675,8 +1678,11 @@ def build_icon_cache(
                     # No validated model for these two heads is available here.
                     declared = IconResolution("reviewed_model", "entity", issue="model_required")
                 if (
-                    declared and declared.faces and not supports_block_preview(item_id)
-                    and declared.path and not declared.path.startswith("items/")
+                    declared
+                    and declared.faces
+                    and not supports_block_preview(item_id)
+                    and declared.path
+                    and not declared.path.startswith("items/")
                     and isinstance(block_definitions.get(item_id, {}).get("textures"), dict)
                 ):
                     # A multi-part model cannot be represented by choosing
@@ -1735,7 +1741,9 @@ def build_icon_cache(
                 resolution = declared.metadata() if declared else {"basis": "legacy_heuristic", "atlas": "terrain" if is_block else "items"}
                 if model_handled:
                     resolution = {
-                        "basis": "reviewed_model", "atlas": "entity", "representation": "model_preview",
+                        "basis": "reviewed_model",
+                        "atlas": "entity",
+                        "representation": "model_preview",
                         "texture": model_spec.texture_path,
                     }
                     if f"minecraft:{item_id}" in render_failures:
@@ -1749,12 +1757,17 @@ def build_icon_cache(
                     data_driven_aliases = block_aliases if fallback_is_block else item_aliases
                     fallback_members = block_members if fallback_is_block else item_members if known_non_block else texture_members
                     selected = _select_texture_source(
-                        candidate_texture_keys(item_id, data_driven_aliases), texture_data,
-                        fallback_members, preserve_candidate_order=not fallback_is_block,
+                        candidate_texture_keys(item_id, data_driven_aliases),
+                        texture_data,
+                        fallback_members,
+                        preserve_candidate_order=not fallback_is_block,
                     )
                     if not selected and not is_block and not known_non_block:
                         selected = _select_texture_source(
-                            candidate_texture_keys(item_id, block_aliases), terrain_textures, texture_members, preserve_candidate_order=True,
+                            candidate_texture_keys(item_id, block_aliases),
+                            terrain_textures,
+                            texture_members,
+                            preserve_candidate_order=True,
                         )
                         if selected:
                             resolution["atlas"] = "terrain"
@@ -1851,7 +1864,10 @@ def build_icon_cache(
                     _write_texture_as_png(zf, source, extracted / f"{item_id}#{damage}.png")
                     mapped[f"minecraft:{item_id}#{damage}"] = texture_path
                     resolutions[f"minecraft:{item_id}#{damage}"] = {
-                        "basis": "reviewed_variant", "atlas": "items", "texture": texture_path, "representation": "sprite",
+                        "basis": "reviewed_variant",
+                        "atlas": "items",
+                        "texture": texture_path,
+                        "representation": "sprite",
                     }
                     used_members.add(_zip_member_key(source[1].filename))
                     potion_variant_icons += 1
@@ -1862,7 +1878,10 @@ def build_icon_cache(
                     _write_texture_as_png(zf, source, extracted / f"{item_id}#{damage}.png")
                     mapped[f"minecraft:{item_id}#{damage}"] = texture_path
                     resolutions[f"minecraft:{item_id}#{damage}"] = {
-                        "basis": "reviewed_variant", "atlas": "items", "texture": texture_path, "representation": "sprite",
+                        "basis": "reviewed_variant",
+                        "atlas": "items",
+                        "texture": texture_path,
+                        "representation": "sprite",
                     }
                     used_members.add(_zip_member_key(source[1].filename))
                     bed_variant_icons += 1

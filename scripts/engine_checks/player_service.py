@@ -1,4 +1,5 @@
 """Exercise the production service against only a disposable runner world."""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -35,10 +36,15 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
 
     def save(key, loaded, inventory, ender):
         nonlocal saves
-        response = service.save_player(str(world), key, list(inventory.values()), {}, ender_chest_list=list(ender.values()),
-                                       base_revision=loaded["player_revision"])
-        if (not response.get("success") or response.get("no_op") or not response.get("backup_file")
-                or not Path(resolve_backup_path(str(world), response["backup_file"])).is_file()):
+        response = service.save_player(
+            str(world), key, list(inventory.values()), {}, ender_chest_list=list(ender.values()), base_revision=loaded["player_revision"]
+        )
+        if (
+            not response.get("success")
+            or response.get("no_op")
+            or not response.get("backup_file")
+            or not Path(resolve_backup_path(str(world), response["backup_file"])).is_file()
+        ):
             raise ProbeError("Player service did not complete a backed-up write")
         saves += 1
 
@@ -62,17 +68,23 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         for case in cases:
             field, slot = locations[case["case_id"]]
             if case["mode"] != "preserve":
-                payloads[field][slot] = {**payloads[field].get(slot, {}), "slot": slot, "name": case["id"], "count": case["amount"],
-                                         "damage": case["damage"], "display_name": case["name"], "lore": case["lore"],
-                                         "enchantments": [{"id": ENCHANTMENT_IDS[value["id"]], "lvl": value["level"]} for value in case["enchantments"]]}
+                payloads[field][slot] = {
+                    **payloads[field].get(slot, {}),
+                    "slot": slot,
+                    "name": case["id"],
+                    "count": case["amount"],
+                    "damage": case["damage"],
+                    "display_name": case["name"],
+                    "lore": case["lore"],
+                    "enchantments": [{"id": ENCHANTMENT_IDS[value["id"]], "lvl": value["level"]} for value in case["enchantments"]],
+                }
         save(key, loaded, payloads["Inventory"], payloads["EnderChestInventory"])
         edited = containers(load_player_nbt(read_records(world)[raw_key]).tag)
         for field, items in containers(original).items():
             expected_slots = set(items) | {slot for location, slot in locations.values() if location == field}
             if set(edited[field]) != expected_slots:
                 raise ProbeError("Player service lost items or added unexpected slots in its initial intermediate state")
-            changed_slots = {locations[case["case_id"]][1] for case in cases
-                             if locations[case["case_id"]][0] == field and case["mode"] != "preserve"}
+            changed_slots = {locations[case["case_id"]][1] for case in cases if locations[case["case_id"]][0] == field and case["mode"] != "preserve"}
             if any(edited[field][slot].save_to() != item.save_to() for slot, item in items.items() if slot not in changed_slots):
                 raise ProbeError("Player service changed an untouched item in its initial intermediate state")
         for case in cases:
@@ -83,14 +95,21 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         verify_intermediate(edited_bytes)
         loaded = service.load_player(str(world), key)
         before = read_records(world)
-        response = service.save_player(str(world), key, list(loaded["inventory"].values()), {},
-                                       ender_chest_list=list(loaded["ender_chest"].values()), base_revision=loaded["player_revision"])
+        response = service.save_player(
+            str(world),
+            key,
+            list(loaded["inventory"].values()),
+            {},
+            ender_chest_list=list(loaded["ender_chest"].values()),
+            base_revision=loaded["player_revision"],
+        )
         if response.get("no_op") is not True or response.get("backup_file") or read_records(world) != before:
             raise ProbeError("Unchanged player save wrote data or created a backup")
         no_ops += 1
         try:
-            service.save_player(str(world), key, list(loaded["inventory"].values()), {},
-                                ender_chest_list=list(loaded["ender_chest"].values()), base_revision=original_revision)
+            service.save_player(
+                str(world), key, list(loaded["inventory"].values()), {}, ender_chest_list=list(loaded["ender_chest"].values()), base_revision=original_revision
+            )
         except ValueError:
             if read_records(world) != before:
                 raise ProbeError("Rejected stale player save changed the database") from None
@@ -98,14 +117,19 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         else:
             raise ProbeError("Player service accepted a stale revision")
         # Move across both containers and back through production origin tracking.
-        mixed_slots = {field: {locations[case["case_id"]][1] for case in cases
-                              if case.get("coverage") == "mixed-metadata" and locations[case["case_id"]][0] == field}
-                       for field in ("Inventory", "EnderChestInventory")}
-        selected = next(((left_slot, right_slot) for left_slot, left in sorted(
-                            loaded["inventory"].items(), key=lambda entry: (entry[0] not in mixed_slots["Inventory"], entry[0]))
-                         for right_slot, right in sorted(
-                            loaded["ender_chest"].items(), key=lambda entry: (entry[0] not in mixed_slots["EnderChestInventory"], entry[0]))
-                         if (left["name"], left["count"]) != (right["name"], right["count"])), None)
+        mixed_slots = {
+            field: {locations[case["case_id"]][1] for case in cases if case.get("coverage") == "mixed-metadata" and locations[case["case_id"]][0] == field}
+            for field in ("Inventory", "EnderChestInventory")
+        }
+        selected = next(
+            (
+                (left_slot, right_slot)
+                for left_slot, left in sorted(loaded["inventory"].items(), key=lambda entry: (entry[0] not in mixed_slots["Inventory"], entry[0]))
+                for right_slot, right in sorted(loaded["ender_chest"].items(), key=lambda entry: (entry[0] not in mixed_slots["EnderChestInventory"], entry[0]))
+                if (left["name"], left["count"]) != (right["name"], right["count"])
+            ),
+            None,
+        )
         if selected is None:
             raise ProbeError("Player service fixture needs distinguishable items for cross-container moves")
         inventory_slot, ender_slot = selected
@@ -124,8 +148,11 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
             verify_intermediate(expected_bytes)
             loaded = service.load_player(str(world), key)
         # Delete and recreate one new item, preserving all other slots.
-        created = next(case for case in sorted(cases, key=lambda entry: entry.get("coverage") != "mixed-metadata")
-                       if case["mode"] == "create" and locations[case["case_id"]][0] == "Inventory")
+        created = next(
+            case
+            for case in sorted(cases, key=lambda entry: entry.get("coverage") != "mixed-metadata")
+            if case["mode"] == "create" and locations[case["case_id"]][0] == "Inventory"
+        )
         mixed_recreations += int(created.get("coverage") == "mixed-metadata")
         _, slot = locations[created["case_id"]]
         inventory = deepcopy(loaded["inventory"])
@@ -136,16 +163,28 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         verify_intermediate(expected_deleted)
         loaded = service.load_player(str(world), key)
         inventory = deepcopy(loaded["inventory"])
-        inventory[slot] = {"slot": slot, "name": created["id"], "count": created["amount"], "damage": created["damage"],
-                           "display_name": created["name"], "lore": created["lore"],
-                           "enchantments": [{"id": ENCHANTMENT_IDS[value["id"]], "lvl": value["level"]} for value in created["enchantments"]]}
+        inventory[slot] = {
+            "slot": slot,
+            "name": created["id"],
+            "count": created["amount"],
+            "damage": created["damage"],
+            "display_name": created["name"],
+            "lore": created["lore"],
+            "enchantments": [{"id": ENCHANTMENT_IDS[value["id"]], "lvl": value["level"]} for value in created["enchantments"]],
+        }
         save(key, loaded, inventory, loaded["ender_chest"])
         final = verify_intermediate(edited_bytes)
         results.append(final)
     after = read_records(world)
     if before_records.keys() != after.keys() or any(after[key] != value for key, value in before_records.items() if key not in raw_keys):
         raise ProbeError("Player service changed unrelated database records")
-    return results, {"status": "pass", "backed_up_saves": saves, "no_op_checks": no_ops,
-                     "stale_revision_rejections": stale_rejections, "cross_container_moves": 2 * len(raw_keys),
-                     "intermediate_state_checks": intermediate_checks,
-                     "mixed_metadata_moves": mixed_moves, "mixed_metadata_recreations": mixed_recreations}
+    return results, {
+        "status": "pass",
+        "backed_up_saves": saves,
+        "no_op_checks": no_ops,
+        "stale_revision_rejections": stale_rejections,
+        "cross_container_moves": 2 * len(raw_keys),
+        "intermediate_state_checks": intermediate_checks,
+        "mixed_metadata_moves": mixed_moves,
+        "mixed_metadata_recreations": mixed_recreations,
+    }

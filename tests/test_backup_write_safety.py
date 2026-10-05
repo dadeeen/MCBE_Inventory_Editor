@@ -230,7 +230,11 @@ def test_directory_sync_only_ignores_unsupported_operations(monkeypatch, error_n
     # Exercise POSIX policy on Windows too, without changing process-wide os.name.
     close = Mock()
     operating_system = SimpleNamespace(
-        name="posix", O_DIRECTORY=1, O_RDONLY=0, open=Mock(return_value=123), close=close,
+        name="posix",
+        O_DIRECTORY=1,
+        O_RDONLY=0,
+        open=Mock(return_value=123),
+        close=close,
         fsync=Mock(side_effect=OSError(error_number, "synthetic directory error")),
     )
     monkeypatch.setattr(backup, "os", operating_system)
@@ -242,15 +246,21 @@ def test_directory_sync_only_ignores_unsupported_operations(monkeypatch, error_n
     close.assert_called_once_with(123)
 
 
-@pytest.mark.parametrize("sync_errno,close_errno,expected_errno", [
-    (errno.EIO, errno.EINVAL, errno.EIO),
-    (errno.EIO, errno.EBADF, errno.EIO),
-    (errno.EINVAL, errno.EIO, errno.EIO),
-    (None, errno.EINVAL, errno.EINVAL),
-])
+@pytest.mark.parametrize(
+    "sync_errno,close_errno,expected_errno",
+    [
+        (errno.EIO, errno.EINVAL, errno.EIO),
+        (errno.EIO, errno.EBADF, errno.EIO),
+        (errno.EINVAL, errno.EIO, errno.EIO),
+        (None, errno.EINVAL, errno.EINVAL),
+    ],
+)
 def test_directory_close_cannot_hide_sync_errors(monkeypatch, sync_errno, close_errno, expected_errno):
     operating_system = SimpleNamespace(
-        name="posix", O_DIRECTORY=1, O_RDONLY=0, open=Mock(return_value=123),
+        name="posix",
+        O_DIRECTORY=1,
+        O_RDONLY=0,
+        open=Mock(return_value=123),
         fsync=Mock(side_effect=OSError(sync_errno, "synthetic sync failure") if sync_errno else None),
         close=Mock(side_effect=OSError(close_errno, "synthetic close failure")),
     )
@@ -283,11 +293,17 @@ def test_world_keyword_argument_and_full_backup_remain_supported(world):
 @pytest.mark.parametrize("failure", ["source", "archive_sync", "directory_sync"])
 @pytest.mark.parametrize("workspace", [False, True])
 def test_save_never_opens_mutating_database_without_safe_backup(world, monkeypatch, failure, workspace):
-    original = save_player_nbt(nbt.NamedTag(nbt.CompoundTag({
-        "Health": nbt.FloatTag(20),
-        "PlayerGameType": nbt.IntTag(0),
-        "Inventory": nbt.ListTag([]),
-    })))
+    original = save_player_nbt(
+        nbt.NamedTag(
+            nbt.CompoundTag(
+                {
+                    "Health": nbt.FloatTag(20),
+                    "PlayerGameType": nbt.IntTag(0),
+                    "Inventory": nbt.ListTag([]),
+                }
+            )
+        )
+    )
     readonly = SimpleNamespace(get=lambda _key: original, iter_items=lambda: [(LOCAL_PLAYER_KEY, original)], close=lambda: None)
     write_factory = Mock(side_effect=AssertionError("mutating database must remain closed"))
     builder = Mock(side_effect=AssertionError("write builder must not run"))
@@ -295,8 +311,10 @@ def test_save_never_opens_mutating_database_without_safe_backup(world, monkeypat
     if failure == "source":
         change_during_zip(monkeypatch, world)
     else:
+
         def fail(*_args):
             raise OSError(errno.EIO, "synthetic sync failure")
+
         if failure == "archive_sync":
             monkeypatch.setattr(backup.os, "fsync", fail)
         else:
@@ -304,8 +322,12 @@ def test_save_never_opens_mutating_database_without_safe_backup(world, monkeypat
 
     with pytest.raises((BackupSourceChangedError, OSError)):
         service.save_player(
-            str(world), encode_player_key(LOCAL_PLAYER_KEY), None, {"health": 19},
-            base_revision=service._player_revision(original), extra_batch_builder=builder if workspace else None,
+            str(world),
+            encode_player_key(LOCAL_PLAYER_KEY),
+            None,
+            {"health": 19},
+            base_revision=service._player_revision(original),
+            extra_batch_builder=builder if workspace else None,
         )
     write_factory.assert_not_called()
     builder.assert_not_called()

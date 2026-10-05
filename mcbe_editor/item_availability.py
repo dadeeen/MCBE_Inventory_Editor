@@ -43,9 +43,7 @@ def _bundled_item_db_metadata() -> tuple[str, frozenset[str]]:
     addable_items = raw.get("addable_items")
     if not isinstance(addable_items, list) or not all(isinstance(item_id, str) for item_id in addable_items):
         raise InvalidItemAvailabilityError("Gebündelte Item-Datenbank enthält keine gültige addable_items-Liste.")
-    return release.strip(), frozenset(
-        item_id for item_id in addable_items if not is_technical_block_only_item_id(item_id)
-    )
+    return release.strip(), frozenset(item_id for item_id in addable_items if not is_technical_block_only_item_id(item_id))
 
 
 BUNDLED_ITEM_DB_SOURCE_RELEASE, BUNDLED_ADDABLE_ITEM_IDS = _bundled_item_db_metadata()
@@ -126,19 +124,13 @@ def load_item_availability(
     unknown_keys = set(root) - expected_keys
     missing_keys = expected_keys - set(root)
     if unknown_keys or missing_keys:
-        raise InvalidItemAvailabilityError(
-            f"Ungültige Top-Level-Schlüssel (fehlend={sorted(missing_keys)}, unbekannt={sorted(unknown_keys)})."
-        )
+        raise InvalidItemAvailabilityError(f"Ungültige Top-Level-Schlüssel (fehlend={sorted(missing_keys)}, unbekannt={sorted(unknown_keys)}).")
     if root.get("schema_version") != ITEM_AVAILABILITY_SCHEMA_VERSION:
-        raise InvalidItemAvailabilityError(
-            f"schema_version muss {ITEM_AVAILABILITY_SCHEMA_VERSION} sein."
-        )
+        raise InvalidItemAvailabilityError(f"schema_version muss {ITEM_AVAILABILITY_SCHEMA_VERSION} sein.")
 
     source_release = _require_text(root.get("source_release"), label="source_release")
     if expected_source_release and source_release != expected_source_release:
-        raise InvalidItemAvailabilityError(
-            f"source_release {source_release!r} passt nicht zur Item-Datenbank {expected_source_release!r}."
-        )
+        raise InvalidItemAvailabilityError(f"source_release {source_release!r} passt nicht zur Item-Datenbank {expected_source_release!r}.")
     reviewed_at = _require_text(root.get("reviewed_at"), label="reviewed_at")
     try:
         reviewed_date = date.fromisoformat(reviewed_at)
@@ -152,9 +144,7 @@ def load_item_availability(
     category_keys = set(classifications_raw)
     expected_categories = set(ITEM_AVAILABILITY_CATEGORIES)
     if category_keys != expected_categories:
-        raise InvalidItemAvailabilityError(
-            f"classifications muss exakt diese Kategorien enthalten: {sorted(expected_categories)}"
-        )
+        raise InvalidItemAvailabilityError(f"classifications muss exakt diese Kategorien enthalten: {sorted(expected_categories)}")
 
     known_ids = set(known_item_ids)
     classified_ids: dict[str, str] = {}
@@ -168,9 +158,7 @@ def load_item_availability(
             item_id = _item_id(raw_item_id, label=f"classifications.{category}[{index}]")
             previous_category = classified_ids.get(item_id)
             if previous_category is not None:
-                raise InvalidItemAvailabilityError(
-                    f"Item-ID {item_id!r} ist doppelt klassifiziert ({previous_category}, {category})."
-                )
+                raise InvalidItemAvailabilityError(f"Item-ID {item_id!r} ist doppelt klassifiziert ({previous_category}, {category}).")
             if item_id not in known_ids:
                 raise InvalidItemAvailabilityError(f"Klassifizierte Item-ID fehlt in ADDABLE_ITEM_IDS: {item_id}")
             classified_ids[item_id] = category
@@ -222,12 +210,6 @@ def item_availability_client_payload() -> dict[str, Any]:
 
     payload = copy.deepcopy(ITEM_AVAILABILITY)
     classifications = payload["classifications"]
-    curated_item_ids = {
-        item_id
-        for item_ids in classifications.values()
-        for item_id in item_ids
-    } | set(payload["variants"])
-    classifications["unreviewed"] = sorted(
-        item_data.catalog_values()["UNREVIEWED_ITEM_IDS"] - curated_item_ids
-    )
+    curated_item_ids = {item_id for item_ids in classifications.values() for item_id in item_ids} | set(payload["variants"])
+    classifications["unreviewed"] = sorted(item_data.catalog_values()["UNREVIEWED_ITEM_IDS"] - curated_item_ids)
     return payload

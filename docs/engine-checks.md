@@ -221,8 +221,9 @@ access; the runner does not change system networking permissions.
 
 ## Verified builds
 
-The results below use **BDS 1.26.52.3**, editor runtime **v0.6.2**
-and the source snapshots identified below. They come from local Docker runs,
+The results below use **BDS 1.26.52.3**, editor runtime **v0.6.2** at source
+revision `4e1d1ba2ebe5675f6a60a7681ce2567fb7d139cd`, and the source snapshots
+identified below. They come from local Docker runs,
 not from the manually dispatched workflow. The scope exclusions above apply.
 The bundled catalog has no registry, stack-limit or durability differences from
 this engine. The provenance of its reviewed values is documented in

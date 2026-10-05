@@ -46,7 +46,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Unterbrochene Welt-Restores prüfen oder nach Bestätigung wiederaufnehmen.")
     parser.add_argument("paths", nargs="*", help="Welt- oder Suchordner; ohne Angabe gelten die konfigurierten Suchorte.")
     parser.add_argument(
-        "--confirm-server-stopped", action="store_true",
+        "--confirm-server-stopped",
+        action="store_true",
         help="Bestätigt für diesen Lauf, dass Minecraft und Server vollständig gestoppt sind; erlaubt Recovery bei unbekanntem Status.",
     )
     args = parser.parse_args(argv)
@@ -60,7 +61,10 @@ def main(argv: list[str] | None = None) -> int:
 
     roots = args.paths or [root["path"] for root in get_configured_scan_roots(include_disabled=False, include_missing=True) if root.get("path")]
     results = recover_interrupted_restores(
-        roots, max_depth=config.world_scan_depth, max_dirs=config.world_scan_max_dirs, recovery_gate_check=gate_check,
+        roots,
+        max_depth=config.world_scan_depth,
+        max_dirs=config.world_scan_max_dirs,
+        recovery_gate_check=gate_check,
     )
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return int(any(result.get("status") in {"deferred-write-gate", "manual-recovery-required"} for result in results))

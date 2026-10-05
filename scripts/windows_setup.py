@@ -13,8 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def supported_python() -> bool:
-    return (platform.python_implementation() == "CPython" and (3, 12) <= sys.version_info[:2] < (3, 15)
-            and not sysconfig.get_config_var("Py_GIL_DISABLED") and sys.platform == "win32")
+    return (
+        platform.python_implementation() == "CPython"
+        and (3, 12) <= sys.version_info[:2] < (3, 15)
+        and not sysconfig.get_config_var("Py_GIL_DISABLED")
+        and sys.platform == "win32"
+    )
 
 
 def preflight() -> None:
@@ -36,13 +40,15 @@ def install(root: Path) -> None:
     for name in ("bootstrap", "runtime"):
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--only-binary=:all:", "--require-hashes", "-r", f"requirements/{name}.lock"],
-            cwd=root, check=True,
+            cwd=root,
+            check=True,
         )
     subprocess.run([sys.executable, "-m", "pip", "check"], cwd=root, check=True)
     # A fresh process sees newly installed packages and detects broken imports.
     subprocess.run(
         [sys.executable, "-c", "import flask, waitress; from mcbe_editor.db import LevelDbAdapter; from mcbe_editor import nbt"],
-        cwd=root, check=True,
+        cwd=root,
+        check=True,
     )
 
 

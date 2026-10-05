@@ -116,6 +116,7 @@ def test_local_shutdown_unblocks_response_when_client_does_not_read(monkeypatch)
                     yield b"x" * (1024 * 1024)
             finally:
                 finished.set()
+
         return Response(body(), content_type="application/octet-stream")
 
     with running_server(app) as (server, port, thread), socket.socket() as client:
@@ -211,7 +212,7 @@ def test_local_upload_boundary_matches_flask(chunked, limit, offset, expected):
 
     with running_server(app) as (_server, port, _thread), closing(HTTPConnection("127.0.0.1", port, timeout=5)) as connection:
         payload = b"x" * size
-        body = (payload[i:i + 8192] for i in range(0, size, 8192)) if chunked else payload
+        body = (payload[i : i + 8192] for i in range(0, size, 8192)) if chunked else payload
         connection.request("POST", "/", body=body, encode_chunked=chunked)
         response = connection.getresponse()
         assert response.status == expected
@@ -244,10 +245,7 @@ def test_pipelined_requests_do_not_mix_responses():
     app = server_app()
     app.add_url_rule("/<value>", view_func=lambda value: Response(value, mimetype="text/plain"))
     with running_server(app) as (_server, port, _thread), socket.create_connection(("127.0.0.1", port), timeout=5) as client:
-        client.sendall(
-            b"GET /first HTTP/1.1\r\nHost: localhost\r\n\r\n"
-            b"GET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-        )
+        client.sendall(b"GET /first HTTP/1.1\r\nHost: localhost\r\n\r\nGET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
         chunks = []
         while chunk := client.recv(4096):
             chunks.append(chunk)

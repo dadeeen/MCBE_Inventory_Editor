@@ -1,4 +1,5 @@
 """Mount placement and clone checks independent of the planned record metadata."""
+
 import struct
 from dataclasses import replace
 
@@ -70,19 +71,22 @@ def _template(**updates):
     return key, nbt.NamedTag(tag).save_to(**SAVE_KWARGS)
 
 
-@pytest.mark.parametrize("field,value", [
-    ("IsTamed", nbt.ByteTag(1)),
-    ("Saddled", nbt.ByteTag(1)),
-    ("OwnerNew", nbt.LongTag(42)),
-    ("LinksTag", nbt.ListTag([nbt.CompoundTag({"entityID": nbt.LongTag(42)})])),
-    ("Dead", nbt.ByteTag(1)),
-    ("Armor", nbt.ListTag([nbt.CompoundTag({"Count": nbt.ByteTag(1), "Name": nbt.StringTag("minecraft:diamond_horse_armor")})])),
-    ("definitions", nbt.ListTag([nbt.StringTag("+minecraft:horse_tamed")])),
-    ("IsBaby", nbt.StringTag("unknown")),
-    ("IsBaby", nbt.FloatTag(float("nan"))),
-    ("IsBaby", nbt.CompoundTag({"future": nbt.IntTag(1)})),
-    ("IsBaby", nbt.ByteTag(2)),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("IsTamed", nbt.ByteTag(1)),
+        ("Saddled", nbt.ByteTag(1)),
+        ("OwnerNew", nbt.LongTag(42)),
+        ("LinksTag", nbt.ListTag([nbt.CompoundTag({"entityID": nbt.LongTag(42)})])),
+        ("Dead", nbt.ByteTag(1)),
+        ("Armor", nbt.ListTag([nbt.CompoundTag({"Count": nbt.ByteTag(1), "Name": nbt.StringTag("minecraft:diamond_horse_armor")})])),
+        ("definitions", nbt.ListTag([nbt.StringTag("+minecraft:horse_tamed")])),
+        ("IsBaby", nbt.StringTag("unknown")),
+        ("IsBaby", nbt.FloatTag(float("nan"))),
+        ("IsBaby", nbt.CompoundTag({"future": nbt.IntTag(1)})),
+        ("IsBaby", nbt.ByteTag(2)),
+    ],
+)
 def test_active_template_uses_synthetic_fallback_or_rejects_explicit_clone(field, value):
     key, raw = _template(**{field: value})
     db = FakeDb({key: raw})
@@ -105,15 +109,18 @@ def test_idle_template_preserves_unknown_data():
     assert mount_write.validate_horse_mount_write(_saved_db(record), record)["ok"]
 
 
-@pytest.mark.parametrize("field,value", [
-    ("IsTamed", nbt.ByteTag(1)),
-    ("Saddled", nbt.ByteTag(1)),
-    ("OwnerNew", nbt.LongTag(42)),
-    ("LeasherID", nbt.LongTag(42)),
-    ("LinksTag", nbt.ListTag([nbt.CompoundTag({"entityID": nbt.LongTag(42)})])),
-    ("IsTamed", nbt.IntTag(0)),
-    ("OwnerNew", nbt.IntTag(-1)),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("IsTamed", nbt.ByteTag(1)),
+        ("Saddled", nbt.ByteTag(1)),
+        ("OwnerNew", nbt.LongTag(42)),
+        ("LeasherID", nbt.LongTag(42)),
+        ("LinksTag", nbt.ListTag([nbt.CompoundTag({"entityID": nbt.LongTag(42)})])),
+        ("IsTamed", nbt.IntTag(0)),
+        ("OwnerNew", nbt.IntTag(-1)),
+    ],
+)
 def test_validator_rejects_inherited_live_state_even_when_bytes_match_plan(field, value):
     record = mount_write.build_horse_mount_record(FakeDb({}), {"x": 0.5, "y": 64, "z": 0.5}, create_mode="synthetic_full")
     tag = nbt.load(record.actor_value, **LOAD_KWARGS).tag

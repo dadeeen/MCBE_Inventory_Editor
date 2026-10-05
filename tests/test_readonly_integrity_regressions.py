@@ -1,4 +1,5 @@
 """Integrity and bounded reads for synthetic Bedrock table files."""
+
 import struct
 import zlib
 
@@ -59,7 +60,7 @@ def test_unknown_sst_entry_type_is_rejected_with_valid_crc(tmp_path, access, ent
     assert _snapshot(db_path) == before
 
 
-@pytest.mark.parametrize("last", [2, 0x7f, 0x81])
+@pytest.mark.parametrize("last", [2, 0x7F, 0x81])
 def test_varint_cannot_exceed_uint64(last):
     with pytest.raises(reader.CorruptDatabaseError):
         reader._decode_varint(b"\xff" * 9 + bytes([last]), 0)

@@ -23,10 +23,14 @@ def isolated_sources(monkeypatch):
 
 
 def problem_world(root):
-    _, registration = _pack(root / "resource_packs", "synthetic-pack", {
-        "textures/item_texture.json": {"texture_data": {"apple": {"textures": "textures/items/missing"}}},
-        "textures/items/carrot.png": b"synthetic carrot",
-    })
+    _, registration = _pack(
+        root / "resource_packs",
+        "synthetic-pack",
+        {
+            "textures/item_texture.json": {"texture_data": {"apple": {"textures": "textures/items/missing"}}},
+            "textures/items/carrot.png": b"synthetic carrot",
+        },
+    )
     return _world(root, "world", [registration])
 
 
@@ -65,9 +69,15 @@ def test_cross_pack_warning_belongs_to_the_responsible_source(tmp_path, problem)
     if problem != "atlas":
         files["textures/items/tool.png"] = b"synthetic tool"
     mapping, rp = _pack(tmp_path / "resource_packs", "mapping", files)
-    override, top = _pack(tmp_path / "resource_packs", "override", {
-        "textures/items/tool.png": b"",
-    } if problem == "asset" else {})
+    override, top = _pack(
+        tmp_path / "resource_packs",
+        "override",
+        {
+            "textures/items/tool.png": b"",
+        }
+        if problem == "asset"
+        else {},
+    )
     item = _item()
     if problem == "definition":
         item["minecraft:item"]["components"] = {}
@@ -192,7 +202,7 @@ def test_status_prepares_each_manual_pack_once(tmp_path, archive, read_only):
 
 
 def test_icon_manager_reports_partial_success_and_retains_empty_states():
-    run_node(r'''
+    run_node(r"""
         const assert = require("assert");
         const fs = require("fs");
         const vm = require("vm");
@@ -208,4 +218,4 @@ def test_icon_manager_reports_partial_success_and_retains_empty_states():
         assert.ok(!healthy.includes("bereit mit Einschränkungen"));
         assert.ok(render({count: 0, health: {enabled_sources: 1}}).includes("keine Treffer"));
         assert.ok(render({count: 0}).includes("Fallback aktiv"));
-    ''')
+    """)

@@ -115,11 +115,7 @@ def build_item_listing_cache_payload(items: Mapping[str, str], metadata: Mapping
 def parse_item_listing_cache_payload(payload: object) -> tuple[dict[str, str], dict[str, Any]]:
     """Validate and unpack a normalized Microsoft Learn item-list snapshot."""
 
-    if (
-        not isinstance(payload, dict)
-        or type(payload.get("schema_version")) is not int
-        or payload.get("schema_version") != ITEM_LISTING_CACHE_SCHEMA_VERSION
-    ):
+    if not isinstance(payload, dict) or type(payload.get("schema_version")) is not int or payload.get("schema_version") != ITEM_LISTING_CACHE_SCHEMA_VERSION:
         raise UpdateReviewError("Der Microsoft-Itemlisten-Snapshot hat ein unbekanntes Format.")
     items = _validated_item_listing(payload.get("items"))
     expected_items_hash = payload.get("microsoft_item_listing_items_hash")
@@ -250,9 +246,7 @@ def update_review_snapshot(
         "scope": normalized_scope,
         "resource_pack_release": resource_identity["resource_pack_release"],
         "resource_pack_asset": resource_identity["resource_pack_asset"],
-        "microsoft_item_listing_content_hash": (
-            item_listing["microsoft_item_listing_content_hash"] if item_listing is not None else None
-        ),
+        "microsoft_item_listing_content_hash": (item_listing["microsoft_item_listing_content_hash"] if item_listing is not None else None),
     }
 
 

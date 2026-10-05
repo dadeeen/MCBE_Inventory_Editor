@@ -34,8 +34,7 @@ def test_raw_texture_collisions_do_not_depend_on_file_order(monkeypatch, tmp_pat
     import zipfile
 
     root = tmp_path / ("pack.zip" if archive else "pack")
-    entries = [("blocks/brick", b"wrong material"), ("items/brick", b"brick sprite"),
-               ("blocks/lever", b"lever material"), ("items/lever", b"lever sprite")]
+    entries = [("blocks/brick", b"wrong material"), ("items/brick", b"brick sprite"), ("blocks/lever", b"lever material"), ("items/lever", b"lever sprite")]
     if reverse:
         entries.reverse()
     if archive:
@@ -758,8 +757,17 @@ def test_icon_index_cache_tolerates_invalid_numeric_counters(tmp_path):
 
     cache = tmp_path / "icon_index_cache.json"
     cache.write_text(
-        json.dumps({"version": _INDEX_FILE_VERSION, "sources_signature": "sig", "sources": [], "icons": {}, "warnings": [],
-                    "scanned_files": "broken", "variant_aliases": "broken"}),
+        json.dumps(
+            {
+                "version": _INDEX_FILE_VERSION,
+                "sources_signature": "sig",
+                "sources": [],
+                "icons": {},
+                "warnings": [],
+                "scanned_files": "broken",
+                "variant_aliases": "broken",
+            }
+        ),
         encoding="utf-8",
     )
 

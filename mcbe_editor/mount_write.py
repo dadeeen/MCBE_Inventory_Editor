@@ -1133,9 +1133,7 @@ def validate_horse_mount_write(db, record: HorseMountRecord, *, expected_digp_va
         checks["tame_state_matches_plan"] = isinstance(tag.get("IsTamed"), nbt.ByteTag) and _tag_data(tag["IsTamed"]) == expected_tamed
         checks["owner_matches_plan"] = isinstance(tag.get("OwnerNew"), nbt.LongTag) and _tag_data(tag["OwnerNew"]) == expected_owner
         checks["no_active_actor_links"] = _mount_has_no_actor_links(tag)
-        checks["no_inherited_equipment"] = (
-            _tag_data(tag.get("Saddled", 0)) == 0 and _tag_data(tag.get("Chested", 0)) == 0 and _mount_equipment_is_empty(tag)
-        )
+        checks["no_inherited_equipment"] = _tag_data(tag.get("Saddled", 0)) == 0 and _tag_data(tag.get("Chested", 0)) == 0 and _mount_equipment_is_empty(tag)
         checks["identifier_matches_mount_type"] = identifier == record_mount_type
         checks["unique_id_matches_actor_key"] = unique_id == record.unique_id
         checks["storage_key_matches_actor_suffix"] = storage_key == actor_suffix

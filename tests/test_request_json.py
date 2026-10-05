@@ -12,11 +12,15 @@ def _client():
     return main.app.test_client()
 
 
-@pytest.mark.parametrize("body", [
-    '{"force":',
-    '{"force":' + '[' * 10000 + '0' + ']' * 10000 + '}',
-    '{"force":' + '{"x":' * 10000 + '0' + '}' * 10000 + '}',
-], ids=["truncated", "deep-list", "deep-object"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"force":',
+        '{"force":' + "[" * 10000 + "0" + "]" * 10000 + "}",
+        '{"force":' + '{"x":' * 10000 + "0" + "}" * 10000 + "}",
+    ],
+    ids=["truncated", "deep-list", "deep-object"],
+)
 def test_malformed_json_does_not_start_vanilla_icon_update(body):
     with patch.object(main, "CSRF_TOKEN", "json-token"), patch.object(main, "run_update_icons", return_value=(0, "called")) as runner:
         response = _client().post(

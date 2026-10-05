@@ -52,11 +52,12 @@ def test_incomplete_footprint_never_hides_known_unsafe_blocks(role, block, cente
 
 
 def test_incomplete_but_unobstructed_footprint_remains_unchecked() -> None:
-    result = _footprint_assessment([
-        {"block_x": 15, "block_z": 8, "center": True,
-         "block_names": {"floor": "minecraft:stone", "feet": "minecraft:air", "head": "minecraft:air"}},
-        {"block_x": 16, "block_z": 8, "center": False, "block_names": {}},
-    ])
+    result = _footprint_assessment(
+        [
+            {"block_x": 15, "block_z": 8, "center": True, "block_names": {"floor": "minecraft:stone", "feet": "minecraft:air", "head": "minecraft:air"}},
+            {"block_x": 16, "block_z": 8, "center": False, "block_names": {}},
+        ]
+    )
     assert result["status"] == "unchecked"
     assert result["safe_to_place"] is None
 
@@ -698,9 +699,7 @@ def test_unfinalized_chunk_cannot_reach_safe_through_the_footprint() -> None:
     assert direct["safe_to_place"] is None
     assert direct["placement_check"]["reason"] == "chunk_not_finalized"
 
-    readable_footprint = _candidate_with_footprint_probe(
-        FakeDb(readable_records), {"id": "readable", **readable_candidate}, dimension_id=0
-    )
+    readable_footprint = _candidate_with_footprint_probe(FakeDb(readable_records), {"id": "readable", **readable_candidate}, dimension_id=0)
     assert readable_footprint["safe_to_place"] is None
     assert readable_footprint["chunk_probe"]["footprint_check"]["all_chunks_finalized"] is False
 

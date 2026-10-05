@@ -21,15 +21,30 @@ def isolate(monkeypatch):
     monkeypatch.setattr(icons, "_vanilla_icon_roots", lambda: [])
 
 
-@pytest.mark.parametrize("reference", [
-    ["textures/items/a", "textures/items/b"], {"textures": "textures/items/a", "tint_color": "#ff0000"}, [], None, {},
-    [None, "textures/items/a"], [{}, "textures/items/a"], [[], "textures/items/a"],
-])
+@pytest.mark.parametrize(
+    "reference",
+    [
+        ["textures/items/a", "textures/items/b"],
+        {"textures": "textures/items/a", "tint_color": "#ff0000"},
+        [],
+        None,
+        {},
+        [None, "textures/items/a"],
+        [{}, "textures/items/a"],
+        [[], "textures/items/a"],
+    ],
+)
 def test_unresolved_atlas_entry_does_not_guess_an_item_named_png(tmp_path, reference):
-    _, rp = _pack(tmp_path / "resource_packs", "rp", {
-        "textures/item_texture.json": {"texture_data": {"apple": reference}},
-        "textures/items/apple.png": b"wrong guess", "textures/items/a.png": b"a", "textures/items/b.png": b"b",
-    })
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {"texture_data": {"apple": reference}},
+            "textures/items/apple.png": b"wrong guess",
+            "textures/items/a.png": b"a",
+            "textures/items/b.png": b"b",
+        },
+    )
     result, _ = _scan(tmp_path, _world(tmp_path, "world", [rp]))
     assert "minecraft:apple" not in result["icons"]
     assert any("minecraft:apple" in warning for warning in result["warnings"])
@@ -96,9 +111,15 @@ def test_corrupt_compressed_icon_is_a_handled_http_error(tmp_path, monkeypatch, 
     public, publisher = _scan(tmp_path, _world(tmp_path, "world", [rp]))
     reader = _deps(tmp_path)
     logged = []
-    deps = replace(main.icon_route_deps(), settings_path=publisher.settings_path, data_root=publisher.data_root,
-                   get_icon_index=reader.get_icon_index, set_icon_index=reader.set_icon_index, read_only=read_only,
-                   log_api_exception=lambda *args: logged.append(args))
+    deps = replace(
+        main.icon_route_deps(),
+        settings_path=publisher.settings_path,
+        data_root=publisher.data_root,
+        get_icon_index=reader.get_icon_index,
+        set_icon_index=reader.set_icon_index,
+        read_only=read_only,
+        log_api_exception=lambda *args: logged.append(args),
+    )
     monkeypatch.setattr(main, "icon_route_deps", lambda: deps)
     response = main.app.test_client().get(public["icons"]["minecraft:apple"]["url"])
     assert response.status_code == 404
@@ -111,11 +132,15 @@ def test_base_item_without_icon_in_higher_behavior_pack_hides_lower_custom_icon(
     atlas = {"demo:tool": {"textures": "textures/custom/tool"}}
     if override:
         atlas["fruit_icon"] = {"textures": "textures/custom/fruit"}
-    _, rp = _pack(tmp_path / "resource_packs", "rp", {
-        "textures/item_texture.json": {"texture_data": atlas},
-        "textures/custom/tool.png": b"lower custom icon",
-        "textures/custom/fruit.png": b"replacement apple",
-    })
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {"texture_data": atlas},
+            "textures/custom/tool.png": b"lower custom icon",
+            "textures/custom/fruit.png": b"replacement apple",
+        },
+    )
     _, lower = _pack(tmp_path / "behavior_packs", "lower", {"items/apple.json": _item("minecraft:apple")}, kind="data")
     top_item = _item("minecraft:apple")
     top_item["minecraft:item"]["components"] = {"minecraft:max_stack_size": 32}

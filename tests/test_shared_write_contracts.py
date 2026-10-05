@@ -64,11 +64,15 @@ def test_restore_preserves_recovery_details_on_each_error_path(error_type, field
     service = Mock()
     service.restore_backup.side_effect = error
     deps = BackupRouteDeps(
-        service=service, jsonify=lambda payload: payload,
+        service=service,
+        jsonify=lambda payload: payload,
         api_error=lambda error, status=400: ({"success": False, "error": str(error)}, status),
-        log_api_exception=Mock(), json_string=lambda data, key: data[key],
-        require_world_write_allowed=lambda: None, require_final_world_write_allowed=lambda operation: None,
-        presence_conflict_response=lambda *args, **kwargs: None, audit_event=Mock(),
+        log_api_exception=Mock(),
+        json_string=lambda data, key: data[key],
+        require_world_write_allowed=lambda: None,
+        require_final_world_write_allowed=lambda operation: None,
+        presence_conflict_response=lambda *args, **kwargs: None,
+        audit_event=Mock(),
         final_write_gate_blocked_error=type("GateError", (Exception,), {}),
     )
     payload, status = restore_backup({"world_path": "world", "backup_file": "input.zip", "backup_token": {}}, deps)

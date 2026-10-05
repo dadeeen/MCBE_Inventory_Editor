@@ -152,6 +152,7 @@ def test_unavailable_state_evidence_does_not_fail_writes(tmp_path, monkeypatch, 
     path = _new_db(tmp_path)
     writer = LevelDbWriter(str(path))
     try:
+
         def unavailable(_reader):
             raise error_type("state unavailable")
 
@@ -169,6 +170,7 @@ def test_receipt_allocation_failure_does_not_fail_a_committed_write(tmp_path, mo
     path = _new_db(tmp_path)
     writer = LevelDbWriter(str(path))
     try:
+
         def exhausted(*_args):
             raise MemoryError("receipt allocation")
 
@@ -185,6 +187,7 @@ def test_wal_digest_allocation_failure_disables_evidence_without_failing_the_wri
     path = _new_db(tmp_path)
     writer = LevelDbWriter(str(path))
     try:
+
         def exhausted(*_args, **_kwargs):
             raise MemoryError("optional digest allocation")
 
@@ -374,15 +377,37 @@ def test_torn_newest_log_blocks_writes_until_the_engine_recovers(tmp_path, caplo
 @pytest.mark.parametrize(
     ("fields", "message"),
     [
-        ((_varint(_TAG_COMPARATOR) + _varint(5) + b"other" + _varint(_TAG_LOG_NUMBER) + _varint(0)
-          + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Comparator"),
+        (
+            (
+                _varint(_TAG_COMPARATOR)
+                + _varint(5)
+                + b"other"
+                + _varint(_TAG_LOG_NUMBER)
+                + _varint(0)
+                + _varint(_TAG_NEXT_FILE_NUMBER)
+                + _varint(2)
+                + _varint(_TAG_LAST_SEQUENCE)
+                + _varint(0)
+            ),
+            "Comparator",
+        ),
         ((_varint(_TAG_LOG_NUMBER) + _varint(0) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Sequenzzähler"),
         ((_varint(_TAG_LOG_NUMBER) + _varint(0) + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2)), "Sequenzzähler"),
         ((_varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Sequenzzähler"),
-        ((_varint(_TAG_LOG_NUMBER) + _varint(100) + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2)
-          + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Dateizähler"),
-        ((_varint(_TAG_LOG_NUMBER) + _varint(0) + _varint(_TAG_PREV_LOG_NUMBER) + _varint(100)
-          + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Dateizähler"),
+        ((_varint(_TAG_LOG_NUMBER) + _varint(100) + _varint(_TAG_NEXT_FILE_NUMBER) + _varint(2) + _varint(_TAG_LAST_SEQUENCE) + _varint(0)), "Dateizähler"),
+        (
+            (
+                _varint(_TAG_LOG_NUMBER)
+                + _varint(0)
+                + _varint(_TAG_PREV_LOG_NUMBER)
+                + _varint(100)
+                + _varint(_TAG_NEXT_FILE_NUMBER)
+                + _varint(2)
+                + _varint(_TAG_LAST_SEQUENCE)
+                + _varint(0)
+            ),
+            "Dateizähler",
+        ),
     ],
 )
 def test_incomplete_or_inconsistent_manifests_are_not_written(tmp_path, fields, message):
@@ -400,8 +425,7 @@ def test_missing_unrelated_table_blocks_writes_without_repair(tmp_path):
     path = _new_db(tmp_path)
     _write(path, {b"player_test": b"before"})
     smallest = b"a" + ((1 << 8) | 1).to_bytes(8, "little")
-    fields = (_varint(_TAG_NEW_FILE) + _varint(1) + _varint(10) + _varint(100)
-              + leveldb_writer._encode_slice(smallest) + leveldb_writer._encode_slice(smallest))
+    fields = _varint(_TAG_NEW_FILE) + _varint(1) + _varint(10) + _varint(100) + leveldb_writer._encode_slice(smallest) + leveldb_writer._encode_slice(smallest)
     with (path / "MANIFEST-000001").open("ab") as handle:
         handle.write(_manifest(fields))
     before = _snapshot(path)
@@ -495,9 +519,7 @@ except LevelDbInUseError:
 
 
 def _hold(script: str, path: Path) -> subprocess.Popen:
-    child = subprocess.Popen(
-        [sys.executable, "-c", script, str(ROOT), str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
-    )
+    child = subprocess.Popen([sys.executable, "-c", script, str(ROOT), str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     assert child.stdout.readline().strip() == "ready"
     return child
 
@@ -627,6 +649,7 @@ def test_failed_log_setup_ends_the_session(tmp_path, monkeypatch, failure_at):
     before = _snapshot(path)
     writer = LevelDbWriter(str(path))
     try:
+
         def fail(*_args):
             raise OSError("simulated log setup failure")
 
@@ -657,9 +680,16 @@ def test_failed_log_setup_ends_the_session(tmp_path, monkeypatch, failure_at):
         assert _native_items(path) == expected
 
 
-@pytest.mark.parametrize("code,tolerated", [
-    (errno.EINVAL, True), (errno.ENOSYS, True), (getattr(errno, "EOPNOTSUPP", errno.EINVAL), True), (errno.EIO, False), (errno.ENOSPC, False),
-])
+@pytest.mark.parametrize(
+    "code,tolerated",
+    [
+        (errno.EINVAL, True),
+        (errno.ENOSYS, True),
+        (getattr(errno, "EOPNOTSUPP", errno.EINVAL), True),
+        (errno.EIO, False),
+        (errno.ENOSPC, False),
+    ],
+)
 def test_unsupported_directory_sync_continues_but_io_errors_fail(monkeypatch, code, tolerated):
     # Runs the POSIX branch on every platform with a stand-in descriptor.
     closed = []
@@ -751,8 +781,10 @@ def test_batches_beyond_the_reader_budget_are_refused_before_touching_the_world(
     writer = LevelDbWriter(str(path))
     try:
         with pytest.raises(ValueError, match="zu groß"), monkeypatch.context() as patcher:
+
             def unexpected_encoding(*_args):
                 pytest.fail("Oversized payload must be refused before allocating encoded buffers")
+
             patcher.setattr(leveldb_writer, "encode_write_batch", unexpected_encoding)
             writer.put_batch({b"b": b"x" * 1000})
         assert writer.last_write_reached_log() is False

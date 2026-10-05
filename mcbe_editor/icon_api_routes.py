@@ -78,6 +78,7 @@ def _public_icon_index(index: dict) -> dict:
     public["warnings"] = [warning_text(record) for record in index.get("_warning_records", index.get("warnings", []))]
     context = index.get("_context_id")
     if context:
+
         def with_context(entry):
             return {**entry, "url": f"{entry['url']}?context={context}"} if entry.get("url") else entry
 
@@ -106,9 +107,12 @@ def _selection_diagnostics(index: dict, warnings: list[str]) -> dict:
         return index
     # Selection errors belong to the request, not to a shared Vanilla index.
     combined = [*index.get("warnings", []), *warnings]
-    return {**index, "warnings": combined,
-            "_warning_records": [*index.get("_warning_records", index.get("warnings", [])), *warnings],
-            "health": {**index.get("health", {}), "status": "warning", "warning_count": len(combined)}}
+    return {
+        **index,
+        "warnings": combined,
+        "_warning_records": [*index.get("_warning_records", index.get("warnings", [])), *warnings],
+        "health": {**index.get("health", {}), "status": "warning", "warning_count": len(combined)},
+    }
 
 
 def _scan_and_store_icons(
@@ -148,17 +152,14 @@ def _status_icon_index(deps: IconRouteDeps, world_path: str | None) -> dict:
             cached = load_cached_icon_index(deps.settings_path, context_id=context)
             if cached is None:
                 latest = load_cached_icon_index(deps.settings_path)
-                if latest and (latest.get("_context_id") == context or (
-                    latest.get("_context_id") is None
-                    and icon_context_id(latest.get("sources", [])) == context
-                )):
+                if latest and (
+                    latest.get("_context_id") == context or (latest.get("_context_id") is None and icon_context_id(latest.get("sources", [])) == context)
+                ):
                     cached = latest
             if cached is not None:
                 index = cached
                 if cached.get("_legacy_warnings"):
-                    warnings.append(t(
-                        "Bitte Icons einmal mit Schreibzugriff neu scannen, um ältere Diagnosemeldungen in der gewählten Sprache anzuzeigen."
-                    ))
+                    warnings.append(t("Bitte Icons einmal mit Schreibzugriff neu scannen, um ältere Diagnosemeldungen in der gewählten Sprache anzuzeigen."))
             else:
                 warnings.append(t("Kein gültiger Icon-Index vorhanden. Bitte die Icons einmal mit Schreibzugriff laden oder aktualisieren."))
         except Exception as exc:

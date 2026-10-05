@@ -17,10 +17,19 @@ from tests.node_runner import run_node
 def _configure(monkeypatch, tmp_path, *, password=None, host="0.0.0.0"):
     import main
 
-    monkeypatch.setattr(main, "APP_CONFIG", replace(
-        main.APP_CONFIG, mode="local", host="127.0.0.1", auth_required=False,
-        auth_password=password, auth_password_hash=None, fail_on_insecure_config=False,
-    ))
+    monkeypatch.setattr(
+        main,
+        "APP_CONFIG",
+        replace(
+            main.APP_CONFIG,
+            mode="local",
+            host="127.0.0.1",
+            auth_required=False,
+            auth_password=password,
+            auth_password_hash=None,
+            fail_on_insecure_config=False,
+        ),
+    )
     monkeypatch.setattr(main, "RUNTIME_BIND_HOST", host)
     monkeypatch.setattr(main, "SETUP_STATE", FirstRunSetup(tmp_path / "setup.json"))
     return main
@@ -40,17 +49,24 @@ def test_cli_bind_override_rechecks_unwritable_setup(monkeypatch, tmp_path):
 def test_cli_rejects_empty_bind_host_before_listening(tmp_path, host):
     app_root = Path(__file__).resolve().parents[1]
     env = {key: value for key, value in os.environ.items() if not key.startswith("MCBE_")}
-    env.update({
-        "MCBE_DATA_ROOT": str(tmp_path / "data"),
-        "MCBE_BACKUP_ROOT": str(tmp_path / "backups"),
-        "MCBE_WORLDS_ROOT": str(tmp_path / "no-worlds"),
-        "MCBE_READ_ONLY": "true",
-        "MCBE_STARTUP_SECURITY_REPORT": "false",
-    })
+    env.update(
+        {
+            "MCBE_DATA_ROOT": str(tmp_path / "data"),
+            "MCBE_BACKUP_ROOT": str(tmp_path / "backups"),
+            "MCBE_WORLDS_ROOT": str(tmp_path / "no-worlds"),
+            "MCBE_READ_ONLY": "true",
+            "MCBE_STARTUP_SECURITY_REPORT": "false",
+        }
+    )
     # An invalid port also prevents a listener if host validation regresses.
     result = subprocess.run(
         [sys.executable, str(app_root / "main.py"), f"--host={host}", "--port=-1", "--no-browser"],
-        cwd=app_root, env=env, capture_output=True, text=True, timeout=15, check=False,
+        cwd=app_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
     )
 
     assert result.returncode == 2, result.stderr
@@ -99,10 +115,17 @@ def test_failed_setup_storage_write_keeps_unauthenticated_api_blocked(monkeypatc
         # The directory becomes unwritable after startup and after the setup
         # form was loaded. The operation lock itself can still be acquired.
         monkeypatch.setattr(setup_state_module, "atomic_write_private_text", Mock(side_effect=PermissionError("storage unavailable")))
-        response = client.post("/setup", data={
-            "_setup_token": token, "action": action, "risk_ack": "yes",
-            "username": "admin", "password": "long password", "password_confirm": "long password",
-        })
+        response = client.post(
+            "/setup",
+            data={
+                "_setup_token": token,
+                "action": action,
+                "risk_ack": "yes",
+                "username": "admin",
+                "password": "long password",
+                "password_confirm": "long password",
+            },
+        )
 
         assert response.status_code == 200
         assert "Die Ersteinrichtung konnte nicht gespeichert werden." in response.get_data(as_text=True)
@@ -151,7 +174,7 @@ def test_auto_browser_uses_public_health_endpoint_and_ipv6_brackets(monkeypatch,
 
 
 def test_auth_heartbeat_script_sends_token_immediately_and_every_five_seconds():
-    run_node(r'''
+    run_node(r"""
         const vm = require("vm"), fs = require("fs"), assert = require("assert");
         const sent = [];
         let tick;
@@ -168,4 +191,4 @@ def test_auth_heartbeat_script_sends_token_immediately_and_every_five_seconds():
             assert.equal(options.method, "POST");
             assert.equal(options.headers["X-CSRF-Token"], "session-token");
         }
-    ''')
+    """)

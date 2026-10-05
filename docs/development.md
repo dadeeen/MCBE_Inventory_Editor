@@ -151,7 +151,8 @@ python -m venv .venv
 .venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
 .venv/Scripts/python scripts/smoke_check.py
 .venv/Scripts/python -m pytest tests -q
-.venv/Scripts/python -m ruff check
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m ruff format --check .
 .venv/Scripts/python -m pip check
 .venv/Scripts/python scripts/release_check.py --path .
 ```
@@ -163,6 +164,13 @@ python scripts/test_full.py -v
 ```
 
 The GitHub Actions workflow runs on pull requests, pushes to `main`, version tags, a weekly schedule, and manually via **Actions → CI → Run workflow**. Pull requests, `main`, scheduled runs, and manual runs execute the full validation including a Docker build, but never publish. Only a version-tag push may publish the Docker image and create a GitHub Release; a separate publish workflow without tests does not exist. External actions are immutably pinned to full commit SHAs, with the corresponding release tag documented as a comment.
+
+The `Lint` job requires both `ruff check .` and `ruff format --check .` to pass.
+Package and release jobs depend on it. Apply formatting locally with
+`python -m ruff format .` using the Ruff version from the locked development
+requirements. `pyproject.toml` defines the shared style, including LF line endings
+consistent with `.gitattributes`. Keep broad formatting changes separate from
+functional changes so reviews remain focused.
 
 Docker uses a wheel-download stage with hash verification and installs those wheels offline in the runtime stage. The pinned pip bootstrap is shared with setup and CI. The runtime uses the project's Python storage implementation and contains neither native compilers nor LevelDB-specific system packages. Independent reference libraries stay outside this image.
 

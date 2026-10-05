@@ -483,9 +483,7 @@ def _apply_bundled_curation(
         bundled_block_only = _item_id_set(bundled_raw.get("block_only_items"))
         bundled_block_items = _item_id_set(bundled_raw.get("block_items"))
         bundled_addable_items = _item_id_set(bundled_raw.get("addable_items"))
-        bundled_technical_ids = frozenset(
-            item_id for item_id in bundled_addable_items if is_technical_block_only_item_id(item_id)
-        )
+        bundled_technical_ids = frozenset(item_id for item_id in bundled_addable_items if is_technical_block_only_item_id(item_id))
         bundled_block_only = frozenset(bundled_block_only | bundled_technical_ids)
         bundled_addable_items = frozenset(bundled_addable_items - bundled_technical_ids)
     except (OSError, ValueError):
@@ -589,11 +587,7 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
 
         # The updater only adds entries, so tooltip keys that older catalogs
         # took for items leave persistent copies only here.
-        items = {
-            str(key): _as_text_pair(value, key=str(key))
-            for key, value in items_raw.items()
-            if not is_non_item_lang_key_id(str(key))
-        }
+        items = {str(key): _as_text_pair(value, key=str(key)) for key, value in items_raw.items() if not is_non_item_lang_key_id(str(key))}
         block_only_item_ids = _item_id_set(raw.get("block_only_items"))
         addable_items_raw = raw.get("addable_items")
         has_explicit_addable_items = isinstance(addable_items_raw, list)
@@ -603,9 +597,7 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
             # gebündelte Kuration ersetzt ihn anschließend durch die offizielle
             # positive Registry, sofern eine persistente Kopie geladen wird.
             addable_item_ids = frozenset(set(items) - set(block_only_item_ids))
-        technical_item_ids = frozenset(
-            item_id for item_id in addable_item_ids if is_technical_block_only_item_id(item_id)
-        )
+        technical_item_ids = frozenset(item_id for item_id in addable_item_ids if is_technical_block_only_item_id(item_id))
         block_only_item_ids = frozenset(block_only_item_ids | technical_item_ids)
         addable_item_ids = frozenset(addable_item_ids - technical_item_ids)
 
@@ -795,11 +787,7 @@ def selectable_item_catalog(
     source_block_only = catalog_values()["BLOCK_ONLY_ITEM_IDS"] if block_only_item_ids is None else block_only_item_ids
     source_aliases = catalog_values()["COMPAT_ITEM_ALIASES"] if compat_item_aliases is None else compat_item_aliases
     result = dict(source_items)
-    recognized_runtime_ids = {
-        str(value or "").strip().lower()
-        for collection in (source_addable, source_block_only)
-        for value in collection
-    }
+    recognized_runtime_ids = {str(value or "").strip().lower() for collection in (source_addable, source_block_only) for value in collection}
     for item_id in sorted(recognized_runtime_ids):
         if not item_id or item_id in result:
             continue

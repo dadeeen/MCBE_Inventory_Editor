@@ -30,11 +30,13 @@ def _armor(first=None):
 
 
 def _player(**tags):
-    return nbt.CompoundTag({
-        "Pos": nbt.ListTag([nbt.FloatTag(0), nbt.FloatTag(64), nbt.FloatTag(0)]),
-        "Health": nbt.FloatTag(20),
-        **tags,
-    }).save_to()
+    return nbt.CompoundTag(
+        {
+            "Pos": nbt.ListTag([nbt.FloatTag(0), nbt.FloatTag(64), nbt.FloatTag(0)]),
+            "Health": nbt.FloatTag(20),
+            **tags,
+        }
+    ).save_to()
 
 
 @pytest.fixture
@@ -80,7 +82,12 @@ def _load(editor, key=LOCAL_PLAYER_KEY):
 
 def _save(editor, loaded, inventory, **kwargs):
     return editor.service.save_player(
-        editor.world, encode_player_key(LOCAL_PLAYER_KEY), inventory, {}, base_revision=loaded["player_revision"], **kwargs,
+        editor.world,
+        encode_player_key(LOCAL_PLAYER_KEY),
+        inventory,
+        {},
+        base_revision=loaded["player_revision"],
+        **kwargs,
     )
 
 
@@ -88,15 +95,19 @@ def _stored(editor):
     return nbt.load(editor.store[LOCAL_PLAYER_KEY]).tag
 
 
-@pytest.mark.parametrize("slot,root_name,inventory_name,root_item_name", [
-    (103, "Armor", "minecraft:iron_helmet", "minecraft:diamond_helmet"),
-    (-106, "Offhand", "minecraft:shield", "minecraft:totem_of_undying"),
-])
+@pytest.mark.parametrize(
+    "slot,root_name,inventory_name,root_item_name",
+    [
+        (103, "Armor", "minecraft:iron_helmet", "minecraft:diamond_helmet"),
+        (-106, "Offhand", "minecraft:shield", "minecraft:totem_of_undying"),
+    ],
+)
 def test_hidden_root_item_survives_an_unrelated_inventory_edit(editor, slot, root_name, inventory_name, root_item_name):
     hidden = _item(root_item_name, Future=nbt.CompoundTag({"values": nbt.ListTag([], 11)}))
     roots = _armor(hidden) if root_name == "Armor" else nbt.ListTag([hidden])
     editor.store[LOCAL_PLAYER_KEY] = _player(
-        Inventory=nbt.ListTag([_item(inventory_name, slot), _item("minecraft:stone", 0)]), **{root_name: roots},
+        Inventory=nbt.ListTag([_item(inventory_name, slot), _item("minecraft:stone", 0)]),
+        **{root_name: roots},
     )
     loaded = _load(editor)
     assert loaded["inventory"][slot]["name"] == inventory_name

@@ -114,9 +114,7 @@ def _reassess_candidate_space(candidate: dict[str, Any]) -> dict[str, Any]:
     elif support_surface_shape_is_state_dependent(floor):
         safe_to_place = None
         status = "unchecked"
-        message = t(
-            "Bodenblock {floor} kann je nach Blockzustand tragen oder nicht; der Zustand wird nicht gelesen. Bitte Platzierung prüfen.", floor=floor
-        )
+        message = t("Bodenblock {floor} kann je nach Blockzustand tragen oder nicht; der Zustand wird nicht gelesen. Bitte Platzierung prüfen.", floor=floor)
     elif not is_confirmed_full_support_surface(floor):
         safe_to_place = None
         status = "unchecked"
@@ -386,9 +384,7 @@ def _footprint_assessment(columns: list[dict[str, Any]], clearance_blocks: int =
         return {
             "status": "unchecked",
             "safe_to_place": None,
-            "message": t(
-                "Zentraler Bodenblock {floor} kann je nach Blockzustand tragen oder nicht; der Zustand wird nicht gelesen.", floor=center_floor
-            ),
+            "message": t("Zentraler Bodenblock {floor} kann je nach Blockzustand tragen oder nicht; der Zustand wird nicht gelesen.", floor=center_floor),
             "edge_overhang_count": edge_overhang,
         }
     if not is_confirmed_full_support_surface(center_floor):
@@ -739,8 +735,7 @@ def refine_preview_placement(db: Any, preview: dict[str, Any]) -> dict[str, Any]
 
     if isinstance(preview.get("candidate_positions"), list):
         candidates = [
-            {**candidate, **normalize_mount_position(candidate)}
-            if isinstance(candidate, dict) and _candidate_position(candidate) is not None else candidate
+            {**candidate, **normalize_mount_position(candidate)} if isinstance(candidate, dict) and _candidate_position(candidate) is not None else candidate
             for candidate in preview["candidate_positions"]
         ]
         preview = _sync_selected_position_from_candidates({**preview, "candidate_positions": candidates})

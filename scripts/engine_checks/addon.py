@@ -27,8 +27,16 @@ def make_addon_cases(observations: dict) -> list[dict]:
     cases = make_cases(["minecraft:stone"], observations, {"minecraft:stone": 64})
     for item_id, maximum in ADDON_LIMITS.items():
         for mode in ("preserve", "decorate"):
-            append_case(cases, observations, item_id, mode, maximum, seeded_metadata=True,
-                        damage=ADDON_DURABILITY - 1 if item_id == "mcbe_probe:durable" else 0,
-                        name="" if mode == "preserve" else "§bAdd-on Prüflauf 世界",
-                        lore=[] if mode == "preserve" else ["Erhalten trotz unbekannter Item-ID"], coverage="controlled-addon")
+            append_case(
+                cases,
+                observations,
+                item_id,
+                mode,
+                maximum,
+                seeded_metadata=True,
+                damage=ADDON_DURABILITY - 1 if item_id == "mcbe_probe:durable" else 0,
+                name="" if mode == "preserve" else "§bAdd-on Prüflauf 世界",
+                lore=[] if mode == "preserve" else ["Erhalten trotz unbekannter Item-ID"],
+                coverage="controlled-addon",
+            )
     return cases

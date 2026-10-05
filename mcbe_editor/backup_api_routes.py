@@ -204,8 +204,11 @@ def restore_backup_preview(data: dict, deps: BackupRouteDeps):
 def _restore_outcome_unknown(data: dict, deps: BackupRouteDeps, exc: Exception):
     deps.log_api_exception("backup.restore", exc)
     deps.audit_event(
-        "backup.restore", "failure", world_path=data.get("world_path"),
-        details={"backup_file": data.get("backup_file"), "write_outcome_unknown": True}, error=str(exc),
+        "backup.restore",
+        "failure",
+        world_path=data.get("world_path"),
+        details={"backup_file": data.get("backup_file"), "write_outcome_unknown": True},
+        error=str(exc),
     )
     command = recovery_command(str(data["world_path"]), "--confirm-server-stopped")
     payload = error_payload(

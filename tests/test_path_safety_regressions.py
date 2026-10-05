@@ -18,6 +18,7 @@ from mcbe_editor.path_safety import is_linklike, is_linklike_stat
 def directory_link(target, link):
     if os.name == "nt":
         import _winapi
+
         _winapi.CreateJunction(str(target), str(link))
     else:
         link.symlink_to(target, target_is_directory=True)
@@ -90,15 +91,30 @@ def test_backup_rejects_file_symlink(tmp_path, monkeypatch):
 
 
 WINDOWS_ONLY_UNSAFE_NAMES = [
-    "db/entry:stream", "db/CON", "db/nul.txt", "db/COM1.log", "db/LPT9", "db/COM¹", "db/CONOUT$",
-    "db/trailing.", "db/trailing ", "db/a<file", "db/a?file", "db/a\x01file",
+    "db/entry:stream",
+    "db/CON",
+    "db/nul.txt",
+    "db/COM1.log",
+    "db/LPT9",
+    "db/COM¹",
+    "db/CONOUT$",
+    "db/trailing.",
+    "db/trailing ",
+    "db/a<file",
+    "db/a?file",
+    "db/a\x01file",
 ]
 
 
-@pytest.mark.parametrize(("name", "windows_rules"), [
-    *((name, True) for name in WINDOWS_ONLY_UNSAFE_NAMES),
-    ("db//CURRENT", False), ("db/./CURRENT", False), ("db/../CURRENT", False),
-])
+@pytest.mark.parametrize(
+    ("name", "windows_rules"),
+    [
+        *((name, True) for name in WINDOWS_ONLY_UNSAFE_NAMES),
+        ("db//CURRENT", False),
+        ("db/./CURRENT", False),
+        ("db/../CURRENT", False),
+    ],
+)
 def test_restore_rejects_unsafe_members_before_extracting(tmp_path, monkeypatch, name, windows_rules):
     monkeypatch.setattr(backup, "_WINDOWS_PATH_RULES", windows_rules)
     archive = tmp_path / "source.zip"

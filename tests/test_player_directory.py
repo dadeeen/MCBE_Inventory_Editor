@@ -160,8 +160,12 @@ def _raw(world, key=LOCAL_PLAYER_KEY):
 
 def _save(service, world, *, key=LOCAL_PLAYER_KEY, xp=2, **kwargs):
     return service.save_player(
-        str(world), encode_player_key(key), None, {"xp_level": xp},
-        base_revision=hashlib.sha256(_raw(world, key)).hexdigest(), **kwargs,
+        str(world),
+        encode_player_key(key),
+        None,
+        {"xp_level": xp},
+        base_revision=hashlib.sha256(_raw(world, key)).hexdigest(),
+        **kwargs,
     )
 
 
@@ -171,12 +175,15 @@ def world(tmp_path, monkeypatch):
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic directory test", encoding="utf-8")
-    _write(world, {
-        LOCAL_PLAYER_KEY: _player_bytes(),
-        b"player_remote": _player_bytes(),
-        b"unusual-key": _player_bytes(),
-        b"chunk-data": b"not NBT",
-    })
+    _write(
+        world,
+        {
+            LOCAL_PLAYER_KEY: _player_bytes(),
+            b"player_remote": _player_bytes(),
+            b"unusual-key": _player_bytes(),
+            b"chunk-data": b"not NBT",
+        },
+    )
     return world
 
 
@@ -225,9 +232,12 @@ def test_directory_updates_changed_player_shape_and_request_language(world, serv
     with app.test_request_context("/", headers={"Accept-Language": "en"}):
         service.list_players(str(world))
         saved = service.save_player(
-            str(world), encode_player_key(LOCAL_PLAYER_KEY),
-            [{"slot": 0, "name": "minecraft:stone", "count": 1, "damage": 0}], {},
-            base_revision=hashlib.sha256(_raw(world)).hexdigest(), allow_create_inventory=True,
+            str(world),
+            encode_player_key(LOCAL_PLAYER_KEY),
+            [{"slot": 0, "name": "minecraft:stone", "count": 1, "damage": 0}],
+            {},
+            base_revision=hashlib.sha256(_raw(world)).hexdigest(),
+            allow_create_inventory=True,
         )
         assert saved["success"]
     with app.test_request_context("/", headers={"Accept-Language": "de"}):
@@ -394,7 +404,10 @@ def test_no_op_save_parses_source_and_serialized_result_once_each(world, service
     before = {path.name: path.read_bytes() for path in (world / "db").iterdir()}
     with patch.object(nbt, "load", wraps=nbt.load) as parsed:
         result = service.save_player(
-            str(world), encode_player_key(LOCAL_PLAYER_KEY), None, {},
+            str(world),
+            encode_player_key(LOCAL_PLAYER_KEY),
+            None,
+            {},
             base_revision=hashlib.sha256(raw).hexdigest(),
         )
     assert parsed.call_count == 2
@@ -410,7 +423,10 @@ def test_save_rejects_unreadable_serialized_output_before_backup_or_write(world,
     monkeypatch.setattr(services_module, "create_backup", lambda *a, **kw: pytest.fail("Invalid output must fail before backup"))
     with pytest.raises(ValueError, match="nicht wieder lesbar"):
         service.save_player(
-            str(world), encode_player_key(LOCAL_PLAYER_KEY), None, {"xp_level": 7},
+            str(world),
+            encode_player_key(LOCAL_PLAYER_KEY),
+            None,
+            {"xp_level": 7},
             base_revision=hashlib.sha256(raw).hexdigest(),
         )
     assert {path.name: path.read_bytes() for path in (world / "db").iterdir()} == before
@@ -473,7 +489,10 @@ def test_simultaneous_saves_from_the_same_revision_commit_only_once(world, servi
         barrier.wait(timeout=10)
         try:
             result = service.save_player(
-                str(world), encode_player_key(LOCAL_PLAYER_KEY), None, {"xp_level": xp},
+                str(world),
+                encode_player_key(LOCAL_PLAYER_KEY),
+                None,
+                {"xp_level": xp},
                 base_revision=loaded["player_revision"],
             )
             assert result["success"]

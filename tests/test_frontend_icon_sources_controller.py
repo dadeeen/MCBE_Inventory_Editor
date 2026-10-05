@@ -4,7 +4,8 @@ from tests.node_runner import run_node
 
 
 def test_icon_load_ignores_stale_success_and_failure_in_every_world_context() -> None:
-    run_node(textwrap.dedent(r"""
+    run_node(
+        textwrap.dedent(r"""
         (async () => {
             const assert = require("assert");
             const fs = require("fs");
@@ -51,11 +52,13 @@ def test_icon_load_ignores_stale_success_and_failure_in_every_world_context() ->
             assert.strictEqual(await request, null);
             assert.strictEqual(applied, false);
         })().catch(error => { console.error(error); process.exitCode = 1; });
-    """))
+    """)
+    )
 
 
 def test_icon_mutations_refresh_the_current_world_when_their_response_is_stale() -> None:
-    run_node(textwrap.dedent(r"""
+    run_node(
+        textwrap.dedent(r"""
         (async () => {
             const assert = require("assert");
             const fs = require("fs");
@@ -103,11 +106,13 @@ def test_icon_mutations_refresh_the_current_world_when_their_response_is_stale()
                 }
             }
         })().catch(error => { console.error(error); process.exitCode = 1; });
-    """))
+    """)
+    )
 
 
 def test_icon_status_binds_the_selected_world_and_encodes_its_path() -> None:
-    run_node(textwrap.dedent(r"""
+    run_node(
+        textwrap.dedent(r"""
         (async () => {
             const assert = require("assert");
             const fs = require("fs");
@@ -129,11 +134,13 @@ def test_icon_status_binds_the_selected_world_and_encodes_its_path() -> None:
                 assert.strictEqual(url.searchParams.get("world_path"), world || null);
             }
         })().catch(error => { console.error(error); process.exitCode = 1; });
-    """))
+    """)
+    )
 
 
 def test_stale_icon_mutation_reports_a_failed_refresh_instead_of_success() -> None:
-    run_node(textwrap.dedent(r"""
+    run_node(
+        textwrap.dedent(r"""
         (async () => {
             const assert = require("assert");
             const fs = require("fs");
@@ -173,7 +180,8 @@ def test_stale_icon_mutation_reports_a_failed_refresh_instead_of_success() -> No
                 assert.deepStrictEqual(toasts, [{ message: "Icon-Scan fehlgeschlagen.", type: "error" }]);
             }
         })().catch(error => { console.error(error); process.exitCode = 1; });
-    """))
+    """)
+    )
 
 
 def test_frontend_icon_sources_controller_loads_applies_and_renders() -> None:

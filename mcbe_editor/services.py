@@ -102,6 +102,7 @@ def _catalog_operation(func):
     def wrapper(self, *args, **kwargs):
         with item_data.use_item_catalog(self.item_catalog):
             return func(self, *args, **kwargs)
+
     return wrapper
 
 

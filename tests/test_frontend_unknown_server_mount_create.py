@@ -70,7 +70,9 @@ def test_mount_create_serializes_the_public_api_contract() -> None:
 
 
 def test_uncertain_or_committed_mount_response_never_requests_a_retry() -> None:
-    run_node(_client_source() + r"""
+    run_node(
+        _client_source()
+        + r"""
         (async () => {
           for (const field of ['write_outcome_unknown', 'write_committed']) {
             calls.length = 0;
@@ -90,7 +92,8 @@ def test_uncertain_or_committed_mount_response_never_requests_a_retry() -> None:
           }
           console.log('uncertain-mount-checked');
         })().catch(error => {console.error(error); process.exit(1);});
-    """)
+    """
+    )
 
 
 def test_unknown_server_status_confirmation_retries_mount_create_with_flag() -> None:

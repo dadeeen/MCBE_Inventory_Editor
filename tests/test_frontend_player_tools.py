@@ -12,23 +12,35 @@ def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_paylo
     from mcbe_editor import inventory, nbt
 
     sources = [
-        nbt.CompoundTag({"Pos": nbt.StringTag("future position"), "Health": nbt.StringTag("future health"),
-                         "DimensionId": nbt.IntTag(1), "XPLevel": nbt.IntTag(9)}),
+        nbt.CompoundTag(
+            {"Pos": nbt.StringTag("future position"), "Health": nbt.StringTag("future health"), "DimensionId": nbt.IntTag(1), "XPLevel": nbt.IntTag(9)}
+        ),
         nbt.CompoundTag({"XPLevel": nbt.IntTag(9)}),
         nbt.CompoundTag({"Health": nbt.FloatTag(float("nan")), "XPLevel": nbt.IntTag(9)}),
-        nbt.CompoundTag({"Pos": nbt.ListTag([nbt.FloatTag(float("nan")), nbt.FloatTag(80), nbt.FloatTag(95)]),
-                         "DimensionId": nbt.IntTag(1), "XPLevel": nbt.IntTag(9)}),
+        nbt.CompoundTag(
+            {"Pos": nbt.ListTag([nbt.FloatTag(float("nan")), nbt.FloatTag(80), nbt.FloatTag(95)]), "DimensionId": nbt.IntTag(1), "XPLevel": nbt.IntTag(9)}
+        ),
     ]
-    responses = [{"stats": inventory.extract_player_stats(source), "protected_nbt": inventory.protected_player_nbt_flags(source)}
-                 for source in sources]
-    readable = nbt.CompoundTag({
-        "Pos": nbt.ListTag([nbt.DoubleTag(1), nbt.DoubleTag(2), nbt.DoubleTag(3)]),
-        "DimensionId": nbt.IntTag(2), "XPLevel": nbt.IntTag(9),
-        "Attributes": nbt.ListTag([nbt.CompoundTag({"Name": nbt.StringTag("minecraft:health"), "Current": nbt.FloatTag(11)})]),
-    })
-    responses.append({"stats": inventory.extract_player_stats(readable), "protected_nbt": inventory.protected_player_nbt_flags(readable),
-                      "expected_changes": {"pos": [1, 2, 3], "dimension_id": 2, "health": 11, "xp_level": 9}})
-    run_node("const responses = " + json.dumps(responses) + r""";
+    responses = [{"stats": inventory.extract_player_stats(source), "protected_nbt": inventory.protected_player_nbt_flags(source)} for source in sources]
+    readable = nbt.CompoundTag(
+        {
+            "Pos": nbt.ListTag([nbt.DoubleTag(1), nbt.DoubleTag(2), nbt.DoubleTag(3)]),
+            "DimensionId": nbt.IntTag(2),
+            "XPLevel": nbt.IntTag(9),
+            "Attributes": nbt.ListTag([nbt.CompoundTag({"Name": nbt.StringTag("minecraft:health"), "Current": nbt.FloatTag(11)})]),
+        }
+    )
+    responses.append(
+        {
+            "stats": inventory.extract_player_stats(readable),
+            "protected_nbt": inventory.protected_player_nbt_flags(readable),
+            "expected_changes": {"pos": [1, 2, 3], "dimension_id": 2, "health": 11, "xp_level": 9},
+        }
+    )
+    run_node(
+        "const responses = "
+        + json.dumps(responses)
+        + r""";
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const context = {window: {}};
         for (const name of ['player_view_models', 'player_tools', 'save_payload_logic', 'ability_state']) {
@@ -59,7 +71,8 @@ def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_paylo
                 assert.ok(warnings.length);
             }
         })().catch(error => {console.error(error); process.exitCode = 1});
-    """)
+    """
+    )
 
 
 def test_copy_ender_chest_keeps_target_creation_confirmation() -> None:

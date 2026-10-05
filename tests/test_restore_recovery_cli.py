@@ -18,10 +18,7 @@ def _world(path: Path, contents: bytes) -> None:
 
 
 def _tree_contents(root: Path) -> dict[str, bytes | None]:
-    return {
-        path.relative_to(root).as_posix(): path.read_bytes() if path.is_file() else None
-        for path in root.rglob("*")
-    }
+    return {path.relative_to(root).as_posix(): path.read_bytes() if path.is_file() else None for path in root.rglob("*")}
 
 
 @pytest.fixture
@@ -59,13 +56,23 @@ def _mock_server_probe(monkeypatch, status: str) -> list[tuple[str, int]]:
     return calls
 
 
-@pytest.mark.parametrize("status,confirmed,read_only,require_offline,reason", [
-    ("unknown", False, False, True, "unbekannt"),
-    ("online", True, False, False, "Server läuft noch"),
-    ("unknown", True, True, True, "Read-Only-Modus"),
-])
+@pytest.mark.parametrize(
+    "status,confirmed,read_only,require_offline,reason",
+    [
+        ("unknown", False, False, True, "unbekannt"),
+        ("online", True, False, False, "Server läuft noch"),
+        ("unknown", True, True, True, "Read-Only-Modus"),
+    ],
+)
 def test_recovery_cli_blocked_gate_preserves_every_candidate(
-    interrupted_restore, monkeypatch, capsys, status, confirmed, read_only, require_offline, reason,
+    interrupted_restore,
+    monkeypatch,
+    capsys,
+    status,
+    confirmed,
+    read_only,
+    require_offline,
+    reason,
 ):
     state = interrupted_restore
     monkeypatch.setenv("MCBE_REQUIRE_SERVER_OFFLINE", str(require_offline).lower())
@@ -78,7 +85,7 @@ def test_recovery_cli_blocked_gate_preserves_every_candidate(
 
     assert restore_recovery.main(args) == 1
 
-    result, = json.loads(capsys.readouterr().out)
+    (result,) = json.loads(capsys.readouterr().out)
     assert result["status"] == "deferred-write-gate"
     assert reason in result["reason"]
     assert result["world_path"] == str(state.world)
@@ -98,7 +105,7 @@ def test_recovery_cli_confirmed_unknown_restores_original_and_is_idempotent(inte
 
     assert restore_recovery.main(args) == 0
 
-    result, = json.loads(capsys.readouterr().out)
+    (result,) = json.loads(capsys.readouterr().out)
     assert result == {"status": "original-restored", "world_path": str(state.world)}
     assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
     assert not state.rollback.exists()
@@ -113,7 +120,10 @@ def test_recovery_cli_confirmed_unknown_restores_original_and_is_idempotent(inte
 
 @pytest.mark.parametrize("root_source", ["settings", "worlds_root"])
 def test_recovery_cli_finds_missing_configured_world_and_skips_disabled_world(
-    interrupted_restore, monkeypatch, capsys, root_source,
+    interrupted_restore,
+    monkeypatch,
+    capsys,
+    root_source,
 ):
     state = interrupted_restore
     _mock_server_probe(monkeypatch, "unknown")
@@ -126,9 +136,15 @@ def test_recovery_cli_finds_missing_configured_world_and_skips_disabled_world(
     disabled_staging = state.root / ".disabled_restoring_interrupted"
     _world(disabled_rollback, b"disabled original")
     _world(disabled_staging, b"disabled selected backup")
-    disabled_journal = Path(backup._write_restore_transaction(
-        str(state.root), disabled_world.name, str(disabled_rollback), str(disabled_staging), disabled_id,
-    ))
+    disabled_journal = Path(
+        backup._write_restore_transaction(
+            str(state.root),
+            disabled_world.name,
+            str(disabled_rollback),
+            str(disabled_staging),
+            disabled_id,
+        )
+    )
     settings = state.root.parent / "settings.json"
     configured_roots = [{"path": str(disabled_world), "enabled": False}]
     if root_source == "settings":
@@ -142,13 +158,13 @@ def test_recovery_cli_finds_missing_configured_world_and_skips_disabled_world(
     before = _tree_contents(state.root)
 
     assert restore_recovery.main([]) == 1
-    result, = json.loads(capsys.readouterr().out)
+    (result,) = json.loads(capsys.readouterr().out)
     assert result["status"] == "deferred-write-gate"
     assert result["world_path"] == str(state.world)
     assert _tree_contents(state.root) == before
 
     assert restore_recovery.main(["--confirm-server-stopped"]) == 0
-    result, = json.loads(capsys.readouterr().out)
+    (result,) = json.loads(capsys.readouterr().out)
     assert result == {"status": "original-restored", "world_path": str(state.world)}
     assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
     assert not state.journal.exists()
@@ -156,10 +172,9 @@ def test_recovery_cli_finds_missing_configured_world_and_skips_disabled_world(
     for candidate in (disabled_rollback, disabled_staging, disabled_journal):
         relative = candidate.relative_to(state.root).as_posix()
         assert candidate.exists()
-        assert {
-            name: content for name, content in _tree_contents(state.root).items()
-            if name == relative or name.startswith(relative + "/")
-        } == {name: content for name, content in before.items() if name == relative or name.startswith(relative + "/")}
+        assert {name: content for name, content in _tree_contents(state.root).items() if name == relative or name.startswith(relative + "/")} == {
+            name: content for name, content in before.items() if name == relative or name.startswith(relative + "/")
+        }
 
 
 def test_recovery_missing_root_selection_keeps_docker_boundary(interrupted_restore, monkeypatch, capsys):
@@ -175,7 +190,7 @@ def test_recovery_missing_root_selection_keeps_docker_boundary(interrupted_resto
     roots = world.get_configured_scan_roots(include_disabled=False, include_missing=True)
     assert [root["path"] for root in roots] == [str(state.world)]
     assert restore_recovery.main(["--confirm-server-stopped"]) == 0
-    result, = json.loads(capsys.readouterr().out)
+    (result,) = json.loads(capsys.readouterr().out)
     assert result == {"status": "original-restored", "world_path": str(state.world)}
     assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
 
@@ -188,7 +203,7 @@ def test_recovery_cli_preserves_ambiguous_world_rollback_and_staging(interrupted
 
     assert restore_recovery.main([str(state.root), "--confirm-server-stopped"]) == 1
 
-    result, = json.loads(capsys.readouterr().out)
+    (result,) = json.loads(capsys.readouterr().out)
     assert result["status"] == "manual-recovery-required"
     assert "Keine der vorhandenen Weltkopien wurde gelöscht" in result["error"]
     assert _tree_contents(state.root) == before
@@ -217,7 +232,7 @@ def test_startup_defers_unknown_until_explicit_cli_confirmation(interrupted_rest
     assert f"recovery_help='{restore_recovery.recovery_help_command()}'" in caplog.text
     assert _tree_contents(state.root) == before
     assert restore_recovery.main(["--confirm-server-stopped"]) == 0
-    result, = json.loads(capsys.readouterr().out)
+    (result,) = json.loads(capsys.readouterr().out)
     assert result["status"] == "original-restored"
     assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
     assert not state.journal.exists()
@@ -242,7 +257,7 @@ def test_recovery_command_quotes_a_world_path_with_spaces(tmp_path, monkeypatch)
     expected = Path(".venv", "Scripts", "python.exe")
     assert command.startswith(f"{expected} -m mcbe_editor.restore_recovery ")
     assert command.endswith(" --confirm-server-stopped")
-    assert f"\"{world_path}\"" in command or f"'{world_path}'" in command
+    assert f'"{world_path}"' in command or f"'{world_path}'" in command
 
 
 def test_recovery_help_quotes_an_interpreter_outside_the_application(tmp_path, monkeypatch):
@@ -254,5 +269,5 @@ def test_recovery_help_quotes_an_interpreter_outside_the_application(tmp_path, m
 
     command = restore_recovery.recovery_help_command()
 
-    assert command.startswith(("\"", "'")) and str(interpreter) in command
+    assert command.startswith(('"', "'")) and str(interpreter) in command
     assert command.endswith(" -m mcbe_editor.restore_recovery --help")

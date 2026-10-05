@@ -466,6 +466,7 @@ def test_source_snapshot_does_not_suppress_directory_walk_errors(monkeypatch, tm
 
     with monkeypatch.context() as scoped_patch:
         from mcbe_editor import backup_consistency
+
         scoped_patch.setattr(backup_consistency.os, "walk", inaccessible_walk)
 
         with pytest.raises(ValueError, match="kann nicht durchsucht werden"):

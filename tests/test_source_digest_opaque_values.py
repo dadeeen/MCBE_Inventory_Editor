@@ -6,20 +6,25 @@ def _assert_stale_copy_rejected(original, changed):
 
     source = nbt.CompoundTag({"Inventory": nbt.ListTag([original])})
     parsed, _ = inventory.nbt_to_json(source)
-    payload = {**parsed[5], "slot": 6, "source_slot": 5,
-               "source_player_key": "source", "source_container": "inventory"}
+    payload = {**parsed[5], "slot": 6, "source_slot": 5, "source_player_key": "source", "source_container": "inventory"}
     target = nbt.CompoundTag({"Inventory": nbt.ListTag([])})
     # The same copy remains valid while the source is unchanged.
     result = inventory.build_inventory_nbt(
-        target, [payload], inventory.ENCHANTMENTS,
-        source_item_maps={("source", "inventory"): {5: original}}, target_player_key="target",
+        target,
+        [payload],
+        inventory.ENCHANTMENTS,
+        source_item_maps={("source", "inventory"): {5: original}},
+        target_player_key="target",
     )
     assert result[0]["Slot"].py_data == 6
     assert inventory._item_source_digest(original) != inventory._item_source_digest(changed)
     with pytest.raises(ValueError, match="Originalquelle"):
         inventory.build_inventory_nbt(
-            target, [payload], inventory.ENCHANTMENTS,
-            source_item_maps={("source", "inventory"): {5: changed}}, target_player_key="target",
+            target,
+            [payload],
+            inventory.ENCHANTMENTS,
+            source_item_maps={("source", "inventory"): {5: changed}},
+            target_player_key="target",
         )
 
 
@@ -55,8 +60,7 @@ def test_opaque_wire_changes_reject_stale_cross_player_copy(difference) -> None:
         values = [string(b"\xff"), string("\u241bxff".encode("utf-8"))]
         assert values[0].py_data == values[1].py_data
     elif difference == "name_bytes":
-        values = [nbt.load(b"\x0a\x00\x00\x01" + struct.pack("<H", len(raw)) + raw + b"\x01\x00").tag
-                  for raw in (b"\xff", "\u241bxff".encode("utf-8"))]
+        values = [nbt.load(b"\x0a\x00\x00\x01" + struct.pack("<H", len(raw)) + raw + b"\x01\x00").tag for raw in (b"\xff", "\u241bxff".encode("utf-8"))]
         assert list(values[0]) == list(values[1])
     else:
         bits = (0x7FC00001, 0x7FC00002) if difference == "nan_bits" else (0, 0x80000000)
@@ -238,9 +242,16 @@ def test_editable_lore_digest_ignores_adding_the_first_line(empty_type) -> None:
     from mcbe_editor import inventory, nbt
 
     def item(lore):
-        return nbt.CompoundTag({**_base_item(nbt), "tag": nbt.CompoundTag({
-            "display": nbt.CompoundTag({"Lore": lore}),
-        })})
+        return nbt.CompoundTag(
+            {
+                **_base_item(nbt),
+                "tag": nbt.CompoundTag(
+                    {
+                        "display": nbt.CompoundTag({"Lore": lore}),
+                    }
+                ),
+            }
+        )
 
     empty = item(nbt.ListTag([], empty_type))
     edited = item(nbt.ListTag([nbt.StringTag("First line")]))

@@ -14,19 +14,40 @@ from .extended import ENCHANTMENT_IDS, MIXED_ITEM_ENCHANTMENTS, append_mixed_cas
 from .protocol import ProbeError
 
 PLAYER_KEYS = (b"~local_player", b"player_server_mcbe_engine_probe")
-SERVICE_IDS = ("minecraft:stone", "minecraft:bow", "minecraft:diamond_pickaxe", "minecraft:splash_potion",
-               "minecraft:enchanted_book", "minecraft:oak_sign", "minecraft:red_cushion", "minecraft:compass", "minecraft:shield")
+SERVICE_IDS = (
+    "minecraft:stone",
+    "minecraft:bow",
+    "minecraft:diamond_pickaxe",
+    "minecraft:splash_potion",
+    "minecraft:enchanted_book",
+    "minecraft:oak_sign",
+    "minecraft:red_cushion",
+    "minecraft:compass",
+    "minecraft:shield",
+)
 
 
 def make_service_cases(observations: dict, limits: dict, enchantments: dict) -> list[dict]:
     cases = make_cases(list(SERVICE_IDS), observations, limits)
-    for item, mode, enchantment, level in (("minecraft:bow", "create", "power", 5),
-                                          ("minecraft:diamond_pickaxe", "decorate", "efficiency", 5),
-                                          ("minecraft:enchanted_book", "preserve", "unbreaking", 3)):
+    for item, mode, enchantment, level in (
+        ("minecraft:bow", "create", "power", 5),
+        ("minecraft:diamond_pickaxe", "decorate", "efficiency", 5),
+        ("minecraft:enchanted_book", "preserve", "unbreaking", 3),
+    ):
         append_case(cases, observations, item, mode, 1, enchantments=[{"id": enchantment, "level": level}], seeded_metadata=mode == "preserve")
     for mode in ("preserve", "decorate"):
-        append_case(cases, observations, "minecraft:splash_potion", mode, 1, damage=21, data_value=21, seeded_metadata=True,
-                    potion={"effect": "minecraft:healing", "delivery": "ThrownSplash"}, name="" if mode == "preserve" else "Geprüfter Heiltrank")
+        append_case(
+            cases,
+            observations,
+            "minecraft:splash_potion",
+            mode,
+            1,
+            damage=21,
+            data_value=21,
+            seeded_metadata=True,
+            potion={"effect": "minecraft:healing", "delivery": "ThrownSplash"},
+            name="" if mode == "preserve" else "Geprüfter Heiltrank",
+        )
     levels = {name: enchantments[str(numeric_id)][2] for name, numeric_id in ENCHANTMENT_IDS.items()}
     append_mixed_cases(cases, observations, levels, item_ids=[item for item in SERVICE_IDS if item in MIXED_ITEM_ENCHANTMENTS])
     return cases
@@ -62,12 +83,18 @@ def edit_through_service(world: Path, records: dict, cases: list[dict]) -> dict:
             field, slot = locations[case["case_id"]]
             item["Slot"] = nbt.ByteTag(slot)
             seed[field].append(item)
-    player = nbt.NamedTag(nbt.CompoundTag({
-        **{field: nbt.ListTag(items) for field, items in seed.items()},
-        "Pos": nbt.ListTag([nbt.FloatTag(0), nbt.FloatTag(70), nbt.FloatTag(0)]),
-        "Health": nbt.FloatTag(20), "PlayerGameType": nbt.IntTag(1), "DimensionId": nbt.IntTag(0),
-        "EngineProbeOpaque": nbt.LongArrayTag([2**50, -123]),
-    }))
+    player = nbt.NamedTag(
+        nbt.CompoundTag(
+            {
+                **{field: nbt.ListTag(items) for field, items in seed.items()},
+                "Pos": nbt.ListTag([nbt.FloatTag(0), nbt.FloatTag(70), nbt.FloatTag(0)]),
+                "Health": nbt.FloatTag(20),
+                "PlayerGameType": nbt.IntTag(1),
+                "DimensionId": nbt.IntTag(0),
+                "EngineProbeOpaque": nbt.LongArrayTag([2**50, -123]),
+            }
+        )
+    )
     db = LevelDbAdapter(str(world / "db"))
     try:
         db.put_batch({key: save_player_nbt(player) for key in PLAYER_KEYS})

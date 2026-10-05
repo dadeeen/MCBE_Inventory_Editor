@@ -12,8 +12,13 @@ def check_editor_rules(matrix: dict, observations: dict) -> dict:
     from mcbe_editor.inventory import build_inventory_nbt
 
     differences = {"applicability": [], "pair_conflicts": [], "unexpected_creations": []}
-    counts = {"applicability_checks": 0, "pair_conflict_checks": 0, "incompatible_creation_checks": 0,
-              "enchantment_level_checks": 0, "durability_rejection_checks": 0}
+    counts = {
+        "applicability_checks": 0,
+        "pair_conflict_checks": 0,
+        "incompatible_creation_checks": 0,
+        "enchantment_level_checks": 0,
+        "durability_rejection_checks": 0,
+    }
     exceptions = {"ordinary_book_preservation_only": 0, "enchanted_book_conflict_hints_omitted": 0}
     groups = item_data.catalog_values()["ENCHANTMENT_EXCLUSIVE_GROUPS"]
     negative_items = {}
@@ -48,20 +53,26 @@ def check_editor_rules(matrix: dict, observations: dict) -> dict:
             for direction in ("forward", "reverse"):
                 counts["pair_conflict_checks"] += 1
                 if conflict != (not pair[direction]):
-                    differences["pair_conflicts"].append({"item": item_id, "left": pair["left"], "right": pair["right"],
-                                                          "order": direction, "engine_accepts": pair[direction], "editor_conflict": conflict})
+                    differences["pair_conflicts"].append(
+                        {
+                            "item": item_id,
+                            "left": pair["left"],
+                            "right": pair["right"],
+                            "order": direction,
+                            "engine_accepts": pair[direction],
+                            "editor_conflict": conflict,
+                        }
+                    )
 
     def must_reject(item_id, kind, *, damage=0, enchantments=None):
         empty = nbt.CompoundTag({"Inventory": nbt.ListTag([])})
         before = empty.save_to()
         try:
-            build_inventory_nbt(empty, [{"slot": 0, "name": item_id, "count": 1, "damage": damage,
-                                         "enchantments": enchantments or []}], item_data.ENCHANTMENTS)
+            build_inventory_nbt(empty, [{"slot": 0, "name": item_id, "count": 1, "damage": damage, "enchantments": enchantments or []}], item_data.ENCHANTMENTS)
         except ValueError:
             pass
         else:
-            differences["unexpected_creations"].append({"item": item_id, "kind": kind, "damage": damage,
-                                                       "enchantments": enchantments or []})
+            differences["unexpected_creations"].append({"item": item_id, "kind": kind, "damage": damage, "enchantments": enchantments or []})
         if empty.save_to() != before:
             raise ProbeError("Rejected item validation mutated its input NBT")
 
@@ -78,5 +89,4 @@ def check_editor_rules(matrix: dict, observations: dict) -> dict:
             for damage in (-1, maximum + 1):
                 must_reject(item_id, "durability", damage=damage)
                 counts["durability_rejection_checks"] += 1
-    return {"status": "fail" if any(differences.values()) else "pass", **counts,
-            "intentional_exceptions": exceptions, "differences": differences}
+    return {"status": "fail" if any(differences.values()) else "pass", **counts, "intentional_exceptions": exceptions, "differences": differences}

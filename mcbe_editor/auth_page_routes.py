@@ -62,15 +62,17 @@ def setup(method: str, form: Any, deps: AuthPageDeps):
                 password_hash = generate_password_hash(password)
                 try:
                     stable_secret = deps.setup_state.save_password(
-                        username=username, password_hash=password_hash, allow_open_upgrade=deps.app_config.auth_required,
+                        username=username,
+                        password_hash=password_hash,
+                        allow_open_upgrade=deps.app_config.auth_required,
                     )
                 except SetupAlreadyCompletedError:
                     return deps.redirect(deps.url_for("index"))
                 except OSError as exc:
                     deps.logger.warning("setup save_failed mode=password remote=%s error=%s", deps.remote_addr(), exc)
-                    errors.append(t(
-                        "Die Ersteinrichtung konnte nicht gespeichert werden. Prüfe die Schreibrechte und den freien Speicherplatz des Datenordners."
-                    ))
+                    errors.append(
+                        t("Die Ersteinrichtung konnte nicht gespeichert werden. Prüfe die Schreibrechte und den freien Speicherplatz des Datenordners.")
+                    )
                 else:
                     deps.set_app_secret_key(stable_secret)
                     deps.session.clear()
@@ -89,9 +91,9 @@ def setup(method: str, form: Any, deps: AuthPageDeps):
                     return deps.redirect(deps.url_for("index"))
                 except OSError as exc:
                     deps.logger.warning("setup save_failed mode=open remote=%s error=%s", deps.remote_addr(), exc)
-                    errors.append(t(
-                        "Die Ersteinrichtung konnte nicht gespeichert werden. Prüfe die Schreibrechte und den freien Speicherplatz des Datenordners."
-                    ))
+                    errors.append(
+                        t("Die Ersteinrichtung konnte nicht gespeichert werden. Prüfe die Schreibrechte und den freien Speicherplatz des Datenordners.")
+                    )
                 else:
                     deps.session.clear()
                     deps.logger.warning("setup completed mode=open remote=%s risk_acknowledged=true", deps.remote_addr())

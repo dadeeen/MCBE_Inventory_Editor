@@ -9,13 +9,14 @@ from tests.node_runner import run_node
 
 def _node(source, **params):
     result = run_node("const params = " + json.dumps(params) + ";\n" + source, timeout=20)
-    assert 'workflow-check-complete' in result.stdout, 'Asynchronous assertions did not finish'
+    assert "workflow-check-complete" in result.stdout, "Asynchronous assertions did not finish"
 
 
 @pytest.mark.parametrize("phase", ["confirm", "response", "conflict", "retry"])
 @pytest.mark.parametrize("change", ["world", "player", "dirty", "revision"])
 def test_import_does_not_use_an_outdated_editor_context(phase, change):
-    _node(r'''
+    _node(
+        r"""
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
@@ -65,13 +66,17 @@ const controller = ctx.window.MCBEPlayerTransferLogic.createPlayerTransferContro
     assert.ok(!calls.includes('reload'), 'stale import reloaded the player');
     assert.ok(!calls.includes('record'), 'stale import changed the action history');
 })().then(() => console.log('workflow-check-complete')).catch(e => { console.error(e); process.exit(1); });
-''', phase=phase, change=change)
+""",
+        phase=phase,
+        change=change,
+    )
 
 
 @pytest.mark.parametrize("phase", ["response", "conflict", "retry", "players", "backups", "presence", "player_load"])
 @pytest.mark.parametrize("change", ["world", "player"])
 def test_restore_does_not_update_a_different_context(phase, change):
-    _node(r'''
+    _node(
+        r"""
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
@@ -113,12 +118,16 @@ const controller = ctx.window.MCBEBackupRestoreLogic.createBackupRestoreControll
     assert.deepStrictEqual(calls.filter(([name, afterChange]) => afterChange), []);
     assert.strictEqual(restoreRequests, params.phase === 'retry' ? 2 : 1);
 })().then(() => console.log('workflow-check-complete')).catch(e => { console.error(e); process.exit(1); });
-''', phase=phase, change=change)
+""",
+        phase=phase,
+        change=change,
+    )
 
 
 @pytest.mark.parametrize("phase", ["list_failure", "context_change", "player_failure", "success"])
 def test_import_refresh_wiring_stops_on_failed_or_outdated_player_list(phase):
-    _node(r'''
+    _node(
+        r"""
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
@@ -140,13 +149,16 @@ const refresh = vm.runInNewContext('(' + match[1] + ')', {
     if (params.phase === 'success') assert.notStrictEqual(result, false);
     else assert.strictEqual(result, false);
 })().then(() => console.log('workflow-check-complete')).catch(e => { console.error(e); process.exit(1); });
-''', phase=phase)
+""",
+        phase=phase,
+    )
 
 
 @pytest.mark.parametrize("action", ["browse", "manual", "toggle", "remove"])
 @pytest.mark.parametrize("failure", ["server", "structured", "transport"])
 def test_scan_path_failures_are_visible_without_success_refresh(action, failure):
-    _node(r'''
+    _node(
+        r"""
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
@@ -196,13 +208,17 @@ controller.renderScanPaths({});
     assert.strictEqual(refreshes, 0, 'failed operation triggered success refresh');
     if (params.action === 'toggle') assert.strictEqual(toggle.checked, false);
 })().then(() => console.log('workflow-check-complete')).catch(e => { console.error(e); process.exit(1); });
-''', action=action, failure=failure)
+""",
+        action=action,
+        failure=failure,
+    )
 
 
 @pytest.mark.parametrize("new_player", [False, True])
 @pytest.mark.parametrize("refresh", ["failure", "world_change", "dirty_change", "success"])
 def test_import_refresh_outcome_is_not_reported_as_a_different_result(new_player, refresh):
-    _node(r'''
+    _node(
+        r"""
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
@@ -248,15 +264,29 @@ const controller = ctx.window.MCBEPlayerTransferLogic.createPlayerTransferContro
         assert.ok(statuses.some(s => s.type === 'success'));
     }
 })().then(() => console.log('workflow-check-complete')).catch(e => { console.error(e); process.exit(1); });
-''', new_player=new_player, refresh=refresh)
+""",
+        new_player=new_player,
+        refresh=refresh,
+    )
 
 
 @pytest.mark.parametrize("new_player", [False, True])
-@pytest.mark.parametrize("phase", [
-    "success", "list_failure", "player_failure", "world_change", "player_change", "dirty_change", "revision_change", "selection_change",
-])
+@pytest.mark.parametrize(
+    "phase",
+    [
+        "success",
+        "list_failure",
+        "player_failure",
+        "world_change",
+        "player_change",
+        "dirty_change",
+        "revision_change",
+        "selection_change",
+    ],
+)
 def test_import_refresh_uses_real_loader_reset_and_preserves_new_context(new_player, phase):
-    _node(r'''
+    _node(
+        r"""
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const state = {worldPath: 'world-A', currentPlayerKey: 'player-A', currentPlayerRevision: 'a'.repeat(64),
     currentPlayer: {editable: true}, isDirty: false, players: []};
@@ -330,12 +360,16 @@ const importer = context.window.MCBEPlayerTransferLogic.createPlayerTransferCont
         if (params.phase === 'selection_change') assert.equal(pathInput.value, 'another-export.zip');
     }
 })().then(() => console.log('workflow-check-complete')).catch(error => {console.error(error); process.exitCode = 1;});
-''', new_player=new_player, phase=phase)
+""",
+        new_player=new_player,
+        phase=phase,
+    )
 
 
 @pytest.mark.parametrize("change", ["world", "player"])
 def test_import_failed_rollback_keeps_error_and_backup_after_context_change(change):
-    _node(r'''
+    _node(
+        r"""
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const state = {world: 'world-A', player: 'player-A'};
 const messages = [], mutations = [];
@@ -367,4 +401,6 @@ const controller = context.window.MCBEPlayerTransferLogic.createPlayerTransferCo
     assert.deepEqual(mutations, []);
     assert.equal(state[params.change], 'new-context');
 })().then(() => console.log('workflow-check-complete')).catch(error => {console.error(error); process.exitCode = 1;});
-''', change=change)
+""",
+        change=change,
+    )

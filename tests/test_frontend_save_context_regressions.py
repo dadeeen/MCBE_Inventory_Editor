@@ -8,14 +8,25 @@ from tests.node_runner import run_node
 
 
 @pytest.mark.parametrize("changed_field", ["world", "player"])
-@pytest.mark.parametrize("scenario", [
-    "transport", "presence-error", "committed-invalid", "mount-finalization", "no-op", "success",
-    "committed-invalid-presence-error", "no-op-presence-error", "no-op-with-mounts",
-    "transport-after-server-confirmation", "transport-after-presence-confirmation",
-    "uncertain-write",
-])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "transport",
+        "presence-error",
+        "committed-invalid",
+        "mount-finalization",
+        "no-op",
+        "success",
+        "committed-invalid-presence-error",
+        "no-op-presence-error",
+        "no-op-with-mounts",
+        "transport-after-server-confirmation",
+        "transport-after-presence-confirmation",
+        "uncertain-write",
+    ],
+)
 def test_save_completion_does_not_modify_a_replaced_context(changed_field, scenario):
-    script = r'''
+    script = r"""
         const fs = require("fs");
         const vm = require("vm");
         const assert = require("node:assert/strict");
@@ -107,7 +118,7 @@ def test_save_completion_does_not_modify_a_replaced_context(changed_field, scena
             assert.equal(controller.isSaving(), false);
             console.log("save-context-check-passed");
         })().catch(error => {console.error = global.console.error; console.error(error); process.exitCode = 1;});
-    '''
+    """
     script = script.replace("CONFIG", json.dumps({"scenario": scenario, "changedField": changed_field}))
     result = run_node(script)
     assert "save-context-check-passed" in result.stdout, "The asynchronous assertions did not complete"

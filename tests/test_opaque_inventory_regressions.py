@@ -12,23 +12,44 @@ from mcbe_editor.world import LOCAL_PLAYER_KEY
 
 
 def _item(**fields):
-    return nbt.CompoundTag({
-        "Slot": nbt.ByteTag(0), "Name": nbt.StringTag("minecraft:stone"),
-        "Count": nbt.ByteTag(1), "Damage": nbt.ShortTag(0), **fields,
-    })
+    return nbt.CompoundTag(
+        {
+            "Slot": nbt.ByteTag(0),
+            "Name": nbt.StringTag("minecraft:stone"),
+            "Count": nbt.ByteTag(1),
+            "Damage": nbt.ShortTag(0),
+            **fields,
+        }
+    )
 
 
 def _display_player(field, value):
-    return nbt.CompoundTag({"Inventory": nbt.ListTag([_item(tag=nbt.CompoundTag({
-        "display": nbt.CompoundTag({field: value}),
-    }))])})
+    return nbt.CompoundTag(
+        {
+            "Inventory": nbt.ListTag(
+                [
+                    _item(
+                        tag=nbt.CompoundTag(
+                            {
+                                "display": nbt.CompoundTag({field: value}),
+                            }
+                        )
+                    )
+                ]
+            )
+        }
+    )
 
 
-@pytest.mark.parametrize("value", [
-    nbt.IntTag(123), nbt.FloatTag(float("nan")),
-    nbt.CompoundTag({"Future": nbt.IntTag(7)}),
-    nbt.ListTag([nbt.CompoundTag({"Future": nbt.StringTag("keep")})]),
-])
+@pytest.mark.parametrize(
+    "value",
+    [
+        nbt.IntTag(123),
+        nbt.FloatTag(float("nan")),
+        nbt.CompoundTag({"Future": nbt.IntTag(7)}),
+        nbt.ListTag([nbt.CompoundTag({"Future": nbt.StringTag("keep")})]),
+    ],
+)
 def test_opaque_display_name_is_json_safe_and_survives_count_edit(value):
     player = _display_player("Name", value)
     original = player["Inventory"][0]["tag"]["display"].save_to()
@@ -40,12 +61,15 @@ def test_opaque_display_name_is_json_safe_and_survives_count_edit(value):
     assert result[0]["Count"].py_data == 2
 
 
-@pytest.mark.parametrize("field,value,edit", [
-    ("Name", nbt.IntTag(123), {"display_name": "renamed"}),
-    ("Name", nbt.CompoundTag({"Future": nbt.IntTag(7)}), {"display_name": "renamed"}),
-    ("Lore", nbt.IntTag(123), {"lore": ["new lore"]}),
-    ("Lore", nbt.ListTag([nbt.IntTag(123)]), {"lore": ["new lore"]}),
-])
+@pytest.mark.parametrize(
+    "field,value,edit",
+    [
+        ("Name", nbt.IntTag(123), {"display_name": "renamed"}),
+        ("Name", nbt.CompoundTag({"Future": nbt.IntTag(7)}), {"display_name": "renamed"}),
+        ("Lore", nbt.IntTag(123), {"lore": ["new lore"]}),
+        ("Lore", nbt.ListTag([nbt.IntTag(123)]), {"lore": ["new lore"]}),
+    ],
+)
 def test_display_edits_cannot_replace_opaque_children(field, value, edit):
     player = _display_player(field, value)
     before = player.save_to()
@@ -55,10 +79,13 @@ def test_display_edits_cannot_replace_opaque_children(field, value, edit):
     assert player.save_to() == before
 
 
-@pytest.mark.parametrize("tag_name,builder,flag", [
-    ("Inventory", inventory.build_inventory_nbt, "inventory_opaque"),
-    ("EnderChestInventory", inventory.build_ender_chest_nbt, "ender_chest_opaque"),
-])
+@pytest.mark.parametrize(
+    "tag_name,builder,flag",
+    [
+        ("Inventory", inventory.build_inventory_nbt, "inventory_opaque"),
+        ("EnderChestInventory", inventory.build_ender_chest_nbt, "ender_chest_opaque"),
+    ],
+)
 @pytest.mark.parametrize("value", [nbt.IntTag(7), nbt.StringTag("future"), nbt.ListTag([nbt.IntTag(7)])])
 def test_noncompound_item_lists_are_protected(tag_name, builder, flag, value):
     player = nbt.CompoundTag({tag_name: nbt.ListTag([value])})
@@ -83,10 +110,13 @@ def test_noncompound_effect_lists_are_protected_but_opaque_echoes_survive(value)
     assert player.save_to() == before
 
 
-@pytest.mark.parametrize("tag_name,builder", [
-    ("Inventory", inventory.build_inventory_nbt),
-    ("EnderChestInventory", inventory.build_ender_chest_nbt),
-])
+@pytest.mark.parametrize(
+    "tag_name,builder",
+    [
+        ("Inventory", inventory.build_inventory_nbt),
+        ("EnderChestInventory", inventory.build_ender_chest_nbt),
+    ],
+)
 @pytest.mark.parametrize("element_type", range(13))
 def test_empty_item_list_echo_keeps_its_declared_type(tag_name, builder, element_type):
     player = nbt.CompoundTag({tag_name: nbt.ListTag([], element_type)})

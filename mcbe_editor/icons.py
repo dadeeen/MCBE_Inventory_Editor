@@ -418,9 +418,7 @@ class IconCandidate:
         if self.archive_path and self.archive_member:
             with _open_source_file(self.archive_path, self.source_root or self.archive_path.parent) as archive, zipfile.ZipFile(archive) as zf:
                 matches = [info for info in zf.infolist() if info.filename.replace("\\", "/") == self.archive_member]
-                valid = (len(matches) == 1 and (
-                    _declared_icon_path(matches[0].filename) if self.declared else _archive_member_looks_like_icon(matches[0])
-                ))
+                valid = len(matches) == 1 and (_declared_icon_path(matches[0].filename) if self.declared else _archive_member_looks_like_icon(matches[0]))
                 if not valid:
                     raise ValueError("Icon-Archiv wurde seit dem Scan verändert. Bitte Icons neu scannen.")
                 with zf.open(matches[0]) as src:
@@ -460,8 +458,13 @@ class IconCandidate:
             archive_path = Path(archive_raw) if archive_raw else None
             if archive_path and archive_member:
                 return cls(
-                    item_id=item_id, path=None, source=source, token=token, archive_path=archive_path,
-                    archive_member=str(archive_member), source_root=source_root,
+                    item_id=item_id,
+                    path=None,
+                    source=source,
+                    token=token,
+                    archive_path=archive_path,
+                    archive_member=str(archive_member),
+                    source_root=source_root,
                     declared=entry.get("declared") is True,
                 )
             if path:
@@ -660,8 +663,12 @@ def _cache_file(settings_path: str | None) -> Path | None:
 def icon_context_id(sources: list[dict]) -> str:
     """Identify an ordered source configuration, independently of its worlds."""
     identity = [
-        {"path": source.get("path"), "enabled": bool(source.get("enabled", True)), "vanilla": bool(source.get("vanilla")),
-         **{key: source.get(key, "") for key in ("pack_kind", "pack_prefix", "subpack")}}
+        {
+            "path": source.get("path"),
+            "enabled": bool(source.get("enabled", True)),
+            "vanilla": bool(source.get("vanilla")),
+            **{key: source.get(key, "") for key in ("pack_kind", "pack_prefix", "subpack")},
+        }
         for source in sources
     ]
     return hashlib.sha256(json.dumps([_INDEX_FILE_VERSION, identity], sort_keys=True).encode("utf-8")).hexdigest()
@@ -957,9 +964,16 @@ def _sources_signature(sources: list[dict]) -> str:
         "sources": [_source_signature(source) for source in sources],
         # Target IDs and block classification affect both declared pack icons
         # and loose material fallbacks. Labels do not affect image selection.
-        "catalog": {key: sorted(catalog[key]) for key in (
-            "ITEMS", "COMPAT_ITEM_ALIASES", "ADDABLE_ITEM_IDS", "BLOCK_ONLY_ITEM_IDS", "BLOCK_ITEM_IDS",
-        )},
+        "catalog": {
+            key: sorted(catalog[key])
+            for key in (
+                "ITEMS",
+                "COMPAT_ITEM_ALIASES",
+                "ADDABLE_ITEM_IDS",
+                "BLOCK_ONLY_ITEM_IDS",
+                "BLOCK_ITEM_IDS",
+            )
+        },
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -1120,11 +1134,14 @@ def _scan_directory(
     except OSError as exc:
         record_error(exc)
     if skipped_links:
-        warnings.append(warning_record(
-            "{path}: Verlinkte Einträge (Symlink oder Reparse-Point) übersprungen: {count}. "
-            "Verlinkte Resource Packs bei Bedarf direkt als Icon-Quelle hinzufügen.",
-            path=root, count=len(skipped_links),
-        ))
+        warnings.append(
+            warning_record(
+                "{path}: Verlinkte Einträge (Symlink oder Reparse-Point) übersprungen: {count}. "
+                "Verlinkte Resource Packs bei Bedarf direkt als Icon-Quelle hinzufügen.",
+                path=root,
+                count=len(skipped_links),
+            )
+        )
     for candidate in source_icons.values():
         _add_icon(icons, candidate)
     return scanned, warnings
@@ -1147,8 +1164,9 @@ def _scan_archive(
             infos = zf.infolist()
             if len(infos) > _MAX_ARCHIVE_MEMBERS:
                 warnings.append(
-                    warning_record("{name}: Archiv enthält sehr viele Dateien; nur die ersten {limit} Einträge werden geprüft.",
-                                   name=path.name, limit=_MAX_ARCHIVE_MEMBERS)
+                    warning_record(
+                        "{name}: Archiv enthält sehr viele Dateien; nur die ersten {limit} Einträge werden geprüft.", name=path.name, limit=_MAX_ARCHIVE_MEMBERS
+                    )
                 )
                 infos = infos[:_MAX_ARCHIVE_MEMBERS]
             for info in infos:
@@ -1176,8 +1194,7 @@ def _scan_archive(
             # Tokens describe the opened archive. Publish them only while the
             # path still names that same, unchanged file and safe directory chain.
             current = _checked_source_path(path, path.parent)
-            if (not os.path.samestat(archive_stat, current)
-                    or (archive_stat.st_size, archive_stat.st_mtime_ns) != (current.st_size, current.st_mtime_ns)):
+            if not os.path.samestat(archive_stat, current) or (archive_stat.st_size, archive_stat.st_mtime_ns) != (current.st_size, current.st_mtime_ns):
                 raise ValueError("Icon-Archiv wurde seit dem Scan verändert. Bitte Icons neu scannen.")
     except (OSError, ValueError, zipfile.BadZipFile) as exc:
         warnings.append(warning_record("{path}: {type}: {error}", path=path, type=type(exc).__name__, error=error_record(exc)))
@@ -1232,8 +1249,9 @@ def _public_result(
 ) -> dict:
     public_sources = [dict(source) for source in public_sources]
     for source_index, source in enumerate(public_sources):
-        count = sum(source_index in record["source_indices"] for record in warnings
-                    if isinstance(record, dict) and isinstance(record.get("source_indices"), list))
+        count = sum(
+            source_index in record["source_indices"] for record in warnings if isinstance(record, dict) and isinstance(record.get("source_indices"), list)
+        )
         # Old publications lack source-bound records. Keep their recorded
         # counts until a writable scan can replace the legacy diagnostics.
         source["warning_count"] = max(0, count, _safe_int(source.get("warning_count"), 0))
@@ -1321,7 +1339,8 @@ def _cached_result_from_data(data: object, cache_path: Path, sources_signature: 
             display_assets[candidate.item_id] = candidate
     records = data.get("warning_records")
     legacy_warnings = not isinstance(records, list) or any(
-        not isinstance(record, dict) or not isinstance(record.get("message_key"), str)
+        not isinstance(record, dict)
+        or not isinstance(record.get("message_key"), str)
         or not isinstance(record.get("message_params"), dict)
         or not isinstance(record.get("source_indices"), list)
         for record in records
@@ -1348,7 +1367,10 @@ def _cached_result_from_data(data: object, cache_path: Path, sources_signature: 
 
 
 def load_cached_icon_index(
-    settings_path: str | None = None, *, validate_sources: bool = True, context_id: str | None = None,
+    settings_path: str | None = None,
+    *,
+    validate_sources: bool = True,
+    context_id: str | None = None,
 ) -> dict | None:
     """Load the last publication without scanning or writing files.
 

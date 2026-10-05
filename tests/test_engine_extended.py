@@ -27,22 +27,32 @@ from scripts.engine_checks.runner import ROOT
 @pytest.fixture
 def measured_matrix():
     db = json.loads((ROOT / "mcbe_editor/resources/item_db.json").read_text(encoding="utf-8"))
-    ids = sorted({*DATA_VARIANTS, *POTION_ITEMS.values(), *MIXED_ITEM_ENCHANTMENTS,
-                  "minecraft:stone", "minecraft:oak_sign", "minecraft:red_cushion"})
+    ids = sorted({*DATA_VARIANTS, *POTION_ITEMS.values(), *MIXED_ITEM_ENCHANTMENTS, "minecraft:stone", "minecraft:oak_sign", "minecraft:red_cushion"})
     enchantments = {name: db["enchantments"][str(ENCHANTMENT_IDS[name])][2] for name in ENCHANTMENT_NAMES}
     events = [{"kind": "matrix_registry", "enchantments": enchantments, "effects": list(POTION_DATA_VALUES), "deliveries": list(POTION_ITEMS)}]
     for item_id in ids:
         allowed = ["efficiency", "mending", "unbreaking"] if item_id == "minecraft:diamond_pickaxe" else []
         pairs = [{"left": a, "right": b, "forward": True, "reverse": True} for a, b in combinations(allowed, 2)]
         events.append({"kind": "enchantability", "id": item_id, "allowed": allowed, "pairs": pairs})
-    events.extend({"kind": "potion", "effect": effect, "delivery": delivery, "id": item_id}
-                  for effect in POTION_DATA_VALUES for delivery, item_id in POTION_ITEMS.items())
+    events.extend(
+        {"kind": "potion", "effect": effect, "delivery": delivery, "id": item_id} for effect in POTION_DATA_VALUES for delivery, item_id in POTION_ITEMS.items()
+    )
     return events, ids, db
 
 
-@pytest.mark.parametrize("mutation", [
-    "missing-item", "missing-potion", "duplicate-potion", "missing-pair", "typed-pair", "level", "new-enchantment", "wrong-potion-id",
-])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-item",
+        "missing-potion",
+        "duplicate-potion",
+        "missing-pair",
+        "typed-pair",
+        "level",
+        "new-enchantment",
+        "wrong-potion-id",
+    ],
+)
 def test_extended_matrix_never_accepts_missing_or_malformed_domains(measured_matrix, mutation):
     events, ids, db = deepcopy(measured_matrix)
     matrix_result(events, ids, db)
@@ -73,8 +83,9 @@ def test_extended_plan_covers_levels_pairs_variants_and_metadata_merge_cases(mea
     observations = {item: {"max_amount": db["stack_limits"][item], "max_durability": db["durability"].get(item)} for item in ids}
     cases = make_cases(ids, observations, db["stack_limits"])
     plan = extend_cases(cases, observations, matrix)
-    levels = {case["enchantments"][0]["level"] for case in cases
-              if case.get("coverage") == "enchantment-level" and case["enchantments"][0]["id"] == "efficiency"}
+    levels = {
+        case["enchantments"][0]["level"] for case in cases if case.get("coverage") == "enchantment-level" and case["enchantments"][0]["id"] == "efficiency"
+    }
     assert levels == {1, 2, 3, 4, 5}
     assert plan["counts"]["enchantment_pairs"] == 3
     assert plan["counts"]["potion_variants"] == 2 * len(POTION_DATA_VALUES) * len(POTION_ITEMS)
@@ -98,8 +109,10 @@ def test_extended_plan_covers_levels_pairs_variants_and_metadata_merge_cases(mea
         assert expected_snapshot(case)["lore"] == []
         assert expected_snapshot(case)["damage"] == 0
     for item_id in MIXED_ITEM_ENCHANTMENTS:
-        assert any(case["id"] == item_id and case["damage"] == observations[item_id]["max_durability"]
-                   and case.get("coverage") == "durability-boundary" for case in cases)
+        assert any(
+            case["id"] == item_id and case["damage"] == observations[item_id]["max_durability"] and case.get("coverage") == "durability-boundary"
+            for case in cases
+        )
 
 
 def test_enchantment_change_report_preserves_new_removed_and_changed_facts(measured_matrix):
@@ -137,8 +150,9 @@ def test_mixed_seed_and_final_state_are_distinct_and_do_not_share_expectations(m
 
 def test_seeded_enchantments_have_independent_explicit_expectations():
     cases = []
-    append_case(cases, {"minecraft:bow": {"max_durability": 384}}, "minecraft:bow", "preserve", 1,
-                enchantments=[{"id": "power", "level": 5}], seeded_metadata=True)
+    append_case(
+        cases, {"minecraft:bow": {"max_durability": 384}}, "minecraft:bow", "preserve", 1, enchantments=[{"id": "power", "level": 5}], seeded_metadata=True
+    )
     assert expected_snapshot(cases[0], seed=True)["enchantments"] == [{"id": "power", "level": 5}]
     assert expected_snapshot({**cases[0], "mode": "create"}, seed=True) is None
 
@@ -146,9 +160,13 @@ def test_seeded_enchantments_have_independent_explicit_expectations():
 def test_disk_observer_reads_enchantments_and_potion_variants_independently():
     from mcbe_editor import nbt
 
-    enchanted = nbt.CompoundTag({"Name": nbt.StringTag("minecraft:bow"), "Count": nbt.ByteTag(1),
-                               "tag": nbt.CompoundTag({"ench": nbt.ListTag([
-                                   nbt.CompoundTag({"id": nbt.ShortTag(19), "lvl": nbt.ShortTag(5)})])})})
+    enchanted = nbt.CompoundTag(
+        {
+            "Name": nbt.StringTag("minecraft:bow"),
+            "Count": nbt.ByteTag(1),
+            "tag": nbt.CompoundTag({"ench": nbt.ListTag([nbt.CompoundTag({"id": nbt.ShortTag(19), "lvl": nbt.ShortTag(5)})])}),
+        }
+    )
     case = {"case_id": "bow", "amount": 1, "durable": True}
     assert disk_snapshot(enchanted, case)["enchantments"] == [{"id": "power", "level": 5}]
     enchanted["tag"]["ench"].append(deepcopy(enchanted["tag"]["ench"][0]))

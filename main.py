@@ -367,7 +367,8 @@ app.secret_key = SETUP_STATE.secret_key() or APP_CONFIG.secret_key
 # Discovery depends on database state, so it outlives catalog-bound services.
 _PLAYER_DIRECTORY = PlayerDirectory()
 editor_service = BedrockEditorService(
-    item_data_module.ITEMS, item_data_module.ENCHANTMENTS,
+    item_data_module.ITEMS,
+    item_data_module.ENCHANTMENTS,
     item_catalog=item_data_module.current_item_catalog(),
     player_directory=_PLAYER_DIRECTORY,
 )
@@ -422,6 +423,7 @@ AUDIT_LOG = AuditLogger(
     max_bytes=APP_CONFIG.audit_log_max_bytes,
 )
 
+
 def _setup_storage_can_complete_auth(config=APP_CONFIG, setup_state=SETUP_STATE) -> bool:
     """Return whether the persistent setup page can resolve this auth state."""
 
@@ -450,7 +452,10 @@ def validate_startup_security(bind_host: str) -> None:
     env_auth = bool(APP_CONFIG.auth_password_hash or APP_CONFIG.auth_password)
     persistent_auth = bool(SETUP_STATE.password_hash())
     if _wide_bind_has_unresolved_unwritable_setup(
-        wide_bind=wide_bind, env_auth_available=env_auth, persistent_auth_available=persistent_auth, setup_state=SETUP_STATE,
+        wide_bind=wide_bind,
+        env_auth_available=env_auth,
+        persistent_auth_available=persistent_auth,
+        setup_state=SETUP_STATE,
     ):
         raise RuntimeError(
             "The service is reachable in LAN/Docker mode, but first-run setup is not complete "
@@ -1268,7 +1273,9 @@ def source_version_history_entries() -> list[dict]:
 
 def item_db_status_snapshot() -> dict:
     snapshot = status_snapshots.item_db_status_snapshot(
-        APP_CONFIG, SimpleNamespace(**item_data_module.current_item_catalog()), APP_ROOT,
+        APP_CONFIG,
+        SimpleNamespace(**item_data_module.current_item_catalog()),
+        APP_ROOT,
     )
     if _ITEM_DB_RELOAD_FAILURE is not None:
         snapshot["verification"] = {**snapshot["verification"], "verified": False, "reason": "runtime-reload-failed"}
@@ -1394,7 +1401,9 @@ def reload_item_db_after_update() -> dict:
             raise OSError("Item database is unavailable.")
         catalog = item_data_module.prepare_item_catalog(_item_db_runtime_path())
         service = BedrockEditorService(
-            catalog["ITEMS"], catalog["ENCHANTMENTS"], item_catalog=catalog,
+            catalog["ITEMS"],
+            catalog["ENCHANTMENTS"],
+            item_catalog=catalog,
             player_directory=_PLAYER_DIRECTORY,
         )
         status = status_snapshots.item_db_status_snapshot(APP_CONFIG, SimpleNamespace(**catalog), APP_ROOT)

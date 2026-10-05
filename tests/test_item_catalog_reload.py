@@ -39,7 +39,8 @@ def write_catalog(path, generation=1):
         "schema_version": 3,
         "behavior_item_source": {
             "resource_pack_release": "v999.0.0",
-            "stack_limit_items": [PROBE_ITEM], "durability_items": [PROBE_ITEM],
+            "stack_limit_items": [PROBE_ITEM],
+            "durability_items": [PROBE_ITEM],
         },
         "items": {PROBE_ITEM: [f"Gegenstand {generation}", f"Item {generation}"]},
         "addable_items": [PROBE_ITEM],
@@ -56,26 +57,50 @@ def write_catalog(path, generation=1):
 
 def make_service(catalog, *, player_directory=None):
     return services.BedrockEditorService(
-        catalog["ITEMS"], catalog["ENCHANTMENTS"], db_factory=LevelDbWriter, item_catalog=catalog,
+        catalog["ITEMS"],
+        catalog["ENCHANTMENTS"],
+        db_factory=LevelDbWriter,
+        item_catalog=catalog,
         player_directory=player_directory,
     )
 
 
 def make_world(path):
     (path / "db").mkdir(parents=True)
-    item = nbt.CompoundTag({
-        "Name": nbt.StringTag(PROBE_ITEM), "Slot": nbt.ByteTag(0), "Count": nbt.ByteTag(1), "Damage": nbt.ShortTag(0),
-        "tag": nbt.CompoundTag({"ench": nbt.ListTag([
-            nbt.CompoundTag({"id": nbt.ShortTag(PROBE_ENCHANTMENT), "lvl": nbt.ShortTag(1)}),
-        ])}),
-    })
-    effect = nbt.CompoundTag({
-        "Id": nbt.ByteTag(PROBE_EFFECT), "Amplifier": nbt.ByteTag(0), "Duration": nbt.IntTag(200),
-    })
-    player = nbt.NamedTag(nbt.CompoundTag({
-        "Inventory": nbt.ListTag([item]), "ActiveEffects": nbt.ListTag([effect, effect.copy()]),
-        "Health": nbt.ShortTag(20), "PlayerGameType": nbt.IntTag(0),
-    }))
+    item = nbt.CompoundTag(
+        {
+            "Name": nbt.StringTag(PROBE_ITEM),
+            "Slot": nbt.ByteTag(0),
+            "Count": nbt.ByteTag(1),
+            "Damage": nbt.ShortTag(0),
+            "tag": nbt.CompoundTag(
+                {
+                    "ench": nbt.ListTag(
+                        [
+                            nbt.CompoundTag({"id": nbt.ShortTag(PROBE_ENCHANTMENT), "lvl": nbt.ShortTag(1)}),
+                        ]
+                    )
+                }
+            ),
+        }
+    )
+    effect = nbt.CompoundTag(
+        {
+            "Id": nbt.ByteTag(PROBE_EFFECT),
+            "Amplifier": nbt.ByteTag(0),
+            "Duration": nbt.IntTag(200),
+        }
+    )
+    player = nbt.NamedTag(
+        nbt.CompoundTag(
+            {
+                "Inventory": nbt.ListTag([item]),
+                "ActiveEffects": nbt.ListTag([effect, effect.copy()]),
+                "Health": nbt.ShortTag(20),
+                "PlayerGameType": nbt.IntTag(0),
+            }
+        )
+    )
     db = LevelDbWriter(str(path / "db"))
     try:
         db.put(b"~local_player", save_player_nbt(player))
@@ -128,8 +153,10 @@ def test_failed_preparation_keeps_entire_live_catalog(tmp_path, monkeypatch, fai
         compatibility.write_text("{}", encoding="utf-8")
         monkeypatch.setenv("MCBE_ENCHANTMENT_COMPATIBILITY_PATH", str(compatibility))
     else:
+
         def fail(_components):
             raise ValueError("derived rules failed")
+
         monkeypatch.setattr(item_data, "_official_enchantment_slots", fail)
     with pytest.raises(ValueError):
         item_data.reload_item_database(path)
@@ -234,9 +261,11 @@ def test_service_exception_releases_catalog_context(tmp_path, monkeypatch):
     write_catalog(path, 2)
     second = item_data.reload_item_database(path)
     service = make_service(first)
+
     def fail(_world):
         assert item_data.get_max_stack(PROBE_ITEM) == 1
         raise ValueError("open failed")
+
     monkeypatch.setattr(service, "_open_db_readonly", fail)
     world = make_world(tmp_path / "world")
     with pytest.raises(ValueError, match="open failed"):
@@ -249,6 +278,7 @@ def test_service_exception_releases_catalog_context(tmp_path, monkeypatch):
 def application(tmp_path, monkeypatch):
     pytest.importorskip("flask")
     import main
+
     path = tmp_path / "catalog.json"
     write_catalog(path, 1)
     monkeypatch.setattr(main, "_item_db_runtime_path", lambda: path)
@@ -301,8 +331,10 @@ def test_application_does_not_publish_incomplete_update(application, monkeypatch
     catalog = item_data.current_item_catalog()
     signature = main._ITEM_DB_RUNTIME_SIGNATURE
     write_catalog(path, 2)
+
     def fail(*_args, **_kwargs):
         raise ValueError("preparation failed")
+
     if failure == "json":
         path.write_text("{broken", encoding="utf-8")
     elif failure == "non_object":
@@ -313,10 +345,12 @@ def test_application_does_not_publish_incomplete_update(application, monkeypatch
         monkeypatch.setattr(main.status_snapshots, "item_db_status_snapshot", fail)
     elif failure == "changed":
         status = main.status_snapshots.item_db_status_snapshot
+
         def change_file(*args):
             result = status(*args)
             write_catalog(path, 3)
             return result
+
         monkeypatch.setattr(main.status_snapshots, "item_db_status_snapshot", change_file)
     else:
         path.unlink()
@@ -421,9 +455,11 @@ def test_external_bad_catalog_keeps_serving_and_retries_when_repaired(applicatio
     path.write_text("{broken", encoding="utf-8")
     calls = []
     prepare = item_data.prepare_item_catalog
+
     def record(*args):
         calls.append(1)
         return prepare(*args)
+
     monkeypatch.setattr(item_data, "prepare_item_catalog", record)
     assert main.reload_item_db_after_external_worker_update() is None
     assert main.reload_item_db_after_external_worker_update() is None
@@ -457,7 +493,7 @@ def test_known_reload_failure_does_not_wait_for_a_running_update(application):
 def test_catalog_reload_warning_is_visible_even_with_valid_disk_metadata():
     from tests.node_runner import run_node
 
-    run_node(r'''
+    run_node(r"""
         const assert = require("node:assert/strict");
         global.window = global;
         require("./static/data_source_view.js");
@@ -469,7 +505,7 @@ def test_catalog_reload_warning_is_visible_even_with_valid_disk_metadata():
         assert.equal(view.itemDbStatusValue(status), "Item-DB-Aktualisierung fehlgeschlagen.");
         assert.equal(view.itemDbSourceText(status), status.reload_warning);
         assert.match(view.itemDbStatusHtml({itemDbStatus: status}), /The active catalog was retained/);
-    ''')
+    """)
 
 
 def test_existing_function_defaults_follow_the_bound_catalog(tmp_path):
@@ -522,12 +558,15 @@ def test_publication_waits_for_active_service_mutations(application, monkeypatch
     write_catalog(path, 2)
     started, preparing = threading.Event(), threading.Event()
     prepare = item_data.prepare_item_catalog
+
     def record(*args):
         preparing.set()
         return prepare(*args)
+
     def reload():
         started.set()
         return main.reload_item_db_after_update()
+
     monkeypatch.setattr(item_data, "prepare_item_catalog", record)
     with ThreadPoolExecutor(max_workers=1) as pool:
         with main._SERVICE_MUTATION_LOCK:

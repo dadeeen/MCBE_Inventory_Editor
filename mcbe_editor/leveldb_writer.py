@@ -256,7 +256,13 @@ if _WINDOWS:  # pragma: no cover - platform-specific
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _CreateFileW = _kernel32.CreateFileW
     _CreateFileW.argtypes = (
-        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
     )
     _CreateFileW.restype = wintypes.HANDLE
     _CloseHandle = _kernel32.CloseHandle
@@ -484,9 +490,7 @@ class LevelDbWriter(ReadonlyLevelDbAdapter):
             # can open on demand.
             super().__init__(db_path, hold_tables=False)
             self._check_writable()
-            resources.access.ensure_unused(
-                os.path.join(db_path, name) for name in (self._manifest_name, *self._wal_names)
-            )
+            resources.access.ensure_unused(os.path.join(db_path, name) for name in (self._manifest_name, *self._wal_names))
             self._block_cache = _BlockCache(_WRITE_BLOCK_CACHE_BYTES)
         except BaseException:
             try:
