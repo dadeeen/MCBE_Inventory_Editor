@@ -13,6 +13,7 @@ from mcbe_editor.inventory import (
 )
 from mcbe_editor.item_data import is_known_item_id
 
+from . import nbt
 from .bedrock_nbt import load_player_nbt
 from .i18n import t
 from .root_equipment import filter_root_equipment_presence_flags
@@ -441,8 +442,8 @@ def analyze_player_compatibility(
     }
 
 
-def assert_serialized_player_roundtrip(serialized_bytes: bytes) -> None:
+def assert_serialized_player_roundtrip(serialized_bytes: bytes) -> nbt.NamedTag:
     try:
-        load_player_nbt(serialized_bytes)
+        return load_player_nbt(serialized_bytes)
     except Exception as exc:
         raise ValueError(f"Speichern abgelehnt: Der vorbereitete Spieler-Datensatz ist nicht wieder lesbar ({exc}).") from exc

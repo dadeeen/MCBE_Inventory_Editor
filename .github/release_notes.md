@@ -1,5 +1,11 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
+## Unreleased
+
+- **Backups:** corrupt ZIP data, encrypted members and unsupported compression formats do not interrupt listing or count as valid recovery copies. Invalid backup dates fall back to the file time.
+- **Player discovery:** replaced database tables trigger fresh discovery even when their size and timestamps match the originals.
+- **Saving:** saves reuse parsed source and validated output NBT while retaining output validation and write safeguards.
+
 ## What changed in v0.6.2
 
 - **Loading while a server runs:** v0.6.1 could fail to load a world that a running Bedrock server was writing, with a message that a table file disappeared while reading. The editor holds a world's table files from the moment it opens them, shares one table budget across all readers and the writer, and reports a world that changed during reading instead of returning a mixed state.

@@ -32,6 +32,13 @@ class PlayerDirectory:
                     return localize_player_labels(copy.deepcopy(cached[1]))
         players = PlayerScanner(db).list_players()
         if token is not None:
+            try:
+                if token_of() != token:
+                    token = None
+            except OSError:
+                LOGGER.warning("Datenbankzustand nach Spielersuche nicht bestimmbar; Ergebnis wird nicht gecacht.", exc_info=True)
+                token = None
+        if token is not None:
             with self._guard:
                 self._entries[token[0]] = (token, copy.deepcopy(players))
                 self._entries.move_to_end(token[0])

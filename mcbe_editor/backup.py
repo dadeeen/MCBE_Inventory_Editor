@@ -18,6 +18,7 @@ from functools import wraps
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, TypeGuard, cast
 
+from .archive_errors import ZIP_READ_ERRORS as _ZIP_READ_ERRORS
 from .backup_consistency import BackupSourceChangedError, reject_linklike_entry, source_snapshot
 from .backup_settings import BackupLimitError, get_backup_settings
 from .backup_types import BackupDescriptor, BackupListEntry, BackupPath, RestoreToken
@@ -485,11 +486,11 @@ def _parse_created_at(value: object) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-    except ValueError:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    except (ValueError, OverflowError):
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
 
 
 def _backup_metadata(world_path: str, *, kind: str, created_at: datetime, restore_source: str | None = None) -> JsonObject:
@@ -802,7 +803,10 @@ def _verify_zip_integrity(zip_path: StrPath | BinaryIO) -> None:
     try:
         with zipfile.ZipFile(zip_path, "r") as zipf:
             bad_member = zipf.testzip()
-    except zipfile.BadZipFile as exc:
+    except _ZIP_READ_ERRORS as exc:
+        # testzip also raises for damaged compressed streams, encrypted members
+        # and unsupported methods (NotImplementedError is a RuntimeError).
+        # Normalize only at this archive-reading boundary.
         raise ValueError("Backup-Datei ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
     except OSError as exc:
         # The text of an OSError names the full path; the server log keeps it.

@@ -152,6 +152,102 @@ class TestListBackups(unittest.TestCase):
             self.assertEqual(filenames, ["real.zip"])
 
 
+@pytest.mark.parametrize("damage", ["deflate", "bzip2", "lzma", "zstandard", "compression", "encrypted"])
+def test_unreadable_zip_members_do_not_break_listing_or_count_for_retention(tmp_path, monkeypatch, damage):
+    import struct
+
+    from mcbe_editor import backup
+
+    world = tmp_path / "world"
+    (world / "db").mkdir(parents=True)
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+    monkeypatch.setenv("MCBE_MAX_BACKUPS_PER_WORLD", "1")
+    folder = Path(get_backups_dir(str(world)))
+    folder.mkdir(parents=True)
+    valid, invalid = folder / "valid.zip", folder / "invalid.zip"
+    compression = zipfile.ZIP_DEFLATED
+    if damage == "bzip2":
+        pytest.importorskip("bz2")
+        compression = zipfile.ZIP_BZIP2
+    elif damage == "lzma":
+        pytest.importorskip("lzma")
+        compression = zipfile.ZIP_LZMA
+    elif damage == "zstandard":
+        pytest.importorskip("compression.zstd")
+        compression = zipfile.ZIP_ZSTANDARD
+    with zipfile.ZipFile(valid, "w", compression=compression) as archive:
+        archive.writestr("db/CURRENT", b"synthetic-manifest" * 100)
+    backup._verify_zip_integrity(valid)
+    raw = bytearray(valid.read_bytes())
+    local, central = raw.index(b"PK\x03\x04"), raw.index(b"PK\x01\x02")
+    name, extra = struct.unpack_from("<HH", raw, local + 26)
+    data_offset = local + 30 + name + extra
+    if damage == "deflate":
+        raw[data_offset] = 7  # Invalid DEFLATE block type.
+    elif damage in {"bzip2", "lzma", "zstandard"}:
+        raw[data_offset + (4 if damage == "lzma" else 0)] ^= 0xFF
+    elif damage == "compression":
+        struct.pack_into("<H", raw, local + 8, 99)
+        struct.pack_into("<H", raw, central + 10, 99)
+    else:
+        struct.pack_into("<H", raw, local + 6, 1)
+        struct.pack_into("<H", raw, central + 8, 1)
+    invalid.write_bytes(raw)
+    os.utime(valid, (1, 1))
+    os.utime(invalid, (2, 2))
+
+    with pytest.raises(ValueError, match="Backup-Datei"):
+        backup._verify_zip_integrity(invalid)
+    assert [entry["filename"] for entry in list_backups(str(world))] == [valid.name]
+    backup.prune_backups(str(world))
+    assert valid.exists()  # The newer unreadable archive is no recovery copy.
+    assert invalid.read_bytes() == raw
+
+
+@pytest.mark.parametrize("error", [AssertionError("invariant"), TypeError("unexpected type")])
+def test_zip_verification_does_not_hide_programming_errors(tmp_path, monkeypatch, error):
+    from mcbe_editor import backup
+
+    path = tmp_path / "valid.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("db/CURRENT", b"synthetic-manifest")
+
+    def fail_testzip(_archive):
+        raise error
+
+    monkeypatch.setattr(zipfile.ZipFile, "testzip", fail_testzip)
+    with pytest.raises(type(error)) as caught:
+        backup._verify_zip_integrity(path)
+    assert caught.value is error
+
+
+@pytest.mark.parametrize("created_at", ["0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"])
+def test_valid_backup_with_overflowing_optional_date_uses_file_time(tmp_path, monkeypatch, created_at):
+    import json
+
+    from mcbe_editor import backup
+
+    world = tmp_path / "world"
+    world.mkdir()
+    monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
+    folder = Path(get_backups_dir(str(world)))
+    folder.mkdir(parents=True)
+    path = folder / "valid.zip"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("db/CURRENT", b"synthetic-manifest")
+        archive.comment = json.dumps({"schema_version": 1, "kind": "automatic", "created_at": created_at}).encode()
+    os.utime(path, (1000, 1000))
+    backup._verify_zip_integrity(path)
+    descriptor = backup._backup_file_descriptor(str(path))
+    assert descriptor["created_at"] is None
+    assert descriptor["sort_timestamp"] == path.stat().st_mtime
+    listed = list_backups(str(world))
+    assert len(listed) == 1
+    assert listed[0]["filename"] == path.name
+    assert listed[0]["created_at"] is None
+    assert listed[0]["modified_at"] == "1970-01-01T00:16:40Z"
+
+
 class TestCreateBackupConsistency(unittest.TestCase):
     def test_create_backup_fails_instead_of_silently_skipping_disappearing_file(self):
         from unittest.mock import patch
