@@ -34,8 +34,6 @@ The editor is intended for local use and trusted home networks. Do not expose it
 
 During updates, the progress display shows downloaded MB and a percentage when the total size is known. It then switches to archive checks, data processing or icon creation, and finishing. A completed download is not yet a completed update; matching cached downloads are shown separately.
 
-If no release is available yet, experienced users can use the source setup below.
-
 Stack sizes use explicit Mojang components and reviewed Bedrock values. If an updated item has no confirmed limit, new stacks are limited to **1** and **Max-Stack** is disabled. Existing amounts are preserved unchanged; the editor does not assume 64 from an item's name or registry entry. The update log reports how many limits are still unverified.
 
 ## Why this exists

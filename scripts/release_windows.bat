@@ -83,6 +83,7 @@ echo [1/10] Checking lockfiles
 
 echo [2/10] Checking Python code
 "%PYTHON%" -m ruff check . || goto :failed
+"%PYTHON%" -m ruff format --check . || goto :failed
 "%PYTHON%" -m mypy || goto :failed
 "%PYTHON%" -m pip check || goto :failed
 

@@ -358,5 +358,3 @@ real Bedrock worlds
 The runtime archive uses an explicit allowlist. It contains the readable application code, static files, templates, required lockfiles, user-facing README and security policy, screenshots, and supported operational tools. Internal contracts, contributor documentation, tests, CI configuration, npm/Playwright, fixtures, the release builder, and remaining maintainer tools stay exclusively in the Git source tree. This keeps the package auditable without becoming a second development checkout.
 
 The project root deliberately contains only tool-conventional configuration and direct entry points such as `pyproject.toml`, `Dockerfile`, Compose examples, `setup.bat`, and `start.bat`. Development, diagnostic, and release helpers live under `scripts/`; generated caches, runtime data, and build outputs remain ignored and are hard-excluded by release and Docker rules.
-
-A release history only begins with the first published release via Git tags, GitHub Releases, or a comparable release channel. Until then, Git is the authoritative change history.

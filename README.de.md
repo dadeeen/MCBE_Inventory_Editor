@@ -34,8 +34,6 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
 
 Während eines Updates zeigt die Fortschrittsanzeige die geladenen MB und bei bekannter Gesamtgröße einen Prozentwert. Danach wechselt sie zu Archivprüfung, Datenverarbeitung bzw. Icon-Erstellung und Abschluss. Ein beendeter Download bedeutet noch kein abgeschlossenes Update; passende Downloads aus dem Cache werden gesondert angezeigt.
 
-Falls noch kein Release vorhanden ist, können erfahrene Nutzer die Source-Einrichtung weiter unten verwenden.
-
 Stapelgrößen stammen aus ausdrücklichen Mojang-Komponenten und geprüften Bedrock-Werten. Fehlt für ein aktualisiertes Item eine bestätigte Grenze, sind neue Stapel zunächst auf **1** begrenzt und **Max-Stack** ist deaktiviert. Vorhandene Mengen bleiben unverändert erhalten; der Editor leitet aus Namen oder Registry-Einträgen keine 64er-Grenze ab. Das Update-Protokoll nennt die Anzahl noch ungeprüfter Grenzen.
 
 ## Warum es dieses Projekt gibt
