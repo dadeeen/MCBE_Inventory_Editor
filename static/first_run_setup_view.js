@@ -95,10 +95,13 @@
             const open = TODO_IDS.filter(isPending);
             const show = open.length > 0 && isDismissed() && !isOpen();
             banner.style.display = show ? "" : "none";
+            banner.classList.toggle("includes-icon-setup", show && open.includes("icons"));
             if (show && bannerDetail) {
-                bannerDetail.textContent = t("Offen: {items}. Ohne diese Daten fehlen Items neuerer Minecraft-Versionen und Slots zeigen Ersatzsymbole.", {
-                    items: open.map(id => TODO_LABELS[id]()).join(", "),
-                });
+                bannerDetail.textContent = [
+                    t("Offen: {items}.", { items: open.map(id => TODO_LABELS[id]()).join(", ") }),
+                    open.includes("item_db") ? t("Prüfe die Item-Daten auf Aktualität.") : "",
+                    open.includes("icons") ? t("Die Slots zeigen Ersatzsymbole, bis Icons eingerichtet sind.") : "",
+                ].filter(Boolean).join(" ");
             }
         }
 

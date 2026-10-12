@@ -144,3 +144,81 @@ def test_world_folder_picker_replaces_running_status_with_terminal_status() -> N
             """
         ),
     )
+
+
+def test_world_list_navigation_preserves_selection_focus_and_scroll() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const doc = { activeElement:null };
+            const searchInput = {value:"",focus(){doc.activeElement=this;}};
+            let cards = [];
+            let html = "";
+            const list = {
+                ownerDocument:doc,scrollTop:0,
+                contains:node=>cards.includes(node),querySelectorAll:()=>cards,
+                get innerHTML(){return html;},
+                set innerHTML(value){
+                    if(cards.includes(doc.activeElement)) doc.activeElement=null;
+                    html=value;
+                    cards=[...value.matchAll(/<button[^>]*tabindex="(-?\d+)"[^>]*data-world-path="([^"]+)"[^>]*>/g)].map(match=>({
+                        tabIndex:Number(match[1]),dataset:{worldPath:match[2]},listeners:{},
+                        addEventListener(type,handler){this.listeners[type]=handler;},
+                        focus(options){doc.activeElement=this;this.focusOptions=options;this.listeners.focus?.();},
+                    }));
+                },
+            };
+            let rendered=[];
+            let selected=null;
+            const worlds=Array.from({length:100},(_,index)=>({name:index===87?'Zielwelt':`Welt ${index}`,path:`/worlds/${index}`}));
+            const context={window:{}};
+            for(const name of ['world_cards_view.js','world_browser.js']){
+                vm.runInNewContext(fs.readFileSync(`static/${name}`,'utf8'),context,{filename:name});
+            }
+            const controller=context.window.MCBEWorldBrowser.createWorldBrowserController({
+                elements:{worldList:list,searchInput},
+                getLastWorldScan:()=>({worlds}),getLastRenderedWorlds:()=>rendered,
+                setLastRenderedWorlds:value=>{rendered=value;},getSelectedWorld:()=>selected,
+                updateSelectedWorld:value=>{selected=value;},
+            });
+            const key=(value)=>{
+                let prevented=false;
+                doc.activeElement.listeners.keydown({key:value,preventDefault(){prevented=true;}});
+                return prevented;
+            };
+            controller.renderWorldCards(worlds);
+            cards[0].focus();
+            assert.strictEqual(key('ArrowDown'),true);
+            assert.strictEqual(doc.activeElement.dataset.worldPath,'/worlds/1');
+            assert.strictEqual(selected,null,'Arrow navigation must not select or load a world');
+            key('End');
+            assert.strictEqual(doc.activeElement.dataset.worldPath,'/worlds/99');
+            assert.strictEqual(key('Tab'),false,'Tab must leave the list normally');
+            list.scrollTop=912;
+            const oldCard=doc.activeElement;
+            oldCard.listeners.click();
+            assert.strictEqual(selected.path,'/worlds/99');
+            assert.notStrictEqual(doc.activeElement,oldCard,'A render replaced the old option');
+            assert.strictEqual(doc.activeElement.dataset.worldPath,'/worlds/99');
+            assert.strictEqual(doc.activeElement.focusOptions.preventScroll,true);
+            assert.strictEqual(list.scrollTop,912,'Selection must preserve the scroll position');
+            assert.strictEqual(cards.filter(card=>card.tabIndex===0).length,1);
+            key('Home');
+            assert.strictEqual(doc.activeElement.dataset.worldPath,'/worlds/0');
+            key('z');
+            assert.strictEqual(doc.activeElement.dataset.worldPath,'/worlds/87');
+            assert.strictEqual(selected.path,'/worlds/99','Typeahead only moves focus');
+            searchInput.focus();
+            controller.renderWorldCards(worlds.slice(80,90));
+            assert.strictEqual(doc.activeElement,searchInput,'Filtering must not steal search focus');
+            assert.strictEqual(list.scrollTop,0);
+            assert.strictEqual(cards.filter(card=>card.tabIndex===0).length,1);
+            cards[0].focus();
+            controller.renderWorldCards([]);
+            assert.strictEqual(doc.activeElement,searchInput,'Removing the focused result must not strand focus');
+            """
+        )
+    )

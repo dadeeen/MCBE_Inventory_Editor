@@ -101,6 +101,28 @@ def test_frontend_write_status_view_models_and_badge_applier() -> None:
             assert.strictEqual(localUnknown.text, "Server: unbekannt · manuell prüfen");
             assert.ok(localUnknown.title.includes("manuell"));
 
+            // A server-level offline result cannot confirm that a separate
+            // local Minecraft client has released the world.
+            const unmonitoredLocal = view.serverStatusBadgeModel({
+                gate: { allowed: true },
+                status: { status: "offline" },
+                appConfig: { mode: "local", require_server_offline: false },
+            });
+            assert.strictEqual(unmonitoredLocal.text, localUnknown.text);
+            assert.strictEqual(unmonitoredLocal.className, "server-status-badge unknown allowed");
+            assert.strictEqual(view.serverStatusBadgeModel({
+                gate: { allowed: true },
+                status: { status: "offline" },
+                appConfig: { mode: "local", require_server_offline: true },
+            }).className, "server-status-badge offline allowed");
+
+            const failedRecheck = view.serverStatusBadgeModel({
+                gate: { allowed: true, status_check_failed: true },
+                status: { status: "offline" },
+            });
+            assert.strictEqual(failedRecheck.text, "Server: zuletzt offline · Prüfung fehlgeschlagen");
+            assert.strictEqual(failedRecheck.className, "server-status-badge unknown allowed status-check-failed");
+
             const element = { className: "", textContent: "", title: "" };
             view.applyServerStatusBadgeModel(element, badge);
             assert.strictEqual(element.className, "server-status-badge online blocked");

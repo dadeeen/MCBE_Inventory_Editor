@@ -105,8 +105,7 @@ def test_mount_preview_uses_player_position_as_reference_and_places_mount_at_fee
     assert preview["candidate_positions"][0]["offset"] == {"x": 6.0, "y": 0.0, "z": 0.0}
     assert [candidate["id"] for candidate in preview["candidate_positions"]] == ["east_6", "west_6", "south_6", "north_6"]
     assert preview["candidate_positions"][0]["safe_to_place"] is None
-    assert any("minus 1,62" in warning and "eingerastet" in warning for warning in preview["warnings"])
-    assert any("kein vollständiger Flächenscan" in warning for warning in preview["warnings"])
+    assert preview["warnings"] == ["Die Blickrichtung ist nicht verfügbar. Die Suche verwendet die vier Himmelsrichtungen."]
     assert preview["can_create"] is True
     assert preview["create_available"] is True
 
@@ -123,15 +122,8 @@ def test_mount_preview_localizes_display_payload_for_english_request() -> None:
 
     assert preview["mount_label"] == "Horse"
     assert preview["mount_options"][0]["label"] == "Horse"
-    assert preview["mount_options"][0]["notes"] == [
-        "Create has been validated in-game; colors and markings now follow actual storage records (Variant/definitions)."
-    ]
-    assert "The starting height is estimated from the player position minus 1.62 and then snapped to a verified full-block surface." in preview["warnings"]
-    assert "View direction was read from the player rotation and prioritized for candidate ordering." in preview["warnings"]
-    assert (
-        "Create writes actorprefix + digp, generates complete mount NBT, and creates a backup first. Initially, test only with copies of worlds."
-        in preview["warnings"]
-    )
+    assert preview["mount_options"][0]["notes"] == []
+    assert preview["warnings"] == []
     assert preview["candidate_positions"][0]["warning"] == (
         "Candidate offset selected by the client; limited server-side, but clearance has not yet been checked."
     )
@@ -291,6 +283,22 @@ def test_mount_route_reports_unsafe_placement_safety() -> None:
     }
 
 
+@pytest.mark.parametrize("locale", ["de", "en"])
+def test_mount_preview_localizes_only_the_current_limitation(locale) -> None:
+    app = Flask(__name__)
+    cases = (
+        (0, "Die Blickrichtung ist nicht verfügbar.", "The view direction is unavailable."),
+        (1, "Mounts können nur in der Oberwelt erzeugt werden.", "Mounts can only be created in the Overworld."),
+        (None, "Die Dimension des Spielers konnte nicht bestimmt werden.", "The player's dimension could not be determined."),
+    )
+    with app.test_request_context(headers={"Accept-Language": locale}):
+        for dimension_id, german, english in cases:
+            preview = build_mount_preview(_player_snapshot(dimension_id=dimension_id), "player-key")
+            assert len(preview["warnings"]) == 1
+            assert preview["warnings"][0].startswith(german if locale == "de" else english)
+            assert preview["can_create"] is (dimension_id == 0)
+
+
 def test_mount_preview_accepts_supported_mount_types() -> None:
     for mount_type, label in {
         "minecraft:horse": "Pferd",
@@ -299,13 +307,14 @@ def test_mount_preview_accepts_supported_mount_types() -> None:
         "minecraft:camel": "Kamel",
         "minecraft:skeleton_horse": "Skelettpferd",
     }.items():
-        preview = build_mount_preview(_player_snapshot(), "player-key", mount_type=mount_type)
+        preview = build_mount_preview(_player_snapshot(rotation=[0.0, 0.0]), "player-key", mount_type=mount_type)
 
         assert preview["success"] is True
         assert preview["mount_type"] == mount_type
         assert preview["mount_label"] == label
         assert preview["create_available"] is True
         assert preview["can_create"] is True
+        assert preview["warnings"] == []
 
 
 def test_mount_preview_marks_non_overworld_context_as_preview_only() -> None:
@@ -313,7 +322,7 @@ def test_mount_preview_marks_non_overworld_context_as_preview_only() -> None:
 
     assert preview["create_available"] is False
     assert preview["can_create"] is False
-    assert any("Overworld" in warning for warning in preview["warnings"])
+    assert any("Oberwelt" in warning for warning in preview["warnings"])
 
 
 def test_mount_preview_blocks_unknown_dimension_with_guard_warning() -> None:
@@ -321,7 +330,7 @@ def test_mount_preview_blocks_unknown_dimension_with_guard_warning() -> None:
 
     assert preview["create_available"] is False
     assert preview["can_create"] is False
-    assert any("DimensionId" in warning for warning in preview["warnings"])
+    assert any("Dimension des Spielers" in warning for warning in preview["warnings"])
 
 
 def test_mount_preview_uses_custom_placement_radius() -> None:
@@ -362,7 +371,7 @@ def test_mount_create_availability_exposed_to_ui() -> None:
     assert preview["can_create"] is True
 
 
-def test_mount_type_options_for_ui_include_known_labels_and_notes() -> None:
+def test_mount_type_options_for_ui_include_known_labels_without_validation_history() -> None:
     options = mount_type_options()
 
     assert [option["id"] for option in options] == [
@@ -373,7 +382,7 @@ def test_mount_type_options_for_ui_include_known_labels_and_notes() -> None:
         "minecraft:skeleton_horse",
     ]
     assert [option["label"] for option in options] == ["Pferd", "Esel", "Maultier", "Kamel", "Skelettpferd"]
-    assert all(option["notes"] for option in options)
+    assert all(option["notes"] == [] for option in options)
     assert all(option["label"] for option in options)
     assert [option["create_available"] for option in options] == [True, True, True, True, True]
 

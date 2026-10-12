@@ -62,11 +62,13 @@
         if (!selectedWorld) {
             return {
                 visible: false,
+                kicker: t("Welt auswählen"),
                 loadDisabled: true,
+                copyDisabled: true,
                 openDisabled: true,
                 openTitle: "",
-                name: "",
-                pathText: "",
+                name: t("Keine Welt ausgewählt"),
+                pathText: t("Wähle unten eine Welt aus, um sie zu laden."),
                 pathTitle: "",
             };
         }
@@ -75,7 +77,9 @@
         const openDisabled = isDocker === true;
         return {
             visible: true,
+            kicker: t("Ausgewählt"),
             loadDisabled: false,
+            copyDisabled: false,
             name: selectedWorld.name || selectedWorld.folder || t("Ausgewählte Welt"),
             openDisabled,
             openTitle: openDisabled
@@ -102,29 +106,36 @@
     function applySelectedWorldBarModel(elements = {}, model = {}) {
         const {
             bar = null,
+            kicker = null,
             name = null,
             path = null,
             safetyNote = null,
             loadButton = null,
+            copyButton = null,
             openButton = null,
         } = elements;
-        if (bar) bar.style.display = model.visible ? "flex" : "none";
-        if (!model.visible) return false;
-        if (name) name.textContent = model.name || "";
+        const hasSelection = Boolean(model.visible);
+        if (bar) {
+            bar.style.display = hasSelection ? "flex" : "none";
+            bar.classList?.toggle("is-empty", !hasSelection);
+        }
+        if (kicker) kicker.textContent = model.kicker || t(hasSelection ? "Ausgewählt" : "Welt auswählen");
+        if (name) name.textContent = model.name || (hasSelection ? "" : t("Keine Welt ausgewählt"));
         if (path) {
-            path.textContent = model.pathText || "";
+            path.textContent = model.pathText || (hasSelection ? "" : t("Wähle unten eine Welt aus, um sie zu laden."));
             path.title = model.pathTitle || "";
         }
         if (safetyNote) {
             safetyNote.textContent = "";
             safetyNote.style.display = "none";
         }
-        if (loadButton) loadButton.disabled = Boolean(model.loadDisabled);
+        if (loadButton) loadButton.disabled = !hasSelection || Boolean(model.loadDisabled);
+        if (copyButton) copyButton.disabled = !hasSelection || Boolean(model.copyDisabled);
         if (openButton) {
-            openButton.disabled = Boolean(model.openDisabled);
+            openButton.disabled = !hasSelection || Boolean(model.openDisabled);
             openButton.title = model.openTitle || "";
         }
-        return true;
+        return hasSelection;
     }
 
     function applySelectedWorldDirtyHint(element, hint = {}) {
@@ -305,10 +316,12 @@
             });
             const visible = applySelectedWorldBarModel({
                 bar: selectedWorldBar,
+                kicker: elements.selectedWorldKicker,
                 name: selectedWorldName,
                 path: selectedWorldPath,
                 safetyNote: selectedWorldSafetyNote,
                 loadButton,
+                copyButton: elements.copySelectedWorldButton,
                 openButton: openSelectedWorldButton,
             }, model);
             if (!visible) return;
@@ -397,6 +410,8 @@
             autoPathHint: doc.getElementById("autoPathHint"),
             worldPathInput: doc.getElementById("worldPath"),
             selectedWorldBar: doc.getElementById("selectedWorldBar"),
+            selectedWorldKicker: doc.getElementById("selectedWorldKicker"),
+            copySelectedWorldButton: doc.getElementById("btnCopySelectedWorldPath"),
             selectedWorldName: doc.getElementById("selectedWorldName"),
             selectedWorldPath: doc.getElementById("selectedWorldPath"),
             selectedWorldSafetyNote: doc.getElementById("selectedWorldSafetyNote"),

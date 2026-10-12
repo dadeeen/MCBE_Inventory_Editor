@@ -385,7 +385,7 @@ def _chunk_finalized_state(db: Any, base: bytes) -> int | None:
     """
 
     raw = _get_optional(db, base + bytes([FINALIZED_STATE_TAG]))
-    if not isinstance(raw, bytes) or len(raw) < 4:
+    if not isinstance(raw, bytes) or len(raw) != 4:
         return None
     return int.from_bytes(raw[:4], "little", signed=True)
 
@@ -1052,25 +1052,18 @@ def _probe_block_at(
 def _assess_placement_blocks(blocks: dict[str, dict[str, Any]]) -> dict[str, Any]:
     names = {role: block.get("block_name") for role, block in blocks.items()}
     missing = [role for role in ("floor", "feet", "head") if not names.get(role)]
-    if missing:
-        return {
-            "status": "unchecked",
-            "safe_to_place": None,
-            "block_names": names,
-            "message": f"Blocknamen konnten nicht vollständig gelesen werden ({', '.join(missing)}); Platzierung ist nicht sicher bestätigt.",
-        }
-
-    floor = str(names["floor"])
-    feet = str(names["feet"])
-    head = str(names["head"])
-    if feet not in PASSABLE_SPACE_BLOCKS:
+    floor = names.get("floor")
+    feet = names.get("feet")
+    head = names.get("head")
+    # Missing data must not hide a collision that has already been read.
+    if feet and feet not in PASSABLE_SPACE_BLOCKS:
         return {
             "status": "unsafe",
             "safe_to_place": False,
             "block_names": names,
             "message": f"Fußraum ist blockiert durch {feet}; Pferd kann hier nicht sicher platziert werden.",
         }
-    if head not in PASSABLE_SPACE_BLOCKS:
+    if head and head not in PASSABLE_SPACE_BLOCKS:
         return {
             "status": "unsafe",
             "safe_to_place": False,
@@ -1090,6 +1083,13 @@ def _assess_placement_blocks(blocks: dict[str, dict[str, Any]]) -> dict[str, Any
             "safe_to_place": False,
             "block_names": names,
             "message": f"Bodenblock ist Flüssigkeit ({floor}); Pferd kann hier nicht sicher platziert werden.",
+        }
+    if missing:
+        return {
+            "status": "unchecked",
+            "safe_to_place": None,
+            "block_names": names,
+            "message": f"Blocknamen konnten nicht vollständig gelesen werden ({', '.join(missing)}); Platzierung ist nicht sicher bestätigt.",
         }
     if not is_confirmed_full_support_surface(floor):
         return {
@@ -1198,20 +1198,22 @@ def _probe_candidate_chunk_with_index_order(
     # A block resolved as "empty subchunk inside a generated chunk" is as
     # determinate as one read from a stored palette.
     have_block_data = any(block.get("subchunk_key_found") or block.get("assumed_air") for block in blocks.values())
+    # Keep every block's evidence even when none could be decoded. Otherwise
+    # callers cannot distinguish a missing chunk from an unfinished one.
+    placement_check = _assess_placement_blocks(blocks)
+    if placement_check.get("safe_to_place") is True and chunk_finalized != CHUNK_FINALIZED_DONE:
+        placement_check = {
+            **placement_check,
+            "status": "unchecked",
+            "safe_to_place": None,
+            "reason": "chunk_not_finalized",
+            "message": CHUNK_NOT_FINALIZED_PLACEMENT_MESSAGE,
+        }
+    result["placement_check"] = {**placement_check, "blocks": blocks}
+    result["safe_to_place"] = placement_check.get("safe_to_place")
+    result["warning"] = str(placement_check.get("message") or result["warning"])
     if have_block_data:
-        placement_check = _assess_placement_blocks(blocks)
-        if placement_check.get("safe_to_place") is True and chunk_finalized != CHUNK_FINALIZED_DONE:
-            placement_check = {
-                **placement_check,
-                "status": "unchecked",
-                "safe_to_place": None,
-                "reason": "chunk_not_finalized",
-                "message": CHUNK_NOT_FINALIZED_PLACEMENT_MESSAGE,
-            }
         result["block_check"] = "chunk_probe_found"
-        result["placement_check"] = {**placement_check, "blocks": blocks}
-        result["safe_to_place"] = placement_check.get("safe_to_place")
-        result["warning"] = str(placement_check.get("message") or result["warning"])
     return result
 
 

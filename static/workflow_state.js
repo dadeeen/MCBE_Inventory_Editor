@@ -14,7 +14,7 @@
     function viewAllowed(view, context = {}) {
         if (view === "world" || view === "tools") return true;
         if (view === "player") return Boolean(context.worldPath);
-        if (view === "inventory" || view === "save") return hasLoadedEditablePlayer(context);
+        if (view === "inventory" || view === "player-edit" || view === "save") return hasLoadedEditablePlayer(context);
         if (view === "mounts") return hasLoadedMountReferencePlayer(context);
         return false;
     }
@@ -30,6 +30,7 @@
             world: t("Welt auswählen"),
             player: t("Spieler wählen"),
             inventory: t("Inventar bearbeiten"),
+            "player-edit": t("Spielerdaten bearbeiten"),
             mounts: t("Mounts erzeugen"),
             save: t("Änderungen prüfen & speichern"),
             tools: t("Tools & Diagnose"),
@@ -40,14 +41,14 @@
         if (view === "world") return t("Welt suchen oder wechseln.");
         if (view === "player" && !context.worldPath) return t("Lade zuerst eine Welt.");
         if (view === "tools") return t("Diagnose, Icons, Backups und technische Details öffnen.");
-        if ((view === "inventory" || view === "save") && !hasLoadedEditablePlayer(context)) return t("Lade zuerst einen bearbeitbaren Spieler.");
+        if ((view === "inventory" || view === "player-edit" || view === "save") && !hasLoadedEditablePlayer(context)) return t("Lade zuerst einen bearbeitbaren Spieler.");
         if (view === "mounts" && !hasLoadedMountReferencePlayer(context)) return t("Lade zuerst einen Spieler.");
         if (view === "save" && !context.isDirty) return t("Keine ungespeicherten Änderungen.");
         return viewTitle(view);
     }
 
     function unavailableMessage(view) {
-        if (view === "inventory" || view === "save") return t("Lade zuerst einen bearbeitbaren Spieler.");
+        if (view === "inventory" || view === "player-edit" || view === "save") return t("Lade zuerst einen bearbeitbaren Spieler.");
         if (view === "mounts") return t("Lade zuerst einen Spieler.");
         if (view === "player") return t("Lade zuerst eine Welt.");
         return t("Dieser Arbeitsbereich ist aktuell nicht verfügbar.");
@@ -182,7 +183,7 @@
             setActiveView(activeView);
             applyShellState();
 
-            if (activeView === "player") switchToPlayerDashboard();
+            if (activeView === "player" || activeView === "player-edit") switchToPlayerDashboard();
             if (activeView === "save") renderSaveWorkflowPanel();
             if (activeView === "tools") renderToolsDashboard();
             if (activeView === "mounts") renderMountsPanel();
@@ -243,7 +244,7 @@
                 : view === "player" ? targets.player
                 : view === "mounts" ? targets.mounts
                 : view === "save" ? targets.save
-                : view === "tools" ? targets.tools
+                : view === "tools" || view === "player-edit" ? targets.tools
                 : targets.inventory,
             switchToPlayerDashboard: onPlayerView,
             renderSaveWorkflowPanel: onSaveView,

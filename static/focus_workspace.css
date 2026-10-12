@@ -1,0 +1,1159 @@
+/* Focus v4: an editor workspace, not a wizard/dashboard.
+ * Focus-only presentation overrides. Classic and Studio are not restyled.
+ * All operations continue using the existing player list, inventory slots,
+ * save-review workflow and form. No new backend or persistence semantics.
+ */
+.focus-player-rail,
+.focus-context-facts,
+.focus-player-summary { display: none; }
+
+:root[data-layout="focus"] body {
+    padding: 16px clamp(12px, 1.8vw, 30px) 30px;
+}
+/* Sticky columns follow the viewport, without the base body's implicit scroll
+   container. The item browser retains its own modal scroll lock. */
+:root[data-layout="focus"] body:not(.item-browser-open) {
+    overflow-x: clip;
+    overflow-y: visible;
+}
+:root[data-layout="focus"] .app-container {
+    width: 100%;
+    max-width: 1720px;
+    gap: 12px;
+}
+:root[data-layout="focus"] .glass-card {
+    padding: 18px;
+    border-radius: 13px;
+}
+:root[data-layout="focus"] .app-header {
+    order: -4;
+    border-radius: 13px;
+    padding: 13px 15px;
+    box-shadow: none;
+    gap: 7px 14px;
+}
+:root[data-layout="focus"] .logo h1 {
+    font-size: clamp(1.08rem, 1.55vw, 1.5rem);
+    letter-spacing: -.025em;
+}
+:root[data-layout="focus"] .logo .app-subtitle { font-size: .72rem; }
+:root[data-layout="focus"] .logo .mc-icon { box-shadow: none; }
+:root[data-layout="focus"] .layout-intro { display: none !important; }
+:root[data-layout="focus"] .app-header .header-actions { gap: 7px; }
+:root[data-layout="focus"] .app-header .layout-context-action {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 9px;
+    margin: 0 8px 0 0;
+    padding: 0;
+    border: 0;
+    max-width: none;
+    flex: 0 0 auto;
+}
+:root[data-layout="focus"] .app-header .layout-save-status {
+    color: var(--text-secondary);
+    background: var(--workspace-well-bg);
+    padding: 9px 11px;
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    font-size: .71rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] body.app-dirty .app-header .layout-save-status { color: var(--warning-text, var(--warning)); }
+:root[data-layout="focus"] .app-header #layoutSaveAction {
+    min-height: 36px;
+    border-radius: 8px;
+    font-size: .76rem;
+    padding: 8px 12px;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .app-header #layoutSaveAction:disabled {
+    opacity: .56;
+    background: var(--workspace-well-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--card-border);
+}
+/* Promote the existing review action only when real pending changes exist.
+   Saving still goes through the established review and backup workflow. */
+:root[data-layout="focus"] body.app-dirty .app-header #layoutSaveAction:not(:disabled) {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+    font-weight: 730;
+}
+:root[data-layout="focus"][data-theme="dark"] body.app-dirty .app-header #layoutSaveAction:not(:disabled),
+:root[data-layout="focus"][data-theme="system"] body.app-dirty .app-header #layoutSaveAction:not(:disabled) {
+    color: #02130c;
+}
+:root[data-layout="focus"] .app-header .layout-choice > span { display: none; }
+:root[data-layout="focus"] .app-header .theme-select {
+    min-width: 0;
+    border-radius: 8px;
+    min-height: 36px;
+    font-size: .77rem;
+    padding: 6px 25px 6px 10px;
+}
+:root[data-layout="focus"] .header-status-area {
+    min-width: 0;
+    grid-template-columns: auto minmax(0,1fr) !important;
+    max-width: 560px;
+    align-items: center;
+    gap: 7px;
+}
+:root[data-layout="focus"] .server-status-badge { min-height: 28px; border-radius: 8px; padding: 6px 9px; font-size: .68rem; }
+:root[data-layout="focus"] .header-status-stack { min-width: 0; }
+:root[data-layout="focus"] .status-stack-button {
+    max-width: 100%;
+    border-radius: 8px;
+    min-height: 29px;
+    padding: 5px 9px;
+    box-shadow: none;
+}
+:root[data-layout="focus"] .status-stack-button small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .undo-redo-btns { gap: 5px; }
+:root[data-layout="focus"] .undo-redo-btns .btn { min-height: 30px; padding: 5px 9px; }
+
+/* Compact world/player selectors + genuine read-only facts. */
+:root[data-layout="focus"] .layout-context-bar {
+    order: -3;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    border-radius: 13px;
+    padding: 12px;
+    min-height: 90px;
+}
+:root[data-layout="focus"] body.app-player-loaded .layout-context-bar {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.05fr) minmax(0, 1.25fr);
+}
+:root[data-layout="focus"] .layout-context-chip {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 100%;
+    border-radius: 9px;
+    padding: 9px 13px;
+    background: var(--workspace-well-bg);
+}
+:root[data-layout="focus"] .layout-context-chip strong { font-size: .89rem; }
+:root[data-layout="focus"] .layout-context-change { font-size: 1rem !important; }
+:root[data-layout="focus"] .focus-context-facts {
+    display: none;
+    align-items: center;
+    grid-template-columns: minmax(0,.95fr) minmax(0,1.4fr) minmax(0,1.05fr);
+    border: 1px solid var(--card-border);
+    border-radius: 9px;
+    background: var(--workspace-well-bg);
+    padding: 8px 4px;
+    min-width: 0;
+}
+:root[data-layout="focus"] body.app-player-loaded .focus-context-facts { display: grid; }
+:root[data-layout="focus"] .focus-context-facts > div {
+    min-width: 0;
+    padding: 3px 10px;
+    border-right: 1px solid var(--card-border);
+}
+:root[data-layout="focus"] .focus-context-facts > div:last-child { border: 0; }
+:root[data-layout="focus"] .focus-context-facts small {
+    display: block;
+    color: var(--text-secondary);
+    font-size: .66rem;
+    margin-bottom: 6px;
+}
+:root[data-layout="focus"] .focus-context-facts strong {
+    color: var(--text-primary);
+    font-weight: 680;
+    display: block;
+    font-size: .76rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+/* Workspace tabs are integrated with the editor surface. */
+:root[data-layout="focus"] .app-workflow-nav {
+    order: -2;
+    display: flex;
+    min-width: 0;
+    width: 100%;
+    margin: 0;
+    padding: 5px 11px 0;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 2px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    border-radius: 13px 13px 0 0;
+    background: var(--floating-card-bg);
+    border-bottom: 0;
+}
+:root[data-layout="focus"] .app-workflow-nav button {
+    flex: 0 0 auto;
+    min-width: 114px;
+    min-height: 45px;
+    border-radius: 8px 8px 0 0;
+    border: 1px solid transparent;
+    box-shadow: none;
+    background: transparent;
+    font-weight: 650;
+    font-size: .82rem;
+    padding: 9px 15px;
+    color: var(--text-secondary);
+}
+:root[data-layout="focus"] .app-workflow-nav button.active {
+    background: var(--workspace-well-bg);
+    border-color: var(--card-border);
+    border-bottom-color: var(--primary);
+    box-shadow: inset 0 -2px 0 var(--primary);
+    color: var(--text-primary);
+}
+:root[data-layout="focus"] .app-workflow-nav button:not(.active):hover:not(:disabled) {
+    background: var(--workspace-well-bg);
+    color: var(--text-primary);
+}
+:root[data-layout="focus"] .app-workflow-nav .nav-separator { display: none; }
+:root[data-layout="focus"] .app-workflow-nav button[data-workflow-view="tools"] { margin-left: auto; }
+:root[data-layout="focus"] .app-workflow-nav button[data-workflow-view="tools"],
+:root[data-layout="focus"] .app-workflow-nav #btnHelp {
+    flex: 0 0 auto;
+    min-width: 80px;
+}
+
+/* Inventory editor: shared grid with actual player selector rail and inspector. */
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace {
+    display: grid !important;
+    grid-template-columns: clamp(205px, 17vw, 260px) minmax(0, 1fr) clamp(255px, 20vw, 305px);
+    grid-template-rows: minmax(0, auto);
+    gap: 12px;
+    align-items: start;
+    min-width: 0;
+    padding: 12px;
+    background: var(--floating-card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 0 0 13px 13px;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace > .left-panel {
+    display: flex;
+    grid-column: 2;
+    grid-row: 1;
+    gap: 10px;
+    min-width: 0;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace > .right-panel {
+    display: flex !important;
+    grid-column: 3;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+    gap: 10px;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .focus-player-rail {
+    display: flex;
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    flex-direction: column;
+    align-self: stretch;
+    gap: 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 15px 12px;
+    min-height: 515px;
+}
+:root[data-layout="focus"] .focus-rail-header { display: flex; align-items: center; justify-content: space-between; }
+:root[data-layout="focus"] .focus-rail-header h2 { font-size: .96rem; margin: 0; }
+:root[data-layout="focus"] .focus-rail-refresh {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    width: 32px; height: 32px;
+    font-size: 1.15rem;
+    cursor: pointer;
+}
+:root[data-layout="focus"] .focus-rail-refresh:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+:root[data-layout="focus"] .focus-player-search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--workspace-well-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--card-border);
+    border-radius: 9px;
+    padding: 0 9px;
+    min-height: 40px;
+}
+:root[data-layout="focus"] .focus-player-search input {
+    border: 0;
+    color: var(--text-primary);
+    background: transparent;
+    outline: 0;
+    min-width: 0;
+    width: 100%;
+    font-family: inherit;
+    font-size: .78rem;
+}
+:root[data-layout="focus"] .focus-player-search:focus-within { outline: 2px solid var(--primary); outline-offset: 1px; }
+:root[data-layout="focus"] #focusPlayerSearchEmpty {
+    margin: 0;
+    padding: 3px 2px;
+    font-size: .78rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+:root[data-layout="focus"] .focus-player-list-mount { min-height: 0; flex: 1; }
+:root[data-layout="focus"] .focus-player-list-mount .player-list {
+    max-height: min(58dvh, 650px);
+    overflow-y: auto;
+    gap: 4px;
+    scrollbar-width: thin;
+}
+:root[data-layout="focus"] .focus-player-list-mount .player-row {
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    grid-template-columns: minmax(0,1fr) auto;
+    align-items: center;
+    gap: 2px 4px;
+    box-shadow: none;
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: .8rem;
+}
+:root[data-layout="focus"] .focus-player-list-mount .player-row.active {
+    border-color: var(--workspace-well-border);
+    background: var(--workspace-well-bg);
+    box-shadow: inset 3px 0 0 var(--primary);
+}
+:root[data-layout="focus"] .focus-player-list-mount .player-row:hover:not(:disabled) {
+    border-color: var(--card-border);
+    background: var(--workspace-well-bg);
+}
+:root[data-layout="focus"] .focus-player-list-mount .player-row .player-name { grid-column: 1; font-size: .82rem; }
+:root[data-layout="focus"] .focus-player-list-mount .player-row .player-badge {
+    grid-column: 2; grid-row: 1;
+    max-width: 100%;
+    font-size: .59rem;
+    padding: 3px 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+:root[data-layout="focus"] .focus-player-list-mount .player-row .player-meta { display: none; }
+:root[data-layout="focus"] .focus-rail-bottom {
+    border-top: 1px solid var(--card-border);
+    padding-top: 12px;
+    margin-top: auto;
+}
+:root[data-layout="focus"] .focus-rail-bottom .btn { width: 100%; min-height: 38px; }
+
+/* The selected world is already in the top context selector. Move live
+   presence and load-error alerts into the editor before hiding this redundant
+   card. The existing safe-edit banner and header still report dirty changes. */
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded #worldSection { display: none !important; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded #inventoryContainer > :is(.presence-warning, .load-error-panel) {
+    width: 100%;
+    flex: 0 0 auto;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-card {
+    display: flex !important;
+    min-width: 0;
+    padding: 17px;
+    gap: 10px;
+    border-radius: 12px;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] #playerInventorySummary { display: none !important; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] #safeEditBanner { display: none !important; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-dirty #safeEditBanner { display: flex !important; padding: 10px; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-dirty #safeEditBanner > div:first-child { display: none; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-section { gap: 10px; min-width: 0; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-section .grid-title {
+    color: var(--text-primary);
+    margin: 13px 0 2px;
+    font-size: .94rem;
+    letter-spacing: 0;
+    font-weight: 750;
+    text-transform: none;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-section .grid-title small { font-size: .68rem; font-weight: 500; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .mc-grid {
+    gap: clamp(3px, .4vw, 7px);
+    padding: 9px;
+    border-radius: 10px;
+    min-width: 0;
+    /* Keep nine-column inventory order and usable targets on narrow desktop
+       windows as well as touch devices; only this grid scrolls horizontally. */
+    grid-template-columns: repeat(9, minmax(44px, 1fr));
+    overflow-x: auto;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .mc-grid .inventory-slot {
+    border-radius: 6px;
+    box-shadow: none;
+    min-width: 44px;
+    min-height: 44px;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-slot:hover { transform: none; box-shadow: inset 0 0 0 1px var(--primary); }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-slot.selected { box-shadow: inset 0 0 0 2px var(--primary); }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-toolbar {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    flex-wrap: wrap;
+    border: 1px solid var(--card-border);
+    border-radius: 9px;
+    padding: 6px 9px;
+    gap: 7px;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-search { min-width: 0; flex: 1 1 160px; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .inv-actions { display: none !important; }
+:root[data-layout="focus"] body[data-workflow-view="inventory"] #enderChestSection { border-top: 1px solid var(--card-border); padding-top: 10px; }
+
+/* Equipment belongs to the inventory, so opening or switching the inspector
+   never hides the very slots being edited. Keep the original live slot nodes
+   above the main grid in every layout, with compact targets and captions. */
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .armor-offhand-layout {
+    --focus-equipment-size: clamp(44px, 4vw, 56px);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    width: fit-content;
+    max-width: 100%;
+    gap: 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--workspace-well-bg);
+    border-color: var(--workspace-well-border);
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .armor-slots {
+    grid-template-columns: repeat(4, var(--focus-equipment-size));
+    gap: 8px;
+    min-width: 0;
+    padding-bottom: 20px;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .armor-offhand-layout .inventory-slot {
+    width: var(--focus-equipment-size);
+    min-width: 44px;
+    min-height: var(--equipment-min-height);
+    aspect-ratio: 1;
+    border-radius: 6px;
+    margin: 0;
+}
+/* The enchantment shimmer owns ::before; real translated labels stay below
+   the slots and never intercept clicks or cover the item icon. */
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .armor-offhand-layout .studio-equipment-label {
+    display: block;
+    top: calc(100% + 5px);
+    bottom: auto;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    transform: none;
+    font-size: .64rem;
+    line-height: 1.2;
+    text-align: center;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"] .offhand-slot-container {
+    min-width: 0;
+    padding: 0 0 20px 14px;
+    border-top: 0;
+    border-left: 1px solid var(--card-border);
+}
+
+/* The idle inspector only summarizes the player's values. */
+:root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .focus-player-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    padding: 15px;
+    min-width: 0;
+    border-radius: 12px;
+}
+:root[data-layout="focus"] .focus-summary-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+:root[data-layout="focus"] .focus-summary-heading h2 { margin: 0; font-size: .94rem; }
+:root[data-layout="focus"] .focus-summary-subtitle { color: var(--text-secondary); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-layout="focus"] .focus-player-vitals { display: flex; flex-direction: column; gap: 0; }
+:root[data-layout="focus"] .focus-player-vitals > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--card-border);
+    font-size: .76rem;
+}
+:root[data-layout="focus"] .focus-player-vitals > div > span { color: var(--text-secondary); }
+:root[data-layout="focus"] .focus-player-vitals strong { font-weight: 730; font-variant-numeric: tabular-nums; }
+:root[data-layout="focus"] .focus-summary-edit { margin-top: 2px; width: 100%; }
+
+/* Editing one or many slots uses the same right inspector column, never a
+   floating drawer that covers the header, save controls or inventory grid. */
+:root[data-layout="focus"] body[data-workflow-view="inventory"] #detailEditorPanel:not([style*="display: none"]),
+:root[data-layout="focus"] body[data-workflow-view="inventory"] #multiSelectPanel:not([style*="display: none"]) {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    max-height: none;
+    flex: 0 0 auto;
+    overflow: visible;
+    box-shadow: none;
+    z-index: auto;
+    order: -2;
+    border-radius: 12px;
+    padding: 14px;
+    scroll-margin-top: 12px;
+}
+:root[data-layout="focus"] body[data-workflow-view="inventory"]:has(#detailEditorPanel[style*="display: flex"], #multiSelectPanel[style*="display: flex"]) #focusPlayerSummary {
+    display: none !important;
+}
+
+/* The inspector scrolls as a whole; its flex children must not compress a
+   multiline field to a single strip in shorter desktop windows. */
+:root[data-layout="focus"] body[data-workflow-view="inventory"] #detailLore {
+    display: block;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 104px;
+    max-height: max(104px, min(360px, 50dvh));
+    line-height: 1.5;
+    resize: vertical;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+/* Non-inventory views keep their existing functional panels: no fabricated
+   functionality for Mounts, backup, player import/export or world selection. */
+:root[data-layout="focus"] .workspace {
+    min-width: 0;
+}
+:root[data-layout="focus"] body:not([data-workflow-view="inventory"]) .workspace,
+:root[data-layout="focus"] body[data-workflow-view="inventory"]:not(.app-player-loaded) .workspace {
+    border: 1px solid var(--card-border);
+    border-radius: 0 0 13px 13px;
+    background: var(--floating-card-bg);
+    padding: 14px;
+    margin-top: 0;
+}
+
+/* World selection needs readable rows, not the width of the three-column
+   inventory. Use the workspace frame once and give the results the space left
+   below their controls. Expanded notices and tools may still grow the page. */
+:root[data-layout="focus"] body[data-workflow-view="world"] .app-container {
+    max-width: 1540px;
+    gap: 10px;
+}
+:root[data-layout="focus"] body[data-workflow-view="world"] .workspace {
+    padding: 0;
+    margin-top: -10px;
+    border-top: 0;
+}
+:root[data-layout="focus"] body[data-workflow-view="world"] #worldSection {
+    gap: 12px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+:root[data-layout="focus"] body[data-workflow-view="world"] #worldPicker {
+    margin-top: 0;
+}
+:root[data-layout="focus"] body[data-workflow-view="world"] .world-card {
+    padding: 10px 12px;
+}
+:root[data-layout="focus"] body[data-workflow-view="world"] #selectedWorldBar {
+    padding: 10px 12px;
+}
+@media (min-width: 1025px) {
+    :root[data-layout="focus"] body[data-workflow-view="world"] {
+        padding-bottom: 16px;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] .app-container {
+        min-height: calc(100dvh - 32px);
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] :is(.workspace, .left-panel, #worldSection, #worldPicker) {
+        flex: 1 0 auto;
+        min-height: min-content;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] #worldPicker {
+        display: flex !important;
+        flex-direction: column;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] :is(#worldSection, #worldPicker) > * {
+        flex-shrink: 0;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] #worldList {
+        flex: 1 1 auto;
+        height: 150px;
+        max-height: max-content;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] .world-card-main {
+        display: grid;
+        grid-template-columns: minmax(0, max-content) minmax(0, max-content);
+        align-items: center;
+        gap: 4px 12px;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] .world-card-main strong {
+        grid-column: 1 / -1;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] .world-card-main code {
+        justify-self: start;
+    }
+}
+@media (min-width: 1181px) {
+    :root[data-layout="focus"] body[data-workflow-view="world"] .world-picker-controls {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        margin-bottom: 10px;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] .world-picker-header {
+        flex: 0 1 400px;
+        align-items: center;
+        margin-bottom: 0;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="world"] .world-filter-row {
+        flex: 1 1 0;
+        min-width: 0;
+        margin-bottom: 0;
+    }
+}
+:root[data-layout="focus"] body[data-workflow-view="player-edit"] .workspace,
+:root[data-layout="focus"] body[data-workflow-view="player"] .workspace,
+:root[data-layout="focus"] body[data-workflow-view="mounts"] .workspace {
+    display: grid;
+    grid-template-columns: minmax(260px, .55fr) minmax(0, 1.45fr);
+    align-items: start;
+}
+:root[data-layout="focus"] body[data-workflow-view="player-edit"] .workspace > .left-panel,
+:root[data-layout="focus"] body[data-workflow-view="player"] .workspace > .left-panel,
+:root[data-layout="focus"] body[data-workflow-view="mounts"] .workspace > .left-panel { grid-column: 1; min-width: 0; }
+:root[data-layout="focus"] body[data-workflow-view="player-edit"] .workspace > .right-panel,
+:root[data-layout="focus"] body[data-workflow-view="player"] .workspace > .right-panel,
+:root[data-layout="focus"] body[data-workflow-view="mounts"] .workspace > .right-panel { grid-column: 2; min-width: 0; }
+:root[data-layout="focus"] body[data-workflow-view="player-edit"] .workspace { grid-template-columns: minmax(0,1fr); }
+:root[data-layout="focus"] body[data-workflow-view="player-edit"] .workspace > .left-panel { display: none !important; }
+:root[data-layout="focus"] body[data-workflow-view="player-edit"] .workspace > .right-panel { grid-column: 1; }
+:root[data-layout="focus"] body[data-workflow-view="player-edit"] #dashboardPanel { padding: clamp(16px, 2vw, 28px); }
+
+/* Tablet: retain two useful work columns; put the inspector underneath. */
+@media (max-width: 1279px) {
+    :root[data-layout="focus"] body.app-player-loaded .layout-context-bar { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    :root[data-layout="focus"] .focus-context-facts { grid-column: 1/-1; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace {
+        grid-template-columns: minmax(190px,235px) minmax(0,1fr);
+    }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace > .right-panel {
+        grid-column: 2;
+        grid-row: 2;
+        position: static;
+        max-height: none;
+        overflow: visible;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .focus-player-rail {
+        grid-row: 1/3;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .focus-player-summary { min-height: 0; }
+}
+@media (max-width: 1000px) {
+    :root[data-layout="focus"] .app-header .header-actions { flex-wrap: wrap; }
+    :root[data-layout="focus"] .app-header .layout-context-action { margin-right: 0; }
+    :root[data-layout="focus"] .app-workflow-nav { padding-left: 6px; }
+}
+@media (max-width: 760px) {
+    :root[data-layout="focus"] body { padding: 10px; }
+    :root[data-layout="focus"] .app-container { gap: 9px; }
+    :root[data-layout="focus"] .app-header { padding: 11px; }
+    :root[data-layout="focus"] .app-header .header-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0,1fr));
+        align-items: center;
+        width: 100%;
+        gap: 6px;
+    }
+    :root[data-layout="focus"] .app-header .layout-context-action { width: 100%; grid-column: 1 / -1; justify-content: space-between; }
+    :root[data-layout="focus"] .app-header .layout-save-status { flex: 1; }
+    :root[data-layout="focus"] .app-header .layout-choice { min-width: 0; width: 100%; }
+    :root[data-layout="focus"] .app-header .layout-choice .theme-select,
+    :root[data-layout="focus"] .app-header .header-actions > .theme-select {
+        grid-column: auto;
+        min-width: 0;
+        width: 100%;
+    }
+    :root[data-layout="focus"] .layout-context-bar { padding: 9px; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 7px; min-height: 0; }
+    :root[data-layout="focus"] .layout-context-chip { padding: 8px; min-height: 60px; }
+    :root[data-layout="focus"] body.app-player-loaded .focus-context-facts { display: none; }
+    :root[data-layout="focus"] .app-workflow-nav button { min-height: 43px; min-width: 102px; width: auto; padding: 8px 10px; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 9px;
+        padding: 9px;
+    }
+    /* Player selector at top remains fully functional; don't waste an entire
+       phone screen on a second scrollable copy of the player list. */
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .focus-player-rail { display: none !important; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace > .left-panel {
+        grid-column: 1;
+        grid-row: 1;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace > .right-panel {
+        grid-column: 1;
+        grid-row: 2;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-card { padding: 11px; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .mc-grid { padding: 5px; gap: 3px; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-section .grid-title { font-size: .85rem; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-search {
+        flex: 1 1 140px;
+        min-height: 0;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="player"] .workspace,
+    :root[data-layout="focus"] body[data-workflow-view="mounts"] .workspace { grid-template-columns: minmax(0,1fr); }
+    :root[data-layout="focus"] body[data-workflow-view="player"] .workspace > .left-panel,
+    :root[data-layout="focus"] body[data-workflow-view="player"] .workspace > .right-panel,
+    :root[data-layout="focus"] body[data-workflow-view="mounts"] .workspace > .left-panel,
+    :root[data-layout="focus"] body[data-workflow-view="mounts"] .workspace > .right-panel { grid-column: 1; }
+}
+@media (max-width: 650px) {
+    /* Override shared alternate-layout nav grid and language full-row override.
+       All destinations remain directly reachable by horizontally scrolling tabs. */
+    :root[data-layout="focus"] .app-workflow-nav {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: thin;
+        scroll-snap-type: x proximity;
+    }
+    :root[data-layout="focus"] .app-workflow-nav button {
+        width: auto;
+        flex: 0 0 auto;
+        flex-direction: row;
+        min-width: max-content;
+        padding: 8px 14px;
+        scroll-snap-align: start;
+    }
+    :root[data-layout="focus"] .app-header .header-actions #languageSelect { grid-column: auto; }
+}
+@media (max-width: 560px) {
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+    }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-view-controls {
+        justify-self: end;
+    }
+}
+@media (max-width: 440px) {
+    :root[data-layout="focus"] .layout-context-chip strong { font-size: .78rem; }
+    :root[data-layout="focus"] .app-header .layout-save-status { font-size: .64rem; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .armor-offhand-layout {
+        gap: 8px;
+        padding: 8px 0;
+        border: 0;
+        background: transparent;
+    }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .armor-slots { gap: 4px; }
+    :root[data-layout="focus"] body[data-workflow-view="inventory"] .offhand-slot-container { padding-left: 8px; }
+}
+
+/* Focus v5: one editor command bar, no second full-width status/history row.
+   Classic and Studio use their original nodes and appearance unchanged. */
+.focus-inline-status,
+.focus-command-bar,
+.focus-settings-label { display: none; }
+
+:root[data-layout="focus"] .app-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    align-items: center;
+    position: relative;
+    gap: 12px;
+    min-width: 0;
+    padding: 12px 16px;
+}
+:root[data-layout="focus"] .app-header .logo {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    align-self: center;
+}
+:root[data-layout="focus"] .app-header .logo-copy { min-width: 0; }
+:root[data-layout="focus"] .app-header .app-subtitle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 7px;
+    line-height: 1.4;
+    align-items: center;
+}
+:root[data-layout="focus"] .focus-inline-status {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+}
+:root[data-layout="focus"] .focus-inline-status .header-status-area {
+    display: flex !important;
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: none;
+    gap: 4px 9px;
+    align-items: center;
+    justify-self: start;
+    grid-template-columns: none !important;
+}
+:root[data-layout="focus"] .focus-inline-status .server-status-badge {
+    display: inline-flex;
+    position: relative;
+    flex: 0 1 auto;
+    align-items: center;
+    justify-self: start;
+    width: auto;
+    max-width: 185px;
+    min-width: 0;
+    min-height: 20px;
+    margin: 0;
+    padding: 1px 2px 1px 11px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: .69rem;
+    font-weight: 650;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .focus-inline-status .server-status-badge::before {
+    content: '';
+    position: absolute;
+    left: 1px;
+    top: calc(50% - 3px);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+:root[data-layout="focus"] .focus-inline-status .header-status-stack { width: auto; position: relative; justify-self: start; }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: auto;
+    max-width: 210px;
+    min-height: 20px;
+    gap: 5px;
+    padding: 1px 2px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    line-height: 18px;
+    font-size: .69rem;
+}
+:root[data-layout="focus"] .focus-inline-status .status-stack-button span {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: auto;
+    height: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: .72rem;
+}
+:root[data-layout="focus"] .focus-inline-status .status-stack-button strong { display: none; }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button small {
+    min-width: 0;
+    max-width: 165px;
+    color: var(--text-secondary);
+    font-size: .69rem;
+    font-weight: 550;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .focus-inline-status .status-stack-button:is(.warning, .error) small { color: currentColor; }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button:is(:focus-visible, :hover) {
+    outline-offset: 2px;
+    text-decoration: underline;
+}
+:root[data-layout="focus"] .focus-inline-status .status-stack-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: auto;
+    left: 0;
+    width: min(470px, calc(100vw - 36px));
+    margin: 0;
+    z-index: 1001;
+}
+
+:root[data-layout="focus"] .focus-command-bar {
+    display: flex;
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+:root[data-layout="focus"] .focus-history-mount {
+    display: flex;
+    align-items: center;
+    padding-right: 10px;
+    border-right: 1px solid var(--card-border);
+}
+:root[data-layout="focus"] .focus-history-mount .undo-redo-btns {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 3px;
+    min-width: 0;
+}
+:root[data-layout="focus"] .focus-history-mount .btn-undo {
+    width: 34px;
+    min-width: 34px;
+    min-height: 36px;
+    height: 36px;
+    padding: 0;
+    font-size: 1.2rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-primary);
+    text-shadow: none;
+    border-radius: 8px;
+}
+:root[data-layout="focus"] .focus-history-mount .btn-undo:not(:disabled):hover { background: var(--workspace-well-bg); border-color: var(--card-border); }
+:root[data-layout="focus"] .focus-history-mount .btn-undo:disabled { opacity: .36; cursor: not-allowed; }
+:root[data-layout="focus"] .focus-save-mount .layout-context-action {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+:root[data-layout="focus"] .focus-save-mount .layout-save-status {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font-weight: 650;
+    font-size: .74rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+:root[data-layout="focus"] body.app-dirty .focus-save-mount .layout-save-status { color: var(--warning-text, var(--warning)); }
+:root[data-layout="focus"] .focus-save-mount #layoutSaveAction {
+    min-height: 37px;
+    padding: 7px 12px;
+    font-size: .8rem;
+    border-radius: 8px;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .focus-settings-menu { position: relative; flex: 0 0 auto; }
+:root[data-layout="focus"] .focus-settings-toggle {
+    display: grid;
+    place-items: center;
+    width: 37px;
+    height: 37px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--card-border);
+    background: var(--workspace-well-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+:root[data-layout="focus"] .focus-settings-toggle:is(:hover, [aria-expanded="true"]) {
+    color: var(--text-primary);
+    border-color: var(--primary);
+}
+:root[data-layout="focus"] .focus-settings-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 1002;
+    width: min(270px, calc(100vw - 28px));
+    padding: 15px;
+    border: 1px solid var(--card-border);
+    border-radius: 11px;
+    background: var(--card-bg);
+    box-shadow: 0 15px 38px rgba(0,0,0,.35);
+}
+:root[data-layout="focus"] .focus-settings-panel[hidden] { display: none; }
+:root[data-layout="focus"] .focus-settings-heading {
+    display: block;
+    margin: 0 0 10px;
+    font-size: .83rem;
+    color: var(--text-primary);
+}
+:root[data-layout="focus"] .focus-settings-panel .header-actions {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 7px;
+}
+:root[data-layout="focus"] .focus-settings-panel .layout-choice {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    gap: 5px;
+}
+:root[data-layout="focus"] .focus-settings-panel .layout-choice > span { display: block; }
+:root[data-layout="focus"] .focus-settings-panel .focus-settings-label {
+    display: block;
+    margin: 5px 0 0;
+    color: var(--text-secondary);
+    font-size: .74rem;
+    font-weight: 650;
+}
+:root[data-layout="focus"] .focus-settings-panel .theme-select,
+:root[data-layout="focus"] .focus-settings-panel .layout-choice .theme-select {
+    width: 100%;
+    min-width: 0;
+    min-height: 37px;
+    grid-column: auto;
+    font-size: .82rem;
+    padding: 6px 28px 6px 9px;
+}
+:root[data-layout="focus"] .focus-settings-panel .logout-form { align-self: stretch; margin-top: 7px; }
+:root[data-layout="focus"] .focus-settings-panel .header-link { width: 100%; }
+
+/* There is no detached Save card in the second selector row. */
+:root[data-layout="focus"] .layout-context-bar { padding: 9px 11px; min-height: 68px; }
+:root[data-layout="focus"] .layout-context-chip { min-height: 50px; padding: 6px 11px; }
+
+@media (max-width: 1030px) {
+    :root[data-layout="focus"] .app-header { grid-template-columns: minmax(0,1fr); }
+    :root[data-layout="focus"] .app-header .logo { grid-column: 1; grid-row: 1; }
+    :root[data-layout="focus"] .focus-command-bar { grid-column: 1; grid-row: 2; justify-content: space-between; }
+}
+@media (max-width: 600px) {
+    :root[data-layout="focus"] .app-header { padding: 11px; gap: 9px; }
+    :root[data-layout="focus"] .logo h1 { font-size: clamp(.93rem, 4.2vw, 1.24rem); }
+    :root[data-layout="focus"] .logo { gap: 8px; }
+    :root[data-layout="focus"] .logo .mc-icon { flex: 0 0 auto; width: 30px; height: 30px; }
+    :root[data-layout="focus"] .focus-inline-status .server-status-badge { max-width: 160px; }
+    :root[data-layout="focus"] .focus-inline-status .status-stack-button small { max-width: 170px; }
+    :root[data-layout="focus"] .focus-inline-status .header-status-stack { position: static; }
+    :root[data-layout="focus"] .focus-inline-status .status-stack-panel {
+        position: absolute;
+        left: 11px;
+        right: 11px;
+        width: auto;
+        top: calc(100% + 6px);
+        max-height: min(55dvh, 330px);
+    }
+    :root[data-layout="focus"] .focus-command-bar { gap: 5px; }
+    :root[data-layout="focus"] .focus-history-mount { padding-right: 5px; }
+    :root[data-layout="focus"] .focus-history-mount .btn-undo { width: 30px; min-width: 30px; height: 34px; min-height: 34px; }
+    :root[data-layout="focus"] .focus-save-mount { flex: 1 1 auto; min-width: 0; }
+    :root[data-layout="focus"] .focus-save-mount .layout-context-action { justify-content: flex-end; gap: 6px; }
+    :root[data-layout="focus"] .focus-save-mount .layout-save-status {
+        max-width: 90px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: .67rem;
+    }
+    :root[data-layout="focus"] .focus-save-mount #layoutSaveAction { padding: 6px 8px; font-size: .72rem; }
+    :root[data-layout="focus"] .focus-settings-toggle { width: 35px; height: 35px; }
+}
+@media (max-width: 360px) {
+    :root[data-layout="focus"] .focus-save-mount .layout-save-status { display: none; }
+}
+
+/* Short labels replace clipped status sentences only in the Focus header.
+   Full current texts remain on the existing accessible components and popover. */
+:root[data-layout="focus"] .focus-inline-status .server-status-badge {
+    max-width: none;
+    flex: 0 0 auto;
+    font-size: 0;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .focus-inline-status .server-status-badge::after {
+    content: attr(data-focus-label);
+    font-size: .69rem;
+    line-height: 18px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .focus-inline-status .status-stack-button { gap: 5px; }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button > :is(span, strong, small) { display: none; }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button::before {
+    content: '';
+    display: block;
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    background: var(--info-text);
+    border-radius: 50%;
+}
+:root[data-layout="focus"] .focus-inline-status .status-stack-button.warning::before { background: var(--warning-text); }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button.error::before { background: var(--danger-text); }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button.success::before { background: var(--success-text); }
+:root[data-layout="focus"] .focus-inline-status .status-stack-button::after {
+    content: attr(data-focus-label);
+    font-size: .69rem;
+    line-height: 18px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+:root[data-layout="focus"] .focus-inline-status .status-stack-button:is(.warning, .error)::after { color: currentColor; }
+:root[data-layout="focus"] body:not(.app-dirty) .focus-save-mount .layout-save-status { display: none; }
+@media (max-width: 600px) {
+    :root[data-layout="focus"] .focus-save-mount .layout-save-status { display: none; }
+}
+
+/* Opaque settings flyout: avoid readable content showing through the menu. */
+:root[data-layout="focus"] .focus-settings-panel { background: #10202a; backdrop-filter: none; }
+:root[data-layout="focus"][data-theme="light"] .focus-settings-panel { background: #fff; }
+:root[data-layout="focus"][data-theme="minecraft"] .focus-settings-panel { background: #17241b; }
+
+/* Full server/write-gate text stays reachable on click or keyboard. */
+.focus-server-status-panel { display: none; }
+:root[data-layout="focus"] .focus-inline-status .header-status-area { position: relative; }
+:root[data-layout="focus"] .focus-inline-status .server-status-badge { cursor: pointer; }
+:root[data-layout="focus"] .focus-inline-status .server-status-badge:is(:focus-visible, :hover) { text-decoration: underline; outline-offset: 3px; }
+:root[data-layout="focus"] .focus-server-status-panel:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: absolute;
+    z-index: 1003;
+    top: calc(100% + 8px);
+    left: 0;
+    width: min(440px, calc(100vw - 70px));
+    max-height: min(55dvh, 320px);
+    overflow-y: auto;
+    padding: 13px 15px;
+    border: 1px solid var(--card-border);
+    border-radius: 11px;
+    background: #10202a;
+    box-shadow: 0 15px 38px rgba(0, 0, 0, .35);
+    color: var(--text-primary);
+    line-height: 1.48;
+    font-size: .8rem;
+}
+:root[data-layout="focus"] .focus-server-status-panel strong { font-size: .85rem; }
+:root[data-layout="focus"] .focus-server-status-panel p { overflow-wrap: anywhere; }
+:root[data-layout="focus"] .focus-server-status-panel p:last-child { color: var(--text-secondary); }
+:root[data-layout="focus"][data-theme="light"] .focus-server-status-panel:not([hidden]) { background: #fff; }
+:root[data-layout="focus"][data-theme="minecraft"] .focus-server-status-panel:not([hidden]) { background: #17241b; }

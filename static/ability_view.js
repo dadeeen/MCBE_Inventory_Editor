@@ -129,7 +129,8 @@
     }
 
     function gamemodeDisplayModel(value) {
-        const normalized = Number.isFinite(Number(value)) ? Number(value) : null;
+        const hasValue = typeof value === "number" || (typeof value === "string" && value.trim() !== "");
+        const normalized = hasValue && Number.isFinite(Number(value)) ? Number(value) : null;
         const labels = {
             0: t("Überleben (Survival)"),
             1: t("Kreativ (Creative)"),
@@ -137,10 +138,22 @@
             3: t("Zuschauer (Spectator)"),
             5: t("Standard/Weltmodus (Default)"),
         };
+        const summaryLabels = {
+            0: t("Überleben"),
+            1: t("Kreativ"),
+            2: t("Abenteuer"),
+            3: t("Zuschauer"),
+            5: t("Weltvorgabe"),
+        };
+        const fullLabel = Object.prototype.hasOwnProperty.call(labels, normalized)
+            ? t("{label} · NBT-Wert {value}", { label: labels[normalized], value: normalized })
+            : t("Unbekannter oder serverspezifischer Wert · NBT-Wert {value}", { value: normalized ?? "?" });
         return {
-            value: Object.prototype.hasOwnProperty.call(labels, normalized)
-                ? t("{label} · NBT-Wert {value}", { label: labels[normalized], value: normalized })
-                : t("Unbekannter oder serverspezifischer Wert · NBT-Wert {value}", { value: normalized ?? "?" }),
+            value: fullLabel,
+            summaryLabel: summaryLabels[normalized] || t("Unbekannt"),
+            summaryTitle: normalized === 5
+                ? t("Verwendet die Spielmodus-Vorgabe der Welt oder des Servers.")
+                : fullLabel,
             readOnly: true,
             title: t("Read-only: Dieser Player-Gamemode wird nur angezeigt. Der Editor schreibt ihn nicht; Welt-/Servermodus kann abweichen."),
         };
@@ -239,6 +252,10 @@
             elements.gamemode.value = model.gamemode.value || "";
             elements.gamemode.readOnly = Boolean(model.gamemode.readOnly);
             elements.gamemode.title = model.gamemode.title || "";
+            if (elements.gamemode.dataset) {
+                elements.gamemode.dataset.summaryLabel = model.gamemode.summaryLabel || "";
+                elements.gamemode.dataset.summaryTitle = model.gamemode.summaryTitle || "";
+            }
         }
     }
 

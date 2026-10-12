@@ -148,7 +148,13 @@ def test_architecture_overview_matches_the_mount_module_boundary():
     assert "main.py" in architecture
     assert "*_api_routes.py" in architecture
     assert "mount_placement.py" in architecture
-    assert "from .mount_placement import placement_safety_from_preview, refine_preview_placement" in routes
+    placement_imports = {
+        imported.name
+        for node in ast.walk(ast.parse(routes))
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module == "mount_placement"
+        for imported in node.names
+    }
+    assert {"placement_safety_from_preview", "refine_preview_placement"} <= placement_imports
     assert "def _candidate_with_footprint_probe(" not in routes
     assert "def refine_preview_placement(" in placement
     assert "def placement_safety_from_preview(" in placement
@@ -470,7 +476,7 @@ def test_gitignore_uses_explicit_runtime_and_local_tool_patterns():
 
     assert {"/setup.json", "/settings.json", "/cache/item_update/", "/.cache_item_update/"} <= lines
     assert {"/.idea/", "/.vscode/", "/.pytest-*/", ".hypothesis/", ".nox/", ".tox/", "build/", "*.egg-info/"} <= lines
-    assert {".pytest-*/", ".tmp/"} <= docker_lines
+    assert {"**/.pytest-*/", "**/.tmp/"} <= docker_lines
     assert "setup.json" not in lines
     assert "settings.json" not in lines
 

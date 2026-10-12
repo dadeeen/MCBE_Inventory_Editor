@@ -154,14 +154,16 @@
         const manualStopTitle = t("Der Editor stoppt Minecraft oder den Bedrock-Server nicht automatisch. Stoppe den Server manuell in deiner Umgebung, bevor du Welten bearbeitest.");
         if (gate.status_check_failed === true) {
             return {
-                className: `${className} status-check-failed`,
+                className: `server-status-badge unknown ${gate.allowed ? "allowed" : "blocked"} status-check-failed`,
                 text: t("Server: zuletzt {status} · Prüfung fehlgeschlagen", { status: labelMap[statusText] || statusText }),
                 title: `${gate.status_check_error || gate.reason || t("Serverstatus konnte nicht abgefragt werden.")} ${manualStopTitle}`.trim(),
             };
         }
         if (appConfig.mode === "local" && appConfig.require_server_offline !== true) {
             return {
-                className,
+                // A local instance cannot confirm that Minecraft has closed
+                // the world. Match the visual state to that displayed caveat.
+                className: `server-status-badge unknown ${gate.allowed ? "allowed" : "blocked"}`,
                 text: t("Server: unbekannt · manuell prüfen"),
                 title: `${t("Lokalmodus: Es ist unbekannt, ob Minecraft oder ein Bedrock-Server diese Welt parallel geöffnet hat.")} ${manualStopTitle}`,
             };

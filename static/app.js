@@ -283,7 +283,7 @@ const workflowShell = window.MCBEWorkflowState.createConfiguredInventoryEditorWo
 });
 const responsivePanelController = workflowShell.responsivePanelController;
 function setWorkflowView(view, options = {}) { return workflowShell.setWorkflowView(view, options); }
-function updateAppMode() { return workflowShell.updateAppMode(); }
+function updateAppMode() { const result = workflowShell.updateAppMode(); window.MCBEFocusWorkspace?.sync(); return result; }
 
 const statsFormController = window.MCBEEffectsLogic.createConfiguredStatsFormController({
     doc: document,
@@ -291,7 +291,7 @@ const statsFormController = window.MCBEEffectsLogic.createConfiguredStatsFormCon
 });
 const touchedStatsFields = statsFormController.touchedFields;
 function statsFormElements() { return statsFormController.elements(); }
-function renderStatsForm() { return statsFormController.render(); }
+function renderStatsForm() { const result = statsFormController.render(); window.MCBEFocusWorkspace?.updateFacts(); return result; }
 statsFormController.wireTouchedTracking();
 
 // Dashboard state

@@ -722,8 +722,11 @@ test.describe("English locale", () => {
     await openAppAndWaitForScan(page);
 
     const secondCard = page.locator(".world-card").filter({ hasText: "Second Smoke World" });
-    await expect(secondCard).toContainText("Configured world root");
-    await expect(secondCard).not.toContainText("Konfigurierter Welt-Root");
+    // Provenance is shared by the group instead of repeated in every row.
+    const sourceGroup = page.getByRole("group", { name: "Configured world root", exact: true });
+    await expect(sourceGroup.locator(".world-source-title")).toContainText("Configured world root");
+    await expect(sourceGroup).not.toContainText("Konfigurierter Welt-Root");
+    await expect(sourceGroup.locator(".world-card").filter({ hasText: "Second Smoke World" })).toBeVisible();
     const secondWorldAction = secondCard.locator(".world-card-action");
     await expect(secondWorldAction).toHaveText("Select");
     await secondCard.click();
@@ -2505,6 +2508,50 @@ test("dialogs return the keyboard focus to the element that opened them", async 
   expect(browserErrors).toEqual([]);
 });
 
+test("help and long confirmations remain reachable in narrow and short windows", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await openDragFixture(page);
+  for (const layout of ["classic", "studio", "focus"]) {
+    await selectLayout(page, layout);
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      for (const [width, height] of [[320, 740], [390, 844], [844, 390]]) {
+        await page.setViewportSize({ width, height });
+        await page.locator("#btnHelp").click();
+        const help = page.locator(".help-box");
+        await expect(help).toBeVisible();
+        const box = await help.boundingBox();
+        expect(box.y).toBeGreaterThanOrEqual(15);
+        expect(box.y + box.height).toBeLessThanOrEqual(height - 15);
+        expect(await help.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        const content = page.locator(".help-content");
+        expect(await content.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        await content.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        await expect(page.locator(".help-hint")).toBeInViewport();
+        await page.locator("#btnHelpClose").click();
+        await expect(page.locator("#helpOverlay")).toBeHidden();
+
+        await page.evaluate(() => {
+          void showConfirmDialog("Wichtiger Hinweis: Prüfe die ausgewählte Welt und alle Änderungen.\n".repeat(15));
+        });
+        const confirm = page.locator("#confirmOverlay .modal-box");
+        const confirmBox = await confirm.boundingBox();
+        expect(confirmBox.y).toBeGreaterThanOrEqual(15);
+        expect(confirmBox.y + confirmBox.height).toBeLessThanOrEqual(height - 15);
+        await page.locator("#confirmCancel").click();
+        await expect(page.locator("#confirmOverlay")).toBeHidden();
+        await page.evaluate(() => { void openSaveReview(buildChangeSummary()); });
+        const review = page.locator(".save-review-box");
+        expect(await review.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        await expect(page.locator("#btnSaveReviewConfirm")).toBeInViewport();
+        await page.locator("#btnSaveReviewCancel").click();
+        await expect(page.locator("#saveReviewOverlay")).toBeHidden();
+      }
+    }
+  }
+  expect(browserErrors).toEqual([]);
+});
+
 test("status entries keep the color of their kind and stay readable in every theme", async ({ page }) => {
   await openAppWithEmptyWorldScan(page);
   for (const theme of ["dark", "system", "light", "minecraft"]) {
@@ -2557,6 +2604,52 @@ test("status entries keep the color of their kind and stay readable in every the
   }
 });
 
+test("load errors and notifications stay opaque and readable in every theme and layout", async ({ page }) => {
+  await openAppWithEmptyWorldScan(page);
+  await page.evaluate(() => {
+    MCBEWorldStatusView.applyLoadErrorPanel(document.getElementById("loadErrorPanel"),
+      MCBEWorldStatusView.loadErrorHtml({ message: "Testfehler", pathText: "/worlds/test" }));
+    for (const kind of ["success", "warning", "error"]) MCBEUiFeedback.showToast("Testmeldung", kind, 60000);
+  });
+  for (const layout of ["classic", "studio", "focus"]) {
+    await selectLayout(page, layout);
+    for (const [theme, colorScheme] of [["dark", "dark"], ["light", "light"], ["minecraft", "dark"], ["system", "light"]]) {
+      await page.emulateMedia({ colorScheme });
+      if (!(await page.locator("#themeSelect").isVisible())) await page.locator("#focusSettingsToggle").click();
+      await page.locator("#themeSelect").selectOption(theme);
+      const samples = await page.evaluate(() => {
+        const panel = document.getElementById("loadErrorPanel");
+        const backdrop = document.createElement("span");
+        backdrop.style.color = "var(--bg-main)";
+        panel.appendChild(backdrop);
+        const base = getComputedStyle(backdrop).color;
+        backdrop.remove();
+        const ancestors = [];
+        for (let node = panel.parentElement; node; node = node.parentElement) ancestors.unshift(getComputedStyle(node).backgroundColor);
+        return {
+          base, ancestors,
+          error: getComputedStyle(panel.querySelector(".load-error-title")).color,
+          errorBackgrounds: getComputedStyle(panel).backgroundImage.match(/rgba?\([^)]+\)/g),
+          logBackground: getComputedStyle(document.getElementById("statusStackPanel")).backgroundColor,
+          toasts: [...document.querySelectorAll(".toast")].map(node => ({
+            kind: node.className, color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor,
+          })),
+        };
+      });
+      const detail = `${layout}/${theme}/${colorScheme}`;
+      const parentBackground = samples.ancestors.reduce((background, layer) => compositeColor(layer, background), colorComponents(samples.base));
+      for (const layer of samples.errorBackgrounds) {
+        expect(contrastRatio(samples.error, compositeColor(layer, parentBackground)), `${detail} load error`).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(colorComponents(samples.logBackground).a, `${detail} status log opacity`).toBe(1);
+      for (const toast of samples.toasts) {
+        expect(colorComponents(toast.background).a, `${detail} ${toast.kind} opacity`).toBe(1);
+        expect(contrastRatio(toast.color, toast.background), `${detail} ${toast.kind} contrast`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  }
+});
+
 test("status overview follows the server status shown in the header", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   const onlineGate = {
@@ -2598,4 +2691,705 @@ test("status overview follows the server status shown in the header", async ({ p
   await expect(writing).toHaveClass(/\bwarning\b/);
   await expect(hero).not.toHaveClass(/\berror\b/);
   expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
+});
+
+async function selectLayout(page, layout) {
+  const select = page.locator("#layoutSelect");
+  if (!(await select.isVisible())) await page.locator("#focusSettingsToggle").click();
+  await select.selectOption(layout);
+  await expect(page.locator("html")).toHaveAttribute("data-layout", layout);
+  if (layout === "focus" && await page.locator("#focusSettingsPanel").isVisible()) {
+    await page.locator("#focusSettingsToggle").click();
+  }
+}
+
+test("studio and focus provide distinct layouts without changing items, theme or workflow", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route("**/api/icons/scan", route => route.fulfill({ json: { success: true, icons: {}, count: 0 } }));
+  await openDragFixture(page);
+
+  await page.locator("#themeSelect").selectOption("light");
+  const originalItem = await page.evaluate(() => JSON.stringify(inventory[0]));
+  await expect(page.locator("#layoutSelect")).toHaveValue("classic");
+
+  await page.locator("#layoutSelect").selectOption("studio");
+  await expect(page.locator("html")).toHaveAttribute("data-layout", "studio");
+  await expect(page.locator("#layoutViewTitle")).toHaveText("Inventar bearbeiten");
+  const studio = await page.evaluate(() => ({
+    rail: getComputedStyle(document.querySelector(".layout-controls")).position,
+    panel: getComputedStyle(document.querySelector("#detailEditorPanel")).position,
+    navLeft: document.querySelector(".app-workflow-nav").getBoundingClientRect().left,
+    workLeft: document.querySelector(".workspace").getBoundingClientRect().left,
+  }));
+  expect(studio.rail).toBe("sticky");
+  expect(studio.workLeft).toBeGreaterThan(studio.navLeft + 170);
+  // Context is actually above the editor destinations in the same sidebar.
+  // Save/review is a separate global action below navigation.
+  const studioHierarchy = await page.evaluate(() => ({
+    world: document.querySelector('.layout-context-chip[data-workflow-view="world"]').getBoundingClientRect().top,
+    player: document.querySelector('.layout-context-chip[data-workflow-view="player"]').getBoundingClientRect().top,
+    nav: document.querySelector('.app-workflow-nav').getBoundingClientRect().top,
+    save: document.querySelector('.layout-context-action').getBoundingClientRect().top,
+    contextDisplay: getComputedStyle(document.querySelector('.layout-context-bar')).display,
+  }));
+  expect(studioHierarchy.world).toBeLessThan(studioHierarchy.player);
+  expect(studioHierarchy.player).toBeLessThan(studioHierarchy.nav);
+  expect(studioHierarchy.nav).toBeLessThan(studioHierarchy.save);
+  expect(studioHierarchy.contextDisplay).toBe('contents');
+  await expect(page.locator('.layout-nav-heading, .layout-context-caption, .layout-nav-admin, .layout-nav-optional')).toHaveCount(0);
+
+  await page.locator('[data-slot="0"]').click();
+  await expect(page.locator("#detailEditorPanel")).toBeVisible();
+  await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:stone");
+  expect(await page.locator("#detailEditorPanel").evaluate(el => getComputedStyle(el).position)).not.toBe("fixed");
+
+  await page.locator("#layoutSelect").selectOption("focus");
+  await expect(page.locator("html")).toHaveAttribute("data-layout", "focus");
+  const focus = await page.evaluate(() => {
+    const drawer = document.querySelector("#detailEditorPanel").getBoundingClientRect();
+    const inventory = document.querySelector("#inventoryContainer").getBoundingClientRect();
+    const workspace = document.querySelector(".workspace").getBoundingClientRect();
+    const players = document.querySelector("#focusPlayerRail").getBoundingClientRect();
+    return {
+      drawerX: drawer.left,
+      drawerRight: drawer.right,
+      inventoryX: inventory.left,
+      inventoryRight: inventory.right,
+      playersRight: players.right,
+      workspaceRight: workspace.right,
+      overflow: document.documentElement.scrollWidth - window.innerWidth,
+    };
+  });
+  await expect(page.locator("#focusPlayerListMount #playersList")).toBeVisible();
+  // Focus keeps the selectors above the editor tabs, not a wizard heading.
+  const focusHierarchy = await page.evaluate(() => ({
+    context: document.querySelector('.layout-context-bar').getBoundingClientRect().top,
+    nav: document.querySelector('.app-workflow-nav').getBoundingClientRect().top,
+  }));
+  expect(focusHierarchy.context).toBeLessThan(focusHierarchy.nav);
+  await expect(page.locator(".layout-intro")).toBeHidden();
+  expect(focus.inventoryX).toBeGreaterThan(focus.playersRight);
+  expect(focus.drawerX).toBeGreaterThan(focus.inventoryRight);
+  expect(focus.drawerRight).toBeLessThanOrEqual(focus.workspaceRight);
+  expect(focus.overflow).toBeLessThanOrEqual(0);
+  await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:stone");
+
+  // The header uses the saved mode's short label, while player data retains
+  // the technical value. A form refresh must update both without an edit.
+  await page.evaluate(() => MCBEAbilityView.applyStatsFormModel(
+    {gamemode:document.getElementById('statGamemode')},
+    {gamemode:MCBEAbilityView.gamemodeDisplayModel(5)},
+  ));
+  await expect(page.locator('#focusFactMode')).toHaveText('Weltvorgabe');
+  await expect(page.locator('#focusFactMode')).toHaveAttribute('title', 'Verwendet die Spielmodus-Vorgabe der Welt oder des Servers.');
+  await expect(page.locator('#statGamemode')).toHaveValue('Standard/Weltmodus (Default) · NBT-Wert 5');
+  await page.setViewportSize({width:1280,height:900});
+  const clippedFacts = await page.locator('.focus-context-facts strong').evaluateAll(nodes =>
+    nodes.filter(node => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1).map(node => node.id));
+  expect(clippedFacts).toEqual([]);
+  await page.setViewportSize({width:1440,height:900});
+
+  // World and player selection are CONTEXT switches, not numbered steps.
+  // Editing player data and inventory are independent workspaces.
+  await expect(page.locator("#layoutCurrentPlayer")).not.toBeEmpty();
+  await page.locator('.layout-context-chip[data-workflow-view="player"]').click();
+  await expect(page.locator("#layoutViewTitle")).toHaveText("Spieler auswählen");
+  await expect(page.locator("#dashboardPanel")).toBeHidden();
+  await page.locator('.app-workflow-nav button[data-workflow-view="player-edit"]').click();
+  await expect(page.locator("#layoutViewTitle")).toHaveText("Spielerdaten bearbeiten");
+  await expect(page.locator("#dashboardPanel")).toBeVisible();
+  // Changing layout from the standalone player-data editor must not leave
+  // Classic on a route that Classic does not present in its navigation.
+  await selectLayout(page, "classic");
+  await expect(page.locator("body")).toHaveAttribute("data-workflow-view", "player");
+  await selectLayout(page, "focus");
+  await page.locator('.app-workflow-nav button[data-workflow-view="inventory"]').click();
+  await expect(page.locator("#layoutViewTitle")).toHaveText("Inventar bearbeiten");
+  await expect(page.locator("#inventoryContainer")).toBeVisible();
+
+  await selectLayout(page, "classic");
+  await expect(page.locator("html")).toHaveAttribute("data-layout", "classic");
+  await expect(page.locator(".layout-intro")).toBeHidden();
+  await expect(page.locator("#themeSelect")).toHaveValue("light");
+  expect(await page.evaluate(() => JSON.stringify(inventory[0]))).toBe(originalItem);
+  expect(await page.evaluate(() => isDirty)).toBe(false);
+  expect(browserErrors).toEqual([]);
+});
+
+test("alternative layouts preserve live warnings without duplicate world cards in player selection and save review", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await page.route("**/api/world/presence", route => route.fulfill({ json: {
+    success: true, other_sessions: 1, same_player_sessions: 1,
+    other_dirty_sessions: 1, same_player_dirty_sessions: 1,
+  } }));
+  await openDragFixture(page);
+  await page.evaluate(() => updateWorldPresence());
+  await page.evaluate(() => MCBEWorldStatusView.applyLoadErrorPanel(
+    document.getElementById("loadErrorPanel"),
+    MCBEWorldStatusView.loadErrorHtml({ message: "Spieler konnte nicht erneut geladen werden." }),
+  ));
+  await page.locator("#worldName").evaluate(node => {
+    node.textContent = "Unsere gemeinsame Abenteuerwelt mit einem besonders langen Namen";
+  });
+
+  for (const layout of ["focus", "studio"]) {
+    await selectLayout(page, layout);
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      for (const view of ["inventory", "player-edit", "player", "save", "inventory"]) {
+        const selector = view === "player" ? '.layout-context-chip[data-workflow-view="player"]'
+          : view === "save" ? "#layoutSaveAction" : `.app-workflow-nav [data-workflow-view="${view}"]`;
+        await page.locator(selector).click();
+        const host = layout === "focus" && view === "inventory" ? "#inventoryContainer"
+          : layout === "focus" && view === "player-edit" ? "#dashboardPanel" : "#worldSection";
+        const warning = page.locator(`${host} #worldPresenceBanner`);
+        await expect(warning).toBeVisible();
+        await expect(warning).toContainText("Eine andere Sitzung bearbeitet vermutlich denselben Spieler");
+        await expect(page.locator(`${host} #loadErrorPanel`)).toBeVisible();
+        await expect(page.locator("#worldPresenceBanner")).toHaveCount(1);
+        await expect(page.locator("#loadErrorPanel")).toHaveCount(1);
+        if (view === "player" || view === "save") {
+          await expect(page.locator("#selectedWorldBar")).toBeHidden();
+          await expect(page.locator("#layoutCurrentWorld")).toBeVisible();
+          expect(await page.locator("#layoutCurrentWorld").evaluate(node =>
+            node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1)).toBe(false);
+          await expect(page.locator(view === "player" ? "#playerManager" : "#saveWorkflowPanel")).toBeVisible();
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+      }
+    }
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  for (const layout of ["studio", "classic"]) {
+    await selectLayout(page, layout);
+    await expect(page.locator("#worldSection #worldPresenceBanner")).toBeVisible();
+  }
+  expect(browserErrors).toEqual([]);
+});
+
+test("Studio keeps warning details readable and its status log inside narrow windows", async ({ page }) => {
+  await openDragFixture(page);
+  await selectLayout(page, "studio");
+  const message = "Die Welt wurde außerhalb des Editors verändert. Spieler neu laden, bevor Änderungen gespeichert werden.";
+  await page.evaluate(message => logStatus(message, "warning", { key: "visual-warning", active: true }), message);
+  const status = page.locator("#statusStackButton");
+  const panel = page.locator("#statusStackPanel");
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+    await page.setViewportSize(viewport);
+    await expect(status).toBeVisible();
+    await expect(page.locator("#statusStackSummary")).toHaveText(message);
+    const clipped = await page.locator("#statusStackSummary").evaluate(node =>
+      node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
+    expect(clipped).toBe(false);
+    await status.focus();
+    await page.keyboard.press("Enter");
+    await expect(status).toHaveAttribute("aria-expanded", "true");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText(message);
+    const box = await panel.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    await page.keyboard.press("Enter");
+    await expect(panel).toBeHidden();
+  }
+});
+
+for (const [layout, stickyTop] of [["focus", 12], ["studio", 18]]) {
+  test(`${layout} keeps the inspector in view while scrolling and locks the page for the item browser`, async ({ page }) => {
+    const browserErrors = collectBrowserErrors(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openDragFixture(page);
+    await selectLayout(page, layout);
+    await page.locator('[data-slot="0"]').click();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const inspector = page.locator(".workspace > .right-panel");
+    const initialTop = (await inspector.boundingBox()).y;
+    await page.evaluate(top => window.scrollTo(0, top + 60), initialTop);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(initialTop + 20);
+    await expect.poll(async () => Math.abs((await inspector.boundingBox()).y - stickyTop)).toBeLessThan(2);
+    await expect(page.locator("#detailItemSearch")).toBeInViewport();
+
+    const trigger = page.locator("#btnBrowserDetail");
+    await trigger.scrollIntoViewIfNeeded();
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+    await trigger.click();
+    await expect(page.locator("#itemBrowserOverlay")).toBeVisible();
+    await expect(page.locator("#browserSearchInput")).toBeFocused();
+    await expect(page.locator("body")).toHaveCSS("overflow-y", "hidden");
+    await expect(page.locator("body")).toHaveCSS("position", "fixed");
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#itemBrowserOverlay")).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+    await expect.poll(async () => Math.abs((await inspector.boundingBox()).y - stickyTop)).toBeLessThan(2);
+    expect(browserErrors).toEqual([]);
+  });
+}
+
+test("adaptive item icons keep equipment numbers separate in every layout", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // A non-square flipbook catches accidental stretching when equipment tiles
+  // grow vertically to make room for their optional number row.
+  const iconUrl = "/api/icons/equipment-size-fixture";
+  await page.route("**/api/icons/equipment-size-fixture", route => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="48"><path fill="#ddd" d="M0 0h16v16H0z"/></svg>',
+  }));
+  await page.route("**/api/icons/status*", route => route.fulfill({ json: {
+    success: true, count: 1, icons: { "minecraft:iron_helmet": { url: iconUrl } }, sources: [], warnings: [],
+  } }));
+  await openDragFixture(page, {
+    inventory: Object.fromEntries([9, 100, 101, 102, 103, -106].map(slot => [slot, {
+      slot, name: "minecraft:iron_helmet", count: 1, damage: 0,
+      enchantments: slot === 102 ? [{ id: 0, lvl: 1 }] : [],
+    }])),
+  });
+  await page.evaluate(() => loadLocalIconIndex({ rescan: false }));
+  await expect(page.locator('.armor-slot[data-slot="103"] .item-visual img')).toBeVisible();
+
+  for (const layout of ["classic", "studio", "focus"]) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await selectLayout(page, layout);
+    for (const width of [1440, 1024, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (layout === "classic" && width <= 1024 && await page.locator("#toggleSlotNumbers").isHidden()) {
+        await page.locator('.btn-toggle[data-panel="left"]').click();
+      }
+      for (const numbers of [true, false]) {
+        await page.locator("#toggleSlotNumbers").setChecked(numbers);
+        const geometry = await page.locator(".armor-slot, .offhand-slot").evaluateAll(slots => slots.map(slot => {
+          const image = slot.querySelector(".item-visual img");
+          const badge = slot.querySelector(".slot-number-badge");
+          const s = slot.getBoundingClientRect(), i = image.getBoundingClientRect(), b = badge?.getBoundingClientRect();
+          const caption = slot.querySelector(".studio-equipment-label").getBoundingClientRect();
+          const frame = slot.closest(".armor-offhand-layout").getBoundingClientRect();
+          const offhand = document.querySelector(".offhand-slot-container").getBoundingClientRect();
+          return { slot: slot.dataset.slot, w: i.width, h: i.height, badge: !!badge,
+            gap: b ? i.top - b.bottom : null,
+            captionFrameGap: frame.bottom - caption.bottom,
+            captionSeparatorGap: slot.classList.contains("armor-slot") ? offhand.top - caption.bottom : null,
+            centered: (i.top + i.bottom - s.top - s.bottom) / 2,
+            inside: i.top >= s.top && i.bottom <= s.bottom && i.left >= s.left && i.right <= s.right };
+        }));
+        expect(geometry).toHaveLength(5);
+        for (const item of geometry) {
+          const context = JSON.stringify({ layout, width, numbers, ...item });
+          expect(item.badge, context).toBe(numbers);
+          expect(item.w, context).toBeGreaterThanOrEqual(27);
+          expect(item.w, context).toBeLessThanOrEqual(32);
+          expect(Math.abs(item.w - item.h), context).toBeLessThan(0.5);
+          expect(item.inside, context).toBe(true);
+          expect(item.captionFrameGap, context).toBeGreaterThanOrEqual(8);
+          if (layout === "classic" && width <= 560 && item.captionSeparatorGap !== null) {
+            expect(item.captionSeparatorGap, context).toBeGreaterThanOrEqual(10);
+          }
+          if (numbers) expect(item.gap, context).toBeGreaterThanOrEqual(2);
+          else expect(Math.abs(item.centered), context).toBeLessThan(1);
+        }
+        const inventoryIcon = await page.locator('.main-inventory-grid [data-slot="9"] img').boundingBox();
+        expect(inventoryIcon.width).toBeLessThanOrEqual(40);
+        if (width === 1440) expect(inventoryIcon.width).toBeGreaterThan(28);
+        const enderHeading = await page.locator(".ender-title").boundingBox();
+        const enderGrid = await page.locator(".ender-chest-grid").boundingBox();
+        expect(enderGrid.y - enderHeading.y - enderHeading.height).toBeGreaterThanOrEqual(8);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      }
+    }
+  }
+  expect(errors).toEqual([]);
+});
+
+test("layout preferences persist after reload and mobile controls remain accessible", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAppWithEmptyWorldScan(page);
+  await expect(page.locator("#layoutSelect")).toHaveValue("classic");
+  await page.locator("#themeSelect").selectOption("minecraft");
+  // An existing installation has a color preference but no layout key yet.
+  await page.evaluate(() => localStorage.removeItem("mcbe-inventory-editor:layout"));
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-layout", "classic");
+  await expect(page.locator("#layoutSelect")).toHaveValue("classic");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "minecraft");
+  await page.locator("#layoutSelect").selectOption("focus");
+  await page.reload();
+  await expect(page.locator("#layoutSelect")).toHaveValue("focus");
+  await expect(page.locator("html")).toHaveAttribute("data-layout", "focus");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "minecraft");
+  await expect(page.locator("#layoutViewTitle")).toHaveText("Welt auswählen");
+  for (const layout of ["studio", "focus", "classic"]) {
+    await selectLayout(page, layout);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    expect(overflow, `horizontal overflow in ${layout}`).toBeLessThanOrEqual(0);
+    await expect(page.locator(layout === "focus" ? "#focusSettingsToggle" : "#layoutSelect")).toBeVisible();
+    if (layout !== 'classic') {
+      await expect(page.locator('.layout-context-chip[data-workflow-view="world"]')).toBeVisible();
+      await expect(page.locator('.layout-context-chip[data-workflow-view="player"]')).toBeVisible();
+    } else {
+      await expect(page.locator('.layout-context-bar')).toBeHidden();
+    }
+  }
+  expect(browserErrors).toEqual([]);
+});
+
+test("Studio world selection keeps the card and world list stationary", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const worlds = Array.from({ length: 10 }, (_, i) => ({
+    path: `tests/fixtures/worlds/StableWorld${i}`,
+    name: `Welt ${i + 1}`,
+    folder: `StableWorld${i}`,
+    source_kind: "configured-root",
+    source_label: "Konfigurierter Welt-Root",
+    modified_ts: null,
+    modified_iso: "",
+  }));
+  await page.route("**/api/scan_worlds", route => route.fulfill({ json: { success: true, worlds } }));
+  await openAppAndWaitForScan(page);
+  await page.locator("#layoutSelect").selectOption("studio");
+  const selection = page.locator("#selectedWorldBar");
+  await expect(selection).toBeVisible();
+  await expect(selection).toContainText("Keine Welt ausgewählt");
+  await expect(page.locator("#btnLoad")).toBeDisabled();
+  const geometry = async () => page.evaluate(() => ({
+    card: document.getElementById("selectedWorldBar").getBoundingClientRect().toJSON(),
+    picker: document.getElementById("worldPicker").getBoundingClientRect().toJSON(),
+    list: document.getElementById("worldList").getBoundingClientRect().toJSON(),
+  }));
+  const before = await geometry();
+  await page.locator(".world-card").first().click();
+  await expect(selection).toContainText("Welt 1");
+  await expect(page.locator("#btnLoad")).toBeEnabled();
+  expect(await page.locator("body").evaluate(el => el.classList.contains("app-world-loaded"))).toBe(false);
+  const after = await geometry();
+  for (const part of ["card", "picker", "list"]) {
+    expect(Math.abs(after[part].y - before[part].y), `${part} moved after selecting a world`).toBeLessThanOrEqual(1);
+  }
+  expect(Math.abs(after.card.height - before.card.height)).toBeLessThanOrEqual(1);
+  await page.reload();
+  await expect(selection).toContainText("Keine Welt ausgewählt");
+  await page.locator("#layoutSelect").selectOption("classic");
+  await expect(selection).toBeHidden();
+  await page.locator("#layoutSelect").selectOption("focus");
+  await expect(selection).toBeVisible();
+  await expect(page.locator("#btnLoad")).toBeDisabled();
+  await selectLayout(page, "studio");
+  await expect(selection).toBeVisible();
+});
+
+test("world rescans retain keyboard focus and scroll when the results are unchanged", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const worlds = Array.from({ length: 28 }, (_, i) => ({
+    path: `tests/fixtures/worlds/RescanWorld${i}`,
+    name: `Rescan Welt ${String(i + 1).padStart(2, "0")}`,
+    folder: `RescanWorld${i}`,
+    source_kind: "configured-root",
+  }));
+  let releaseScan;
+  let holdScan = false;
+  await page.route("**/api/scan_worlds", async route => {
+    if (holdScan) await new Promise(resolve => { releaseScan = resolve; });
+    await route.fulfill({ json: { success: true, worlds } });
+  });
+  await openAppAndWaitForScan(page);
+  for (const layout of ["studio", "focus"]) {
+    await selectLayout(page, layout);
+    holdScan = true;
+    releaseScan = undefined;
+    await page.locator("#btnRefreshWorlds").click();
+    await expect.poll(() => Boolean(releaseScan)).toBe(true);
+    const card = page.locator(".world-card").nth(20);
+    await card.focus();
+    const focusedPath = await card.getAttribute("data-world-path");
+    const previousScroll = await page.locator("#worldList").evaluate(el => el.scrollTop);
+    expect(previousScroll).toBeGreaterThan(0);
+    releaseScan();
+    await expect(page.locator("#worldScanLoading")).toBeHidden();
+    await expect(page.locator(".world-card").nth(20)).toBeFocused();
+    expect(await page.locator("#worldList").evaluate(el => el.scrollTop)).toBe(previousScroll);
+    expect(await page.locator(":focus").getAttribute("data-world-path")).toBe(focusedPath);
+  }
+});
+
+for (const failure of ["response", "connection"]) {
+  test(`failed world rescans clear obsolete selectable results (${failure})`, async ({ page }) => {
+    let failScan = false;
+    await page.route("**/api/scan_worlds", route => {
+      if (failScan) return failure === "connection" ? route.abort("failed")
+        : route.fulfill({ status: 500, json: { success: false, error: "Synthetic scan failure" } });
+      return route.fulfill({ json: { success: true, worlds: [
+        { name: "Test A", folder: "A", path: "tests/fixtures/worlds/A" },
+        { name: "Test B", folder: "B", path: "tests/fixtures/worlds/B" },
+      ] } });
+    });
+    await openAppAndWaitForScan(page);
+    await expect(page.locator(".world-card")).toHaveCount(2);
+    failScan = true;
+    await page.locator("#btnRefreshWorlds").click();
+    await expect(page.locator("#worldScanEmpty")).toContainText(failure === "connection" ? "Weltsuche nicht erreichbar" : "Weltsuche fehlgeschlagen");
+    await expect(page.locator(".world-card")).toHaveCount(0);
+    await page.locator("#worldSearchInput").press("Enter");
+    await expect(page.locator("#btnLoad")).toBeDisabled();
+  });
+}
+
+test("Studio keeps the world load action in view while long search results scroll independently", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const worlds = Array.from({ length: 28 }, (_, i) => ({
+    path: `tests/fixtures/worlds/StudioWorld${i}`,
+    name: `Studio Welt ${i + 1}`,
+    folder: `StudioWorld${i}`,
+    source_kind: "configured-root",
+    source_label: "Konfigurierter Welt-Root",
+    modified_ts: null,
+    modified_iso: "",
+  }));
+  await page.route("**/api/scan_worlds", route => route.fulfill({ json: { success: true, worlds } }));
+  await openAppAndWaitForScan(page);
+  await page.locator("#layoutSelect").selectOption("studio");
+  await page.locator(".world-card").first().click();
+  await expect(page.locator("#btnLoad")).toBeVisible();
+
+  const initial = await page.evaluate(() => {
+    const list = document.getElementById("worldList");
+    const button = document.getElementById("btnLoad");
+    return {
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight,
+      listTop: list.getBoundingClientRect().top,
+      buttonBottom: button.getBoundingClientRect().bottom,
+      overflowY: getComputedStyle(list).overflowY,
+      sidePosition: getComputedStyle(document.querySelector(".layout-controls")).position,
+    };
+  });
+  expect(initial.scrollHeight).toBeGreaterThan(initial.clientHeight);
+  expect(initial.overflowY).toBe("auto");
+  expect(initial.buttonBottom).toBeLessThan(initial.listTop);
+  expect(initial.buttonBottom).toBeLessThan(900);
+  expect(initial.sidePosition).toBe("sticky");
+
+  // Scrolling worlds does not scroll the page or move the load button.
+  const afterListScroll = await page.evaluate(() => {
+    const list = document.getElementById("worldList");
+    const button = document.getElementById("btnLoad");
+    const before = button.getBoundingClientRect().top;
+    list.scrollTop = list.scrollHeight;
+    return { listScrollTop: list.scrollTop, before, after: button.getBoundingClientRect().top };
+  });
+  expect(afterListScroll.listScrollTop).toBeGreaterThan(0);
+  expect(afterListScroll.after).toBe(afterListScroll.before);
+
+  // Expanded controls can naturally exceed the viewport. The sidebar follows
+  // the page while the world list retains its own bounded scroll region.
+  await page.setViewportSize({ width: 1440, height: 650 });
+  await page.locator("#btnToggleManualWorld").click();
+  await page.locator("#btnScanPaths").click();
+  await page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+  const sidebarTop = await page.locator(".layout-controls").evaluate(el => el.getBoundingClientRect().top);
+  expect(Math.abs(sidebarTop - 18)).toBeLessThanOrEqual(2);
+});
+
+test("Focus fits world selection to the window and keeps search and loading outside the results scroll", async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 1984, height: 1100 });
+  const worlds = Array.from({ length: 28 }, (_, i) => ({
+    path: `tests/fixtures/worlds/FocusWorld${i}`,
+    name: `Welt ${String(i + 1).padStart(2, "0")} – Eine Welt mit einem längeren Namen`,
+    folder: `FocusWorld${i}`,
+    source_kind: i < 14 ? "minecraft-default" : "configured-root",
+    source_label: i < 14 ? "Minecraft-Standardordner" : "Konfigurierter Welt-Root",
+    modified_ts: null,
+    modified_iso: "",
+  }));
+  await page.route("**/api/scan_worlds", route => route.fulfill({ json: { success: true, worlds } }));
+  await openAppAndWaitForScan(page);
+  const classicWidth = await page.locator(".app-container").evaluate(el => el.getBoundingClientRect().width);
+  await selectLayout(page, "focus");
+  expect(await page.locator(".app-container").evaluate(el => el.getBoundingClientRect().width)).toBe(classicWidth);
+
+  const geometry = () => page.evaluate(() => {
+    const list = document.getElementById("worldList");
+    return {
+      pageRange: document.documentElement.scrollHeight - innerHeight,
+      pageScroll: window.scrollY,
+      overflow: document.documentElement.scrollWidth - innerWidth,
+      listTop: list.getBoundingClientRect().top,
+      listHeight: list.clientHeight,
+      listScroll: list.scrollTop,
+      listRange: list.scrollHeight - list.clientHeight,
+      loadTop: document.getElementById("btnLoad").getBoundingClientRect().top,
+      loadBottom: document.getElementById("btnLoad").getBoundingClientRect().bottom,
+      searchBottom: document.getElementById("worldSearchInput").getBoundingClientRect().bottom,
+    };
+  });
+  await expect(page.locator("#btnLoad")).toBeDisabled();
+  const before = await geometry();
+  expect(before.listHeight).toBeGreaterThan(400);
+  await page.locator(".world-card").first().click();
+  await expect(page.locator("#btnLoad")).toBeEnabled();
+  const selected = await geometry();
+  expect(Math.abs(selected.listTop - before.listTop)).toBeLessThanOrEqual(1);
+  expect(Math.abs(selected.loadTop - before.loadTop)).toBeLessThanOrEqual(1);
+  await page.locator(".world-card").first().press("End");
+  await page.locator(".world-card").last().press("Enter");
+  await expect(page.locator("#selectedWorldName")).toContainText("Welt 28");
+  const scrolled = await geometry();
+  expect(scrolled.listScroll).toBeGreaterThan(0);
+  expect(scrolled.pageScroll).toBe(0);
+  expect(Math.abs(scrolled.loadTop - selected.loadTop)).toBeLessThanOrEqual(1);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1181, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    const current = await geometry();
+    expect(current.pageRange).toBeLessThanOrEqual(1);
+    expect(current.overflow).toBeLessThanOrEqual(0);
+    expect(current.listRange).toBeGreaterThan(0);
+    expect(current.loadBottom).toBeLessThan(current.listTop);
+    expect(current.searchBottom).toBeLessThan(current.listTop);
+  }
+  await page.locator("#worldSearchInput").fill("Welt 28");
+  await expect(page.locator(".world-card")).toHaveCount(1);
+  await page.locator("#worldSearchInput").fill("Kein Treffer");
+  await expect(page.locator("#worldScanEmpty")).toBeVisible();
+  await expect(page.locator("#worldList")).toBeHidden();
+  await expect(page.locator("#btnLoad")).toBeEnabled();
+  await page.locator("#worldSearchInput").fill("");
+  await expect(page.locator(".world-card")).toHaveCount(28);
+
+  // Extra controls remain in the normal page flow, even on short screens.
+  await page.setViewportSize({ width: 1366, height: 650 });
+  await page.locator("#btnToggleManualWorld").click();
+  await page.locator("#btnScanPaths").click();
+  await expect(page.locator("#worldPath")).toBeVisible();
+  await expect(page.locator("#scanPathsPanel")).toBeVisible();
+  await page.locator("#btnLoad").scrollIntoViewIfNeeded();
+  await expect(page.locator("#btnLoad")).toBeInViewport();
+  expect((await geometry()).overflow).toBeLessThanOrEqual(0);
+  expect(browserErrors).toEqual([]);
+});
+
+test("Studio keeps one world summary in player data and omits it in inventory", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openDragFixture(page);
+  await page.locator("#layoutSelect").selectOption("studio");
+  for (const view of ["player-edit", "inventory"]) {
+    await page.locator(`.app-workflow-nav button[data-workflow-view="${view}"]`).click();
+    if (view === "player-edit") await expect(page.locator("#selectedWorldBar")).toBeVisible();
+    else await expect(page.locator("#selectedWorldBar")).toBeHidden();
+    const borders = await page.evaluate(() => ({
+      outer: getComputedStyle(document.getElementById("worldSection")).borderTopWidth,
+      inner: getComputedStyle(document.getElementById("selectedWorldBar")).borderTopWidth,
+    }));
+    expect(borders.outer, `outer world-card border in ${view}`).toBe("0px");
+    expect(borders.inner, `missing selected-world card border in ${view}`).toBe("1px");
+  }
+  await page.locator("#layoutSelect").selectOption("classic");
+  await expect(page.locator("html")).toHaveAttribute("data-layout", "classic");
+});
+
+test("Studio uses one stable inspector track for empty, single and multiple slot selections", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openDragFixture(page);
+  await page.locator("#layoutSelect").selectOption("studio");
+
+  const measurements = async () => page.evaluate(() => {
+    const slot = document.querySelector('.main-inventory-grid [data-slot="9"]');
+    const workspace = document.querySelector(".workspace");
+    return {
+      slotWidth: slot.getBoundingClientRect().width,
+      gridWidth: document.querySelector(".main-inventory-grid").getBoundingClientRect().width,
+      columns: getComputedStyle(workspace).gridTemplateColumns,
+      overflow: document.documentElement.scrollWidth - innerWidth,
+    };
+  });
+
+  await expect(page.locator("#studioInspectorStandby")).toBeVisible();
+  await expect(page.locator("#detailEditorPanel")).toBeHidden();
+  await expect(page.locator("#dashboardPanel")).toBeHidden();
+  await expect(page.locator("#safeEditBanner")).toBeHidden();
+  const initial = await measurements();
+  expect(initial.slotWidth).toBeGreaterThanOrEqual(44);
+  expect(initial.slotWidth).toBeLessThanOrEqual(85);
+  expect(initial.overflow).toBeLessThanOrEqual(0);
+
+  await page.locator('.main-inventory-grid [data-slot="9"]').click();
+  await expect(page.locator("#detailEditorPanel")).toBeVisible();
+  await expect(page.locator("#studioInspectorStandby")).toBeHidden();
+  const single = await measurements();
+  expect(single.slotWidth).toBeCloseTo(initial.slotWidth, 1);
+  expect(single.gridWidth).toBeCloseTo(initial.gridWidth, 1);
+  expect(single.columns).toBe(initial.columns);
+
+  await page.locator('.main-inventory-grid [data-slot="10"]').click({ modifiers: ["Control"] });
+  await expect(page.locator("#multiSelectPanel")).toBeVisible();
+  await expect(page.locator("#studioInspectorStandby")).toBeHidden();
+  const multiple = await measurements();
+  expect(multiple.slotWidth).toBeCloseTo(initial.slotWidth, 1);
+  expect(multiple.columns).toBe(initial.columns);
+
+  await page.locator("#btnClearSelection").click();
+  await expect(page.locator("#studioInspectorStandby")).toBeVisible();
+  await expect(page.locator("#multiSelectPanel")).toBeHidden();
+  expect((await measurements()).slotWidth).toBeCloseTo(initial.slotWidth, 1);
+
+  // The new placeholder is exclusively a Studio desktop feature; the real
+  // forms and their selected data are shared unchanged across layouts.
+  await page.locator("#layoutSelect").selectOption("focus");
+  await expect(page.locator("#studioInspectorStandby")).toBeHidden();
+  await selectLayout(page, "classic");
+  await expect(page.locator("#studioInspectorStandby")).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test("Studio keeps discard available when edits are pending but removes duplicate review buttons", async ({ page }) => {
+  await openDragFixture(page);
+  await page.locator("#layoutSelect").selectOption("studio");
+  await page.locator("#safeEditBanner").evaluate(banner => {
+    banner.classList.add("dirty");
+    document.getElementById("btnSafeEditDiscardChanges").disabled = false;
+  });
+  await expect(page.locator("#safeEditBanner")).toBeVisible();
+  await expect(page.locator("#btnSafeEditDiscardChanges")).toBeVisible();
+  await expect(page.locator("#btnShowSavePreview")).toBeHidden();
+  await expect(page.locator("#layoutSaveAction")).toBeVisible();
+  await page.locator("#safeEditBanner").evaluate(banner => banner.classList.remove("dirty"));
+  await expect(page.locator("#safeEditBanner")).toBeHidden();
+});
+
+test("Studio sidebar only scrolls internally when the available height really demands it", async ({ page }) => {
+  await openDragFixture(page);
+  await page.locator("#layoutSelect").selectOption("studio");
+
+  for (const height of [650, 900]) {
+    await page.setViewportSize({ width: 1440, height });
+    const fit = await page.locator(".layout-controls").evaluate(rail => {
+      rail.scrollTop = 100;
+      return { extraHeight: rail.scrollHeight - rail.clientHeight, scrollTop: rail.scrollTop };
+    });
+    expect(fit.extraHeight, `unexpected rail scroll at ${height}px`).toBeLessThanOrEqual(1);
+    expect(fit.scrollTop).toBe(0);
+  }
+
+  await page.setViewportSize({ width: 1440, height: 390 });
+  const compact = await page.locator(".layout-controls").evaluate(rail => {
+    const nav = rail.querySelector(".app-workflow-nav");
+    const lastLink = nav.querySelector("#btnHelp");
+    const saveArea = rail.querySelector(".layout-context-action");
+    return {
+      needsScroll: rail.scrollHeight > rail.clientHeight,
+      linkBottom: lastLink.getBoundingClientRect().bottom,
+      saveTop: saveArea.getBoundingClientRect().top,
+    };
+  });
+  expect(compact.needsScroll).toBe(true);
+  expect(compact.linkBottom).toBeLessThan(compact.saveTop);
+  await page.locator(".layout-controls").evaluate(rail => { rail.scrollTop = rail.scrollHeight; });
+  await expect(page.locator("#layoutSaveAction")).toBeInViewport();
 });

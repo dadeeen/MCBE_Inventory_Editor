@@ -3,6 +3,7 @@
 
     const t = window.t || ((text, params) => String(text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m)));
     const WORLD_FOLDER_PICKER_STATUS_KEY = "world-folder-picker";
+    const WORLD_FOLDER_OPEN_STATUS_KEY = "world-folder-open";
 
     function sourceLabelForWorld(world) {
         const systemLabels = {
@@ -109,6 +110,10 @@
         } = elements;
 
         let scanRequestId = 0;
+        let isOpeningFolder = false;
+        let renderedWorldOrder = "";
+        let worldTypeahead = "";
+        let worldTypeaheadAt = 0;
 
         function setLoadingState(isLoading) {
             if (scanLoading) scanLoading.style.display = isLoading ? "block" : "none";
@@ -129,7 +134,17 @@
         }
 
         async function openPathInFileManager(path) {
-            if (!path) return;
+            if (!path || isOpeningFolder) return;
+            isOpeningFolder = true;
+            const previousLabel = openSelectedWorldButton?.textContent;
+            if (openSelectedWorldButton) {
+                openSelectedWorldButton.textContent = t("Öffne Ordner…");
+                openSelectedWorldButton.setAttribute("aria-busy", "true");
+                // Keep native disabled state owned by the world-status view.
+                // A late response must not re-enable a cleared/Docker selection.
+                openSelectedWorldButton.setAttribute("aria-disabled", "true");
+            }
+            logStatus(t("Öffne Ordner…"), "running", { key: WORLD_FOLDER_OPEN_STATUS_KEY });
             try {
                 const res = await fetch("/api/open_folder", {
                     method: "POST",
@@ -137,22 +152,37 @@
                     body: JSON.stringify({ path })
                 });
                 const data = await parseJsonResponse(res);
-                if (data.success) {
-                    logStatus(t("Ordner im Dateimanager geöffnet."), "success");
+                if (res.ok !== false && data?.success === true) {
+                    // The API confirms the launch request, not OS window focus.
+                    logStatus(t("Ordner an den Dateimanager übergeben: {path}", { path }), "success", { key: WORLD_FOLDER_OPEN_STATUS_KEY });
+                    showToast(t("Ordner wird im Dateimanager geöffnet. Verdeckte Fenster findest du über die Taskleiste oder das Dock."), "success", 8000);
                 } else {
                     const msg = buildErrorMessage(data, t("Ordner konnte nicht geöffnet werden."));
-                    logStatus(msg, "error");
+                    logStatus(msg, "error", { key: WORLD_FOLDER_OPEN_STATUS_KEY });
                     showToast(msg, "error", 5000);
                 }
             } catch (e) {
                 const msg = t("Ordner konnte nicht geöffnet werden: {error}", { error: e?.message || t("Verbindungsfehler") });
-                logStatus(msg, "error");
+                logStatus(msg, "error", { key: WORLD_FOLDER_OPEN_STATUS_KEY });
                 showToast(msg, "error", 5000);
+            } finally {
+                isOpeningFolder = false;
+                if (openSelectedWorldButton) {
+                    openSelectedWorldButton.textContent = previousLabel;
+                    openSelectedWorldButton.removeAttribute("aria-busy");
+                    openSelectedWorldButton.removeAttribute("aria-disabled");
+                }
             }
         }
 
         function renderWorldCards(worlds = []) {
             if (!worldList) return;
+            const activeElement = worldList.ownerDocument?.activeElement;
+            const hadListFocus = Boolean(activeElement && worldList.contains?.(activeElement));
+            const focusedPath = hadListFocus ? activeElement.dataset?.worldPath : "";
+            const previousScrollTop = worldList.scrollTop || 0;
+            const nextWorldOrder = JSON.stringify(worlds.map(world => world.path));
+            const sameResults = nextWorldOrder === renderedWorldOrder;
             const scan = getLastWorldScan();
             const allCount = Array.isArray(scan?.worlds) ? scan.worlds.length : worlds.length;
             const query = (searchInput?.value || "").trim();
@@ -166,13 +196,60 @@
                 allCount,
                 query,
                 selectedPath: selectedWorld?.path || "",
+                tabStopPath: focusedPath || selectedWorld?.path || "",
                 dirtyWorldPath: getWorldPath(),
                 isDirty: Boolean(getIsDirty()),
                 sourceLabelForWorld,
                 formatModified,
             });
-            if (!rendered || !worlds.length) return;
-            worldList.querySelectorAll("[data-world-path]").forEach(el => {
+            if (!rendered) return;
+            renderedWorldOrder = nextWorldOrder;
+            // Selecting a result only updates its selected state. Keep the
+            // reader's place; a different filter/order starts at the top.
+            worldList.scrollTop = sameResults ? previousScrollTop : 0;
+            const cards = Array.from(worldList.querySelectorAll("[data-world-path]"));
+            if (!cards.length) {
+                if (hadListFocus) searchInput?.focus({ preventScroll: true });
+                return;
+            }
+            const worldsByPath = new Map(worlds.map(world => [world.path, world]));
+            const focusCard = (card, preventScroll = false) => {
+                cards.forEach(option => { option.tabIndex = option === card ? 0 : -1; });
+                card?.focus({ preventScroll });
+            };
+            cards.forEach((el, index) => {
+                el.addEventListener("focus", () => {
+                    cards.forEach(option => { option.tabIndex = option === el ? 0 : -1; });
+                });
+                el.addEventListener("keydown", event => {
+                    if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+                    let nextIndex = index;
+                    if (event.key === "ArrowDown") nextIndex = Math.min(index + 1, cards.length - 1);
+                    else if (event.key === "ArrowUp") nextIndex = Math.max(index - 1, 0);
+                    else if (event.key === "Home") nextIndex = 0;
+                    else if (event.key === "End") nextIndex = cards.length - 1;
+                    else if (event.key.length === 1 && event.key !== " ") {
+                        const now = Date.now();
+                        const character = event.key.toLocaleLowerCase();
+                        worldTypeahead = now - worldTypeaheadAt > 700 ? character : worldTypeahead + character;
+                        worldTypeaheadAt = now;
+                        const prefix = [...worldTypeahead].every(value => value === character)
+                            ? character : worldTypeahead;
+                        const start = prefix.length > 1 ? index : index + 1;
+                        for (let offset = 0; offset < cards.length; offset += 1) {
+                            const candidateIndex = (start + offset) % cards.length;
+                            const candidate = worldsByPath.get(cards[candidateIndex].dataset.worldPath);
+                            const name = String(candidate?.name || candidate?.folder || "").toLocaleLowerCase();
+                            if (name.startsWith(prefix)) {
+                                nextIndex = candidateIndex;
+                                break;
+                            }
+                        }
+                    } else return; // Native Enter/Space activates the option; Tab leaves the list.
+                    if (event.key.length !== 1) worldTypeahead = "";
+                    event.preventDefault();
+                    focusCard(cards[nextIndex]);
+                });
                 el.addEventListener("click", () => {
                     const selected = getLastRenderedWorlds().find(world => world.path === el.dataset.worldPath);
                     if (!selected) return;
@@ -182,6 +259,10 @@
                     logStatus(t("Welt ausgewählt. Klicke auf Laden, wenn du sie öffnen möchtest."), "success");
                 });
             });
+            if (hadListFocus) {
+                focusCard(cards.find(card => card.dataset.worldPath === focusedPath)
+                    || cards.find(card => card.tabIndex === 0) || cards[0], sameResults);
+            }
         }
 
         function renderFilteredWorlds() {
@@ -264,7 +345,8 @@
                 const data = await parseJsonResponse(res);
                 if (requestId !== scanRequestId) return;
                 setLastWorldScan(data);
-                if (worldList) worldList.innerHTML = "";
+                // Let the renderer capture focus and scroll before replacing
+                // the results. Clearing here loses both during a rescan.
                 renderWorldDiagnostics(data);
                 if (scanWarning && data.warnings && data.warnings.length) {
                     scanWarning.textContent = data.warnings.join(" ");
@@ -272,6 +354,7 @@
                 }
                 if (!data.success) {
                     if (worldPicker) worldPicker.style.display = "block";
+                    renderWorldCards([]);
                     showScanEmpty(t("Weltsuche fehlgeschlagen"), buildErrorMessage(data, t("Unbekannter Fehler")));
                     if (countHint) countHint.textContent = t("Suche fehlgeschlagen");
                     updateAutoPathHint(t("Weltsuche fehlgeschlagen"), "error");
@@ -297,12 +380,13 @@
                 if (requestId !== scanRequestId) return;
                 console.error("scanWorlds:", e);
                 if (worldPicker) worldPicker.style.display = "block";
+                const nextScan = { success: false, error: e?.message || t("Weltsuche nicht erreichbar") };
+                setLastWorldScan(nextScan);
+                renderWorldCards([]);
                 showScanEmpty(
                     t("Weltsuche nicht erreichbar"),
                     t("Der lokale App-Server konnte die Suche nicht beantworten. Seite neu laden oder Konsole prüfen.")
                 );
-                const nextScan = { success: false, error: e?.message || t("Weltsuche nicht erreichbar") };
-                setLastWorldScan(nextScan);
                 renderWorldDiagnostics(nextScan);
                 if (countHint) countHint.textContent = t("Suche nicht erreichbar");
                 updateAutoPathHint(t("Weltsuche nicht erreichbar"), "error");

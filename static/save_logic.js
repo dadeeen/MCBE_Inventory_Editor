@@ -437,8 +437,6 @@
                     issues.push({ level: "error", label: `${mount.mountLabel || mount.mountType || "Mount"}: ${t("Die vorgemerkte Position ist ungültig.")}` });
                 } else if (mount.safetyStatus !== "safe") {
                     issues.push({ level: "warning", label: `${mount.mountLabel || mount.mountType || "Mount"}: ${t("Die vorgemerkte Position ist ungeprüft und wird vor dem Schreiben erneut serverseitig bewertet.")}` });
-                } else {
-                    issues.push({ level: "info", label: `${mount.mountLabel || mount.mountType || "Mount"}: ${t("Neue Entity wird beim Speichern erzeugt und anschließend direkt validiert.")}` });
                 }
             });
             const protectedNbtInfos = issues.filter(issue => issue.category === "protected_nbt_preserved" || issue.category === "preserved_nbt_preserved");

@@ -111,8 +111,9 @@ def test_vertical_scan_snaps_fractional_height_to_block_surface(monkeypatch) -> 
     assert "Vollblock-Oberfläche" in result["warning"]
 
 
-def test_optional_chunk_probe_close_failure_falls_back_to_original_preview(monkeypatch) -> None:
+def test_optional_chunk_probe_close_failure_keeps_original_positions_and_explains_failure(monkeypatch) -> None:
     preview = {"candidate_positions": [{"id": "original"}]}
+    logged = []
 
     class FailingCloseDb:
         def close(self):
@@ -124,6 +125,7 @@ def test_optional_chunk_probe_close_failure_falls_back_to_original_preview(monke
 
     class Deps:
         service = Service()
+        log_api_exception = staticmethod(lambda label, exc: logged.append((label, exc)))
 
     monkeypatch.setattr(
         mount_api_routes,
@@ -133,4 +135,9 @@ def test_optional_chunk_probe_close_failure_falls_back_to_original_preview(monke
 
     result = mount_api_routes._annotate_preview_with_chunk_probe(Deps(), "world", preview)
 
-    assert result == preview
+    (candidate,) = result["candidate_positions"]
+    assert candidate["id"] == "original"
+    assert candidate["safe_to_place"] is None
+    assert candidate["placement_issues"][0]["code"] == "probe_failed"
+    assert logged[0][0] == "mount.preview.block_probe.close"
+    assert preview == {"candidate_positions": [{"id": "original"}]}

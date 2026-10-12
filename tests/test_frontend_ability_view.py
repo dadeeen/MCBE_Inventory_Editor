@@ -269,6 +269,7 @@ def test_frontend_ability_view_stats_form_model_and_applier() -> None:
             assert.strictEqual(model.values.foodLevel, 18);
             assert.strictEqual(model.values.foodSaturation, "7.3");
             assert.strictEqual(model.gamemode.value, "Kreativ (Creative) · NBT-Wert 1");
+            assert.strictEqual(model.gamemode.summaryLabel, "Kreativ");
             assert.strictEqual(model.gamemode.readOnly, true);
 
             const almostNextLevel = view.statsFormModel({
@@ -285,7 +286,7 @@ def test_frontend_ability_view_stats_form_model_and_applier() -> None:
 
             const elements = {};
             for (const key of Object.keys(model.values)) elements[key] = { value: "" };
-            elements.gamemode = { value: "", readOnly: false, title: "" };
+            elements.gamemode = { value: "", readOnly: false, title: "", dataset: {} };
             view.applyStatsFormModel(elements, model);
 
             assert.strictEqual(elements.dimensionId.value, "1");
@@ -294,6 +295,8 @@ def test_frontend_ability_view_stats_form_model_and_applier() -> None:
             assert.strictEqual(elements.xpLevel.value, 42);
             assert.strictEqual(elements.gamemode.value, "Kreativ (Creative) · NBT-Wert 1");
             assert.strictEqual(elements.gamemode.readOnly, true);
+            assert.strictEqual(elements.gamemode.dataset.summaryLabel, "Kreativ");
+            assert.strictEqual(elements.gamemode.dataset.summaryTitle, model.gamemode.value);
             assert.strictEqual(
                 elements.gamemode.title,
                 "Read-only: Dieser Player-Gamemode wird nur angezeigt. Der Editor schreibt ihn nicht; Welt-/Servermodus kann abweichen.",
@@ -301,6 +304,17 @@ def test_frontend_ability_view_stats_form_model_and_applier() -> None:
 
             const unknown = view.gamemodeDisplayModel("future");
             assert.strictEqual(unknown.value, "Unbekannter oder serverspezifischer Wert · NBT-Wert ?");
+            assert.strictEqual(unknown.summaryLabel, "Unbekannt");
+            for (const missing of [null, undefined, "", " ", false]) {
+                assert.strictEqual(view.gamemodeDisplayModel(missing).summaryLabel, "Unbekannt",
+                    "Fehlender Spielmodus darf nicht als Überleben angezeigt werden");
+            }
+            const inherited = view.gamemodeDisplayModel(5);
+            assert.strictEqual(inherited.summaryLabel, "Weltvorgabe");
+            assert.strictEqual(inherited.summaryTitle, "Verwendet die Spielmodus-Vorgabe der Welt oder des Servers.");
+            view.applyStatsFormModel(elements, {gamemode:inherited});
+            assert.strictEqual(elements.gamemode.dataset.summaryLabel, "Weltvorgabe");
+            assert.strictEqual(elements.gamemode.dataset.summaryTitle, inherited.summaryTitle);
             """
         )
     )

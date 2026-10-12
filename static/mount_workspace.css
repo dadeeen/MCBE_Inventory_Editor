@@ -1,0 +1,306 @@
+/* Shared Mount workspace: configure, inspect a position, then stage a draft. */
+.mounts-panel {
+    container: mount-workspace / inline-size;
+    gap: 18px;
+    --m-accent-text: var(--text-primary);
+    --m-accent-border: var(--primary);
+    --m-grid-line: color-mix(in srgb, var(--border-color) 38%, transparent);
+}
+
+/* The context selectors already identify the world in Studio and Focus.
+   Keep live error/presence notices in document order above the editor. */
+:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded[data-workflow-view="mounts"] .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+}
+:root[data-layout="focus"] body.app-world-loaded[data-workflow-view="mounts"] .workspace {
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded[data-workflow-view="mounts"] :is(.left-panel, .right-panel, #worldSection) {
+    display: contents !important;
+}
+:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded[data-workflow-view="mounts"] #worldSection > :not(#loadErrorPanel):not(#worldPresenceBanner) {
+    display: none !important;
+}
+:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded[data-workflow-view="mounts"] :is(#mountsPanel, #loadErrorPanel, #worldPresenceBanner) {
+    grid-column: 1 / -1;
+    grid-row: auto;
+}
+
+.mounts-panel > div,
+.mount-config-grid > *,
+.mount-placement-results > *,
+.mounts-panel .field-group {
+    min-width: 0;
+}
+
+.mounts-panel .section-header { margin-bottom: 0; }
+.mount-section-title { font-size: 1rem; font-weight: 700; }
+
+.mount-config-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.mount-options-card {
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--surface-strong);
+}
+
+.mounts-panel .field-group { margin: 0; }
+.mounts-panel .field-group > label { font-size: .8rem; }
+.mounts-panel :is(.input-field, .select-field) {
+    min-width: 0;
+    width: 100%;
+    min-height: 44px;
+}
+
+.mounts-panel .field-note {
+    display: block;
+    font-size: .75rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.mount-icon { display: inline-block; flex: none; }
+.mount-icon svg { display: block; }
+.mount-type-row { display: flex; align-items: center; gap: 12px; }
+.mount-type-row .select-field { flex: 1; }
+.mount-horse-profile-card { display: grid; gap: 12px; }
+.mount-horse-profile-header { min-width: 0; }
+.mount-horse-profile-header strong { font-size: .8rem; }
+
+.mount-horse-appearance-grid,
+.mount-horse-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.mount-conversion-hint { font-weight: 500; }
+.mount-fixed-profile { color: var(--text-secondary); font-size: .82rem; line-height: 1.5; }
+.mount-tamed-field { display: grid; gap: 2px; }
+.mount-tamed-toggle { display: flex; align-items: center; gap: 9px; min-height: 44px; font-size: .86rem; cursor: pointer; }
+.mount-tamed-toggle input { width: 18px; height: 18px; accent-color: var(--primary); }
+
+/* Keep details at their native display so closed content stays hidden. */
+.mounts-panel details > summary {
+    min-height: 44px;
+    padding: 12px 0;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: .8rem;
+    font-weight: 600;
+}
+
+.mounts-panel :is(button, summary, .mount-model-stage):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+}
+
+.mount-advanced-options { border-top: 1px solid var(--border-color); }
+.mount-advanced-options > .mount-horse-profile-grid { padding: 4px 0 2px; }
+.mount-horse-profile-ranges { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mount-profile-chip { padding: 9px; border-radius: 8px; background: var(--surface-soft); }
+.mount-profile-chip :is(strong, span, small) { display: block; }
+.mount-profile-chip strong { font-size: .72rem; font-weight: 600; color: var(--text-secondary); }
+.mount-profile-chip span { margin-top: 4px; font-size: .8rem; color: var(--text-primary); }
+.mount-profile-chip small { margin-top: 2px; font-size: .72rem; color: var(--text-secondary); }
+
+.mount-placement-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color);
+}
+
+.mount-scan-controls { display: flex; align-items: end; gap: 10px; min-width: 0; }
+.mount-radius-field { width: 150px; }
+.mount-scan-controls .btn { min-height: 44px; white-space: nowrap; }
+.mount-placement-context { margin-bottom: 10px; font-size: .8rem; color: var(--text-secondary); }
+.mount-placement-results { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+
+.mount-placement-map { min-width: 0; }
+.mount-map-board {
+    position: relative;
+    height: 236px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background-color: var(--surface-soft);
+    background-image: linear-gradient(var(--m-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--m-grid-line) 1px, transparent 1px);
+    background-size: 32px 32px;
+}
+
+.mount-map-axis { position: absolute; inset: 25%; border: 1px dashed var(--control-border); border-radius: 50%; pointer-events: none; }
+.mount-map-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid var(--border-color); border-radius: 50%; background: var(--surface-strong); color: var(--text-secondary); font-size: .7rem; font-weight: 600; }
+.mount-map-point {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: grid;
+    align-content: center;
+    gap: 3px;
+    width: clamp(76px, 26%, 112px);
+    min-height: 56px;
+    padding: 7px 5px;
+    border: 1px solid var(--control-border);
+    border-radius: 9px;
+    background: var(--surface-strong);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.mount-map-point:not(:disabled):hover { border-color: var(--primary); }
+.mount-map-point.active { outline: 2px solid var(--primary); outline-offset: 2px; }
+.mount-map-point .mp-label { font-size: .75rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.mount-map-point .mp-meta { display: flex; justify-content: center; align-items: center; gap: 5px; font-size: .68rem; color: var(--text-secondary); }
+.mp-status { font-size: .65rem; font-weight: 700; }
+.mount-map-point.safe .mp-status { color: var(--success-text); }
+.mount-map-point.unchecked .mp-status { color: var(--warning-text); }
+.mount-map-point.unsafe .mp-status { color: var(--danger-text); }
+.mount-map-point.unsafe { border-style: dashed; cursor: not-allowed; }
+
+.mount-placement-target,
+.mount-placement-unavailable {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--surface-strong);
+}
+
+.mount-target-id { display: grid; gap: 6px; }
+.mount-target-id strong { font-size: 1.12rem; line-height: 1.3; }
+.mount-target-id small { font-size: .8rem; color: var(--text-secondary); }
+.mount-placement-note, .mount-placement-unavailable p { color: var(--text-secondary); font-size: .82rem; line-height: 1.5; }
+.mount-placement-explanation { display: grid; gap: 8px; }
+.mount-placement-reason { color: var(--text-primary); font-size: .84rem; font-weight: 600; line-height: 1.5; }
+.mount-placement-explanation p, .mount-placement-issues p { margin: 0; overflow-wrap: anywhere; }
+.mount-placement-issues ul { list-style: none; padding: 0; margin: 0; }
+.mount-placement-issues li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--border-color); }
+.mounts-panel .status-pill { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 6px; font-size: .76rem; font-weight: 600; }
+.mounts-panel .status-pill.success { color: var(--success-text); background: var(--success-bg); }
+.mounts-panel .status-pill.warning { color: var(--warning-text); background: var(--warning-bg); }
+.mounts-panel .status-pill.error { color: var(--danger-text); background: var(--danger-bg); }
+.mounts-panel .status-pill.changed { color: var(--text-secondary); background: var(--surface-soft); }
+.mount-target-actions { margin-top: auto; }
+.mount-tech-open { min-height: 44px; }
+.mount-queue-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.mount-queue-actions .btn { width: auto; min-height: 44px; padding: 12px 24px; font-size: .9rem; box-shadow: none; }
+.mount-empty-state { padding: 18px 0 4px; color: var(--text-secondary); font-size: .84rem; }
+
+.mount-warning-list { margin-top: 14px; }
+.mount-warning-list > p { margin: 0; overflow-wrap: anywhere; }
+.mount-warning-list > ul { padding-left: 20px; }
+.mount-warning-list li { margin-top: 8px; overflow-wrap: anywhere; }
+.mount-warning-list li:first-child { margin-top: 0; }
+.mount-create-status { color: var(--text-secondary); font-size: .82rem; line-height: 1.45; overflow-wrap: anywhere; }
+.mount-create-status:empty, #mountPendingPanel:empty { display: none; }
+.mount-create-status.error { color: var(--danger-text); }
+
+/* Native modal puts the diagnostic view above the app and contains focus. */
+.mount-tech-overlay {
+    width: min(620px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--control-border);
+    border-radius: 16px;
+    /* The dialog is in the top layer: a glass surface would let the dimmed
+       editor show through its text. bg-main is solid in every app theme,
+       including the app's dark System theme on a light operating system. */
+    background: var(--bg-main);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-main);
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.mount-tech-overlay::backdrop { background: rgba(0, 0, 0, .65); }
+:root[data-theme="light"] .mount-tech-overlay { --success-text: #065f46; }
+.mount-tech-modal { padding: 20px; }
+.mount-tech-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.mount-tech-head strong { font-size: 1rem; min-width: 0; }
+.mount-tech-position { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.mount-tech-close { flex: none; width: 44px; height: 44px; border: 1px solid var(--control-border); border-radius: 9px; background: var(--surface-soft); color: var(--text-primary); cursor: pointer; }
+.mount-tech-close:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.mount-tech-close:hover { border-color: var(--danger-border); }
+.mount-tech-section { margin-top: 18px; }
+.mount-tech-label { font-size: .76rem; color: var(--text-primary); font-weight: 700; margin-bottom: 6px; }
+.mount-tech-note { margin-top: 8px; color: var(--text-secondary); font-size: .78rem; line-height: 1.5; overflow-wrap: anywhere; }
+.mount-tech-blocks { width: 100%; border-collapse: collapse; font-size: .78rem; }
+.mount-tech-blocks th, .mount-tech-blocks td { padding: 5px 2px; overflow-wrap: anywhere; }
+.mount-tech-blocks th { color: var(--text-secondary); font-weight: 400; text-align: left; }
+.mount-tech-blocks td:last-child { text-align: right; }
+.mount-scan-ladder { display: flex; flex-wrap: wrap; gap: 6px; }
+.mount-scan-chip { font-size: .72rem; padding: 5px 8px; border: 1px solid var(--control-border); border-radius: 7px; }
+.mount-scan-chip.safe { background: var(--success-bg); color: var(--success-text); }
+.mount-scan-chip.unchecked { background: var(--warning-bg); color: var(--warning-text); }
+.mount-scan-chip.unsafe { background: var(--danger-bg); color: var(--danger-text); }
+.mount-block-tile { display: inline-block; flex: none; width: 16px; height: 16px; border: 1px solid var(--control-border); border-radius: 3px; vertical-align: -3px; }
+.mount-block-tile.air, .mount-fp-cell.air { border-style: dashed; background: transparent; }
+.mount-block-tile.unknown, .mount-fp-cell.unknown { border-style: dashed; background: var(--warning-bg); }
+.mount-footprint { display: grid; justify-items: start; gap: 10px; margin-top: 18px; }
+.mount-footprint-head { display: grid; gap: 4px; font-size: .82rem; }
+.mount-footprint-head small { color: var(--text-secondary); font-size: .75rem; }
+.mount-fp-board { position: relative; width: max-content; max-width: 100%; }
+.mount-fp-grid { display: grid; max-width: 100%; }
+.mount-fp-cell { width: 36px; height: 36px; border: 1px solid var(--control-border); }
+.mount-fp-cell.center { outline: 2px solid var(--primary); outline-offset: -3px; }
+.mount-fp-board.has-bounds .mount-fp-cell.center { outline: none; }
+.mount-fp-bounds { position: absolute; border: 2px solid var(--primary); box-shadow: 0 0 0 1px var(--bg-main); pointer-events: none; }
+.mount-fp-position { position: absolute; width: 7px; height: 7px; border: 1px solid var(--bg-main); border-radius: 50%; background: var(--primary); transform: translate(-50%, -50%); pointer-events: none; }
+.mount-fp-size { margin: 0; font-size: .76rem; color: var(--text-secondary); }
+.mount-fp-caption { color: var(--text-secondary); font-size: .76rem; line-height: 1.5; }
+.mount-fp-legend { display: flex; flex-wrap: wrap; gap: 10px; color: var(--text-secondary); font-size: .7rem; }
+.mount-fp-legend > span { display: flex; align-items: center; gap: 5px; }
+.mount-fp-key { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--primary); }
+.mount-probe-details { margin-top: 12px; border-top: 1px solid var(--border-color); }
+
+.pending-mounts-panel { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--border-color); border-radius: 14px; background: var(--surface-soft); }
+.pending-mounts-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.pending-mounts-header strong { display: block; font-size: .94rem; }
+.pending-mounts-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pending-mounts-actions .btn, .pending-mount-remove { min-height: 44px; }
+.pending-mount-list { display: grid; gap: 10px; }
+.pending-mount-card { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface-strong); border: 1px solid var(--border-color); border-radius: 10px; }
+.pending-mount-icon { display: grid; place-items: center; flex: 0 0 40px; }
+.pending-mount-copy { flex: 1; min-width: 0; }
+.pending-mount-copy > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.pending-mount-copy small { display: block; margin-top: 4px; color: var(--text-secondary); font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
+.pending-mount-safety.warning { color: var(--warning-text); }
+.pending-mount-details > summary { padding-block: 10px; }
+
+@container mount-workspace (max-width: 720px) {
+    .mount-config-grid, .mount-placement-results { grid-template-columns: minmax(0, 1fr); }
+    .mount-placement-toolbar { align-items: flex-start; }
+    .mount-scan-controls { width: 100%; }
+    .mount-radius-field { flex: 1; width: auto; }
+    .mount-placement-target { gap: 12px; }
+}
+
+@container mount-workspace (max-width: 380px) {
+    .mount-options-card, .mount-placement-target, .mount-placement-unavailable, .pending-mounts-panel { padding: 14px; }
+    .mount-horse-profile-grid, .mount-horse-appearance-grid { grid-template-columns: minmax(0, 1fr); }
+    .mount-scan-controls { flex-direction: column; align-items: stretch; }
+    .mount-scan-controls .field-group { width: 100%; }
+    .mount-queue-actions .btn { width: 100%; }
+    .pending-mount-card { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: start; }
+    .pending-mount-remove { grid-column: 2; margin-left: 0; justify-self: start; }
+}

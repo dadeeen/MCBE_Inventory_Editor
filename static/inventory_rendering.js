@@ -278,6 +278,8 @@
             currentSelectionState,
         });
         let slotHoverCard = null;
+        let slotHoverTimer = null;
+        let pendingSlotHover = null;
 
         function currentSelectionState() {
             return {
@@ -508,13 +510,41 @@
         }
 
         function hideSlotHover() {
+            if (slotHoverTimer !== null) clearTimeout(slotHoverTimer);
+            slotHoverTimer = null;
+            pendingSlotHover = null;
             if (slotHoverCard) slotHoverCard.style.display = "none";
         }
 
         function attachSlotHover(slot) {
-            slot.addEventListener("mouseenter", showSlotHover);
-            slot.addEventListener("mousemove", moveSlotHoverCard);
+            slot.addEventListener("mouseenter", e => {
+                if (doc.documentElement?.dataset?.layout !== "studio") {
+                    showSlotHover(e);
+                    return;
+                }
+                // Studio's compact grid should not flash a large floating
+                // tooltip every time the cursor passes over a slot. Capture
+                // the pointer coordinates: MouseEvent.currentTarget is only
+                // valid during event dispatch, not inside a delayed callback.
+                hideSlotHover();
+                pendingSlotHover = { currentTarget: slot, clientX: e.clientX, clientY: e.clientY };
+                slotHoverTimer = setTimeout(() => {
+                    slotHoverTimer = null;
+                    const pointer = pendingSlotHover;
+                    if (pointer && doc.documentElement?.dataset?.layout === "studio" && slot.matches(":hover")) {
+                        showSlotHover(pointer);
+                    }
+                }, 180);
+            });
+            slot.addEventListener("mousemove", e => {
+                if (pendingSlotHover?.currentTarget === slot) {
+                    pendingSlotHover.clientX = e.clientX;
+                    pendingSlotHover.clientY = e.clientY;
+                }
+                moveSlotHoverCard(e);
+            });
             slot.addEventListener("mouseleave", hideSlotHover);
+            slot.addEventListener("dragstart", hideSlotHover);
         }
 
         function createSlotElement(slotId) {

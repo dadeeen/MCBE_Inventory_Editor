@@ -446,7 +446,8 @@ def test_candidate_footprint_does_not_mark_boundary_safe_when_neighbor_chunk_is_
 
     assert probed["safe_to_place"] is None
     assert probed["chunk_probe"]["footprint_check"]["status"] == "unchecked"
-    assert "nicht vollständig gelesen" in probed["warning"]
+    assert "Chunk-Daten" in probed["warning"]
+    assert probed["placement_issues"][0]["code"] == "chunk_data_missing"
 
 
 def test_candidate_footprint_rejects_side_head_block() -> None:

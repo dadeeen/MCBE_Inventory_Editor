@@ -32,11 +32,20 @@
 
     function worldCardsHtml(worlds = [], {
         selectedPath = "",
+        tabStopPath = selectedPath,
         dirtyWorldPath = "",
         isDirty = false,
         sourceLabelForWorld = () => t("Suchergebnis"),
         formatModified = () => t("unbekannt"),
     } = {}) {
+        const focusPath = worlds.some(world => world.path === tabStopPath)
+            ? tabStopPath
+            : worlds[0]?.path;
+        const nameCounts = new Map();
+        worlds.forEach(world => {
+            const name = world.name || t("Unbenannte Welt");
+            nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+        });
         const groups = new Map();
         worlds.forEach(world => {
             const key = sourceLabelForWorld(world);
@@ -48,10 +57,17 @@
             const cards = groupWorlds.map(world => {
                 const isSelected = selectedPath === world.path;
                 const hasUnsavedChanges = Boolean(isDirty && dirtyWorldPath && world.path === dirtyWorldPath);
-                return `<button class="world-card${isSelected ? " selected" : ""}" type="button" data-world-path="${escapeHtml(world.path || "")}" title="${escapeHtml(world.path || "")}">
+                const name = world.name || t("Unbenannte Welt");
+                // Keep arrow-key announcements brief. The folder disambiguates
+                // duplicate names; the selected state is provided by ARIA.
+                const accessibleName = [name,
+                    nameCounts.get(name) > 1 ? world.folder || world.path : "",
+                    hasUnsavedChanges ? t("Ungespeichert") : "",
+                ].filter(Boolean).join(" · ");
+                return `<button class="world-card${isSelected ? " selected" : ""}" type="button" role="option" aria-selected="${isSelected}" tabindex="${world.path === focusPath ? "0" : "-1"}" data-world-path="${escapeHtml(world.path || "")}" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(world.path || "")}">
                 <span class="world-card-main">
                     <strong>${escapeHtml(world.name || t("Unbenannte Welt"))}</strong>
-                    <small>${escapeHtml(sourceLabelForWorld(world))} · ${escapeHtml(formatModified(world))}</small>
+                    <small>${escapeHtml(formatModified(world))}</small>
                     <code>${escapeHtml(world.folder || world.path || "")}</code>
                 </span>
                 <span class="world-card-badges">
@@ -60,7 +76,7 @@
                 </span>
             </button>`;
             }).join("");
-            return `<section class="world-source-group">
+            return `<section class="world-source-group" role="group" aria-label="${escapeHtml(source)}">
                 <div class="world-source-title">${escapeHtml(source)} · ${groupWorlds.length === 1 ? t("1 Welt") : t("{count} Welten", { count: groupWorlds.length })}</div>
                 ${cards}
             </section>`;
@@ -94,6 +110,7 @@
         allCount = worlds.length,
         query = "",
         selectedPath = "",
+        tabStopPath = selectedPath,
         dirtyWorldPath = "",
         isDirty = false,
         sourceLabelForWorld = () => t("Suchergebnis"),
@@ -116,6 +133,7 @@
         if (emptyEl) emptyEl.style.display = "none";
         worldList.innerHTML = worldCardsHtml(worlds, {
             selectedPath,
+            tabStopPath,
             dirtyWorldPath,
             isDirty,
             sourceLabelForWorld,

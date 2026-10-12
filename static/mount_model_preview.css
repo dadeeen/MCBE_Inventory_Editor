@@ -1,0 +1,137 @@
+.mount-model-card {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    background: var(--surface-strong, var(--card-bg));
+    color: var(--text-primary);
+}
+
+.mount-model-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.mount-model-heading h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: .92rem;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.mount-model-heading > span {
+    color: var(--text-secondary);
+    font-size: .72rem;
+    line-height: 1.4;
+}
+
+.mount-model-stage {
+    position: relative;
+    height: 230px;
+    min-width: 0;
+    margin: 4px -8px 2px;
+    border-radius: 12px;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-y pinch-zoom;
+    background: radial-gradient(ellipse at 50% 54%, var(--m-accent-glow, rgba(56, 189, 248, .06)), transparent 66%);
+}
+
+.mount-model-stage.is-dragging {
+    cursor: grabbing;
+}
+
+.mount-model-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.mount-model-ground {
+    fill: var(--text-secondary);
+    fill-opacity: .055;
+    stroke: var(--border-color);
+    stroke-width: 1;
+}
+
+.mount-model-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+
+.mount-model-appearance {
+    flex: 1 1 110px;
+    min-width: 0;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: .76rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.mount-model-controls {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 4px;
+}
+
+.mount-model-control {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: var(--surface-soft, var(--slot-bg));
+    color: var(--text-secondary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.mount-model-control:hover {
+    border-color: var(--control-border, var(--border-color));
+    background: var(--slot-hover-bg);
+    color: var(--text-primary);
+}
+
+.mount-model-control:active {
+    background: var(--slot-selected-bg);
+}
+
+.mount-model-stage:focus-visible,
+.mount-model-control:focus-visible {
+    outline: 2px solid var(--m-accent-strong, var(--primary));
+    outline-offset: 3px;
+}
+
+@media (max-width: 620px) {
+    .mount-model-card {
+        padding: 14px;
+    }
+
+    .mount-model-stage {
+        height: 200px;
+    }
+}
+
+@media (forced-colors: active) {
+    .mount-model-control {
+        border-color: ButtonText;
+    }
+
+    .mount-model-svg {
+        forced-color-adjust: none;
+    }
+}

@@ -24,6 +24,7 @@ def test_frontend_workflow_state_resolves_views_and_button_models() -> None:
                 worldPath: "",
             };
             assert.strictEqual(workflow.resolvedView("inventory", emptyContext), "world");
+            assert.strictEqual(workflow.resolvedView("player-edit", emptyContext), "world");
             assert.strictEqual(workflow.unavailableMessage("save"), "Lade zuerst einen bearbeitbaren Spieler.");
             assert.strictEqual(workflow.unavailableMessage("player"), "Lade zuerst eine Welt.");
             assert.strictEqual(
@@ -56,6 +57,8 @@ def test_frontend_workflow_state_resolves_views_and_button_models() -> None:
                 worldPath: "C:/World",
             };
             assert.strictEqual(workflow.resolvedView("save", playerContext), "save");
+            assert.strictEqual(workflow.resolvedView("player-edit", playerContext), "player-edit");
+            assert.strictEqual(workflow.viewTitle("player-edit"), "Spielerdaten bearbeiten");
             assert.strictEqual(
                 JSON.stringify(workflow.appBodyClassModel({ ...playerContext, isDirty: true })),
                 JSON.stringify({

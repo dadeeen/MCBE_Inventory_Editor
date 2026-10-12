@@ -132,11 +132,19 @@ def test_frontend_first_run_setup_opens_only_while_a_todo_is_open_and_undismisse
             assert.strictEqual(c.elements.banner.style.display, "");
             assert.ok(c.elements.bannerDetail.textContent.includes("Item-Icons"));
             assert.ok(!c.elements.bannerDetail.textContent.includes("Item-Datenbank"));
+            assert.ok(!c.elements.bannerDetail.textContent.includes("Item-Daten auf Aktualität"));
 
             // The banner button reopens the overlay.
             c.elements.bannerButton.fire("click");
             assert.strictEqual(c.elements.overlay.style.display, "flex");
             assert.strictEqual(c.elements.banner.style.display, "none", "Ein offener Dialog muss den Banner ausblenden");
+
+            // Completed icon setup must not retain the fallback warning while
+            // only item-data verification is still pending.
+            c = controllerFor({ itemDbPending: true, iconsPending: false, dismissed: true });
+            c.controller.maybeOpenOnStart();
+            assert.ok(c.elements.bannerDetail.textContent.includes("Item-Datenbank"));
+            assert.ok(!c.elements.bannerDetail.textContent.includes("Ersatzsymbole"));
             """
         )
     )

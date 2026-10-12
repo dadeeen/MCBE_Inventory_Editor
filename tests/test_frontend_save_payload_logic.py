@@ -455,7 +455,7 @@ def test_frontend_save_payload_logic_builds_delta_sections() -> None:
     )
 
 
-def test_frontend_save_validation_blocks_location_change_with_pending_mount() -> None:
+def test_frontend_save_validation_keeps_pending_mount_risks_without_generic_notices() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -466,13 +466,11 @@ def test_frontend_save_validation_blocks_location_change_with_pending_mount() ->
             const context = { window: {} };
             vm.runInNewContext(code, context, { filename: "static/save_logic.js" });
 
+            let stats = { pos: [10, 70, -5], dimension_id: 1 };
+            const mount = {mountLabel:"Pferd", selectedPosition:{x:1,y:64,z:2}, safetyStatus:"safe"};
             const logic = context.window.MCBESaveLogic.createSaveLogic({
-                buildChangedStatsPayload: () => ({ pos: [10, 70, -5], dimension_id: 1 }),
-                getPendingMounts: () => [{
-                    mountLabel: "Pferd",
-                    selectedPosition: { x: 1, y: 64, z: 2 },
-                    safetyStatus: "safe",
-                }],
+                buildChangedStatsPayload: () => stats,
+                getPendingMounts: () => [mount],
                 getInventory: () => ({}),
                 getEnderChestInventory: () => ({}),
                 getHasEnderChest: () => true,
@@ -486,6 +484,18 @@ def test_frontend_save_validation_blocks_location_change_with_pending_mount() ->
             const validation = logic.validateInventoryState({ limit: 20 });
             assert.strictEqual(validation.errors, 1);
             assert.ok(validation.shown.some(issue => issue.label.includes("nicht gemeinsam gespeichert")));
+            assert.strictEqual(validation.infos, 0);
+
+            stats = {};
+            assert.strictEqual(logic.validateInventoryState().total, 0, "Sicher geprüfte Mounts brauchen keinen Zusatzhinweis");
+            mount.safetyStatus = "unchecked";
+            const unchecked = logic.validateInventoryState();
+            assert.strictEqual(unchecked.warnings, 1);
+            assert.ok(unchecked.shown[0].label.includes("erneut serverseitig bewertet"));
+            mount.selectedPosition.x = "invalid";
+            const invalid = logic.validateInventoryState();
+            assert.strictEqual(invalid.errors, 1);
+            assert.ok(invalid.shown[0].label.includes("Position ist ungültig"));
             """
         )
     )

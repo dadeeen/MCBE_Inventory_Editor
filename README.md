@@ -20,6 +20,18 @@ The editor is intended for local use and trusted home networks. Do not expose it
 
 [![Example inventory](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
 
+## Three layouts – independent of color theme
+
+The **Layout** menu in the header offers **Classic** (default, original interface), **Studio** (grouped sidebar with persistent inspector) and **Focus** (compact command bar, editor tabs and contextual inspector; view/language settings in the gear menu). World and player form a persistent **editing context**, mounts are explicitly optional, and review/save is a global action rather than a workflow step. Layout switching never reloads or clears in-progress edits; the preference persists locally and is independent of the color theme.
+
+In Focus, armor and offhand stay in a labeled row above the inventory while the slot inspector is open. Lore has a minimum height and can be resized vertically. Long world lists scroll within a bounded area, with search and loading controls outside it. Opening a world folder shows visible feedback confirming handoff to the file manager and explains where to find a hidden window.
+
+## Configure and preview mounts
+
+The Mounts menu starts with the species and its attributes, alongside a rotatable **3D view** of a horse, donkey, mule, camel or skeleton horse. Its proportions follow the Vanilla models, with custom pixel surfaces. Horse coat and marking changes update the model immediately. Random profiles are explicitly shown as examples. Drag, use the arrow keys or the three view buttons to rotate; **Home** resets the view.
+
+Under **Choose a position**, check the surroundings and select a location. **Check details** shows an opaque dialog with the collision footprint outlined over the ground grid and expandable block data. The checked grid follows the mount's size and precise position: it can span 2×2, 2×3, 3×2 or 3×3 cells. Staging a mount creates a visible draft whose attributes can be expanded and whose removal remains available. Commit through the existing review/save workflow. The model adds no runtime dependencies.
+
 ## Download → backup → start
 
 1. Open [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).

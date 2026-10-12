@@ -9,13 +9,16 @@ from typing import Any
 
 from .i18n import t
 
+# Vanilla adult collision boxes, with the camel standing. Width is both X and Z
+# extent; visual model proportions do not determine placement clearance.
+# Sources: https://github.com/Mojang/bedrock-samples/tree/main/behavior_pack/entities
+# https://github.com/Mojang/bedrock-schemas/blob/main/types/bp/entities/components/MinecraftCollisionBox.d.ts
 MOUNT_TYPE_DEFINITIONS: dict[str, dict[str, Any]] = {
     "minecraft:horse": {
         "label": "Pferd",
         "category": "classic",
         "collision_width": 1.4,
         "collision_height": 1.6,
-        "notes": ["Create ist im Spiel validiert; Farben/Markierungen folgen jetzt echten Speicher-Records (Variant/definitions)."],
         "create_available": True,
     },
     "minecraft:donkey": {
@@ -23,9 +26,6 @@ MOUNT_TYPE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "category": "classic",
         "collision_width": 1.4,
         "collision_height": 1.6,
-        "notes": [
-            "Create nach Record-Evidenz aktiviert (Tempo 0,175 · Sprung 0,5 · Leben zufällig, optional gezähmt); In-Game-Load-Test bestanden (2026-07-10)."
-        ],
         "create_available": True,
     },
     "minecraft:mule": {
@@ -33,9 +33,6 @@ MOUNT_TYPE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "category": "classic",
         "collision_width": 1.4,
         "collision_height": 1.6,
-        "notes": [
-            "Create nach Record-Evidenz aktiviert (Tempo 0,175 · Sprung 0,5 · Leben zufällig, optional gezähmt); In-Game-Load-Test bestanden (2026-07-10)."
-        ],
         "create_available": True,
     },
     "minecraft:camel": {
@@ -43,9 +40,6 @@ MOUNT_TYPE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "category": "classic",
         "collision_width": 1.7,
         "collision_height": 2.375,
-        "notes": [
-            "Kamel-Erzeugung mit 32 Leben, Tempo 0,09 und den erwarteten Zusatzdaten wurde im Spiel geladen und gespeichert; die Funktion bleibt experimentell."
-        ],
         "create_available": True,
     },
     "minecraft:skeleton_horse": {
@@ -53,9 +47,6 @@ MOUNT_TYPE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "category": "classic",
         "collision_width": 1.4,
         "collision_height": 1.6,
-        "notes": [
-            "Create nach Record-Evidenz aktiviert (15 Leben · Tempo 0,2 · Sprung zufällig · zahm, ohne Temper); In-Game-Load-Test bestanden (2026-07-10)."
-        ],
         "create_available": True,
     },
 }
@@ -128,10 +119,6 @@ def normalize_placement_radius(value: Any) -> int:
 
 def mount_type_label(mount_type: str) -> str:
     return t(str(MOUNT_TYPE_DEFINITIONS[mount_type]["label"]))
-
-
-def mount_type_notes(mount_type: str) -> list[str]:
-    return [t(str(note)) for note in MOUNT_TYPE_DEFINITIONS[mount_type].get("notes", [])]
 
 
 def mount_create_available(mount_type: str) -> bool:
@@ -363,33 +350,17 @@ def build_mount_preview(
     radius = normalize_placement_radius(placement_radius)
     reference = player_reference_from_snapshot(player_snapshot, player_key)
     create_available = mount_create_available(resolved_mount_type) and dimension_allows_create(reference.dimension_id)
-    warnings = [
-        t(
-            "Experimentell: Die Vorschau zeigt vier Richtungskandidaten. "
-            "Intern wird je Richtung die Linie von Abstand {min} bis {max} geprüft, "
-            "kein vollständiger Flächenscan um den Spieler.",
-            min=MIN_PLACEMENT_RADIUS,
-            max=radius,
-        ),
-        t("Die Ausgangshöhe wird aus Spielerposition minus 1,62 geschätzt und anschließend auf eine geprüfte Vollblock-Oberfläche eingerastet."),
-        *mount_type_notes(resolved_mount_type),
-    ]
-    if reference.yaw is not None:
-        warnings.append(t("Blickrichtung wurde aus Player-Rotation gelesen und für die Kandidaten-Reihenfolge bevorzugt."))
-    else:
-        warnings.append(t("Blickrichtung ist im aktuellen Player-Stats-Contract nicht enthalten; Kandidaten werden kardinal um den Spieler sortiert."))
-    if create_available:
-        warnings.append(
-            t("Create schreibt actorprefix + digp, erzeugt vollständiges Mount-NBT und erstellt vorher ein Backup. Bitte zuerst nur mit Weltkopien testen.")
-        )
-    elif not mount_create_available(resolved_mount_type):
-        warnings.append(t("Create ist für diesen Mount-Typ noch deaktiviert."))
+    # Only current limitations belong in the preview. Search mechanics are
+    # explained next to the distance results; validation history stays in docs.
+    warnings = []
+    if not mount_create_available(resolved_mount_type):
+        warnings.append(t("Dieser Mount-Typ kann noch nicht erzeugt werden."))
     elif reference.dimension_id is None:
-        warnings.append(
-            t("DimensionId fehlt oder ist nicht sicher lesbar; Create bleibt deaktiviert, bis der Spieler mit gültiger Dimension neu geladen wurde.")
-        )
-    else:
-        warnings.append(t("Create ist aktuell nur im Overworld-Kontext erlaubt; wechsle vor dem Erzeugen in die Overworld."))
+        warnings.append(t("Die Dimension des Spielers konnte nicht bestimmt werden. Lade den Spieler erneut, bevor du ein Mount erzeugst."))
+    elif not dimension_allows_create(reference.dimension_id):
+        warnings.append(t("Mounts können nur in der Oberwelt erzeugt werden. Wechsle mit dem Spieler in die Oberwelt und lade ihn erneut."))
+    elif reference.yaw is None:
+        warnings.append(t("Die Blickrichtung ist nicht verfügbar. Die Suche verwendet die vier Himmelsrichtungen."))
 
     candidates = [
         {

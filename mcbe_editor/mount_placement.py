@@ -19,6 +19,7 @@ from .mount_block_probe import (
     support_surface_requires_shape_data,
     support_surface_shape_is_state_dependent,
 )
+from .mount_diagnostics import footprint_issues, placement_issue
 from .mounts import MIN_PLACEMENT_RADIUS, horizontal_block_offset, mount_collision_height, mount_collision_width, normalize_mount_position
 
 PASSABLE_PLACEMENT_SPACE_BLOCKS = frozenset(
@@ -53,7 +54,7 @@ PASSABLE_PLACEMENT_SPACE_BLOCKS = frozenset(
 )
 LIQUID_PLACEMENT_BLOCKS = frozenset({"minecraft:water", "minecraft:flowing_water", "minecraft:lava", "minecraft:flowing_lava"})
 VERTICAL_PLACEMENT_Y_OFFSETS = (0, -1, 1, -2, 2, -3, 3)
-HORSE_FOOTPRINT_HALF_WIDTH_BLOCKS = 0.75
+HORSE_FOOTPRINT_HALF_WIDTH_BLOCKS = mount_collision_width("minecraft:horse") / 2
 
 
 def _finite_float(value: Any) -> float | None:
@@ -227,14 +228,21 @@ def _candidate_position(candidate: dict[str, Any]) -> tuple[float, float, float]
 
 
 def _candidate_footprint_columns(candidate: dict[str, Any], half_width: float = HORSE_FOOTPRINT_HALF_WIDTH_BLOCKS) -> list[dict[str, Any]]:
+    """Return every grid column with positive overlap with the collision box.
+
+    Bedrock's collision width applies equally to X and Z. Depending on the
+    fractional position, a 1.4-block-wide box overlaps 2 or 3 columns per axis.
+    The upper edge is exclusive: merely touching the next block's face does not
+    occupy that block. No epsilon is subtracted, so small real overlaps remain.
+    """
     position = _candidate_position(candidate)
     if position is None:
         return []
     x, _y, z = position
     min_x = math.floor(x - half_width)
-    max_x = math.floor(x + half_width)
+    max_x = math.ceil(x + half_width) - 1
     min_z = math.floor(z - half_width)
-    max_z = math.floor(z + half_width)
+    max_z = math.ceil(z + half_width) - 1
     center_x = math.floor(x)
     center_z = math.floor(z)
     return [
@@ -266,16 +274,21 @@ def _probe_footprint_column(
     probe = probe_candidate_chunk(db, column_candidate, dimension_id=dimension_id)
     probed = _candidate_with_probe(column_candidate, probe)
     names = _block_names_from_probe(probed)
+    blocks = dict((probe.get("placement_check") or {}).get("blocks") or {})
     for body_offset in range(2, clearance_blocks):
         upper_candidate = {**column_candidate, "y": float(column_candidate["y"]) + body_offset - 1}
         upper_probe = probe_candidate_chunk(db, upper_candidate, dimension_id=dimension_id)
         upper_names = (upper_probe.get("placement_check") or {}).get("block_names") or {}
         names[f"body_{body_offset}"] = upper_names.get("head") if isinstance(upper_names, dict) else None
+        upper_blocks = (upper_probe.get("placement_check") or {}).get("blocks") or {}
+        if isinstance(upper_blocks.get("head"), dict):
+            blocks[f"body_{body_offset}"] = upper_blocks["head"]
     return {
         "block_x": int(column["block_x"]),
         "block_z": int(column["block_z"]),
         "center": bool(column.get("center")),
         "block_names": names,
+        "blocks": blocks,
         "safe_to_place": probed.get("safe_to_place"),
         "block_check": probed.get("block_check"),
         "warning": probed.get("warning"),
@@ -444,6 +457,9 @@ def _candidate_with_footprint_probe(
             "reason": "chunk_not_finalized",
             "message": t("Chunk-Generierung ist nicht abgeschlossen oder nicht sicher nachweisbar; Position bleibt ungeprüft."),
         }
+    issues = footprint_issues(columns) if assessment.get("safe_to_place") is None else []
+    if issues:
+        assessment = {**assessment, "message": " ".join(issue["message"] for issue in issues)}
     center_column = next((column for column in columns if column.get("center")), columns[0])
     center_probe = _dict_or_empty(center_column.get("chunk_probe"))
     footprint_check = {
@@ -471,6 +487,7 @@ def _candidate_with_footprint_probe(
         **candidate,
         "block_check": "footprint_probe",
         "safe_to_place": assessment.get("safe_to_place"),
+        "placement_issues": issues,
         "warning": str(assessment.get("message") or candidate.get("warning") or t("Footprint wurde geprüft.")),
         "chunk_probe": {
             **center_probe,
@@ -742,6 +759,32 @@ def refine_preview_placement(db: Any, preview: dict[str, Any]) -> dict[str, Any]
     annotated = annotate_preview_candidates_with_chunk_probe(db, preview)
     reassessed = _reassess_passable_placement_blocks(annotated)
     return _adjust_vertical_placement_candidates(db, reassessed)
+
+
+def mark_preview_probe_failed(preview: dict[str, Any]) -> dict[str, Any]:
+    """Keep a usable preview without disguising an I/O failure as missing terrain."""
+
+    issue = placement_issue("probe_failed")
+    candidates = [
+        {
+            **candidate,
+            "safe_to_place": None,
+            "block_check": "probe_failed",
+            "chunk_probe": None,
+            "placement_issues": [issue],
+            "warning": issue["message"],
+        }
+        if isinstance(candidate, dict)
+        else candidate
+        for candidate in preview.get("candidate_positions", [])
+    ]
+    return _recount_candidate_safety(
+        {
+            **preview,
+            "candidate_positions": candidates,
+            "placement_search": {**_dict_or_empty(preview.get("placement_search")), "block_check": "probe_failed", "footprint_check": "failed"},
+        }
+    )
 
 
 def placement_safety_from_preview(preview: dict[str, Any]) -> dict[str, Any]:

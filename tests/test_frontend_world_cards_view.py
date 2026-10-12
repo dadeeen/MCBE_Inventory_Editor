@@ -57,6 +57,8 @@ def test_frontend_world_cards_view_count_and_card_html() -> None:
             });
 
             assert.ok(html.includes("world-card selected"));
+            assert.ok(html.includes('role="option" aria-selected="true" tabindex="0"'));
+            assert.ok(html.includes('role="group" aria-label="Quelle &lt;lokal&gt;"'));
             assert.ok(html.includes("Ungespeichert"));
             assert.ok(html.includes("Welt &lt;A&gt;"));
             assert.ok(html.includes("Quelle &lt;lokal&gt;"));
@@ -98,6 +100,42 @@ def test_frontend_world_cards_view_count_and_card_html() -> None:
             }, () => "Eigener Ort");
             assert.strictEqual(diagnostics.style.display, "block");
             assert.ok(diagnostics.innerHTML.includes("Eigener Ort"));
+            """
+        )
+    )
+
+
+def test_world_results_keep_one_tab_stop_separate_from_the_selected_option() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            vm.runInNewContext(fs.readFileSync("static/world_cards_view.js", "utf8"), context);
+            const view = context.window.MCBEWorldCardsView;
+            const worlds = Array.from({length:100}, (_, index) => ({
+                name:`Welt ${index}`,path:`/worlds/${index}`,source:index < 50 ? "A" : "B",
+            }));
+            const html = view.worldCardsHtml(worlds, {
+                selectedPath:"/worlds/0",tabStopPath:"/worlds/99",sourceLabelForWorld:world=>world.source,
+            });
+            assert.strictEqual((html.match(/tabindex="0"/g) || []).length, 1);
+            assert.strictEqual((html.match(/aria-selected="true"/g) || []).length, 1);
+            assert.ok(html.includes('aria-selected="false" tabindex="0" data-world-path="/worlds/99"'));
+            assert.ok(html.includes('aria-selected="true" tabindex="-1" data-world-path="/worlds/0"'));
+            assert.ok(html.includes('aria-label="Welt 99"'));
+            assert.strictEqual((html.match(/role="group"/g) || []).length, 2);
+            const filtered = view.worldCardsHtml(worlds.slice(50), {selectedPath:"/worlds/0"});
+            assert.ok(filtered.includes('tabindex="0" data-world-path="/worlds/50"'));
+            assert.strictEqual((filtered.match(/aria-selected="true"/g) || []).length, 0);
+            const duplicates = view.worldCardsHtml([
+                {name:'Survival',path:'/A',folder:'A'},
+                {name:'Survival',path:'/B',folder:'B'},
+            ]);
+            assert.ok(duplicates.includes('aria-label="Survival · A"'));
+            assert.ok(duplicates.includes('aria-label="Survival · B"'));
             """
         )
     )

@@ -6,22 +6,56 @@
     <title>Minecraft Bedrock Inventory Editor</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f5132'/%3E%3Crect x='4' y='4' width='8' height='8' fill='%2319c986'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='layout_variants.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='focus_workspace.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mount_workspace.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mount_model_preview.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script id="appConfigJson" type="application/json">{{ app_config | tojson }}</script>
     <script id="i18nCatalog" type="application/json">{{ i18n_catalog | tojson }}</script>
 </head>
 <body>
     <div class="app-container">
-        <nav class="app-section-nav app-workflow-nav" aria-label="{{ t('Arbeitsbereiche') }}">
-            <button type="button" data-workflow-view="world" class="active">{{ t("Welt") }}</button>
-            <button type="button" data-workflow-view="player" disabled>{{ t("Spieler") }}</button>
-            <button type="button" data-workflow-view="inventory" disabled>{{ t("Inventar") }}</button>
-            <button type="button" data-workflow-view="mounts" disabled>Mounts</button>
-            <button type="button" data-workflow-view="save" disabled>{{ t("Speichern") }}</button>
-            <span class="nav-separator" aria-hidden="true"></span>
-            <button type="button" data-workflow-view="tools">{{ t("Werkzeuge") }}</button>
-            <button id="btnHelp" type="button">{{ t("Hilfe") }}</button>
-        </nav>
+        <!-- One set of controls is shared by all three layouts. Studio docks them
+             together; Focus places context above the tabs; Classic retains its nav. -->
+        <div class="layout-controls">
+            <nav class="app-section-nav app-workflow-nav" aria-label="{{ t('Arbeitsbereiche') }}">
+                <!-- Kept as-is for Classic. Alternate layouts use the context selectors. -->
+                <button type="button" data-workflow-view="world" class="active">{{ t("Welt") }}</button>
+                <button type="button" data-workflow-view="player" disabled>{{ t("Spieler") }}</button>
+                <button type="button" data-workflow-view="inventory" disabled>{{ t("Inventar") }}</button>
+                <button type="button" class="layout-player-editor-link" data-workflow-view="player-edit" disabled>{{ t("Spielerdaten") }}</button>
+                <button type="button" data-workflow-view="mounts" disabled>Mounts</button>
+                <button type="button" data-workflow-view="save" disabled>{{ t("Speichern") }}</button>
+                <span class="nav-separator" aria-hidden="true"></span>
+                <button type="button" data-workflow-view="tools">{{ t("Werkzeuge") }}</button>
+                <button id="btnHelp" type="button">{{ t("Hilfe") }}</button>
+            </nav>
+
+            <!-- Current world and player are selectors, not navigation headings or steps. -->
+            <section class="layout-context-bar" aria-label="{{ t('Bearbeitungskontext') }}">
+                <button type="button" class="layout-context-chip" data-workflow-view="world">
+                    <span class="layout-context-name">{{ t("Welt") }}</span>
+                    <strong id="layoutCurrentWorld">{{ t("Welt auswählen") }}</strong>
+                    <span class="layout-context-change" aria-hidden="true">›</span>
+                </button>
+                <button type="button" class="layout-context-chip" data-workflow-view="player" disabled>
+                    <span class="layout-context-name">{{ t("Spieler") }}</span>
+                    <strong id="layoutCurrentPlayer">{{ t("Spieler auswählen") }}</strong>
+                    <span class="layout-context-change" aria-hidden="true">›</span>
+                </button>
+                <div class="layout-context-action">
+                    <span class="layout-save-status" id="layoutSaveStatus" role="status">{{ t("Keine Änderungen") }}</span>
+                    <button type="button" id="layoutSaveAction" class="btn btn-secondary" data-workflow-view="save" disabled>{{ t("Änderungen prüfen") }}</button>
+                </div>
+                <div class="focus-context-facts" id="focusContextFacts" aria-label="{{ t('Spieler-Eigenschaften') }}">
+                    <div><small>{{ t('Spielmodus') }}</small><strong id="focusFactMode">—</strong></div>
+                    <div><small>{{ t('Position') }}</small><strong id="focusFactPosition">—</strong></div>
+                    <div><small>{{ t('Dimension') }}</small><strong id="focusFactDimension">—</strong></div>
+                </div>
+            </section>
+        </div>
+
         <!-- Header -->
         <header class="app-header app-header-v42">
             <div class="logo">
@@ -32,10 +66,41 @@
                         <span>{{ t("{mode}modus · v{version}", mode=app_config.mode | capitalize, version=app_config.distribution.project_version or 'dev') }}</span>
                         <span class="release-inline {{ app_config.distribution.kind }}" title="{{ t('App-Ordner: {app_root} · Daten: {data_root}', app_root=app_config.distribution.app_root, data_root=app_config.data_root_status.path) }}">• {{ app_config.distribution.kind | upper }}</span>
                     </div>
+                    <!-- In Focus the existing status components dock here; other
+                         layouts retain their original full header status row. -->
+                    <div class="focus-inline-status" id="focusInlineStatus"></div>
+                </div>
+            </div>
+            <!-- Focus-only destinations: the actual existing controls are moved
+                 here, not cloned, so their event handlers and state are shared. -->
+            <div class="focus-command-bar" id="focusCommandBar" aria-label="{{ t('Bearbeitungsaktionen') }}">
+                <div class="focus-history-mount" id="focusHistoryMount"></div>
+                <div class="focus-save-mount" id="focusSaveMount"></div>
+                <div class="focus-settings-menu" id="focusSettingsMenu">
+                    <button type="button" class="focus-settings-toggle" id="focusSettingsToggle"
+                            aria-label="{{ t('Ansicht & Sprache') }}" title="{{ t('Ansicht & Sprache') }}"
+                            aria-expanded="false" aria-controls="focusSettingsPanel" aria-haspopup="true">
+                        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 15.3a3.3 3.3 0 1 0 0-6.6 3.3 3.3 0 0 0 0 6.6Z"/>
+                            <path d="M19.3 13.8a1.8 1.8 0 0 0 .36 1.99l.08.08-1.91 1.91-.08-.08a1.8 1.8 0 0 0-1.99-.36 1.8 1.8 0 0 0-1.1 1.66V20h-2.7v-.11a1.8 1.8 0 0 0-1.1-1.66 1.8 1.8 0 0 0-1.99.36l-.08.08-1.91-1.91.08-.08a1.8 1.8 0 0 0 .36-1.99A1.8 1.8 0 0 0 5.66 13H5.5v-2.7h.16a1.8 1.8 0 0 0 1.66-1.1 1.8 1.8 0 0 0-.36-1.99l-.08-.08 1.91-1.91.08.08a1.8 1.8 0 0 0 1.99.36A1.8 1.8 0 0 0 12 4V3.9h2.7V4a1.8 1.8 0 0 0 1.1 1.66 1.8 1.8 0 0 0 1.99-.36l.08-.08 1.91 1.91-.08.08a1.8 1.8 0 0 0-.36 1.99A1.8 1.8 0 0 0 21 10.3h.1V13H21a1.8 1.8 0 0 0-1.7.8Z" transform="translate(-1.2, .2) scale(.97)"/>
+                        </svg>
+                    </button>
+                    <div class="focus-settings-panel" id="focusSettingsPanel" hidden>
+                        <strong class="focus-settings-heading">{{ t('Ansicht & Sprache') }}</strong>
+                        <div id="focusSettingsMount"></div>
+                    </div>
                 </div>
             </div>
             <div class="header-status-area">
                 <div class="server-status-badge unknown" id="serverStatusBadge">{{ t("Status wird geprüft") }}</div>
+                <!-- Only Focus exposes a short badge; full backend diagnostics
+                     remain available through this keyboard-accessible detail. -->
+                <div class="focus-server-status-panel" id="focusServerStatusPanel" role="region"
+                     aria-label="{{ t('Serverstatus') }}" hidden>
+                    <strong>{{ t("Serverstatus") }}</strong>
+                    <p id="focusServerStatusText"></p>
+                    <p id="focusServerStatusHint"></p>
+                </div>
                 <div class="header-status-stack">
                     <button type="button" class="status-stack-button info" id="statusStackButton" aria-expanded="false" aria-controls="statusStackPanel" aria-label="{{ t('Status anzeigen') }}">
                         <span id="statusStackCount" aria-hidden="true">0</span>
@@ -55,12 +120,22 @@
                     <button type="submit" class="header-link">Logout</button>
                 </form>
                 {% endif %}
+                <label class="layout-choice" for="layoutSelect">
+                    <span>{{ t("Layout") }}</span>
+                    <select id="layoutSelect" class="theme-select" title="{{ t('Layout wählen') }}" aria-label="{{ t('Layout wählen') }}">
+                        <option value="classic">{{ t("Klassisch") }}</option>
+                        <option value="studio">Studio</option>
+                        <option value="focus">{{ t("Fokus") }}</option>
+                    </select>
+                </label>
+                <label class="focus-settings-label" for="themeSelect">{{ t('Darstellung wählen') }}</label>
                 <select id="themeSelect" class="theme-select" title="{{ t('Darstellung wählen') }}" aria-label="{{ t('Darstellung wählen') }}">
                     <option value="system">System</option>
                     <option value="dark">{{ t("Dunkel") }}</option>
                     <option value="light">{{ t("Hell") }}</option>
                     <option value="minecraft">Minecraft</option>
                 </select>
+                <label class="focus-settings-label" for="languageSelect">{{ t('Sprache wählen') }}</label>
                 <select id="languageSelect" class="theme-select" title="{{ t('Sprache wählen') }}" aria-label="{{ t('Sprache wählen') }}">
                     <option value="de">Deutsch</option>
                     <option value="en">English</option>
@@ -76,8 +151,34 @@
             </div>
         </header>
 
+        <!-- Alternative layouts use a context-aware work area, not numbered steps. -->
+        <section class="layout-intro" aria-label="{{ t('Aktueller Arbeitsbereich') }}">
+            <div class="layout-intro-copy">
+                <span class="layout-intro-mode" id="layoutModeLabel">{{ t("Arbeitsbereich") }}</span>
+                <h2 id="layoutViewTitle">{{ t("Welt auswählen") }}</h2>
+                <p id="layoutViewDescription">{{ t("Wähle die Welt, deren Daten du bearbeiten möchtest.") }}</p>
+            </div>
+        </section>
+
         <!-- Main Workspace -->
         <div class="workspace">
+            <!-- Focus player rail uses the REAL player list; the controller moves it
+                 between this mount and the original player-management card. -->
+            <aside class="focus-player-rail" id="focusPlayerRail" aria-label="{{ t('Spieler') }}">
+                <div class="focus-rail-header">
+                    <h2>{{ t('Spieler') }}</h2>
+                    <button type="button" class="focus-rail-refresh" id="focusRefreshPlayers" title="{{ t('Aktualisieren') }}" aria-label="{{ t('Spieler aktualisieren') }}">↻</button>
+                </div>
+                <label class="focus-player-search" for="focusPlayerSearch">
+                    <span aria-hidden="true">⌕</span>
+                    <input type="search" id="focusPlayerSearch" autocomplete="off" placeholder="{{ t('Spieler suchen...') }}" aria-label="{{ t('Spieler suchen...') }}">
+                </label>
+                <p id="focusPlayerSearchEmpty" class="focus-player-search-empty" role="status" hidden>{{ t('Keine Spieler gefunden.') }}</p>
+                <div id="focusPlayerListMount" class="focus-player-list-mount"></div>
+                <div class="focus-rail-bottom">
+                    <button type="button" class="btn btn-secondary btn-sm" data-workflow-view="player">{{ t('Spieler verwalten') }} <span aria-hidden="true">↗</span></button>
+                </div>
+            </aside>
             
             <!-- Left Side: Path Picker & World Info & Inventory View -->
             <div class="left-panel">
@@ -111,29 +212,32 @@
                     </div>
 
                     <div id="worldPicker" class="world-picker" style="display: none;">
-                        <div class="world-picker-header">
-                            <div>
-                                <span>{{ t("Gefundene Welten") }}</span>
-                                <small id="worldCountHint">{{ t("Automatische Suche läuft…") }}</small>
+                        <div class="world-picker-controls">
+                            <div class="world-picker-header">
+                                <div>
+                                    <span>{{ t("Gefundene Welten") }}</span>
+                                    <small id="worldCountHint">{{ t("Automatische Suche läuft…") }}</small>
+                                </div>
+                                <div class="world-picker-actions">
+                                    <button id="btnToggleDiagnostics" class="btn-text" title="{{ t('Suchdetails ein-/ausblenden') }}">{{ t("Suchdetails") }}</button>
+                                    <button id="btnCopyDiagnostics" class="btn-text" title="{{ t('Diagnosebericht kopieren') }}">{{ t("Diagnose kopieren") }}</button>
+                                </div>
                             </div>
-                            <div class="world-picker-actions">
-                                <button id="btnToggleDiagnostics" class="btn-text" title="{{ t('Suchdetails ein-/ausblenden') }}">{{ t("Suchdetails") }}</button>
-                                <button id="btnCopyDiagnostics" class="btn-text" title="{{ t('Diagnosebericht kopieren') }}">{{ t("Diagnose kopieren") }}</button>
+                            <div class="world-filter-row" aria-label="{{ t('Welten filtern und sortieren') }}">
+                                <input type="search" id="worldSearchInput" placeholder="{{ t('Welt suchen…') }}" aria-label="{{ t('Welt suchen…') }}" autocomplete="off" />
+                                <select id="worldSortSelect" class="select-field" title="{{ t('Sortierung der gefundenen Welten') }}">
+                                    <option value="recent">{{ t("Zuletzt geändert zuerst") }}</option>
+                                    <option value="name">{{ t("Name A-Z") }}</option>
+                                    <option value="source">{{ t("Quelle gruppieren") }}</option>
+                                </select>
                             </div>
-                        </div>
-                        <div class="world-filter-row" aria-label="{{ t('Welten filtern und sortieren') }}">
-                            <input type="search" id="worldSearchInput" placeholder="{{ t('Welt suchen…') }}" autocomplete="off" />
-                            <select id="worldSortSelect" class="select-field" title="{{ t('Sortierung der gefundenen Welten') }}">
-                                <option value="recent">{{ t("Zuletzt geändert zuerst") }}</option>
-                                <option value="name">{{ t("Name A-Z") }}</option>
-                                <option value="source">{{ t("Quelle gruppieren") }}</option>
-                            </select>
                         </div>
                         <div id="worldScanLoading" class="world-scan-loading" style="display:none;">
                             <span class="loading-dots">{{ t("Suche nach Welten") }}</span>
                         </div>
                         <div id="worldScanWarning" class="scan-warning" style="display:none;"></div>
-                        <div id="worldList" class="world-list world-card-list"></div>
+                        <span id="worldSelectionHelp" class="visually-hidden">{{ t('Mit den Pfeiltasten navigieren, mit Eingabe oder Leertaste auswählen. Tab verlässt die Liste.') }}</span>
+                        <div id="worldList" class="world-list world-card-list" role="listbox" aria-label="{{ t('Gefundene Welten') }}" aria-describedby="worldSelectionHelp"></div>
                         <div id="worldScanEmpty" class="world-scan-empty" style="display:none;"></div>
                         <div id="worldDiagnostics" class="world-diagnostics collapsed" style="display:none;"></div>
                     </div>
@@ -151,17 +255,17 @@
 
                     <div id="loadErrorPanel" class="load-error-panel" style="display:none;" role="status" aria-live="polite"></div>
 
-                    <div class="selected-world-bar" id="selectedWorldBar" style="display:none;">
+                    <div class="selected-world-bar is-empty" id="selectedWorldBar" style="display:none;">
                         <div>
-                            <span class="selected-world-kicker">{{ t("Ausgewählt") }}</span>
-                            <strong id="selectedWorldName">{{ t("Keine Welt ausgewählt") }}</strong>
-                            <span id="selectedWorldPath" class="selected-world-path"></span>
+                            <span id="selectedWorldKicker" class="selected-world-kicker">{{ t("Welt auswählen") }}</span>
+                            <strong id="selectedWorldName" aria-live="polite">{{ t("Keine Welt ausgewählt") }}</strong>
+                            <span id="selectedWorldPath" class="selected-world-path">{{ t("Wähle unten eine Welt aus, um sie zu laden.") }}</span>
                         </div>
                         <span id="selectedWorldSafetyNote" class="selected-world-safety-note"></span>
                         <div class="selected-world-actions">
-                            <button id="btnCopySelectedWorldPath" class="btn btn-secondary btn-sm" type="button">{{ t("Pfad kopieren") }}</button>
-                            <button id="btnOpenSelectedWorld" class="btn btn-secondary btn-sm" type="button">{{ t("Ordner öffnen") }}</button>
-                            <button id="btnLoad" class="btn btn-primary">{{ t("Ausgewählte Welt laden") }}</button>
+                            <button id="btnCopySelectedWorldPath" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Pfad kopieren") }}</button>
+                            <button id="btnOpenSelectedWorld" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Ordner öffnen") }}</button>
+                            <button id="btnLoad" class="btn btn-primary" disabled>{{ t("Ausgewählte Welt laden") }}</button>
                         </div>
                     </div>
 
@@ -239,7 +343,7 @@
                     <div class="inventory-section">
                         <div class="inventory-toolbar" aria-label="{{ t('Inventaransicht steuern') }}">
                             <div class="inventory-search">
-                                <input type="text" id="gridSearch" placeholder="{{ t('Item in allen Slots suchen...') }}" />
+                                <input type="text" id="gridSearch" placeholder="{{ t('Item in allen Slots suchen...') }}" aria-label="{{ t('Item in allen Slots suchen...') }}" />
                             </div>
                             <div class="inventory-view-controls" role="group" aria-label="{{ t('Ansicht') }}">
                                 <label class="slot-number-toggle" title="{{ t('Zeigt technische Slotnummern klein im Slot an') }}">
@@ -249,26 +353,31 @@
                             </div>
                         </div>
                         <!-- Armor and Offhand -->
-                        <div class="grid-title grid-title-with-meta"><span>{{ t("Ausrüstung & Schildhand") }}</span><small>{{ t("4 Rüstungsslots + Offhand") }}</small></div>
+                        <div class="grid-title equipment-title"><span>{{ t("Ausrüstung & Schildhand") }}</span></div>
                         <div class="armor-offhand-layout">
                             <div class="armor-slots">
                                 <div class="inventory-slot armor-slot" data-slot="103" title="{{ t('Kopf / Helm') }}">
                                     <div class="slot-overlay">🪖</div>
+                                    <span class="studio-equipment-label" aria-hidden="true">{{ t("Helm") }}</span>
                                 </div>
                                 <div class="inventory-slot armor-slot" data-slot="102" title="{{ t('Brust / Brustplatte') }}">
                                     <div class="slot-overlay">👕</div>
+                                    <span class="studio-equipment-label" aria-hidden="true">{{ t("Brust") }}</span>
                                 </div>
                                 <div class="inventory-slot armor-slot" data-slot="101" title="{{ t('Beine / Beinschienen') }}">
                                     <div class="slot-overlay">👖</div>
+                                    <span class="studio-equipment-label" aria-hidden="true">{{ t("Beine") }}</span>
                                 </div>
                                 <div class="inventory-slot armor-slot" data-slot="100" title="{{ t('Füße / Stiefel') }}">
                                     <div class="slot-overlay">🥾</div>
+                                    <span class="studio-equipment-label" aria-hidden="true">{{ t("Füße") }}</span>
                                 </div>
                             </div>
 
                             <div class="offhand-slot-container">
                                 <div class="inventory-slot offhand-slot" data-slot="-106" title="{{ t('Schild / Schildhand') }}">
                                     <div class="slot-overlay">🛡️</div>
+                                    <span class="studio-equipment-label" aria-hidden="true">{{ t("Nebenhand") }}</span>
                                 </div>
                             </div>
                         </div>
@@ -330,13 +439,31 @@
 
             <!-- Right Side: Bulk Actions (Multi-Select), Detail Editor & Dashboard -->
             <div class="right-panel">
+                <!-- Focus shows read-only player stats from the loaded editor form.
+                     Equipment remains reachable above the inventory while editing. -->
+                <section class="focus-player-summary glass-card" id="focusPlayerSummary" aria-label="{{ t('Spieler-Übersicht') }}">
+                    <div class="focus-summary-heading">
+                        <h2>{{ t('Spieler-Übersicht') }}</h2>
+                        <span class="focus-summary-subtitle" id="focusSummaryPlayerName">—</span>
+                    </div>
+                    <div class="focus-player-vitals">
+                        <div><span>{{ t('Lebenspunkte') }}</span><strong id="focusVitalHealth">—</strong></div>
+                        <div><span>{{ t('Hungerleiste (0–20)') }}</span><strong id="focusVitalFood">—</strong></div>
+                        <div><span>{{ t('XP-Level') }}</span><strong id="focusVitalXp">—</strong></div>
+                    </div>
+                    <button type="button" class="focus-summary-edit btn btn-secondary btn-sm" data-workflow-view="player-edit">{{ t('Spielerdaten bearbeiten') }} ↗</button>
+                </section>
                 <div class="glass-card player-card" id="playerManager" style="display: none;">
                     <div class="card-header player-card-header">
                         <div>
                             <h2 data-view-landing="player" tabindex="-1">{{ t("Spieler") }}</h2>
-                            <p class="section-subtitle">{{ t("Spieler auswählen, Werte und Effekte im Editor bearbeiten, danach gesammelt speichern.") }}</p>
+                            <p class="section-subtitle">{{ t("Wähle den aktiven Spieler. Inventar und Spielerdaten kannst du anschließend unabhängig voneinander bearbeiten.") }}</p>
                         </div>
                         <div class="player-header-actions">
+                            <div class="layout-player-shortcuts" aria-label="{{ t('Bearbeiten') }}">
+                                <button type="button" class="btn btn-secondary btn-sm" data-workflow-view="inventory" disabled>{{ t("Inventar öffnen") }}</button>
+                                <button type="button" class="btn btn-secondary btn-sm" data-workflow-view="player-edit" disabled>{{ t("Spielerdaten öffnen") }}</button>
+                            </div>
                             <button id="btnCopyPlayerDiagnostics" class="btn-text" type="button">{{ t("Spieler-Diagnose kopieren") }}</button>
                             <button id="btnRefreshPlayers" class="btn-text" type="button">{{ t("Aktualisieren") }}</button>
                         </div>
@@ -409,16 +536,13 @@
                     <div class="section-header">
                         <div>
                             <h2 data-view-landing="mounts" tabindex="-1">{{ t("Mounts (experimentell)") }}</h2>
-                            <p class="section-subtitle">
-                                {{ t("Vorschau und Vormerken ändern die Welt noch nicht. Erst beim Speichern wird das Mount erzeugt.") }}
-                            </p>
                         </div>
                     </div>
 
-                    <div id="mountPreviewPanel"></div>
                     <div id="mountOptionsPanel"></div>
+                    <div id="mountPreviewPanel"></div>
                     <div id="mountPendingPanel" aria-live="polite"></div>
-                    <div id="mountCreateStatus"></div>
+                    <div id="mountCreateStatus" role="status" aria-live="polite" aria-atomic="true"></div>
                 </section>
 
                 <!-- Instruction state (when nothing loaded) -->
@@ -439,7 +563,7 @@
                 </div>
 
                 <!-- Player editor and tools panel -->
-                <div class="glass-card tool-card" id="dashboardPanel" style="display: none;">
+                <div class="glass-card tool-card" id="dashboardPanel" data-view-landing="player-edit" tabindex="-1" style="display: none;">
                     
                     <!-- Editor Konfiguration -->
                     <div class="dashboard-section" id="sectionEditorConfig">
@@ -858,6 +982,22 @@
                     </div>
                 </div>
 
+                <!-- Studio keeps the inspector column stable even before a slot is
+                     selected. Its real edit forms remain hidden until there is a
+                     selection; no placeholder buttons can mutate an item. -->
+                <section class="glass-card studio-inspector-standby" id="studioInspectorStandby"
+                         aria-label="{{ t('Slot-Details') }}">
+                    <div class="card-header">
+                        <h2>{{ t("Slot-Details") }}</h2>
+                    </div>
+                    <div class="studio-inspector-empty">
+                        <span class="studio-inspector-empty-icon" aria-hidden="true">▦</span>
+                        <strong>{{ t("Kein Slot ausgewählt") }}</strong>
+                        <p>{{ t("Wähle links einen Inventar-, Ausrüstungs- oder Enderchest-Slot, um ihn hier zu bearbeiten.") }}</p>
+                        <small>{{ t("Mit Strg kannst du mehrere Inventarslots markieren.") }}</small>
+                    </div>
+                </section>
+
                 <!-- Multi-Select Tool Panel -->
                 <div class="glass-card tool-card" id="multiSelectPanel" style="display: none;">
                     <div class="card-header">
@@ -990,7 +1130,7 @@
                             <input type="text" id="detailCustomName" placeholder="{{ t('Z.B. Drachentöter') }}" />
                         </div>
                         <div class="field-group">
-                            <label for="detailLore">{{ t("Beschreibung (Lore - Eine Zeile pro Zeile)") }}</label>
+                            <label for="detailLore">{{ t("Beschreibung (Lore – eine Zeile pro Eintrag)") }}</label>
                             <textarea id="detailLore" rows="3" placeholder="{{ t('Z.B. Die legendäre Klinge...') }}"></textarea>
                         </div>
                         <div class="detail-preview-card" id="detailPreview" aria-live="polite">
@@ -1327,6 +1467,7 @@
     <script src="{{ url_for('static', filename='workflow_state.js') }}"></script>
     <script src="{{ url_for('static', filename='workspace_view.js') }}"></script>
     <script src="{{ url_for('static', filename='theme_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='layout_controller.js') }}"></script>
     <script src="{{ url_for('static', filename='ui_feedback.js') }}"></script>
     <script src="{{ url_for('static', filename='asset_update_progress.js') }}"></script>
     <script src="{{ url_for('static', filename='undo_redo_view.js') }}"></script>
@@ -1355,6 +1496,7 @@
     <script src="{{ url_for('static', filename='player_load_app.js') }}"></script>
     <script src="{{ url_for('static', filename='player_tools.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_api.js') }}"></script>
+    <script src="{{ url_for('static', filename='mount_model_preview.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_view.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_controller.js') }}"></script>
     <script src="{{ url_for('static', filename='presence_view.js') }}"></script>
@@ -1370,6 +1512,7 @@
     <script src="{{ url_for('static', filename='update_db_view.js') }}"></script>
     <script src="{{ url_for('static', filename='first_run_setup_view.js') }}"></script>
     <script src="{{ url_for('static', filename='app_state_bridge.js') }}"></script>
+    <script src="{{ url_for('static', filename='focus_workspace.js') }}"></script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

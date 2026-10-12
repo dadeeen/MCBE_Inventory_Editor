@@ -11,7 +11,7 @@
         playerRowModel,
     } = playerViewModels;
 
-    const PLAYER_WORKFLOW_VIEWS = new Set(["player", "inventory", "mounts", "save", "tools"]);
+    const PLAYER_WORKFLOW_VIEWS = new Set(["player", "player-edit", "inventory", "mounts", "save", "tools"]);
     const PLAYER_LOAD_STATUS_KEY = "player-load";
 
     function workflowViewAfterPlayerLoad(activeView) {

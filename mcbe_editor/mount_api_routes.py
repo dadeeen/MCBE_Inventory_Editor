@@ -23,7 +23,7 @@ from .api_errors import (
 from .bedrock_nbt import load_player_nbt
 from .db import close_db_preserving_active_exception
 from .i18n import t
-from .mount_placement import placement_safety_from_preview, refine_preview_placement
+from .mount_placement import mark_preview_probe_failed, placement_safety_from_preview, refine_preview_placement
 from .mount_write import (
     CREATE_MODE_SYNTHETIC_FULL,
     MOUNT_WRITE_LABELS,
@@ -171,16 +171,18 @@ def _annotate_preview_with_chunk_probe(deps: MountRouteDeps, world_path: str, pr
     try:
         db = deps.service._open_db_readonly(world_path)
         result = refine_preview_placement(db, preview)
-    except Exception:
-        result = preview
+    except Exception as exc:
+        deps.log_api_exception("mount.preview.block_probe", exc)
+        result = mark_preview_probe_failed(preview)
     finally:
         try:
             close_db_preserving_active_exception(db, context="Optionale Mount-Blockprüfung")
-        except Exception:
+        except Exception as exc:
             # Die Blockprüfung ist eine konservative Zusatzannotation. Auch ein
             # reiner Close-Fehler darf daher die eigentliche Vorschau nicht in
             # einen vollständigen API-Fehler verwandeln.
-            result = preview
+            deps.log_api_exception("mount.preview.block_probe.close", exc)
+            result = mark_preview_probe_failed(preview)
     return result
 
 

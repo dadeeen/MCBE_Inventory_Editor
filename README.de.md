@@ -20,6 +20,18 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
 
 [![Beispielinventar](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
 
+## Drei Layouts – unabhängig vom Farbtheme
+
+**Layout** in der Kopfzeile bietet **Klassisch** (Voreinstellung, bisherige Oberfläche), **Studio** (gruppierte Seitenleiste mit dauerhaftem Editor-Inspector) und **Fokus** (kompakte Aktionsleiste, Editor-Tabs und kontextabhängiger Inspector; Ansicht/Sprache im Zahnradmenü). Welt und Spieler bilden den **Bearbeitungskontext**; Mounts sind optional und Prüfen/Speichern ist eine globale Aktion. Der Wechsel erfolgt ohne Neuladen oder Verlust der Bearbeitungen und wird lokal im Browser gespeichert. Das Farbtheme lässt sich separat wählen.
+
+Im Fokus-Layout bleiben Rüstung und Nebenhand als beschriftete Slotreihe oberhalb des Inventars erreichbar, während der Sloteditor geöffnet ist. Das Lore-Feld hat eine Mindesthöhe und lässt sich vertikal vergrößern. Lange Weltlisten scrollen in einem begrenzten Bereich; Suche und Laden bleiben außerhalb. Beim Öffnen eines Weltordners bestätigt eine sichtbare Meldung die Übergabe an den Dateimanager und hilft, ein verdecktes Fenster zu finden.
+
+## Mounts konfigurieren und ansehen
+
+Im Mount-Menü stehen Tierart und Eigenschaften zuerst. Daneben zeigt eine drehbare **3D-Ansicht** Pferd, Esel, Maultier, Kamel oder Skelettpferd mit an den Vanilla-Modellen orientierten Proportionen und eigenen Pixeloberflächen. Beim Pferd aktualisieren Farbe und Markierung die Ansicht unmittelbar. Zufällige Eigenschaften bleiben als Beispiel gekennzeichnet. Drehen funktioniert durch Ziehen, mit den Pfeiltasten oder den drei Ansichtsschaltflächen; **Pos1** setzt die Ansicht zurück.
+
+Unter **Standplatz wählen** prüfst du die Umgebung und wählst eine Position. **Prüfdetails** zeigt in einem deckenden Dialog das Bodenraster mit eingezeichneter Kollisionsfläche; Blockdaten sind aufklappbar. Die Bodenprüfung folgt Tiergröße und genauer Position: Je nach Überlappung werden 2×2, 2×3, 3×2 oder 3×3 Felder geprüft. **Mount vormerken** legt einen sichtbaren Entwurf an; einzelne Eigenschaften lassen sich dort aufklappen und Vormerkungen wieder entfernen. Gespeichert wird über den bestehenden Prüfen-/Speichern-Ablauf. Die Modellansicht benötigt keine zusätzlichen Laufzeitabhängigkeiten.
+
 ## Download → Backup → Start
 
 1. Öffne [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).

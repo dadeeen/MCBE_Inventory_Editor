@@ -163,6 +163,8 @@
         }
         const toast = document.createElement("div");
         toast.className = `toast toast-${type}`;
+        toast.setAttribute("role", type === "error" ? "alert" : "status");
+        toast.setAttribute("aria-atomic", "true");
         // Anzeige-Grenze: Auch Server-Meldungen laufen durch t(); unbekannte
         // Texte bleiben unverändert (deutsche Quelle als Fallback).
         toast.textContent = t(msg);

@@ -1,39 +1,44 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.6.3
+## What changed in v0.7.0
 
-- **World pack icons:** icons follow the world's active resource and behavior packs, selected by UUID, version and priority. Static item textures support custom names and references between packs. Missing or ambiguous packs and unsupported rendering rules produce diagnostics; unresolved icons use standard icons or placeholders. Diagnostics follow the selected language. An unreadable optional pack directory does not discard verified local packs.
-- **Icon caching and world switching:** worlds with the same icon sources share an index, including Vanilla-only worlds. Player loads reuse valid indexes, while pack or item-catalog changes trigger validation and rebuilding when needed. Loading more worlds preserves existing index files. Late responses from an earlier world cannot replace the selected world's icons. Read-only mode uses prepared indexes.
-- **Item-catalog updates:** an update prepares and validates a complete catalog before replacing the active one. Running operations keep a consistent catalog, and a failed reload leaves the last valid catalog available with an error in the status view. Updates preserve cached player lists for unchanged worlds. Replaced database tables trigger fresh discovery even when their size and timestamps match the originals.
-- **Editing:** undo keeps separate effect edits in the correct order, including when returning to a previously edited field. Repair all respects protected slots. Applying a converted position allows the next dimension conversion without reopening the form.
-- **Backups and restore:** corrupt ZIP data, encrypted members and unsupported compression formats do not interrupt listing or count as valid recovery copies. Invalid backup dates fall back to the file time. If a restore leaves the world's state uncertain, the editor clears the loaded player and shows recovery guidance instead of allowing edits against the previous state.
-- **Loading and saving:** saves reuse parsed source and validated output NBT while retaining output validation and write safeguards. Icon handling avoids duplicate decoding, archive metadata reads and source preparation. Damaged compressed icon images return a handled error.
-- **Developer checks:** the Bedrock engine harness compares editor enchantment rules and conflict hints with measured behavior, checks combined equipment metadata and exact durability limits, and reports enchantment registry changes. Service and client profiles move and recreate equipment with multiple enchantments and custom metadata. CI and the local release workflow enforce consistent Python formatting.
+- **Three layouts:** Classic keeps the familiar interface and remains the default. Studio adds a grouped sidebar and persistent inspector; Focus offers a compact editing workspace. Layout, color theme and language are separate preferences saved in the browser. Switching layouts preserves pending edits.
+- **Clearer, responsive controls:** world selection, player context and save review avoid duplicate cards and unnecessary scrolling. Layout, theme and language menus use consistent sizing. Item icons scale with the available slot space; equipment numbers have their own space above the icons, including compact Focus slots. Equipment captions and the Enderchest heading have clear spacing from their frames. Dialogs fit narrow and short windows, with readable text and reachable actions. Status feedback is quieter while write locks, errors and important warnings remain visible. Light mode improves the contrast of slot numbers, buttons, fields and diagnostic messages.
+- **Mount configuration and preview:** a rotatable model previews each supported mount type and horse colors and markings. Placement details show the collision footprint and expandable block data. Staged mounts remain visible and use the existing review/save workflow. Technical and duplicate hints are reduced without removing placement warnings or write safeguards.
+- **More precise placement checks:** checks cover the mount's full collision footprint and body height at the position that will actually be stored. Missing chunks, unfinished generation, unsupported data and probe errors have distinct explanations. Known obstructions take precedence over unchecked areas. A nearby chunk is not assumed safe merely because the player can see it in Minecraft.
+- **More reliable navigation:** rescanning worlds preserves keyboard focus and list position; failed searches clear obsolete results. Stale player and mount responses cannot replace the current editing context. World-folder actions report the handoff to the file manager.
+- **Dependency security:** the runtime requires Werkzeug 3.1.9 or later; the runtime, Docker and development lockfiles pin the reviewed update. The new layouts and model preview introduce no additional runtime libraries.
+- **Docker packaging:** recursive build-context exclusions keep local Python caches, logs and private artifacts out of copied source directories. The container smoke test also rejects non-runtime artifacts and verifies the release manifest.
 
 ## Validation
 
-Validation includes the full Python suite, browser tests and runtime-package
-checks. The documented BDS **1.26.52.3** reference covers all **1,623** measured
-item identifiers, **13,153** item cases, enchantment applicability and conflict
-comparisons, and engine save/reload cycles. A separate real-client profile covers
-**45** cases across Inventory and Ender Chest. These checks exercise selected
-item and save behavior; they do not simulate every gameplay action or add-on.
-The exact measured source revision, hashes and limitations are recorded in the
-[engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.6.3/docs/engine-checks.md)
-and [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.6.3/docs/save_contract.md).
+Release preparation checks the full Python suite, backend branch coverage,
+browser flows, JavaScript regressions, seven layout and mount smoke scripts,
+dependency audits, runtime-package contents and integrity, and Docker startup
+and graceful shutdown with a read-only root filesystem. Visual checks cover
+desktop and emulated narrow screens, including the light theme.
+
+These checks use synthetic fixtures and do not establish compatibility with
+every Minecraft version, gameplay action or add-on. Version-specific engine
+evidence and its limitations are documented in the
+[engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/docs/engine-checks.md)
+and [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/docs/save_contract.md).
+Mount creation remains experimental; verify edited world copies in Minecraft.
 
 ## Upgrading
 
-This release adds no dependencies. Python **3.12–3.14** remain supported, and
-existing installations start without running `setup.bat` again.
+Python **3.12–3.14** remain supported. Run **`setup.bat` once before `start.bat`**
+to install the updated, hash-pinned runtime dependencies. Preserve worlds,
+backups and runtime data separately when replacing an installation.
 
-**For installations with additional packs:** update Vanilla icons once to
-prepare the base texture mappings. Rescanning alone cannot add these mappings
-to an older Vanilla cache.
+An installation without a saved layout preference opens in **Classic**.
+Existing layout, theme and language preferences remain selected.
 
-**If upgrading from v0.5.21 or earlier:** run `setup.bat` once before `start.bat`
-to install Waitress. When skipping several versions, consult the notes of the
-skipped [releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
+**For installations with additional packs upgrading from before v0.6.3:**
+update Vanilla icons once to prepare the base texture mappings. Rescanning alone
+cannot add these mappings to an older Vanilla cache. When skipping several
+versions, consult the notes of the skipped
+[releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
 
 > **Before every edit:** stop Minecraft or the Bedrock server and create a complete, independent copy of the world. Keep that copy until the edited world has been verified in Minecraft. App-created backups are an additional safeguard, not a replacement.
 
@@ -41,9 +46,9 @@ Download the asset ending in `_runtime.zip` together with its `.sha256` file.
 The automatically generated **Source code** archives are repository snapshots,
 not ready-to-run packages.
 
-- Installation, Docker and LAN setup: [README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.6.3/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.6.3/README.de.md)
-- Supported security boundary and vulnerability reporting: [SECURITY](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.6.3/SECURITY.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.6.3/SECURITY.de.md)
+- Installation, Docker and LAN setup: [README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/README.de.md)
+- Supported security boundary and vulnerability reporting: [SECURITY](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/SECURITY.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/SECURITY.de.md)
 
 Docker images are published to `ghcr.io/dadeeen/mcbe-inventory-editor`. Prefer the
-exact version tag `0.6.3` for deployments; `latest` and minor tags are intentionally
+exact version tag `0.7.0` for deployments; `latest` and minor tags are intentionally
 mutable.

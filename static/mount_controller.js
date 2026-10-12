@@ -40,6 +40,9 @@
         let pendingMounts = [];
         let previewRequestId = 0;
         let lastPreviewContext = "";
+        let previewLoading = false;
+        let modelPreview = null;
+        let modelView = null;
 
         function previewContextKey() {
             return `${getWorldPath()}\n${getCurrentPlayerKey()}`;
@@ -48,6 +51,7 @@
         function clearPreview() {
             lastPreview = null;
             lastPreviewContext = "";
+            previewLoading = false;
             previewRequestId += 1;
         }
 
@@ -111,6 +115,8 @@
 
         function updateHorseProfileFromDom() {
             const el = elements();
+            // A different species has no horse controls. Keep its last profile.
+            if (!el.horseProfileMode) return selectedHorseProfile;
             const mode = el.horseProfileMode?.value === "custom" ? "custom" : "random_like_game";
             selectedHorseProfile = {
                 mode,
@@ -164,12 +170,14 @@
             // Die Feldliste steht allein in MOUNT_STATS_FIELDS (View); hier wird
             // generisch über data-stat-key gelesen, damit ein neues Feld nicht an
             // zwei Stellen nachgezogen werden muss.
-            const stats = {};
+            // A temporarily hidden wild-only field keeps its draft value.
+            const stats = { ...selectedMountStats };
             doc.querySelectorAll(".mount-stat-field[data-stat-key]").forEach(input => {
                 const key = input.getAttribute("data-stat-key");
                 if (!key) return;
                 const value = statNumberFromInput(input);
                 if (value !== null) stats[key] = value;
+                else delete stats[key];
             });
             selectedMountStats = stats;
             const tamedCheckbox = elements().statTamedCheckbox;
@@ -178,7 +186,8 @@
         }
 
         function mountStatsForCreate() {
-            const stats = updateMountStatsFromDom();
+            const stats = { ...updateMountStatsFromDom() };
+            if (selectedMountTamed) delete stats.temper;
             return Object.keys(stats).length ? stats : null;
         }
 
@@ -291,24 +300,8 @@
             return ` ${t("Platzierung: ungeprüft")}`;
         }
 
-        function previewSafetySummary(preview = {}) {
-            const search = preview?.placement_search || {};
-            const safe = Number(search.placement_safe_count || 0);
-            const unsafe = Number(search.placement_unsafe_count || 0);
-            const unchecked = Number(search.placement_unchecked_count || 0);
-            if (safe || unsafe || unchecked) {
-                return t("{safe} sicher, {unsafe} nicht sicher, {unchecked} ungeprüft", { safe, unsafe, unchecked });
-            }
-            return t("Blockfreiheit ist noch nicht geprüft");
-        }
-
-        function candidateSelectionMessage(candidate = {}) {
-            const safety = candidate.safe_to_place === true ? t("sicher geprüft") : t("ungeprüft");
-            return candidate?.id ? t("Kandidat gewählt: {id} · {safety}", { id: candidate.id, safety }) : t("Kandidat gewählt.");
-        }
-
         // Ein Re-Render ersetzt das Panel-Markup vollständig, also auch die
-        // <details>-Zustände. Ohne das hier klappt eine gelesene Hinweisliste
+        // <details>-Zustände. Ohne das hier klappen geöffnete Blockdaten
         // beim nächsten Kandidatenklick wieder zu.
         // Auf das Mount-Panel begrenzt: die App hat noch andere <details>, und
         // dieser Controller hat kein Recht, fremde Aufklapper anzufassen.
@@ -334,50 +327,113 @@
             });
         }
 
+        function captureFocus() {
+            const active = doc.activeElement;
+            if (!active || !elements().panel?.contains?.(active)) return null;
+            return {
+                id: active.id,
+                candidateId: active.getAttribute?.("data-candidate-id"),
+                modelAction: active.getAttribute?.("data-model-action"),
+                disclosure: active.tagName === "SUMMARY" ? active.parentElement?.getAttribute("data-disclosure") : null,
+                pendingId: active.getAttribute?.("data-remove-pending-mount"),
+                pendingIndex: Array.from(doc.querySelectorAll("[data-remove-pending-mount]")).indexOf(active),
+            };
+        }
+
+        function restoreFocus(focus) {
+            if (!focus) return;
+            let target = focus.id ? doc.getElementById(focus.id) : null;
+            if (!target && focus.candidateId) {
+                target = Array.from(doc.querySelectorAll(".mount-map-point")).find(node => node.getAttribute("data-candidate-id") === focus.candidateId);
+            }
+            if (!target && focus.modelAction) {
+                target = Array.from(doc.querySelectorAll("[data-model-action]")).find(node => node.getAttribute("data-model-action") === focus.modelAction);
+            }
+            if (!target && focus.disclosure) {
+                const disclosure = Array.from(disclosureNodes()).find(node => node.getAttribute("data-disclosure") === focus.disclosure);
+                target = disclosure?.querySelector("summary");
+            }
+            if (!target && focus.pendingId) {
+                const buttons = Array.from(doc.querySelectorAll("[data-remove-pending-mount]"));
+                target = buttons.find(node => node.getAttribute("data-remove-pending-mount") === focus.pendingId)
+                    || buttons[Math.min(focus.pendingIndex, buttons.length - 1)]
+                    || doc.getElementById("btnMountCreate") || doc.getElementById("btnMountPreview");
+            }
+            if (!target && focus.id === "btnMountDiscardPending") {
+                target = doc.getElementById("btnMountCreate") || doc.getElementById("btnMountPreview");
+            }
+            if (target && !target.disabled) target.focus({ preventScroll: true });
+        }
+
         function renderIdle(message = "", status = "info") {
             ensureSelectableCandidate();
             const el = elements();
             const reopen = openDisclosureKeys();
+            const focus = captureFocus();
+            if (modelPreview) {
+                modelView = modelPreview.getView();
+                modelPreview.destroy();
+                modelPreview = null;
+            }
             render.applyMountPanelState({
                 previewPanel: el.previewPanel,
                 optionsPanel: el.optionsPanel,
+                pendingPanel: el.pendingPanel,
                 statusPanel: el.statusPanel,
                 preview: lastPreview,
-                message,
-                status: message ? status : "",
+                message: previewLoading ? t("Standplätze werden geprüft…") : message,
+                status: previewLoading ? "loading" : message ? status : "",
                 selectedMountType,
                 selectedPlacementRadius,
                 horseProfile: selectedHorseProfile,
                 mountStats: selectedMountStats,
                 mountTamed: selectedMountTamed,
                 pendingMounts,
+                hasReferencePlayer: hasReferencePlayer(),
             });
             restoreOpenDisclosures(reopen);
+            const modelRoot = doc.getElementById("mountModelPreview");
+            if (modelRoot && window.MCBEMountModelPreview) {
+                modelPreview = window.MCBEMountModelPreview.attach(modelRoot, {
+                    mountType: selectedMountType,
+                    horseProfile: selectedHorseProfile,
+                    mountTamed: selectedMountTamed,
+                    view: modelView,
+                });
+            }
+            el.previewPanel?.setAttribute?.("aria-busy", String(previewLoading));
             wireButtons();
             // Das Optionspanel wird vollständig ersetzt. Neue Edit-Controls
             // müssen noch im selben synchronen Render-Schritt den aktuellen
             // Write-Gate-Zustand erhalten.
             syncEditControls();
+            restoreFocus(focus);
         }
 
         async function loadPreview() {
             if (!apiClient) return;
             if (!hasReferencePlayer()) {
                 showToast(t("Lade zuerst einen Spieler."), "warning");
-                renderIdle(t("Lade zuerst eine Welt und einen Spieler."));
+                renderIdle();
                 return;
             }
             const mountType = updateSelectedMountTypeFromDom();
             const placementRadius = updateSelectedPlacementRadiusFromDom();
+            let returnFocusToPreview = doc.activeElement?.id === "btnMountPreview";
+            const cancelFocusReturn = () => { returnFocusToPreview = false; };
+            const focusEvents = ["pointerdown", "keydown", "focusin"];
             const requestId = ++previewRequestId;
             const requestedContext = previewContextKey();
             updateHorseProfileFromDom();
             updateMountStatsFromDom();
-            const el = elements();
-            if (el.statusPanel) {
-                el.statusPanel.className = "mount-create-status loading";
-                el.statusPanel.textContent = t("Mount-Vorschau wird geladen...");
-            }
+            // Keep the old view visible during the request, but invalidate its
+            // write context immediately. Even a failed refresh cannot stage it.
+            lastPreviewContext = "";
+            previewLoading = true;
+            renderIdle();
+            // Disabling and replacing the initiating button drops native focus.
+            // Return it on completion only if the user did not move on meanwhile.
+            focusEvents.forEach(name => doc.addEventListener?.(name, cancelFocusReturn));
             try {
                 const preview = await apiClient.previewMountOrThrow({
                     worldPath: getWorldPath(),
@@ -386,37 +442,49 @@
                     placementRadius,
                 });
                 if (requestId !== previewRequestId || requestedContext !== previewContextKey()) return false;
+                updateHorseProfileFromDom();
+                updateMountStatsFromDom();
+                previewLoading = false;
                 lastPreview = preview;
                 lastPreviewContext = requestedContext;
                 selectedMountType = lastPreview?.mount_type || mountType;
                 selectedPlacementRadius = lastPreview?.placement_search?.radius || placementRadius;
                 ensureSelectableCandidate();
-                const msg = lastPreview?.can_create
-                    ? t("Vorschau geladen. Kandidaten im Umkreis von {radius} Blöcken. {summary}.", { radius: selectedPlacementRadius, summary: previewSafetySummary(lastPreview) })
-                    : t("Vorschau geladen. Create ist für diesen Mount-Typ oder diese Dimension deaktiviert.");
-                renderIdle(msg, lastPreview?.can_create ? "warning" : "info");
+                renderIdle();
                 logStatus(t("Mount-Vorschau geladen"), "success");
                 return true;
             } catch (error) {
                 if (requestId !== previewRequestId || requestedContext !== previewContextKey()) return false;
                 const message = error?.message || t("Mount-Vorschau konnte nicht geladen werden.");
+                updateHorseProfileFromDom();
+                updateMountStatsFromDom();
+                lastPreview = null;
+                lastPreviewContext = "";
+                previewLoading = false;
                 renderIdle(message, "error");
                 showToast(message, "error");
                 return false;
+            } finally {
+                focusEvents.forEach(name => doc.removeEventListener?.(name, cancelFocusReturn));
+                if (returnFocusToPreview && requestId === previewRequestId && requestedContext === previewContextKey()
+                    && (!doc.activeElement || doc.activeElement === doc.body)) {
+                    elements().previewButton?.focus({ preventScroll: true });
+                }
             }
         }
 
         async function queueMount() {
+            if (previewLoading) return false;
             if (guardEditingAction()) return false;
             if (!hasReferencePlayer()) {
                 showToast(t("Lade zuerst einen Spieler."), "warning");
-                renderIdle(t("Lade zuerst eine Welt und einen Spieler."));
+                renderIdle();
                 return;
             }
             if (!lastPreview || !lastPreview.can_create || lastPreviewContext !== previewContextKey()) {
                 clearPreview();
-                showToast(t("Lade zuerst eine Mount-Vorschau mit aktivem Create."), "warning");
-                renderIdle(t("Lade zuerst eine Mount-Vorschau mit aktivem Create."));
+                showToast(t("Prüfe zuerst einen geeigneten Standplatz."), "warning");
+                renderIdle(t("Prüfe zuerst einen geeigneten Standplatz."));
                 return;
             }
             const isHorse = lastPreview.mount_type === "minecraft:horse";
@@ -440,8 +508,9 @@
             }
             const allowUncheckedPlacement = candidateIsUnchecked(chosenCandidate);
             if (allowUncheckedPlacement) {
+                const reason = chosenCandidate.warning || t("Position noch nicht bewertet.");
                 const confirmed = confirmUncheckedCreate(
-                    t("Diese Position konnte nicht sicher geprüft werden. Mount ({label}) trotzdem als ungespeicherte Änderung vormerken? Vor dem Speichern wird die Position erneut geprüft.", { label: mountLabel })
+                    `${reason}\n\n${t("Diese Position konnte nicht sicher geprüft werden. Mount ({label}) trotzdem als ungespeicherte Änderung vormerken? Vor dem Speichern wird die Position erneut geprüft.", { label: mountLabel })}`
                 );
                 if (!confirmed) {
                     renderIdle(t("Erzeugen abgebrochen: Position war ungeprüft."), "info");
@@ -470,9 +539,10 @@
                 serverGuardEpoch: lastPreview.server_guard_epoch,
             });
             onPendingChanged(getPendingMounts());
-            renderIdle(t("{label} vorgemerkt. Noch nicht in die Welt geschrieben.", { label: mountLabel }), "warning");
+            const status = allowUncheckedPlacement ? "warning" : "success";
+            renderIdle();
             showToast(t("{label} als ungespeicherte Änderung vorgemerkt.", { label: mountLabel }), "success");
-            logStatus(t("Mount vorgemerkt"), "warning");
+            logStatus(t("Mount vorgemerkt"), status);
         }
 
         function getPendingMounts() {
@@ -528,7 +598,7 @@
                 renderIdle(message, "error");
                 return { complete: false, reloadRequired: true, committedCount: committed.length, expected, reason: countMismatch ? "count_mismatch" : "validation_failed" };
             }
-            renderIdle(committed.length === 1 ? t("1 Mount atomar gespeichert. Direkte Validierung: OK.") : t("{count} Mounts atomar gespeichert. Direkte Validierung: OK.", { count: committed.length }), "success");
+            renderIdle(committed.length === 1 ? t("1 Mount gespeichert und geprüft.") : t("{count} Mounts gespeichert und geprüft.", { count: committed.length }), "success");
             return { complete: true, reloadRequired: false, committedCount: committed.length, expected };
         }
 
@@ -557,6 +627,7 @@
         }
 
         function refreshMountIcons() {
+            modelPreview?.update({ mountType: selectedMountType, horseProfile: selectedHorseProfile, mountTamed: selectedMountTamed });
             if (typeof render?.mountIconSvg !== "function") return;
             const color = selectedHorseProfile?.color ?? 0;
             doc.querySelectorAll(".mount-type-row .mount-icon").forEach(node => {
@@ -572,62 +643,67 @@
             wireConversionHints();
             el.horseProfileMode?.addEventListener("change", () => {
                 updateHorseProfileFromDom();
-                renderIdle(t("Pferd-Eigenschaften geändert."));
+                renderIdle();
             }, { once: true });
             doc.querySelectorAll(".mount-horse-profile-field").forEach(input => {
-                input.addEventListener("change", () => {
+                const update = () => {
                     updateHorseProfileFromDom();
                     refreshMountIcons();
-                    const currentClass = elements().statusPanel?.className || "mount-create-status info";
-                    if (elements().statusPanel && !currentClass.includes("error")) {
-                        elements().statusPanel.className = "mount-create-status info";
-                        elements().statusPanel.textContent = t("Pferd-Eigenschaften geändert.");
-                    }
-                });
+                };
+                input.addEventListener("input", update);
+                input.addEventListener("change", update);
             });
         }
 
         function wireMountStatsControls() {
             doc.querySelectorAll(".mount-stat-field").forEach(input => {
+                input.addEventListener("input", () => updateMountStatsFromDom());
                 input.addEventListener("change", () => updateMountStatsFromDom());
             });
             // Neu rendern: Zähmen entfernt das Temper-Tag, also verschwindet auch
             // das Eingabefeld, statt einen Wert anzubieten, den der Server verwirft.
             elements().statTamedCheckbox?.addEventListener("change", () => {
                 updateMountStatsFromDom();
-                renderIdle(selectedMountTamed ? t("Wird gezähmt erzeugt.") : t("Wird wild erzeugt."));
+                renderIdle();
             }, { once: true });
         }
 
         function wireCandidateMap() {
             doc.querySelectorAll(".mount-map-point").forEach(button => {
+                if (previewLoading) button.disabled = true;
                 button.addEventListener("click", () => {
                     if (button.disabled) return;
                     const candidate = rememberSelectedCandidate(button.getAttribute("data-candidate-id") || "");
                     if (!candidate) return;
-                    renderIdle(candidateSelectionMessage(candidate));
+                    updateHorseProfileFromDom();
+                    updateMountStatsFromDom();
+                    renderIdle();
                 }, { once: true });
             });
         }
 
         function wireTechOverlay() {
             const el = elements();
-            const closeOverlay = () => {
-                const current = elements();
-                current.techOverlay?.classList.remove("open");
-                current.techDetailsButton?.focus();
-            };
+            const closeOverlay = () => el.techOverlay?.close();
             el.techDetailsButton?.addEventListener("click", () => {
-                const current = elements();
-                current.techOverlay?.classList.add("open");
-                current.techCloseButton?.focus();
+                el.techOverlay?.showModal();
+                doc.getElementById("mountTechTitle")?.focus();
             });
             el.techCloseButton?.addEventListener("click", closeOverlay);
+            el.techOverlay?.addEventListener("close", () => elements().techDetailsButton?.focus({ preventScroll: true }));
             el.techOverlay?.addEventListener("click", event => {
-                if (event.target === elements().techOverlay) closeOverlay();
+                if (event.target === el.techOverlay) closeOverlay();
             });
             el.techOverlay?.addEventListener("keydown", event => {
-                if (event.key === "Escape") closeOverlay();
+                if (event.key !== "Tab") return;
+                const nodes = Array.from(el.techOverlay.querySelectorAll("button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), summary, [tabindex='0']"))
+                    .filter(node => node.getClientRects().length > 0);
+                const first = nodes[0];
+                const last = nodes[nodes.length - 1];
+                if (first && ((!nodes.includes(doc.activeElement)) || (event.shiftKey && doc.activeElement === first) || (!event.shiftKey && doc.activeElement === last))) {
+                    event.preventDefault();
+                    (event.shiftKey ? last : first).focus();
+                }
             });
         }
 
@@ -644,29 +720,34 @@
                 selectedMountStats = {};
                 selectedMountTamed = false;
                 clearPreview();
-                renderIdle(t("Mount-Typ geändert. Lade eine neue Vorschau."));
+                renderIdle();
             }, { once: true });
             el.placementRadiusInput?.addEventListener("change", () => {
                 updateSelectedPlacementRadiusFromDom();
                 updateHorseProfileFromDom();
                 updateMountStatsFromDom();
                 clearPreview();
-                renderIdle(t("Suchradius geändert. Lade eine neue Vorschau."));
+                renderIdle();
             }, { once: true });
-            el.previewButton?.addEventListener("click", loadPreview, { once: true });
+            if (el.previewButton) {
+                el.previewButton.disabled = previewLoading || !hasReferencePlayer();
+                el.previewButton.textContent = previewLoading ? t("Wird geprüft…") : lastPreview ? t("Erneut prüfen") : t("Standplätze prüfen");
+                el.previewButton.className = `btn ${lastPreview ? "btn-secondary" : "btn-primary"}`;
+                el.previewButton.addEventListener("click", loadPreview, { once: true });
+            }
             doc.querySelectorAll("[data-remove-pending-mount]").forEach(button => {
                 button.addEventListener("click", () => removePendingMount(button.getAttribute("data-remove-pending-mount") || ""), { once: true });
             });
             doc.getElementById("btnMountDiscardPending")?.addEventListener("click", () => clearPendingMounts({ recordUndo: true }), { once: true });
             doc.getElementById("btnMountReviewPending")?.addEventListener("click", onReviewRequested, { once: true });
             if (el.createButton) {
-                const enabled = Boolean(lastPreview?.can_create && lastPreviewContext === previewContextKey() && hasSelectableCandidate());
+                const enabled = Boolean(!previewLoading && lastPreview?.can_create && lastPreviewContext === previewContextKey() && hasSelectableCandidate());
                 const selectedCandidate = enabled ? selectedCandidateFromDom() : null;
                 const unchecked = Boolean(selectedCandidate && candidateIsUnchecked(selectedCandidate));
                 el.createButton.disabled = !enabled;
                 el.createButton.textContent = unchecked ? t("Mount vormerken (ungeprüft)") : t("Mount vormerken");
                 el.createButton.title = !enabled
-                    ? t("Create ist nur nach einer Vorschau mit auswählbarem Kandidaten verfügbar.")
+                    ? (render.queueDisabledReason?.(lastPreview) || t("Prüfe zuerst einen geeigneten Standplatz."))
                     : unchecked
                         ? t("Position wurde nicht sicher geprüft. Vor dem Vormerken musst du bestätigen.")
                         : t("Merkt das gewählte Mount als ungespeicherte Änderung vor.");
@@ -677,10 +758,10 @@
         function refresh() {
             clearPreview();
             if (!hasReferencePlayer()) {
-                renderIdle(t("Lade zuerst eine Welt und einen Spieler."));
+                renderIdle();
                 return;
             }
-            renderIdle(t("Bereit für eine Mount-Vorschau."));
+            renderIdle();
         }
 
         return {
