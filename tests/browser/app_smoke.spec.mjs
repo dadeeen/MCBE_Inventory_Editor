@@ -3086,6 +3086,7 @@ test("Studio world selection keeps the card and world list stationary", async ({
 test("Studio routine status messages keep the workspace stable across font metrics and window sizes", async ({ page }) => {
   await openAppWithEmptyWorldScan(page);
   await expect(page.locator("#worldScanLoading")).toBeHidden();
+  await expect(page.locator("#serverStatusBadge")).not.toHaveText("Status wird geprüft");
   await selectLayout(page, "studio");
   const worldSection = page.locator("#worldSection");
   const top = () => worldSection.evaluate(node => node.getBoundingClientRect().top + window.scrollY);
@@ -3095,6 +3096,16 @@ test("Studio routine status messages keep the workspace stable across font metri
     const style = await page.addStyleTag({ content: `body, button { font-family: "${font}", sans-serif !important; }` });
     for (const width of [320, 390, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 900 });
+      // Resize/font changes animate button sizes. Compare messages only after
+      // those finite transitions finish; keep infinite loading animations out.
+      await page.evaluate(async () => {
+        const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await frames();
+        await Promise.all(document.getAnimations()
+          .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().iterations))
+          .map(animation => animation.finished.catch(() => {})));
+        await frames();
+      });
       let before;
       for (const message of messages) {
         await page.evaluate(message => logStatus(message, "success", { key: "stable-status" }), message);
