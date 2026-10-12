@@ -28,7 +28,7 @@ In Focus, armor and offhand stay in a labeled row above the inventory while the 
 
 ## Configure and preview mounts
 
-The Mounts menu starts with the species and its attributes, alongside a rotatable **3D view** of a horse, donkey, mule, camel or skeleton horse. Its proportions follow the Vanilla models, with custom pixel surfaces. Horse coat and marking changes update the model immediately. Random profiles are explicitly shown as examples. Drag, use the arrow keys or the three view buttons to rotate; **Home** resets the view.
+The Mounts menu starts with the species and its attributes, alongside a rotatable **3D view** of a horse, donkey, mule, camel or skeleton horse. Its proportions, coat families and characteristic markings follow the Vanilla references, with independently drawn pixel surfaces and no bundled Mojang model or texture files. Lighting and individual pixel patterns differ from the game. Horse coat and marking changes update the model immediately. Random profiles are explicitly shown as examples. Drag, use the arrow keys or the three view buttons to rotate; **Home** resets the view.
 
 Under **Choose a position**, check the surroundings and select a location. **Check details** shows an opaque dialog with the collision footprint outlined over the ground grid and expandable block data. The checked grid follows the mount's size and precise position: it can span 2×2, 2×3, 3×2 or 3×3 cells. Staging a mount creates a visible draft whose attributes can be expanded and whose removal remains available. Commit through the existing review/save workflow. The model adds no runtime dependencies.
 

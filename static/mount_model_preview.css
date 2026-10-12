@@ -46,6 +46,10 @@
     cursor: grabbing;
 }
 
+:root:not([data-theme="light"]) .mount-model-stage[data-mount-type="minecraft:horse"][data-color="4"] {
+    background: radial-gradient(ellipse at 50% 48%, rgba(175, 190, 205, .24), rgba(175, 190, 205, .09) 42%, transparent 75%);
+}
+
 .mount-model-svg {
     display: block;
     width: 100%;

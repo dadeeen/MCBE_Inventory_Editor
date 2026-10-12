@@ -1,7 +1,8 @@
 (function () {
     "use strict";
 
-    // Geometry proportions were checked against Mojang's Bedrock Samples
+    // Proportions, coat families and marking coverage were checked against
+    // Mojang's Bedrock Samples
     // (46ba6ea985fb5a92d79a9419198f10dda14c199d, 1.26.50.4):
     // resource_pack/models/entity/{horse_v3,camel}.geo.json and the
     // corresponding client entities. This renderer and its pixel materials
@@ -24,23 +25,24 @@
     };
     const COLORS = ["Weiß", "Creme", "Kastanie", "Braun", "Schwarz", "Grau", "Dunkelbraun"];
     const MARKS = ["Keine", "Weiße Details", "Weiße Felder", "Weiße Punkte", "Schwarze Punkte"];
-    // Ordered, small palettes keep adjacent texels coherent. There is no noise
-    // or random texture generation, so coat markings stay attached when turned.
+    // Independently painted palettes and patterns, not decoded vanilla texels.
+    // The coat families retain their characteristic mane/tail colors.
     const COATS = [
-        { coat: ["#c3c0b6", "#d3d0c5", "#e4e1d5", "#ece9df"], mane: ["#97958a", "#b4b1a2", "#ccc8b6"] },
-        { coat: ["#aa8958", "#c29e69", "#d4b27b", "#e0c18d"], mane: ["#ab8a5a", "#ceb37c", "#e3cda2"] },
-        { coat: ["#774027", "#8d4e2b", "#a65e32", "#bb7441"], mane: ["#482d20", "#64422b", "#835738"] },
-        { coat: ["#573922", "#6c482c", "#805937", "#926b46"], mane: ["#24211d", "#342d23", "#494031"] },
-        { coat: ["#242423", "#30312e", "#3e403b", "#4b4e48"], mane: ["#171a17", "#232720", "#34382e"] },
-        { coat: ["#646661", "#7d8078", "#999b91", "#adafa4"], mane: ["#32372f", "#464c40", "#646b5d"] },
-        { coat: ["#33271f", "#453326", "#59412e", "#6b5039"], mane: ["#191c18", "#282c24", "#3b4034"] },
+        { coat: ["#959798", "#b4b6b8", "#bfc1c2", "#ced0d1"], mane: ["#a0a3a5", "#babdc0", "#d0d2d4"] },
+        { coat: ["#4c2d14", "#734920", "#805326", "#8c5e2d"], mane: ["#100d0b", "#211811", "#36261a"] },
+        { coat: ["#3c1b11", "#632a19", "#73301d", "#81401f"], mane: ["#ad8453", "#c79c67", "#dcc092"] },
+        { coat: ["#2c150b", "#45220e", "#512812", "#5d3117"], mane: ["#130f0d", "#231813", "#352219"] },
+        { coat: ["#0b0d11", "#1a1d23", "#202329", "#272a32"], mane: ["#0b0e12", "#15181d", "#242932"] },
+        { coat: ["#303234", "#46494b", "#505355", "#5b5e60"], mane: ["#2f3234", "#44484a", "#585b5d"] },
+        { coat: ["#100b08", "#26160f", "#301b13", "#3a2319"], mane: ["#0c0b0b", "#1b1310", "#2c1e15"] },
     ];
-    const DONKEY = { coat: ["#635b4d", "#7a6f5e", "#928571", "#a89981"], mane: ["#36352d", "#4d493c", "#635e4d"] };
-    const MULE = { coat: ["#4c3524", "#664730", "#7a563b", "#8d6849"], mane: ["#24271f", "#33392c", "#505240"] };
-    const CAMEL = { coat: ["#97703a", "#b48645", "#cca35f", "#ddba7a"], mane: ["#876234", "#a57b41", "#c7a263"] };
-    const BONE = ["#7d857b", "#a7ada0", "#cbd0c0", "#e3e5d6"];
-    const WHITE = ["#c4c0b0", "#d8d4c2", "#ece8d7", "#f4efdf"];
-    const HOOF = ["#302b24", "#443b2e", "#5b4e3d"];
+    const DONKEY = { coat: ["#504638", "#706152", "#7b6b5a", "#877565"], mane: ["#252323", "#383331", "#504942"] };
+    const MULE = { coat: ["#271810", "#3d281c", "#492d1e", "#523524"], mane: ["#171415", "#241d1b", "#3b2b22"] };
+    const CAMEL = { coat: ["#ba8236", "#dfa34d", "#e9ae56", "#f2bb66"], mane: ["#a77535", "#ca9144", "#e2ae60"] };
+    const BONE = ["#777d82", "#a5a9ad", "#d1d3d5", "#e4e5e6"];
+    const WHITE = ["#bbbdc0", "#d0d2d4", "#e4e5e6", "#f1f1ed"];
+    const BLACK_MARK = ["#070809", "#101112", "#151618", "#1b1c1e"];
+    const HOOF = ["#242426", "#363336", "#4b4140"];
 
     function finiteInteger(value, fallback, maximum) {
         const number = Number(value);
@@ -96,8 +98,9 @@
         box(parts, "mane", [-3.95, 17, -1], [2, 16, 2], "mane", neckTurn);
         for (const side of [-1, 1]) {
             const height = longEars ? 7 : 3;
-            const z = side < 0 ? -3 : 1;
-            const spread = { axis: 0, pivot: [-5, 32, side * 2], angle: side * (longEars ? .25 : .09) };
+            const z = side < 0 ? (longEars ? -3 : -1.5) : (longEars ? 1 : -.5);
+            // Short ears fan out from the head instead of standing parallel.
+            const spread = { axis: 0, pivot: longEars ? [-5, 32, side * 2] : [-8, 17, 0], angle: side * (longEars ? .25 : .09) };
             box(parts, `ear-${side < 0 ? "right" : "left"}`, [-5.01, 32, z], [1, height, 2], "ear", [spread, ...neckTurn]);
         }
         box(parts, "tail", [9, 6, -1.5], [4, 14, 3], "tail", [{ axis: 2, pivot: [11, 20, 0], angle: 25 * Math.PI / 180 }]);
@@ -163,52 +166,66 @@
         return x >= left && x < left + width && y >= bottom && y < bottom + height;
     }
 
-    // Sparse, deliberately placed clusters give the flank a pixel-art coat.
-    // Their shapes are shared across palettes, not random speckles per frame.
-    const FLANK_PATCHES = [
-        [1, 5, 4, 2, 3], [2, 7, 5, 1, 3], [6, 6, 3, 1, 3],
-        [5, 3, 5, 1, 1], [8, 2, 5, 1, 1], [9, 5, 5, 1, 1],
-        [12, 6, 3, 1, 1], [16, 5, 4, 2, 3], [18, 7, 3, 1, 3],
-        [17, 3, 4, 1, 1], [2, 2, 2, 1, 1],
+    // Small hand-painted clusters avoid long wood-like stripes. The pattern
+    // is stable in model coordinates and shared by the independently drawn coats.
+    const COAT_GRAIN = [
+        "22232212", "23322211", "22321222", "12211232",
+        "21222233", "22123222", "32233122", "23222212",
     ];
     const WHITE_FIELDS = [
-        [3, 1, 4, 6], [4, 7, 3, 2], [7, 3, 2, 4], [9, 4, 1, 2],
-        [14, 0, 5, 4], [16, 4, 5, 2], [18, 6, 3, 2], [20, 2, 2, 3],
+        [5, 7, 3, 3], [7, 6, 2, 2], [12, 0, 4, 2],
+        [15, 1, 5, 3], [19, 2, 3, 3],
     ];
-    const SPOTS = [[2, 5], [4, 2], [6, 7], [8, 4], [10, 2], [11, 6], [14, 4], [16, 7], [18, 2], [20, 5]];
+    const WHITE_SPOTS = [[1, 6, 2, 3], [5, 3, 3, 2], [6, 8, 2, 2], [10, 5, 2, 3], [13, 2, 2, 2], [16, 6, 3, 2], [19, 3, 2, 2], [20, 8, 2, 2]];
+    const DARK_SPOTS = [[1, 5, 3, 3], [5, 7, 3, 3], [7, 2, 3, 4], [11, 6, 3, 4], [15, 4, 4, 3], [18, 0, 2, 4], [19, 7, 3, 3]];
+
+    function grain(x, y) {
+        return Number(COAT_GRAIN[y % 8][x % 8]);
+    }
 
     function coatTone(part, face, x, y, width, height) {
         if (face === "bottom") return 0;
         if (part.name === "body" && (face === "near" || face === "far")) {
             const px = Math.floor(x * 22 / width);
             const py = Math.floor(y * 10 / height);
-            if (py < (px > 5 && px < 16 ? 2 : 1)) return 0;
-            for (const [left, bottom, w, h, tone] of FLANK_PATCHES) if (pixelIn(px, py, left, bottom, w, h)) return tone;
-            return py === 9 ? 3 : 2;
+            const tone = grain(px, py);
+            if (py < (px > 5 && px < 16 ? 2 : 1)) return Math.max(0, tone - 1);
+            return py === 9 ? Math.max(2, tone) : tone;
         }
         if (part.name === "body" && face === "top") {
-            return y <= 1 || y >= height - 2 ? 1 : x > width * .3 && x < width * .7 ? 3 : 2;
+            return Math.max(2, grain(x, y));
         }
         if (part.name === "neck" || part.name === "neck-lower") {
-            if ((x === width - 2 && y > 1 && y < height - 3) || (x === 1 && y > height * .55)) return 1;
-            if (y === 2 && x > 1 && x < width - 1) return 3;
+            return x === width - 1 ? 1 : grain(x + 3, y + 1);
         }
-        if (part.name === "hump") return y < 2 ? 1 : x > 1 && x < width - 2 && y >= height - 1 ? 3 : 2;
-        return x === width - 1 && face !== "top" ? 1 : 2;
+        if (part.name === "hump") return Math.max(y < 2 ? 1 : 2, grain(x + 2, y));
+        return grain(x + 1, y + 2);
     }
 
     function horseMark(state, part, face, x, y, width, height) {
         if (state.mountType !== "minecraft:horse" || !state.mark) return false;
-        if (part.material === "leg" && state.mark <= 2 && face !== "top") return y >= 2 && y < (part.name.includes("left") ? 5 : 4);
+        if (part.material === "leg" && !["top", "bottom"].includes(face)) {
+            if (state.mark === 1) return y >= 3 && y < 7;
+            if (state.mark >= 3) return x === 1 && y >= height - 3;
+        }
         if ((part.name === "head" || part.name === "muzzle") && state.mark <= 2) {
             if (face === "top") return y >= Math.floor(height / 2) - 1 && y <= Math.floor(height / 2) && x < width - 1;
             if (face === "front") return x >= Math.floor(width / 2) - 1 && x <= Math.floor(width / 2);
         }
-        if (part.name !== "body" || !(face === "near" || face === "far")) return false;
+        const side = face === "near" || face === "far";
+        if (state.mark === 3 && side && (part.name === "neck" || part.name === "head")) return pixelIn(x, y, 1, 2, 2, 2) || pixelIn(x, y, 4, 7, 2, 3);
+        if (state.mark === 3 && part.name === "head" && face === "top") return pixelIn(x, y, 2, 2, 2, 2);
+        if (part.name !== "body") return false;
+        if (face === "top") {
+            if (state.mark === 2) return x < 4 && y > 1 && y < height - 1;
+            if (state.mark >= 3) return (state.mark === 3 ? WHITE_SPOTS : DARK_SPOTS).some(([left, , w], i) => pixelIn(x, y, left, 1 + i % 3 * 2, w, 2));
+        }
+        if (state.mark === 2 && face === "back") return y >= 2 && y < 5;
+        if (!side) return false;
         const px = Math.floor(x * 22 / width);
         const py = Math.floor(y * 10 / height);
         if (state.mark === 2) return WHITE_FIELDS.some(([left, bottom, w, h]) => pixelIn(px, py, left, bottom, w, h));
-        if (state.mark >= 3) return SPOTS.some(([left, bottom], index) => pixelIn(px, py, left, bottom, index % 3 === 0 ? 2 : 1, index % 2 === 0 ? 2 : 1));
+        if (state.mark >= 3) return (state.mark === 3 ? WHITE_SPOTS : DARK_SPOTS).some(([left, bottom, w, h]) => pixelIn(px, py, left, bottom, w, h));
         return false;
     }
 
@@ -218,13 +235,13 @@
         if (part.name === "body") {
             if (side) {
                 const endBone = (x < 3 || x >= width - 3) && (y >= 2 || x % 2 === 0);
-                const rib = x >= 5 && x <= width - 5 && (x % 3 === 0 || y === height - 2) && y >= 1 && y <= height - 2;
+                const rib = x >= 4 && x <= width - 4 && (x % 3 !== 0 || y === height - 2) && y >= 1 && y <= height - 2;
                 if (!endBone && !rib) return null;
-                return BONE[y <= 2 || x % 3 === 1 ? 1 : 2];
+                return BONE[y <= 2 ? 1 : grain(x, y)];
             }
             if (horizontal) {
                 const spine = y >= Math.floor(height / 2) - 1 && y <= Math.floor(height / 2);
-                const ribs = x >= 5 && x <= width - 5 && x % 3 === 0;
+                const ribs = x >= 4 && x <= width - 4 && x % 3 !== 0;
                 if (!spine && !ribs && x >= 3 && x < width - 3) return null;
                 return BONE[face === "top" ? 2 : 1];
             }
@@ -232,25 +249,25 @@
             return BONE[x === 0 || y === 0 ? 1 : 2];
         }
         if (part.material === "leg") {
-            if (!horizontal && (x === 0 || x === width - 1) && y > 1 && y !== 5 && y !== 9) return null;
-            return BONE[y < 2 || x === 0 ? 1 : 2];
+            if (face === "bottom" || !horizontal && y < 2) return HOOF[x % 2];
+            if (!horizontal && x > 0 && x < width - 1 && y > 2 && y < 8 && y !== 5) return null;
+            return BONE[grain(x + 2, y)];
         }
         if (part.material === "mane") {
             if (!side || x === 0 || y < 2 || y >= height - 2 || y % 3 === 0) return null;
             return BONE[1];
         }
         if (part.material === "tail") {
-            if (side || (!horizontal && (x !== Math.floor(width / 2) || y % 3 === 0))) return null;
-            return BONE[1];
+            return null;
         }
         if (part.name === "neck") {
-            if (side && x > 1 && x < width - 2 && y > 1 && y < height - 2 && y % 3 !== 0) return null;
-            return BONE[(x + y) % 5 === 0 ? 1 : 2];
+            if (side && x >= 3 && x < width - 1 && y > 3 && y < height - 1) return null;
+            return BONE[grain(x, y)];
         }
         if (part.material === "ear") return BONE[x === 0 ? 1 : 2];
-        if (part.material === "head" && side && pixelIn(x, y, 1, 2, 2, 2)) return "#30372f";
+        if (part.material === "head" && side && pixelIn(x, y, 1, 2, 2, 2)) return "#2c2f33";
         if (part.material === "muzzle") {
-            if (face === "front" && y >= 2 && y < 4 && (x === 0 || x === width - 1)) return "#424a3e";
+            if (face === "front" && y >= 2 && y < 4 && (x === 0 || x === width - 1)) return "#44484c";
             if (y === 0 && !horizontal && x % 2 === 0) return null;
             return BONE[y === 0 || y === 1 && x % 2 === 0 ? 0 : 2];
         }
@@ -270,44 +287,47 @@
         const horizontal = face === "top" || face === "bottom";
         let tone = coatTone(part, face, x, y, width, height);
         let color = palette.coat[tone];
-        if (horseMark(state, part, face, x, y, width, height)) color = state.mark === 4 ? COATS[4].coat[Math.min(3, tone)] : WHITE[tone];
+        if (state.mountType === "minecraft:horse" && state.color === 1 && part.material === "leg" && !horizontal && (y === 2 || y === 4)) color = WHITE[tone];
+        if (horseMark(state, part, face, x, y, width, height)) color = state.mark === 4 ? BLACK_MARK[tone] : WHITE[tone];
         if (part.material === "mane" || part.material === "tail") {
+            // Uneven tips are transparent texels, rather than a solid slab.
+            if (part.material === "tail" && !horizontal && y < [1, 0, 2][x % 3]) return null;
+            if (part.material === "mane" && side && x === width - 1 && y % 4 === 0) return null;
             const strand = (x + (face === "top" ? y : 0)) % 3;
             color = palette.mane[strand];
-            if (donkey && part.material === "tail" && !horizontal && y > 4) color = palette.coat[1];
         }
         if (part.material === "leg" && !horizontal && y < 2) color = HOOF[x % 2 ? 1 : 2];
         if (part.material === "leg" && face === "bottom") color = HOOF[0];
         if (part.material === "leg" && !horizontal && y === 6 && x > 0 && x < width - 1) color = palette.coat[1];
         if (part.material === "head" && side) {
-            if (x === 2 && y === 3) color = "#f0e6d1";
-            if (x === 1 && y === 3) color = "#201e18";
+            if (x === 2 && y === 3) color = "#e1e1dc";
+            if (x === 1 && y === 3) color = "#18191b";
             if (x === 1 && y === 4) color = palette.coat[0];
         }
         if (part.material === "muzzle") {
-            if (donkey || mule) color = ["#978b73", "#b5a68b", "#cbbfa5", "#d8ceb7"][tone];
+            if (donkey || mule) color = ["#696764", "#83807b", "#a3a09a", "#bdbbb4"][tone];
             else if (!horseMark(state, part, face, x, y, width, height)) color = palette.coat[Math.max(0, tone - 1)];
             if (side && x === 0 && y === 3 || face === "front" && y === 3 && (x === 0 || x === width - 1)) color = "#393125";
-            if (y === 0 && !horizontal) color = donkey || mule ? "#80715d" : palette.coat[0];
+            if (y === 0 && !horizontal) color = donkey || mule ? "#575452" : palette.coat[0];
         }
         if (part.material === "ear" && face === "front" && y > 0 && y < height - 1) color = palette.mane[1];
         if (donkey && part.name === "body" && face === "top" && y === Math.floor(height / 2)) color = palette.mane[1];
         if (camel) {
             if (part.name === "neck" && side) {
-                if (x === 2 && y === height - 3) color = "#352d1f";
-                if (x === 2 && y === height - 2) color = palette.coat[0];
-                if (x === 3 && y === height - 3) color = palette.coat[3];
+                if (pixelIn(x, y, 1, height - 3, 3, 1)) color = "#413323";
+                if (x === 2 && y === height - 2) color = palette.coat[1];
             }
             if (part.material === "camel-muzzle") {
-                color = palette.coat[Math.max(0, tone - 1)];
-                if (side && x < 2 && y === 3 || face === "front" && y === 3 && (x === 0 || x === width - 1)) color = "#5a4127";
-                if (!horizontal && y === 0) color = "#a57b45";
+                color = palette.coat[tone];
+                if (side && x < 2 && y === 3 || face === "front" && y === 3 && (x === 0 || x === width - 1)) color = "#5c4930";
+                if (!horizontal && y === 1) color = "#8b6334";
+                if (!horizontal && y === 0) color = palette.coat[3];
             }
             if (part.material === "camel-leg" && !horizontal) {
-                if (y < 2) color = palette.coat[0];
+                if (y < 2) color = ["#635e52", "#79715e", "#8c8066"][x % 3];
                 else if (y === 10 || y === 11 && x > 0 && x < width - 1) color = palette.coat[1];
-                else if (x > 0 && x < width - 1 && y > 2 && y < 9) color = palette.coat[3];
             }
+            if (part.material === "camel-leg" && face === "bottom") color = "#635e52";
             if (part.material === "camel-ear") color = palette.coat[face === "bottom" ? 0 : 1];
             if (part.material === "camel-tail") {
                 if (face !== "front" && face !== "back") return null;
@@ -327,18 +347,21 @@
         // Merge equal neighboring texels into horizontal runs, then one path
         // per palette color. This keeps dragging cheap without raster assets.
         const paths = new Map();
+        let opaque = true;
         for (let y = 0; y < rows; y += 1) {
             let start = 0;
             let previous = pixelColor(state, part, face, 0, y, columns, rows);
+            if (!previous) opaque = false;
             for (let x = 1; x <= columns; x += 1) {
                 const color = x < columns ? pixelColor(state, part, face, x, y, columns, rows) : undefined;
+                if (x < columns && !color) opaque = false;
                 if (color === previous) continue;
                 if (previous) paths.set(previous, (paths.get(previous) || "") + `M${start},${y}h${x - start}v1h${start - x}z`);
                 start = x;
                 previous = color;
             }
         }
-        const texture = { paths: [...paths.entries()], columns, rows };
+        const texture = { paths: [...paths.entries()], columns, rows, opaque };
         materialCache.set(key, texture);
         return texture;
     }
@@ -394,15 +417,18 @@
                 if (width < .2 || height < .2) continue;
                 const normal = transform(localNormal, part, true);
                 const inside = depth(normal) <= .001;
-                if (inside && !model.skeleton && part.material !== "camel-tail") continue;
+                const texture = textureFor(state, part, name, width, height);
+                if (!texture.paths.length || inside && texture.opaque && !model.skeleton) continue;
                 const vertex = (u, v) => transform(origin.map((value, axis) => value + u * horizontal[axis] + v * vertical[axis]), part);
                 const vertices = [vertex(0, 0), vertex(1, 0), vertex(1, 1), vertex(0, 1)];
-                const texture = textureFor(state, part, name, width, height);
-                if (!texture.paths.length) continue;
                 const [p0, p1, , p3] = vertices.map(project);
                 const matrix = [(p1[0] - p0[0]) / texture.columns, (p1[1] - p0[1]) / texture.columns, (p3[0] - p0[0]) / texture.rows, (p3[1] - p0[1]) / texture.rows, ...p0].map(value => value.toFixed(4)).join(" ");
-                const painted = texture.paths.map(([color, path]) => `<path d="${path}" fill="${shadeColor(color, normal, yaw, inside)}"/>`).join("");
-                const silhouette = model.skeleton || part.material === "camel-tail" ? "" : `<polygon points="${points(vertices)}" fill="${shadeColor(pixelColor(state, part, name, 0, 0, texture.columns, texture.rows), normal, yaw, false)}"/>`;
+                // A slight overlap prevents antialiasing seams between texels.
+                const painted = texture.paths.map(([color, path]) => {
+                    const shaded = shadeColor(color, normal, yaw, inside);
+                    return `<path d="${path}" fill="${shaded}" stroke="${shaded}" stroke-width=".12" stroke-linejoin="miter"/>`;
+                }).join("");
+                const silhouette = !texture.opaque || model.skeleton ? "" : `<polygon points="${points(vertices)}" fill="${shadeColor(pixelColor(state, part, name, 0, 0, texture.columns, texture.rows), normal, yaw, false)}"/>`;
                 surfaces.push({ depth: vertices.reduce((sum, item) => sum + depth(item), 0) / 4, content: `<g data-model-part="${part.name}" data-model-face="${name}">${silhouette}<g class="mount-model-texels" transform="matrix(${matrix})">${painted}</g></g>` });
             }
         }

@@ -69,7 +69,9 @@ test('all seven coat colors and five markings produce visible differences in cus
   const api = load();
   const rendered = (color, mark_variant) => api.markup({ horseProfile: { mode: 'custom', color, mark_variant } }).match(/<svg class="mount-model-svg"[\s\S]*?<\/svg>/)[0];
   assert.equal(new Set(Array.from({ length: 7 }, (_, color) => rendered(color, 0))).size, 7);
-  assert.equal(new Set(Array.from({ length: 5 }, (_, mark) => rendered(2, mark))).size, 5);
+  for (let color = 0; color < 7; color++) {
+    assert.equal(new Set(Array.from({ length: 5 }, (_, mark) => rendered(color, mark))).size, 5, `all markings remain distinct on coat ${color}`);
+  }
 });
 
 test('untrusted option values cannot become markup or geometry, and translated labels are escaped', () => {
@@ -195,8 +197,23 @@ test('equine proportions stay shared, donkey and mule retain their client scales
   assert.equal(face(horse, 'body', 'far'), undefined, 'opaque coats cull hidden rear faces');
   assert.match(skeleton, /data-model-material="bone-cutout"/);
   assert.doesNotMatch(skeleton, /<polygon/, 'opaque base polygons must not fill bone cutouts');
+  assert.doesNotMatch(skeleton, /data-model-part="tail"/, 'the skeleton profile does not invent a visible tail');
   assert.match(api.markup({ mountType: 'minecraft:donkey' }), /data-model-scale="0.87"/);
   assert.match(api.markup({ mountType: 'minecraft:mule' }), /data-model-scale="0.92"/);
+});
+
+test('mane and tail cutouts stay open on both sides while solid body faces keep their backing', () => {
+  const api = load();
+  const face = (html, part, direction) => html.match(new RegExp(`<g data-model-part="${part}" data-model-face="${direction}">([\\s\\S]*?)<g class="mount-model-texels"`))?.[1];
+  for (const type of ['horse', 'donkey', 'mule']) {
+    const html = api.markup({ mountType: `minecraft:${type}` });
+    assert.match(face(html, 'body', 'near'), /<polygon/, 'solid coat faces prevent antialiasing gaps');
+    for (const part of ['mane', 'tail']) {
+      for (const side of ['near', 'far']) {
+        assert.equal(face(html, part, side), '', `${type} ${part} ${side} must remain visible without a polygon filling the cutouts`);
+      }
+    }
+  }
 });
 
 test('all painted texels remain inside the viewport through a full rotation, including camel and long ears', () => {
