@@ -240,3 +240,72 @@ test('all painted texels remain inside the viewport through a full rotation, inc
     }
   }
 });
+
+test('the painted surface is the nearest ray hit across intersecting necks, legs and cutout materials', () => {
+  // Read model/material data without adding a diagnostic API to the shipped
+  // renderer. The oracle intersects rays with the original unsplit faces; it
+  // does not use the renderer's partition tree or its traversal.
+  const window = {};
+  vm.runInNewContext(source.replace('{ markup, attach }',
+    '{ markup, modelFor, faceDefinitions, transform, framing, TILT, normalize, textureFor, pixelColor }'), { window });
+  const api = window.MCBEMountModelPreview;
+  const contains = (polygon, x, y) => {
+    const sides = polygon.map((a, i) => {
+      const b = polygon[(i + 1) % polygon.length];
+      return (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
+    });
+    return sides.every(value => value >= -1e-6) || sides.every(value => value <= 1e-6);
+  };
+  for (const type of ['horse', 'donkey', 'mule', 'camel', 'skeleton_horse']) {
+    const state = api.normalize({ mountType: `minecraft:${type}` });
+    const model = api.modelFor(state.mountType), frame = api.framing(model);
+    for (let step = 0; step < 16; step++) {
+      const yaw = .58 + step * Math.PI / 8, c = Math.cos(yaw), s = Math.sin(yaw);
+      const ct = Math.cos(api.TILT), st = Math.sin(api.TILT);
+      const depth = ([x, y, z]) => -x * s * ct + y * st + z * c * ct;
+      const project = ([x, y, z]) => [
+        180 + ((x - frame.centerX) * c + z * s) * frame.zoom * model.scale,
+        frame.groundY + ((-(x - frame.centerX) * s + z * c) * st - y * ct) * frame.zoom * model.scale,
+      ];
+      const faces = new Map();
+      for (const part of model.parts) for (const [name, origin, u, v, normal, width, height] of api.faceDefinitions(part)) {
+        if (width < .2 || height < .2) continue;
+        const texture = api.textureFor(state, part, name, width, height);
+        if (!texture.paths.length || depth(api.transform(normal, part, true)) <= .001 && texture.opaque && !model.skeleton) continue;
+        const vertices = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([a, b]) =>
+          api.transform(origin.map((value, axis) => value + a * u[axis] + b * v[axis]), part));
+        const polygon = vertices.map(project);
+        const [a, b, , d] = polygon;
+        const ux = b[0] - a[0], uy = b[1] - a[1], vx = d[0] - a[0], vy = d[1] - a[1], det = ux * vy - uy * vx;
+        faces.set(`${part.name}/${name}`, { polygon, hit(x, y) {
+          if (Math.abs(det) < 1e-8) return null;
+          const dx = x - a[0], dy = y - a[1];
+          const u = (dx * vy - dy * vx) / det, v = (ux * dy - uy * dx) / det;
+          if (u < 0 || u >= 1 || v < 0 || v >= 1) return null;
+          if (!api.pixelColor(state, part, name, Math.floor(u * texture.columns), Math.floor(v * texture.rows), texture.columns, texture.rows)) return null;
+          return depth(vertices[0].map((value, axis) => value + u * (vertices[1][axis] - value) + v * (vertices[3][axis] - value)));
+        } });
+      }
+      const html = api.markup({ mountType: state.mountType, view: { yaw } });
+      const groups = /(?:<g style="clip-path:polygon\(([^)]+)\) view-box">)?<g data-model-part="([^"]+)" data-model-face="([^"]+)">/g;
+      const painted = [...html.matchAll(groups)].map(match => ({
+        key: `${match[2]}/${match[3]}`,
+        clip: match[1] ? [...match[1].matchAll(/(-?[\d.]+)px (-?[\d.]+)px/g)].map(pair => pair.slice(1).map(Number)) : null,
+      }));
+      let checked = 0;
+      for (let x = 40.371; x < 320; x += 5) for (let y = 10.193; y < 245; y += 5) {
+        const hits = new Map([...faces].map(([key, face]) => [key, face.hit(x, y)]).filter(([, value]) => value !== null));
+        if (!hits.size) continue;
+        const nearest = Math.max(...hits.values());
+        let visible = null;
+        for (const fragment of painted) {
+          if (hits.has(fragment.key) && (!fragment.clip || contains(fragment.clip, x, y))) visible = fragment.key;
+        }
+        assert.notEqual(visible, null, `${type}, angle ${step}, missing painted surface at ${x}/${y}`);
+        assert.ok(nearest - hits.get(visible) < .01, `${type}, angle ${step}, hidden ${visible} painted in front at ${x}/${y}`);
+        checked++;
+      }
+      assert.ok(checked > 100, `${type}, angle ${step}: too few visible samples`);
+    }
+  }
+});

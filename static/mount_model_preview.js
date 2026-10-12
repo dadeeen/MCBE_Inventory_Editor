@@ -16,6 +16,7 @@
     const instances = new WeakMap();
     const materialCache = new Map();
     const modelCache = new Map();
+    const geometryCache = new WeakMap();
     const TYPE_LABELS = {
         "minecraft:horse": "Pferd",
         "minecraft:donkey": "Esel",
@@ -162,6 +163,71 @@
         ];
     }
 
+    const dot = (left, right) => left.reduce((sum, value, axis) => sum + value * right[axis], 0);
+
+    function partitionSurfaces(polygons) {
+        if (!polygons.length) return null;
+        const normal = polygons[0].face.normal;
+        const offset = dot(normal, polygons[0].vertices[0]);
+        const front = [], back = [], coplanar = [];
+        const epsilon = 1e-6;
+        for (const polygon of polygons) {
+            const distances = polygon.vertices.map(vertex => dot(normal, vertex) - offset);
+            const hasFront = distances.some(distance => distance > epsilon);
+            const hasBack = distances.some(distance => distance < -epsilon);
+            if (!hasFront && !hasBack) coplanar.push(polygon);
+            else if (!hasBack) front.push(polygon);
+            else if (!hasFront) back.push(polygon);
+            else {
+                // Split intersecting faces at the actual plane. Sorting whole
+                // face centers cannot order the neck where it enters the body.
+                const positive = [], negative = [];
+                polygon.vertices.forEach((vertex, index) => {
+                    const next = (index + 1) % polygon.vertices.length;
+                    const distance = distances[index];
+                    if (distance >= -epsilon) positive.push(vertex);
+                    if (distance <= epsilon) negative.push(vertex);
+                    if (distance > epsilon && distances[next] < -epsilon || distance < -epsilon && distances[next] > epsilon) {
+                        const fraction = distance / (distance - distances[next]);
+                        const crossing = vertex.map((value, axis) => value + fraction * (polygon.vertices[next][axis] - value));
+                        positive.push(crossing);
+                        negative.push(crossing);
+                    }
+                });
+                front.push({ face: polygon.face, vertices: positive, clipped: true });
+                back.push({ face: polygon.face, vertices: negative, clipped: true });
+            }
+        }
+        return { normal, coplanar, front: partitionSurfaces(front), back: partitionSurfaces(back) };
+    }
+
+    function geometryFor(model) {
+        if (geometryCache.has(model)) return geometryCache.get(model);
+        const faces = [];
+        for (const part of model.parts) {
+            for (const [name, origin, horizontal, vertical, localNormal, width, height] of faceDefinitions(part)) {
+                if (width < .2 || height < .2) continue;
+                const vertex = (u, v) => transform(origin.map((value, axis) => value + u * horizontal[axis] + v * vertical[axis]), part);
+                faces.push({ part, name, width, height, normal: transform(localNormal, part, true),
+                    vertices: [vertex(0, 0), vertex(1, 0), vertex(1, 1), vertex(0, 1)] });
+            }
+        }
+        // The geometry is fixed while dragging or choosing coats. Build the
+        // partition once; only traversal and projection depend on the camera.
+        const geometry = { faces, tree: partitionSurfaces(faces.map(face => ({ face, vertices: face.vertices, clipped: false }))) };
+        geometryCache.set(model, geometry);
+        return geometry;
+    }
+
+    function orderedSurfaces(tree, camera, result = []) {
+        if (!tree) return result;
+        const frontFacing = dot(tree.normal, camera) >= 0;
+        orderedSurfaces(frontFacing ? tree.back : tree.front, camera, result);
+        result.push(...tree.coplanar);
+        orderedSurfaces(frontFacing ? tree.front : tree.back, camera, result);
+        return result;
+    }
+
     function pixelIn(x, y, left, bottom, width, height) {
         return x >= left && x < left + width && y >= bottom && y < bottom + height;
     }
@@ -172,12 +238,45 @@
         "22232212", "23322211", "22321222", "12211232",
         "21222233", "22123222", "32233122", "23222212",
     ];
-    const WHITE_FIELDS = [
-        [5, 7, 3, 3], [7, 6, 2, 2], [12, 0, 4, 2],
-        [15, 1, 5, 3], [19, 2, 3, 3],
-    ];
-    const WHITE_SPOTS = [[1, 6, 2, 3], [5, 3, 3, 2], [6, 8, 2, 2], [10, 5, 2, 3], [13, 2, 2, 2], [16, 6, 3, 2], [19, 3, 2, 2], [20, 8, 2, 2]];
-    const DARK_SPOTS = [[1, 5, 3, 3], [5, 7, 3, 3], [7, 2, 3, 4], [11, 6, 3, 4], [15, 4, 4, 3], [18, 0, 2, 4], [19, 7, 3, 3]];
+    // Own patch outlines: a shoulder field and rising flank field, with
+    // different edges on either side. These are not sampled texture masks.
+    const WHITE_FIELDS = {
+        near: [[3, 7, 3, 3], [6, 8, 5, 2], [5, 6, 2, 2], [12, 0, 5, 2], [16, 1, 6, 3], [19, 3, 3, 2]],
+        far: [[2, 8, 6, 2], [4, 6, 3, 3], [7, 7, 3, 2], [14, 0, 6, 2], [18, 1, 4, 4]],
+    };
+    const WHITE_SPOTS = [[0, 7, 2, 3], [3, 4, 2, 3], [5, 8, 3, 2], [7, 1, 2, 2], [8, 5, 2, 2], [11, 7, 2, 3], [12, 3, 2, 2], [15, 5, 2, 3], [17, 8, 3, 2], [18, 1, 2, 2], [20, 4, 2, 3]];
+
+    function inPatches(x, y, patches) {
+        return patches.some(([left, bottom, width, height]) => pixelIn(x, y, left, bottom, width, height));
+    }
+
+    function fleck(x, y, seed, density) {
+        let hash = Math.imul(x + 1, 374761393) ^ Math.imul(y + 1, 668265263) ^ seed;
+        hash = Math.imul(hash ^ hash >>> 13, 1274126177);
+        return ((hash ^ hash >>> 16) >>> 0) % 100 < density;
+    }
+
+    function foreheadMark(mark, part, face, x, y, width, height) {
+        const head = part.name === "head", muzzle = part.name === "muzzle";
+        if (!head && !muzzle) return false;
+        // A tapered forehead blaze ends above the nose. It must not turn
+        // into the same white outline around every variant's muzzle.
+        const center = Math.floor(height / 2);
+        if (face === "top") {
+            if (mark === 1) return head
+                ? x < 6 && (y === center - 1 || y === center && x < 5 || x === 4 && y === center + 1)
+                : x >= width - 2 && y === center - 1;
+            if (mark === 2) return head
+                ? x < 5 && y >= center - 1 && y <= center + (x < 3 ? 0 : 1)
+                : x >= 2 && (y === center - 1 || y === center && x > 2);
+            if (mark === 3) return head
+                ? pixelIn(x, y, 1, center - 1, 3, 2) || pixelIn(x, y, 4, center, 2, 2)
+                : pixelIn(x, y, 0, center - 1, 2, 2) || x === 3 && y === center;
+        }
+        if (mark === 2 && head && face === "front") return y >= height - 2 && x > 0 && x < width - 2;
+        if (mark === 2 && face === "far") return y >= height - 2 && (head ? x === 0 : x >= width - 2);
+        return false;
+    }
 
     function grain(x, y) {
         return Number(COAT_GRAIN[y % 8][x % 8]);
@@ -205,27 +304,33 @@
     function horseMark(state, part, face, x, y, width, height) {
         if (state.mountType !== "minecraft:horse" || !state.mark) return false;
         if (part.material === "leg" && !["top", "bottom"].includes(face)) {
-            if (state.mark === 1) return y >= 3 && y < 7;
-            if (state.mark >= 3) return x === 1 && y >= height - 3;
+            if (state.mark === 1) return y >= 3 && y < 7 + (x === 0 ? 1 : 0);
+            if (state.mark === 3) return y >= height - 4 && fleck(x, y, part.name.includes("back") ? 83 : 41, 28);
+            if (state.mark === 4) return y >= 3 && fleck(x, y, part.name.includes("right") ? 113 : 67, 24);
         }
-        if ((part.name === "head" || part.name === "muzzle") && state.mark <= 2) {
-            if (face === "top") return y >= Math.floor(height / 2) - 1 && y <= Math.floor(height / 2) && x < width - 1;
-            if (face === "front") return x >= Math.floor(width / 2) - 1 && x <= Math.floor(width / 2);
-        }
+        if (foreheadMark(state.mark, part, face, x, y, width, height)) return true;
         const side = face === "near" || face === "far";
-        if (state.mark === 3 && side && (part.name === "neck" || part.name === "head")) return pixelIn(x, y, 1, 2, 2, 2) || pixelIn(x, y, 4, 7, 2, 3);
-        if (state.mark === 3 && part.name === "head" && face === "top") return pixelIn(x, y, 2, 2, 2, 2);
+        if (state.mark === 3 && part.name === "neck") {
+            if (side) return inPatches(x, y, face === "near" ? [[2, 1, 2, 2], [4, 3, 2, 3]] : [[0, 2, 2, 3], [2, 6, 3, 2], [4, 9, 2, 3], [5, 2, 2, 2]]);
+            if (face === "back") return y > 2 && fleck(x, y, 31, 32);
+        }
         if (part.name !== "body") return false;
         if (face === "top") {
-            if (state.mark === 2) return x < 4 && y > 1 && y < height - 1;
-            if (state.mark >= 3) return (state.mark === 3 ? WHITE_SPOTS : DARK_SPOTS).some(([left, , w], i) => pixelIn(x, y, left, 1 + i % 3 * 2, w, 2));
+            if (state.mark === 2) return inPatches(x, y, [[3, 0, 5, 4], [5, 3, 6, 3], [13, 6, 5, 4], [16, 4, 3, 3]]);
+            if (state.mark === 3) return inPatches(x, y, WHITE_SPOTS) || pixelIn(x, y, 10, 0, 3, 2);
+            if (state.mark === 4) return fleck(x, y, 97, 57);
         }
-        if (state.mark === 2 && face === "back") return y >= 2 && y < 5;
+        if (state.mark === 2 && face === "back") return y < 3 + (x < 3 ? 2 : 0);
+        if (face === "front" || face === "back") {
+            if (state.mark === 3) return inPatches(x, y, [[1, 6, 2, 2], [5, 2, 2, 3]]);
+            if (state.mark === 4) return fleck(x, y, 139, face === "front" ? 19 : 54);
+        }
         if (!side) return false;
         const px = Math.floor(x * 22 / width);
         const py = Math.floor(y * 10 / height);
-        if (state.mark === 2) return WHITE_FIELDS.some(([left, bottom, w, h]) => pixelIn(px, py, left, bottom, w, h));
-        if (state.mark >= 3) return (state.mark === 3 ? WHITE_SPOTS : DARK_SPOTS).some(([left, bottom, w, h]) => pixelIn(px, py, left, bottom, w, h));
+        if (state.mark === 2) return inPatches(px, py, WHITE_FIELDS[face]);
+        if (state.mark === 3) return inPatches(face === "far" ? 21 - px : px, py, WHITE_SPOTS);
+        if (state.mark === 4) return fleck(px, py, face === "far" ? 173 : 53, px < 4 && py > 4 ? 25 : 57);
         return false;
     }
 
@@ -287,8 +392,12 @@
         const horizontal = face === "top" || face === "bottom";
         let tone = coatTone(part, face, x, y, width, height);
         let color = palette.coat[tone];
-        if (state.mountType === "minecraft:horse" && state.color === 1 && part.material === "leg" && !horizontal && (y === 2 || y === 4)) color = WHITE[tone];
-        if (horseMark(state, part, face, x, y, width, height)) color = state.mark === 4 ? BLACK_MARK[tone] : WHITE[tone];
+        const creamDetails = state.mountType === "minecraft:horse" && state.color === 1;
+        const whiteBase = creamDetails && (part.material === "leg" && !horizontal && (y === 2 || y === 4)
+            || foreheadMark(1, part, face, x, y, width, height));
+        const marked = horseMark(state, part, face, x, y, width, height);
+        if (whiteBase) color = WHITE[tone];
+        if (marked) color = state.mark === 4 ? BLACK_MARK[tone] : WHITE[state.mark === 3 ? Math.max(0, tone - 1) : tone];
         if (part.material === "mane" || part.material === "tail") {
             // Uneven tips are transparent texels, rather than a solid slab.
             if (part.material === "tail" && !horizontal && y < [1, 0, 2][x % 3]) return null;
@@ -298,7 +407,7 @@
         }
         if (part.material === "leg" && !horizontal && y < 2) color = HOOF[x % 2 ? 1 : 2];
         if (part.material === "leg" && face === "bottom") color = HOOF[0];
-        if (part.material === "leg" && !horizontal && y === 6 && x > 0 && x < width - 1) color = palette.coat[1];
+        if (part.material === "leg" && !horizontal && y === 6 && x > 0 && x < width - 1 && !marked) color = palette.coat[1];
         if (part.material === "head" && side) {
             if (x === 2 && y === 3) color = "#e1e1dc";
             if (x === 1 && y === 3) color = "#18191b";
@@ -306,7 +415,7 @@
         }
         if (part.material === "muzzle") {
             if (donkey || mule) color = ["#696764", "#83807b", "#a3a09a", "#bdbbb4"][tone];
-            else if (!horseMark(state, part, face, x, y, width, height)) color = palette.coat[Math.max(0, tone - 1)];
+            else if (!marked && !whiteBase) color = palette.coat[face === "front" || side && x < 2 ? 0 : Math.max(0, tone - 1)];
             if (side && x === 0 && y === 3 || face === "front" && y === 3 && (x === 0 || x === width - 1)) color = "#393125";
             if (y === 0 && !horizontal) color = donkey || mule ? "#575452" : palette.coat[0];
         }
@@ -410,32 +519,35 @@
             return [180 + (x * cosine + z * sine) * frame.zoom, frame.groundY + ((-x * sine + z * cosine) * Math.sin(TILT) - y * Math.cos(TILT)) * frame.zoom];
         };
         const points = vertices => vertices.map(vertex => project(vertex).map(value => value.toFixed(2)).join(",")).join(" ");
-        const depth = point => point.reduce((sum, value, axis) => sum + value * camera[axis], 0);
-        const surfaces = [];
-        for (const part of model.parts) {
-            for (const [name, origin, horizontal, vertical, localNormal, width, height] of faceDefinitions(part)) {
-                if (width < .2 || height < .2) continue;
-                const normal = transform(localNormal, part, true);
-                const inside = depth(normal) <= .001;
-                const texture = textureFor(state, part, name, width, height);
-                if (!texture.paths.length || inside && texture.opaque && !model.skeleton) continue;
-                const vertex = (u, v) => transform(origin.map((value, axis) => value + u * horizontal[axis] + v * vertical[axis]), part);
-                const vertices = [vertex(0, 0), vertex(1, 0), vertex(1, 1), vertex(0, 1)];
-                const [p0, p1, , p3] = vertices.map(project);
-                const matrix = [(p1[0] - p0[0]) / texture.columns, (p1[1] - p0[1]) / texture.columns, (p3[0] - p0[0]) / texture.rows, (p3[1] - p0[1]) / texture.rows, ...p0].map(value => value.toFixed(4)).join(" ");
-                // A slight overlap prevents antialiasing seams between texels.
-                const painted = texture.paths.map(([color, path]) => {
-                    const shaded = shadeColor(color, normal, yaw, inside);
-                    return `<path d="${path}" fill="${shaded}" stroke="${shaded}" stroke-width=".12" stroke-linejoin="miter"/>`;
-                }).join("");
-                const silhouette = !texture.opaque || model.skeleton ? "" : `<polygon points="${points(vertices)}" fill="${shadeColor(pixelColor(state, part, name, 0, 0, texture.columns, texture.rows), normal, yaw, false)}"/>`;
-                surfaces.push({ depth: vertices.reduce((sum, item) => sum + depth(item), 0) / 4, content: `<g data-model-part="${part.name}" data-model-face="${name}">${silhouette}<g class="mount-model-texels" transform="matrix(${matrix})">${painted}</g></g>` });
-            }
+        const geometry = geometryFor(model);
+        const paintedFaces = new Map();
+        for (const face of geometry.faces) {
+            const { part, name, normal, width, height, vertices } = face;
+            const inside = dot(normal, camera) <= .001;
+            const texture = textureFor(state, part, name, width, height);
+            if (!texture.paths.length || inside && texture.opaque && !model.skeleton) continue;
+            const [p0, p1, , p3] = vertices.map(project);
+            const matrix = [(p1[0] - p0[0]) / texture.columns, (p1[1] - p0[1]) / texture.columns, (p3[0] - p0[0]) / texture.rows, (p3[1] - p0[1]) / texture.rows, ...p0].map(value => value.toFixed(4)).join(" ");
+            // A slight overlap prevents antialiasing seams between texels.
+            const painted = texture.paths.map(([color, path]) => {
+                const shaded = shadeColor(color, normal, yaw, inside);
+                return `<path d="${path}" fill="${shaded}" stroke="${shaded}" stroke-width=".12" stroke-linejoin="miter"/>`;
+            }).join("");
+            const silhouette = !texture.opaque || model.skeleton ? "" : `<polygon points="${points(vertices)}" fill="${shadeColor(pixelColor(state, part, name, 0, 0, texture.columns, texture.rows), normal, yaw, false)}"/>`;
+            paintedFaces.set(face, `<g data-model-part="${part.name}" data-model-face="${name}">${silhouette}<g class="mount-model-texels" transform="matrix(${matrix})">${painted}</g></g>`);
         }
-        surfaces.sort((left, right) => left.depth - right.depth);
+        const surfaces = orderedSurfaces(geometry.tree, camera).map(polygon => {
+            const content = paintedFaces.get(polygon.face);
+            if (!content) return "";
+            if (!polygon.clipped) return content;
+            const clip = polygon.vertices.map(vertex => project(vertex).map(value => `${value.toFixed(4)}px`).join(" ")).join(",");
+            // SVG user coordinates, independent of each group's bounding box
+            // and the CSS size of the responsive stage; no document-wide IDs.
+            return `<g style="clip-path:polygon(${clip}) view-box">${content}</g>`;
+        });
         const groundY = frame.groundY.toFixed(2);
         const radius = Math.min(114, frame.radius * frame.zoom * .84).toFixed(2);
-        return `<ellipse class="mount-model-ground" cx="180" cy="${groundY}" rx="${radius}" ry="21"/><ellipse cx="180" cy="${groundY}" rx="76" ry="12" fill="#000000" opacity=".12"/><g data-model-scale="${model.scale}" data-model-material="${model.skeleton ? "bone-cutout" : "pixel-coat"}">${surfaces.map(surface => surface.content).join("")}</g>`;
+        return `<ellipse class="mount-model-ground" cx="180" cy="${groundY}" rx="${radius}" ry="21"/><ellipse cx="180" cy="${groundY}" rx="76" ry="12" fill="#000000" opacity=".12"/><g data-model-scale="${model.scale}" data-model-material="${model.skeleton ? "bone-cutout" : "pixel-coat"}">${surfaces.join("")}</g>`;
     }
 
     function control(action, label, path) {
