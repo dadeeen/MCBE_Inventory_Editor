@@ -4,7 +4,7 @@ import socket
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from http.client import HTTPConnection
-from threading import Event, Thread, enumerate as enumerate_threads
+from threading import Barrier, Event, Thread, enumerate as enumerate_threads
 
 import pytest
 from flask import Flask, Response, request
@@ -76,6 +76,27 @@ def test_local_server_handles_parallel_requests():
         finally:
             release.set()
         assert pending.result(timeout=5) == (200, b"done")
+
+
+def test_local_server_serves_browser_asset_burst_with_room_for_heartbeat():
+    app = server_app()
+    entered, release = Barrier(7), Event()
+
+    @app.get("/asset")
+    def asset():
+        entered.wait(timeout=5)
+        assert release.wait(5)
+        return "asset"
+
+    app.add_url_rule("/heartbeat", view_func=lambda: "ready")
+    with running_server(app) as (_server, port, _thread), ThreadPoolExecutor(6) as pool:
+        requests = [pool.submit(fetch, port, "/asset") for _ in range(6)]
+        try:
+            entered.wait(timeout=5)
+            assert fetch(port, "/heartbeat") == (200, b"ready")
+        finally:
+            release.set()
+        assert all(pending.result(timeout=5) == (200, b"asset") for pending in requests)
 
 
 def test_local_shutdown_finishes_active_handler_and_large_response(monkeypatch):

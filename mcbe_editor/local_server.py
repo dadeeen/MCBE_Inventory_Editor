@@ -33,7 +33,10 @@ class LocalServer:
                 # Allow bounded framing overhead; Flask enforces decoded size.
                 max_request_body_size=app.config["MAX_CONTENT_LENGTH"] + 64 * 1024,
             )
-            self._dispatcher.set_thread_count(4)
+            # A cold page load fills the browser's six HTTP/1 connections with
+            # assets. Leave room for those plus API/heartbeat work instead of
+            # queuing an ordinary single-tab startup behind four workers.
+            self._dispatcher.set_thread_count(8)
         except BaseException:
             self._dispatcher.shutdown()
             wasyncore.close_all(self._sockets)
