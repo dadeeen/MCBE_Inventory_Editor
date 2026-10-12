@@ -7,10 +7,10 @@ Requires jinja2 and playwright with Chromium (no Flask or Bedrock world needed).
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from pathlib import Path
 
+from browser_fixture import without_automatic_assets
 from jinja2 import Environment, FileSystemLoader
 from playwright.sync_api import sync_playwright
 
@@ -39,7 +39,7 @@ def render_template():
             i18n_catalog={},
         )
     )
-    return re.sub(r"<script\b[^>]*>[\s\S]*?</script>|<link\b[^>]*>", "", html)
+    return without_automatic_assets(html)
 
 
 def main():

@@ -13,10 +13,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 from pathlib import Path
 
+from browser_fixture import without_automatic_assets
 from jinja2 import Environment, FileSystemLoader
 from playwright.sync_api import sync_playwright
 
@@ -54,7 +54,7 @@ def render_template(root=ROOT, locale="de"):
     )
     # Keep the genuine translation catalog; app startup/API calls are replaced
     # only by the fixture below. Actual UI controllers are loaded explicitly.
-    return re.sub(r"<script\b[^>]*>[\s\S]*?</script>|<link\b[^>]*>", lambda match: match[0] if 'type="application/json"' in match[0] else "", text)
+    return without_automatic_assets(text, keep_json=True)
 
 
 def settle(page):

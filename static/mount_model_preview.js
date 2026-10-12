@@ -560,7 +560,7 @@
         const label = t("{mount}: 3D-Modell im Minecraft-Stil", { mount: t(TYPE_LABELS[state.mountType]) });
         return `<section id="mountModelPreview" class="mount-model-card" aria-labelledby="mountModelHeading">
             <div class="mount-model-heading"><h3 id="mountModelHeading">${escapeHtml(t("3D-Ansicht"))}</h3><span>${escapeHtml(t("Minecraft-Stil"))}</span></div>
-            <div id="mountModelStage" class="mount-model-stage" tabindex="0" role="group" aria-label="${escapeAttr(label)}" aria-describedby="mountModelHelp" data-yaw="${yaw.toFixed(3)}" data-mount-type="${state.mountType}" data-color="${state.color}" data-mark="${state.mark}" data-random="${state.random}">
+            <div id="mountModelStage" class="mount-model-stage" tabindex="0" role="group" aria-label="${escapeAttr(label)}" aria-describedby="mountModelHelp" data-yaw="${yaw.toFixed(3)}" data-mount-type="${escapeAttr(state.mountType)}" data-color="${state.color}" data-mark="${state.mark}" data-random="${state.random}">
                 <svg class="mount-model-svg" viewBox="0 0 360 260" role="img" aria-label="${escapeAttr(label)}">${scene(state, yaw)}</svg>
             </div>
             <div class="mount-model-footer"><p class="mount-model-appearance">${escapeHtml(appearance(state))}</p><div class="mount-model-controls">
