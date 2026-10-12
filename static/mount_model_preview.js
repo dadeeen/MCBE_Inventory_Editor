@@ -361,7 +361,8 @@
         const centerX = (lowX + highX) / 2;
         const radius = Math.max(...vertices.map(([x, , z]) => Math.hypot(x - centerX, z)));
         const vertical = highY * Math.cos(TILT) + 2 * radius * Math.sin(TILT);
-        const zoom = Math.min(6, 312 / (radius * 2), 218 / vertical);
+        // Fit the full turn inside the existing stage with a small edge inset.
+        const zoom = Math.min(6.6, 336 / (radius * 2), 240 / vertical);
         return { centerX, zoom, groundY: 130 + highY * Math.cos(TILT) * zoom / 2, radius };
     }
 
@@ -426,7 +427,7 @@
             </div>
             <div class="mount-model-footer"><p class="mount-model-appearance">${escapeHtml(appearance(state))}</p><div class="mount-model-controls">
                 ${control("left", "Ansicht nach links drehen", "M7 7H3V3M3.5 7a9 9 0 1 1-0.3 9")}
-                ${control("reset", "Ansicht zurücksetzen", "m3 10 9-7 9 7M5 9v11h14V9M9 20v-7h6v7")}
+                ${control("reset", "Ansicht zurücksetzen", "M8 4H4v4m12-4h4v4M4 16v4h4m8 0h4v-4M8 12l4-4 4 4-4 4-4-4")}
                 ${control("right", "Ansicht nach rechts drehen", "M17 7h4V3M20.5 7a9 9 0 1 0 .3 9")}
             </div></div>
             <span id="mountModelHelp" class="visually-hidden">${escapeHtml(t("Zum Drehen ziehen oder die Pfeiltasten verwenden. Mit Pos1 die Ansicht zurücksetzen."))}</span>
