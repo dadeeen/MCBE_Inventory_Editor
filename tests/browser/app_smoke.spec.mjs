@@ -3049,6 +3049,9 @@ test("Studio world selection keeps the card and world list stationary", async ({
   }));
   await page.route("**/api/scan_worlds", route => route.fulfill({ json: { success: true, worlds } }));
   await openAppAndWaitForScan(page);
+  // Receiving headers does not mean the response body has been rendered yet.
+  await expect(page.locator(".world-card")).toHaveCount(worlds.length);
+  await expect(page.locator("#worldScanLoading")).toBeHidden();
   await page.locator("#layoutSelect").selectOption("studio");
   const selection = page.locator("#selectedWorldBar");
   await expect(selection).toBeVisible();
@@ -3078,6 +3081,32 @@ test("Studio world selection keeps the card and world list stationary", async ({
   await expect(page.locator("#btnLoad")).toBeDisabled();
   await selectLayout(page, "studio");
   await expect(selection).toBeVisible();
+});
+
+test("Studio routine status messages keep the workspace stable across font metrics and window sizes", async ({ page }) => {
+  await openAppWithEmptyWorldScan(page);
+  await expect(page.locator("#worldScanLoading")).toBeHidden();
+  await selectLayout(page, "studio");
+  const worldSection = page.locator("#worldSection");
+  const top = () => worldSection.evaluate(node => node.getBoundingClientRect().top + window.scrollY);
+  const messages = ["Keine Hinweise", "Welt ausgewählt. Klicke auf Laden, wenn du sie öffnen möchtest.", "Erfolgreich"];
+  // Arial reproduces the header wrap seen with Linux's narrower font metrics.
+  for (const font of ["Segoe UI", "Arial"]) {
+    const style = await page.addStyleTag({ content: `body, button { font-family: "${font}", sans-serif !important; }` });
+    for (const width of [320, 390, 1280, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      let before;
+      for (const message of messages) {
+        await page.evaluate(message => logStatus(message, "success", { key: "stable-status" }), message);
+        await expect(page.locator("#statusStackSummary")).toHaveText(message);
+        const after = await top();
+        if (before !== undefined) expect(Math.abs(after - before), `${font}, ${width}px, ${message}`).toBeLessThanOrEqual(1);
+        before = after;
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+    }
+    await style.evaluate(node => node.remove());
+  }
 });
 
 test("world rescans retain keyboard focus and scroll when the results are unchanged", async ({ page }) => {

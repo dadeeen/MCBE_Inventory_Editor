@@ -868,7 +868,10 @@
     position: relative;
 }
 :root[data-layout="studio"] .app-header .header-status-stack {
-    flex: 0 1 auto;
+    /* A content-based basis makes routine messages rewrap the whole status
+       row and move the workspace. Reserve a stable, shrinkable message track;
+       warning and error text can still wrap inside it. */
+    flex: 1 1 240px;
     max-width: 100%;
     position: static;
 }
