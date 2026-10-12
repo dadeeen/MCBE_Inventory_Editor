@@ -204,16 +204,19 @@ def test_horse_temper_live_hint_updates_on_input() -> None:
 
             const listeners = {};
             const horseTemperInput = {
+                id: "mountHorseTemperInput",
                 value: "40",
-                addEventListener: (name, callback) => { listeners[name] = callback; },
+                dataset: { numberHint: "temper" },
+                getAttribute: name => name === "aria-describedby" ? "mountHorseTemperHint" : null,
+                addEventListener: (name, callback) => { (listeners[name] ||= []).push(callback); },
             };
-            const horseTemperHint = { textContent: "alter Hinweis" };
+            const horseTemperHint = { textContent: "alter Hinweis", classList: { toggle() {} } };
             const doc = {
                 getElementById: id => ({
                     mountHorseTemperInput: horseTemperInput,
                     mountHorseTemperHint: horseTemperHint,
                 })[id] || null,
-                querySelectorAll: () => [],
+                querySelectorAll: selector => selector.includes(".mount-horse-profile-field") ? [horseTemperInput] : [],
             };
             const controller = context.window.MCBEMountController.createMountController({
                 doc,
@@ -224,9 +227,10 @@ def test_horse_temper_live_hint_updates_on_input() -> None:
             });
 
             controller.refresh();
-            assert.strictEqual(typeof listeners.input, "function", "Temper-Eingabe hat keinen input-Listener");
+            assert.ok(listeners.input.length, "Temper-Eingabe hat keinen input-Listener");
+            assert.strictEqual(horseTemperHint.textContent, "Temper 40");
             horseTemperInput.value = "95";
-            listeners.input();
+            for (const listener of listeners.input) listener();
             assert.strictEqual(horseTemperHint.textContent, "Temper 95", "Temper-Hinweis wurde nicht aktualisiert");
             """
         )

@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-import json
-import re
 import textwrap
-from pathlib import Path
 
 from tests.node_runner import run_node
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _view_harness(body: str) -> str:
@@ -46,6 +40,12 @@ def test_mount_numeric_helpers_handle_empty_and_valid_values() -> None:
             assert.strictEqual(view.finiteInput("0.175"), 0.175);
             assert.ok(Math.abs(view.movementBlocksPerSecond(0.175) - 7.378) < 0.001);
             assert.ok(Number.isFinite(view.jumpHeightBlocks(0.5)));
+            for (const value of [100, -1, NaN, Infinity]) {
+                assert.strictEqual(view.movementHintText(value), "");
+                assert.strictEqual(view.jumpHintText(value), "");
+                assert.strictEqual(view.temperHintText(value), "");
+            }
+            assert.strictEqual(view.temperHintText(3.5), "");
             assert.strictEqual(view.positionText({ x: 1, y: 2.5, z: -3 }), "X 1 · Y 2.50 · Z -3");
             """
         )
@@ -128,42 +128,47 @@ def test_horse_temper_input_explains_the_value_in_plain_language() -> None:
     )
 
 
-def test_every_live_hint_the_controller_updates_exists_in_the_rendered_markup() -> None:
-    """Der Controller schreibt Hinweistexte per getElementById nach - fehlt die id,
-    friert der Hinweis auf dem Startwert ein, ohne dass irgendetwas auffaellt.
-
-    Genau so war es beim Zaehmfortschritt des Pferdes: der Text stimmte beim
-    ersten Zeichnen und blieb danach stehen. Die ids entstehen erst beim Rendern
-    (statFieldHtml baut sie aus einem Feld-Descriptor), deshalb prueft dieser Test
-    die erzeugte Ausgabe und nicht den Quelltext.
-    """
-
-    controller = (ROOT / "static" / "mount_controller.js").read_text(encoding="utf-8")
-    hint_ids = sorted({match for match in re.findall(r'getElementById\("(\w+Hint)"\)', controller)})
-    assert hint_ids == sorted(
-        {
-            "mountHorseJumpHint",
-            "mountHorseMovementHint",
-            "mountHorseTemperHint",
-            "mountStatJumpHint",
-            "mountStatTemperHint",
-        }
-    ), "Die vollständige Menge der Live-Hinweise muss explizit verdrahtet bleiben."
-
+def test_every_editable_stat_has_an_associated_live_hint() -> None:
     run_node(
         _view_harness(
-            f"const wanted = {json.dumps(hint_ids)};"
-            + r"""
-            // Jede Variante, die eigene Felder rendert: Pferd (eigenes Profil),
-            // Esel wild (Zaehmfortschritt) und Esel gezaehmt (ohne).
-            const markup = [
+            r"""
+            const variants = [
                 view.optionsHtml("minecraft:horse", undefined, 6, { mode: "custom", temper: 40 }),
                 view.optionsHtml("minecraft:donkey", undefined, 6, undefined, { health: 20, temper: 40 }, false),
                 view.optionsHtml("minecraft:donkey", undefined, 6, undefined, { health: 20 }, true),
                 view.optionsHtml("minecraft:skeleton_horse", undefined, 6, undefined, { jump_strength: 0.7 }, false),
-            ].join("\n");
-            const missing = wanted.filter(id => !markup.includes(`id="${id}"`));
-            assert.deepStrictEqual(missing, [], `Hinweis-Elemente fehlen im Markup: ${missing.join(", ")}`);
+            ];
+            for (const markup of variants) {
+                const inputs = [...markup.matchAll(/<input\b[^>]*>/g)]
+                    .map(match => match[0]).filter(input => /mount-(horse-profile|stat)-field/.test(input));
+                assert.ok(inputs.length);
+                for (const input of inputs) {
+                    const hint = input.match(/aria-describedby="([^"]+)"/);
+                    assert.ok(hint, `Missing associated hint: ${input}`);
+                    assert.ok(markup.includes(`id="${hint[1]}"`), `Missing live hint: ${hint[1]}`);
+                }
+            }
+            """
+        )
+    )
+
+
+def test_stat_validation_distinguishes_ranges_empty_values_and_integer_fields() -> None:
+    run_node(
+        _view_harness(
+            r"""
+            const input = {value: "25", min: "15", max: "30", required: true, step: "1"};
+            assert.strictEqual(view.numberInputError(input), "");
+            assert.strictEqual(view.numberInputError({...input, value: "100"}), "Zulässig: 15 bis 30.");
+            assert.strictEqual(view.numberInputError({...input, value: ""}), "Bitte eine gültige Zahl eingeben.");
+            assert.strictEqual(view.numberInputError({...input, value: "", required: false}), "");
+            assert.strictEqual(view.numberInputError({...input, value: "", required: false}, true), "Bitte eine gültige Zahl eingeben.");
+            assert.strictEqual(view.numberInputError({...input, value: "NaN"}), "Bitte eine gültige Zahl eingeben.");
+            assert.strictEqual(view.numberInputError({...input, value: "20.5", validity: {stepMismatch: true}}), "Bitte eine ganze Zahl eingeben.");
+            for (const [min, max] of [[15,30],[0.1125,0.3375],[0.4,1],[0,99]]) {
+                for (const value of [min,max]) assert.strictEqual(view.numberInputError({...input, min, max, value}), "");
+                for (const value of [min-1,max+1,100]) assert.match(view.numberInputError({...input, min, max, value}), /Zulässig:/);
+            }
             """
         )
     )

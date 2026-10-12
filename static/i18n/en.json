@@ -2893,5 +2893,9 @@
   "Weitere Gründe in den Prüfdetails: {count}.": "Additional reasons in the check details: {count}.",
   "Chunk X {x} · Z {z}": "Chunk X {x} · Z {z}",
   "Betroffene Blöcke: {count}. Beispiel: X {x} · Y {y} · Z {z}.": "Affected blocks: {count}. Example: X {x} · Y {y} · Z {z}.",
-  "Warum ungeprüft?": "Why is this unchecked?"
+  "Warum ungeprüft?": "Why is this unchecked?",
+  "Bitte eine gültige Zahl eingeben.": "Enter a valid number.",
+  "Zulässig: {min} bis {max}.": "Allowed: {min} to {max}.",
+  "Bitte eine ganze Zahl eingeben.": "Enter a whole number.",
+  "Schrittweite: {step}.": "Step size: {step}."
 }

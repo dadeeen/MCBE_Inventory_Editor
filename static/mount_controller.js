@@ -11,6 +11,7 @@
         jump_strength: 0.5,
         color: 0,
         mark_variant: 1,
+        temper: 62,
     };
 
     function createMountController({
@@ -43,6 +44,9 @@
         let previewLoading = false;
         let modelPreview = null;
         let modelView = null;
+        // A number input exposes an unfinished exponent/sign as an empty
+        // value. Retain its invalid state when a placement refresh redraws it.
+        const badNumberDrafts = new Set();
 
         function previewContextKey() {
             return `${getWorldPath()}\n${getCurrentPlayerKey()}`;
@@ -101,10 +105,9 @@
             return selectedPlacementRadius;
         }
 
-        function numberFromDom(element, fallback, minimum, maximum) {
-            const parsed = Number.parseFloat(element?.value);
-            if (!Number.isFinite(parsed)) return fallback;
-            return Math.max(minimum, Math.min(maximum, parsed));
+        function numberFromDom(element, fallback) {
+            if (!element) return fallback;
+            return finiteOrNull(element.value) ?? element.value;
         }
 
         function intFromDom(element, fallback, minimum, maximum) {
@@ -120,12 +123,12 @@
             const mode = el.horseProfileMode?.value === "custom" ? "custom" : "random_like_game";
             selectedHorseProfile = {
                 mode,
-                health: numberFromDom(el.horseHealthInput, selectedHorseProfile.health ?? DEFAULT_HORSE_PROFILE.health, 15, 30),
-                movement: numberFromDom(el.horseMovementInput, selectedHorseProfile.movement ?? DEFAULT_HORSE_PROFILE.movement, 0.1125, 0.3375),
-                jump_strength: numberFromDom(el.horseJumpInput, selectedHorseProfile.jump_strength ?? DEFAULT_HORSE_PROFILE.jump_strength, 0.4, 1),
+                health: numberFromDom(el.horseHealthInput, selectedHorseProfile.health ?? DEFAULT_HORSE_PROFILE.health),
+                movement: numberFromDom(el.horseMovementInput, selectedHorseProfile.movement ?? DEFAULT_HORSE_PROFILE.movement),
+                jump_strength: numberFromDom(el.horseJumpInput, selectedHorseProfile.jump_strength ?? DEFAULT_HORSE_PROFILE.jump_strength),
                 color: intFromDom(el.horseColorSelect, selectedHorseProfile.color ?? DEFAULT_HORSE_PROFILE.color, 0, 6),
                 mark_variant: intFromDom(el.horseMarkSelect, selectedHorseProfile.mark_variant ?? DEFAULT_HORSE_PROFILE.mark_variant, 0, 4),
-                temper: intFromDom(el.horseTemperInput, selectedHorseProfile.temper ?? DEFAULT_HORSE_PROFILE.temper, 0, 99),
+                temper: numberFromDom(el.horseTemperInput, selectedHorseProfile.temper ?? DEFAULT_HORSE_PROFILE.temper),
             };
             return selectedHorseProfile;
         }
@@ -155,14 +158,10 @@
         }
 
         function statNumberFromInput(input) {
-            // Grenzen kommen aus den min/max-Attributen des Inputs (eine Quelle:
-            // MOUNT_STATS_FIELDS in der View); der Server validiert autoritativ.
+            // Keep the entered value visible. Invalid drafts cannot be staged;
+            // silently clamping would save a value the user did not choose.
             if (!input) return null;
-            const value = finiteOrNull(input.value);
-            if (value === null) return null;
-            const min = Number(input.min);
-            const max = Number(input.max);
-            return Math.min(Number.isFinite(max) ? max : value, Math.max(Number.isFinite(min) ? min : value, value));
+            return finiteOrNull(input.value);
         }
 
         function updateMountStatsFromDom() {
@@ -488,6 +487,7 @@
                 return;
             }
             const isHorse = lastPreview.mount_type === "minecraft:horse";
+            if (!validateNumberInputs(true)) return false;
             const mountLabel = t(lastPreview.mount_label || "Mount");
             const placementRadius = updateSelectedPlacementRadiusFromDom();
             const horseProfile = isHorse ? horseProfileForCreate() : null;
@@ -602,28 +602,45 @@
             return { complete: true, reloadRequired: false, committedCount: committed.length, expected };
         }
 
-        function wireConversionHints() {
-            const el = elements();
-            el.horseMovementInput?.addEventListener("input", () => {
-                const hint = doc.getElementById("mountHorseMovementHint");
-                if (hint && typeof render?.movementHintText === "function") hint.textContent = render.movementHintText(elements().horseMovementInput?.value);
+        function validateNumberInputs(focusInvalid = false) {
+            let firstInvalid = null;
+            doc.querySelectorAll('.mount-horse-profile-field[type="number"], .mount-stat-field').forEach(input => {
+                const message = render?.numberInputError?.(input, badNumberDrafts.has(input.id)) || "";
+                input.setCustomValidity?.(message);
+                if (message) input.setAttribute?.("aria-invalid", "true");
+                else input.removeAttribute?.("aria-invalid");
+                const hint = doc.getElementById(input.getAttribute?.("aria-describedby"));
+                if (hint) {
+                    if (!input.dataset.defaultHint) input.dataset.defaultHint = hint.textContent;
+                    const converter = { movement: render.movementHintText, jump_strength: render.jumpHintText, temper: render.temperHintText }[input.dataset.numberHint];
+                    hint.textContent = message || (converter ? [input.dataset.numberNote, converter(input.value)].filter(Boolean).join(" ") : input.dataset.defaultHint);
+                    hint.classList.toggle("mount-field-error", Boolean(message));
+                }
+                if (message && !firstInvalid) firstInvalid = input;
             });
-            el.statJumpInput?.addEventListener("input", () => {
-                const hint = doc.getElementById("mountStatJumpHint");
-                if (hint && typeof render?.jumpHintText === "function") hint.textContent = render.jumpHintText(elements().statJumpInput?.value);
+            if (focusInvalid && firstInvalid) {
+                for (let parent = firstInvalid.parentElement; parent; parent = parent.parentElement) {
+                    if (parent.tagName === "DETAILS") parent.open = true;
+                }
+                firstInvalid.focus();
+            }
+            return !firstInvalid;
+        }
+
+        function wireNumberInputs() {
+            doc.querySelectorAll('.mount-horse-profile-field[type="number"], .mount-stat-field').forEach(input => {
+                input.addEventListener("input", () => {
+                    if (input.validity?.badInput) badNumberDrafts.add(input.id);
+                    else badNumberDrafts.delete(input.id);
+                    validateNumberInputs();
+                });
+                input.addEventListener("keydown", event => {
+                    // Number inputs expose an unfinished exponent as "". A
+                    // recreated control must still let Delete clear that draft.
+                    if (["Backspace", "Delete"].includes(event.key) && input.value === "" && !input.validity?.badInput && badNumberDrafts.delete(input.id)) validateNumberInputs();
+                });
             });
-            el.horseJumpInput?.addEventListener("input", () => {
-                const hint = doc.getElementById("mountHorseJumpHint");
-                if (hint && typeof render?.jumpHintText === "function") hint.textContent = render.jumpHintText(elements().horseJumpInput?.value);
-            });
-            el.statTemperInput?.addEventListener("input", () => {
-                const hint = doc.getElementById("mountStatTemperHint");
-                if (hint && typeof render?.temperHintText === "function") hint.textContent = render.temperHintText(elements().statTemperInput?.value);
-            });
-            el.horseTemperInput?.addEventListener("input", () => {
-                const hint = doc.getElementById("mountHorseTemperHint");
-                if (hint && typeof render?.temperHintText === "function") hint.textContent = render.temperHintText(elements().horseTemperInput?.value);
-            });
+            validateNumberInputs();
         }
 
         function refreshMountIcons() {
@@ -640,7 +657,7 @@
 
         function wireHorseProfileControls() {
             const el = elements();
-            wireConversionHints();
+            wireNumberInputs();
             el.horseProfileMode?.addEventListener("change", () => {
                 updateHorseProfileFromDom();
                 renderIdle();
@@ -718,6 +735,7 @@
                 updateHorseProfileFromDom();
                 // Andere Typen haben andere Felder; alte Werte nicht mitnehmen.
                 selectedMountStats = {};
+                for (const id of badNumberDrafts) if (id.startsWith("mountStat")) badNumberDrafts.delete(id);
                 selectedMountTamed = false;
                 clearPreview();
                 renderIdle();
@@ -751,7 +769,9 @@
                     : unchecked
                         ? t("Position wurde nicht sicher geprüft. Vor dem Vormerken musst du bestätigen.")
                         : t("Merkt das gewählte Mount als ungespeicherte Änderung vor.");
-                if (enabled) el.createButton.addEventListener("click", queueMount, { once: true });
+                // Invalid fields keep this DOM button in place, so its handler
+                // must remain available after the user corrects their draft.
+                if (enabled) el.createButton.addEventListener("click", queueMount);
             }
         }
 

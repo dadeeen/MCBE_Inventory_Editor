@@ -71,6 +71,10 @@
     overflow-wrap: anywhere;
 }
 
+.mounts-panel .field-note.mount-field-error { color: var(--danger-text, var(--danger)); }
+.mounts-panel .field-group input[aria-invalid="true"] { border-color: var(--danger); }
+.mounts-panel .field-group input[aria-invalid="true"]:focus { outline: 2px solid var(--danger); outline-offset: 2px; box-shadow: none; }
+
 .mount-icon { display: inline-block; flex: none; }
 .mount-icon svg { display: block; }
 .mount-type-row { display: flex; align-items: center; gap: 12px; }

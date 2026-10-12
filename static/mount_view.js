@@ -49,7 +49,7 @@
 
     function movementBlocksPerSecond(movement) {
         const value = finiteInput(movement);
-        if (value === null) return null;
+        if (value === null || value < 0.1125 || value > 0.3375) return null;
         return value * MOVEMENT_TO_BLOCKS_PER_SECOND;
     }
 
@@ -57,7 +57,7 @@
     // (Minecraft-Wiki: 0,4 ≈ 1,1 Blöcke · 0,5 ≈ 1,6 · 1,0 ≈ 5,3).
     function jumpHeightBlocks(jumpStrength) {
         const x = finiteInput(jumpStrength);
-        if (x === null) return null;
+        if (x === null || x < 0.4 || x > 1) return null;
         return (-0.1817584952 * x * x * x) + (3.689713992 * x * x) + (2.128599134 * x) - 0.343930367;
     }
 
@@ -81,11 +81,22 @@
     // fehlt; das Spiel würfelt ihn pro Tier.
     function temperHintText(temper) {
         const value = finiteInput(temper);
-        if (value === null) return "";
+        if (value === null || !Number.isInteger(value) || value < 0 || value > 99) return "";
         if (value >= 90) return t("fast gezähmt");
         if (value >= 60) return t("gut vorgezähmt");
         if (value >= 30) return t("etwas vorgezähmt");
         return t("praktisch ungezähmt");
+    }
+
+    function numberInputError(input, badInput = false) {
+        const value = finiteInput(input.value);
+        if (badInput || input.validity?.badInput || value === null && (input.required || input.value !== "")) return t("Bitte eine gültige Zahl eingeben.");
+        if (value === null) return "";
+        const format = value => window.MCBEI18n?.formatNumber?.(value, { maximumFractionDigits: 4 }) || String(value);
+        const minimum = Number(input.min), maximum = Number(input.max);
+        if (value < minimum || value > maximum) return t("Zulässig: {min} bis {max}.", { min: format(minimum), max: format(maximum) });
+        if (input.validity?.stepMismatch) return Number(input.step) === 1 ? t("Bitte eine ganze Zahl eingeben.") : t("Schrittweite: {step}.", { step: format(Number(input.step)) });
+        return "";
     }
 
     function positionText(position = {}) {
@@ -531,10 +542,10 @@
             <details class="mount-advanced-options" data-disclosure="horse-stats">
                 <summary>${t("Werte anpassen")}</summary>
                 <div class="mount-horse-profile-grid custom">
-                    <div class="field-group"><label for="mountHorseHealthInput">${t("Leben")}</label><input id="mountHorseHealthInput" class="input-field mount-horse-profile-field" type="number" min="15" max="30" step="1" value="${html().escapeAttr(String(profile.health))}" aria-describedby="mountHorseHealthHint" /><small id="mountHorseHealthHint" class="field-note">${t("15–30 Leben · 7,5–15 Herzen")}</small></div>
-                    <div class="field-group"><label for="mountHorseMovementInput">${t("Geschwindigkeit")}</label><input id="mountHorseMovementInput" class="input-field mount-horse-profile-field" type="number" min="0.1125" max="0.3375" step="0.0001" value="${html().escapeAttr(String(profile.movement))}" aria-describedby="mountHorseMovementHint" /><small id="mountHorseMovementHint" class="field-note mount-conversion-hint">${html().escapeHtml(movementHintText(profile.movement))}</small></div>
-                    <div class="field-group"><label for="mountHorseJumpInput">${t("Sprungstärke")}</label><input id="mountHorseJumpInput" class="input-field mount-horse-profile-field" type="number" min="0.4" max="1" step="0.01" value="${html().escapeAttr(String(profile.jump_strength))}" aria-describedby="mountHorseJumpHint" /><small id="mountHorseJumpHint" class="field-note mount-conversion-hint">${html().escapeHtml(jumpHintText(profile.jump_strength))}</small></div>
-                    <div class="field-group"><label for="mountHorseTemperInput">${t("Zähmfortschritt")}</label><input id="mountHorseTemperInput" class="input-field mount-horse-profile-field" type="number" min="0" max="99" step="1" value="${html().escapeAttr(String(profile.temper))}" aria-describedby="mountHorseTemperHint" /><small id="mountHorseTemperHint" class="field-note mount-conversion-hint">${html().escapeHtml(temperHintText(profile.temper))}</small></div>
+                    <div class="field-group"><label for="mountHorseHealthInput">${t("Leben")}</label><input id="mountHorseHealthInput" class="input-field mount-horse-profile-field" type="number" min="15" max="30" step="1" required value="${html().escapeAttr(String(profile.health))}" aria-describedby="mountHorseHealthHint" /><small id="mountHorseHealthHint" class="field-note">${t("15–30 Leben · 7,5–15 Herzen")}</small></div>
+                    <div class="field-group"><label for="mountHorseMovementInput">${t("Geschwindigkeit")}</label><input id="mountHorseMovementInput" class="input-field mount-horse-profile-field" type="number" min="0.1125" max="0.3375" step="0.0001" required data-number-hint="movement" value="${html().escapeAttr(String(profile.movement))}" aria-describedby="mountHorseMovementHint" /><small id="mountHorseMovementHint" class="field-note mount-conversion-hint">${html().escapeHtml(movementHintText(profile.movement))}</small></div>
+                    <div class="field-group"><label for="mountHorseJumpInput">${t("Sprungstärke")}</label><input id="mountHorseJumpInput" class="input-field mount-horse-profile-field" type="number" min="0.4" max="1" step="0.01" required data-number-hint="jump_strength" value="${html().escapeAttr(String(profile.jump_strength))}" aria-describedby="mountHorseJumpHint" /><small id="mountHorseJumpHint" class="field-note mount-conversion-hint">${html().escapeHtml(jumpHintText(profile.jump_strength))}</small></div>
+                    <div class="field-group"><label for="mountHorseTemperInput">${t("Zähmfortschritt")}</label><input id="mountHorseTemperInput" class="input-field mount-horse-profile-field" type="number" min="0" max="99" step="1" required data-number-hint="temper" value="${html().escapeAttr(String(profile.temper))}" aria-describedby="mountHorseTemperHint" /><small id="mountHorseTemperHint" class="field-note mount-conversion-hint">${html().escapeHtml(temperHintText(profile.temper))}</small></div>
                 </div>
             </details>
         `;
@@ -580,9 +591,9 @@
     function statFieldHtml(field, mountStats = {}) {
         const statValue = finiteInput(mountStats?.[field.key]);
         const hintText = field.key === "jump_strength" ? jumpHintText(statValue) : field.key === "temper" ? temperHintText(statValue) : "";
-        const hintId = field.key === "jump_strength" ? "mountStatJumpHint" : field.key === "temper" ? "mountStatTemperHint" : "";
-        const hint = hintId ? ` <b id="${hintId}" class="mount-conversion-hint">${html().escapeHtml(statValue !== null ? hintText : "")}</b>` : "";
-        return `<div class="field-group"><label for="${field.id}">${field.label}</label><input id="${field.id}" class="input-field mount-stat-field" data-stat-key="${field.key}" type="number" min="${field.min}" max="${field.max}" step="${field.step}" placeholder="${t("zufällig")}" value="${statValue !== null ? html().escapeAttr(String(statValue)) : ""}" /><small class="field-note">${field.note}${hint}</small></div>`;
+        const hintId = field.id.replace(/Input$/, "Hint");
+        const hint = hintText ? ` ${hintText}` : "";
+        return `<div class="field-group"><label for="${field.id}">${field.label}</label><input id="${field.id}" class="input-field mount-stat-field" data-stat-key="${field.key}" data-number-hint="${field.key}" data-number-note="${html().escapeAttr(field.note)}" type="number" min="${field.min}" max="${field.max}" step="${field.step}" placeholder="${t("zufällig")}" value="${statValue !== null ? html().escapeAttr(String(statValue)) : ""}" aria-describedby="${hintId}" /><small id="${hintId}" class="field-note">${html().escapeHtml(field.note + hint)}</small></div>`;
     }
 
     function mountStatsHtml(selectedMountType, mountLabel = "Mount", mountStats = {}, mountTamed = false) {
@@ -734,6 +745,7 @@
         mountStatsHtml,
         movementBlocksPerSecond,
         movementHintText,
+        numberInputError,
         optionsHtml,
         pendingMountsHtml,
         positionText,

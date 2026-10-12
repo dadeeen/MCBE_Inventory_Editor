@@ -575,9 +575,22 @@ def test_normalize_horse_profile_accepts_custom_vanilla_like_values() -> None:
     assert horse_profile_summary(profile)["mark_variant"] == 2
 
 
-def test_normalize_horse_profile_rejects_out_of_range_custom_values() -> None:
-    with pytest.raises(ValueError, match="Leben"):
-        normalize_horse_profile({"mode": "custom", "health": 99})
+@pytest.mark.parametrize("field", ["health", "movement", "jump_strength", "temper"])
+def test_normalize_horse_profile_rejects_100_for_each_custom_attribute(field) -> None:
+    with pytest.raises(ValueError):
+        normalize_horse_profile({"mode": "custom", field: 100})
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"health": 15, "movement": 0.1125, "jump_strength": 0.4, "temper": 0},
+        {"health": 30, "movement": 0.3375, "jump_strength": 1, "temper": 99},
+    ],
+)
+def test_normalize_horse_profile_preserves_custom_attribute_boundaries(values) -> None:
+    profile = normalize_horse_profile({"mode": "custom", **values})
+    assert {field: getattr(profile, field) for field in values} == values
 
 
 def test_normalize_horse_profile_rejects_fractional_integer_fields() -> None:

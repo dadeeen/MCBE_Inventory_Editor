@@ -5,7 +5,7 @@ Dependencies and Chromium setup are shared with design_polish_smoke.py.
 The real template, view and controller run against a synthetic preview API.
 No Bedrock files are read or written. --screenshots DIR saves review images;
 --capture-only captures without assertions, and --root DIR selects source files.
---checks layout, state or queue can repeat only one targeted group.
+--checks layout, state, queue or values can repeat only one targeted group.
 """
 
 from __future__ import annotations
@@ -543,12 +543,103 @@ def run_queue_checks(browser, root):
     return checks
 
 
+def run_value_checks(browser, root):
+    checks = 0
+    fields = {"Health": 30, "Movement": 0.3375, "Jump": 1, "Temper": 99}
+    for layout in ("classic", "studio", "focus"):
+        for width, locale in ((1440, "de"), (390, "en")):
+            for theme in ("dark", "light"):
+                context = (layout, width, locale, theme)
+                page = browser.new_page(viewport={"width": width, "height": 960}, reduced_motion="reduce")
+                create_mount_page(page, root=root, layout=layout, locale=locale, loaded=True)
+                page.evaluate("theme=>document.documentElement.dataset.theme=theme", theme)
+                page.locator("#mountHorseProfileMode").select_option("custom")
+                details = page.locator('details[data-disclosure="horse-stats"]')
+                details.locator("summary").click()
+                for field in fields:
+                    page.locator(f"#mountHorse{field}Input").fill("100")
+                assert page.locator('[aria-invalid="true"]').count() == 4, context
+                assert page.locator(".mount-field-error").count() == 4, context
+                movement_hint = page.locator("#mountHorseMovementHint").inner_text()
+                assert ("0,1125" if locale == "de" else "0.1125") in movement_hint, (context, movement_hint)
+                assert "≈" not in page.locator("#mountHorseJumpHint").inner_text(), context
+                assert_contained_controls(page, context)
+                # Selecting a new location recreates the controls. Invalid
+                # drafts must remain visible and must never be silently clamped.
+                page.locator('[data-candidate-id="rechts_4"]').click()
+                for field in fields:
+                    assert page.locator(f"#mountHorse{field}Input").input_value() == "100", context
+                page.evaluate("window.mountTestController.loadPreview()")
+                details = page.locator('details[data-disclosure="horse-stats"]')
+                details.evaluate("node=>node.open=false")
+                page.locator("#btnMountCreate").click()
+                assert details.evaluate("node=>node.open"), context
+                assert page.evaluate("document.activeElement.id") == "mountHorseHealthInput", context
+                assert not page.evaluate("window.mountTestState.pending.length || window.mountTestState.undo.length"), context
+                for field, value in fields.items():
+                    page.locator(f"#mountHorse{field}Input").fill(str(value))
+                page.locator("#mountHorseTemperInput").fill("5.5")
+                assert page.locator("#mountHorseTemperInput").get_attribute("aria-invalid") == "true", context
+                page.locator("#btnMountCreate").click()
+                assert not page.evaluate("window.mountTestState.pending.length"), context
+                page.locator("#mountHorseTemperInput").fill("99")
+                page.locator("#mountHorseHealthInput").fill("")
+                page.evaluate("window.mountTestController.loadPreview()")
+                assert page.locator("#mountHorseHealthInput").input_value() == "", context
+                page.locator("#btnMountCreate").click()
+                assert not page.evaluate("window.mountTestState.pending.length"), context
+                page.locator("#mountHorseHealthInput").fill("30")
+                assert page.locator('[aria-invalid="true"]').count() == 0, context
+                assert "≈" in page.locator("#mountHorseMovementHint").inner_text(), context
+                # The same button must still work after rejected clicks.
+                page.locator("#btnMountCreate").click()
+                pending = page.evaluate("window.mountTestController.getPendingMounts()")
+                assert len(pending) == 1, context
+                assert {key: pending[0]["horseProfile"][key] for key in ("health", "movement", "jump_strength", "temper")} == {
+                    "health": 30,
+                    "movement": 0.3375,
+                    "jump_strength": 1,
+                    "temper": 99,
+                }, context
+                assert not page.evaluate("window.mountTestState.writes"), context
+                page.close()
+                checks += 1
+
+    page = browser.new_page(viewport={"width": 1440, "height": 960}, reduced_motion="reduce")
+    create_mount_page(page, root=root, loaded=True)
+    for species, field in (("donkey", "Health"), ("mule", "Temper"), ("skeleton_horse", "Jump")):
+        page.locator("#mountTypeSelect").select_option(f"minecraft:{species}")
+        page.evaluate("window.mountTestController.loadPreview()")
+        control = page.locator(f"#mountStat{field}Input")
+        control.fill("100")
+        page.locator("#btnMountCreate").click()
+        assert not page.evaluate("window.mountTestState.pending.length"), species
+        assert control.get_attribute("aria-invalid") == "true", species
+        control.fill("")
+        control.press_sequentially("1e")
+        assert control.evaluate("node=>node.validity.badInput"), species
+        page.evaluate("window.mountTestController.loadPreview()")
+        page.locator("#btnMountCreate").click()
+        assert not page.evaluate("window.mountTestState.pending.length"), (species, "incomplete value became random")
+        # Explicitly clearing an optional value does mean a random attribute.
+        control.press("Backspace")
+        page.locator("#btnMountCreate").click()
+        pending = page.evaluate("window.mountTestController.getPendingMounts()")
+        assert len(pending) == 1 and not pending[0]["mountStats"], species
+        page.locator("#btnMountDiscardPending").click()
+        checks += 1
+    assert not page.evaluate("window.mountTestState.writes")
+    page.close()
+    print(f"Mount numeric bounds, localization, draft persistence and staging: {checks} scenarios passed", flush=True)
+    return checks
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--screenshots", type=Path)
     parser.add_argument("--capture-only", action="store_true")
-    parser.add_argument("--checks", choices=("all", "layout", "state", "queue"), default="all")
+    parser.add_argument("--checks", choices=("all", "layout", "state", "queue", "values"), default="all")
     args = parser.parse_args()
     chromium_path = os.environ.get("CHROMIUM_PATH") or shutil.which("chromium") or shutil.which("chromium-browser")
     with sync_playwright() as pw:
@@ -564,6 +655,8 @@ def main():
                     checks += run_state_checks(browser, args.root)
                 if args.checks in ("all", "queue"):
                     checks += run_queue_checks(browser, args.root)
+                if args.checks in ("all", "values"):
+                    checks += run_value_checks(browser, args.root)
                 print(f"PASS: {checks} mount browser scenarios (real UI; synthetic preview API; no writes)")
         finally:
             browser.close()
