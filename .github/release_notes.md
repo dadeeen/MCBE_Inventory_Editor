@@ -1,15 +1,14 @@
 Runtime package for the Minecraft Bedrock Inventory Editor.
 
-## What changed in v0.7.0
+## What changed in v0.7.1
 
-- **Three layouts:** Classic keeps the familiar interface and remains the default. Studio adds a grouped sidebar and persistent inspector; Focus offers a compact editing workspace. Layout, color theme and language are separate preferences saved in the browser. Switching layouts preserves pending edits.
-- **Clearer, responsive controls:** world selection, player context and save review avoid duplicate cards and unnecessary scrolling. Layout, theme and language menus use consistent sizing. Item icons scale with the available slot space; equipment numbers have their own space above the icons, including compact Focus slots. Equipment captions and the Enderchest heading have clear spacing from their frames. Dialogs fit narrow and short windows, with readable text and reachable actions. Status feedback is quieter and routine messages keep the workspace position stable, while write locks, errors and important warnings remain visible. Light mode improves the contrast of slot numbers, buttons, fields and diagnostic messages.
-- **Mount configuration and preview:** a rotatable model previews each supported mount type and horse colors and markings. Custom pixel materials reflect Vanilla coat families, mane colors, distinct forehead markings, larger white fields and fine dark spotting, with species-specific muzzle, hoof and skeleton details; original Mojang assets are not bundled. Intersecting parts occlude correctly while rotating, including the neck's connection to the body. Models use more of the preview area while remaining visible through a full turn; a centered-view icon identifies the reset action. Placement details show the collision footprint and expandable block data. Invalid custom attributes show localized field errors and block staging instead of silently clamping values or displaying impossible speed and jump estimates. Staged mounts remain visible and use the existing review/save workflow. Technical and duplicate hints are reduced without removing placement warnings or write safeguards.
-- **More precise placement checks:** checks cover the mount's full collision footprint and body height at the position that will actually be stored. Missing chunks, unfinished generation, unsupported data and probe errors have distinct explanations. Known obstructions take precedence over unchecked areas. A nearby chunk is not assumed safe merely because the player can see it in Minecraft.
-- **More reliable navigation:** rescanning worlds preserves keyboard focus and list position; failed searches clear obsolete results. Stale player and mount responses cannot replace the current editing context. World-folder actions report the handoff to the file manager.
-- **Local startup:** the local server handles a browser's parallel asset requests with capacity left for API calls and heartbeats, avoiding queue-warning bursts during a normal first page load. Overload warnings remain enabled.
-- **Dependency security:** the runtime requires Werkzeug 3.1.9 or later; the runtime, Docker and development lockfiles pin the reviewed update. The new layouts and model preview introduce no additional runtime libraries.
-- **Docker packaging:** recursive build-context exclusions keep local Python caches, logs and private artifacts out of copied source directories. The container smoke test also rejects non-runtime artifacts and verifies the release manifest.
+- **Studio status layout:** long warnings and errors use the available header width instead of being squeezed into a narrow, tall box. On smaller screens, the server status and message can occupy separate rows. Routine messages remain compact. Authenticated mobile sessions keep the layout, theme and language menus aligned beneath the logout control.
+- **Readable status details:** Classic keeps the expanded status history inside its panel on narrow screens. Focus anchors the status history and server details to the full header, giving messages useful reading space instead of the width of a small status label.
+- **Keyboard interaction:** Escape closes an open status history and returns focus to its toggle without also clearing the selected inventory slot. Closing the details preserves active warnings and write locks.
+
+This patch changes presentation and status-panel interaction. World editing,
+mount creation, placement checks and write safeguards retain their existing
+behavior. It adds no dependencies and does not change saved layout preferences.
 
 ## Validation
 
@@ -22,14 +21,14 @@ desktop and emulated narrow screens, including the light theme.
 These checks use synthetic fixtures and do not establish compatibility with
 every Minecraft version, gameplay action or add-on. Version-specific engine
 evidence and its limitations are documented in the
-[engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/docs/engine-checks.md)
-and [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/docs/save_contract.md).
+[engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.1/docs/engine-checks.md)
+and [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.1/docs/save_contract.md).
 Mount creation remains experimental; verify edited world copies in Minecraft.
 
 ## Upgrading
 
 Python **3.12–3.14** remain supported. Run **`setup.bat` once before `start.bat`**
-to install the updated, hash-pinned runtime dependencies. Preserve worlds,
+to verify the hash-pinned runtime dependencies. Preserve worlds,
 backups and runtime data separately when replacing an installation.
 
 An installation without a saved layout preference opens in **Classic**.
@@ -47,9 +46,9 @@ Download the asset ending in `_runtime.zip` together with its `.sha256` file.
 The automatically generated **Source code** archives are repository snapshots,
 not ready-to-run packages.
 
-- Installation, Docker and LAN setup: [README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/README.de.md)
-- Supported security boundary and vulnerability reporting: [SECURITY](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/SECURITY.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.0/SECURITY.de.md)
+- Installation, Docker and LAN setup: [README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.1/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.1/README.de.md)
+- Supported security boundary and vulnerability reporting: [SECURITY](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.1/SECURITY.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.1/SECURITY.de.md)
 
 Docker images are published to `ghcr.io/dadeeen/mcbe-inventory-editor`. Prefer the
-exact version tag `0.7.0` for deployments; `latest` and minor tags are intentionally
+exact version tag `0.7.1` for deployments; `latest` and minor tags are intentionally
 mutable.

@@ -191,28 +191,41 @@
         }
 
         function wire({ getWorldAnalysisText = () => "" } = {}) {
+            const closeStatusStack = ({ restoreFocus = false } = {}) => {
+                if (!statusStackPanel || statusStackPanel.hidden) return;
+                statusStackPanel.hidden = true;
+                statusStackButton?.setAttribute("aria-expanded", "false");
+                if (restoreFocus) statusStackButton?.focus?.();
+            };
+            const handleStatusEscape = event => {
+                if (event.key !== "Escape" || !statusStackPanel || statusStackPanel.hidden) return;
+                // Keep Escape local to the open detail, so it does not also
+                // clear an inventory selection through the document shortcut.
+                event.preventDefault();
+                event.stopPropagation();
+                closeStatusStack({ restoreFocus: true });
+            };
             statusStackButton?.addEventListener("click", () => {
                 const open = statusStackPanel?.hidden === false;
                 if (!statusStackPanel) return;
                 statusStackPanel.hidden = open;
                 statusStackButton.setAttribute("aria-expanded", String(!open));
             });
+            statusStackButton?.addEventListener("keydown", handleStatusEscape);
+            statusStackPanel?.addEventListener("keydown", handleStatusEscape);
             statusStackPanel?.addEventListener("click", (event) => {
                 const button = event.target?.closest?.("[data-status-action]");
                 if (!button) return;
                 const action = statusNoticeStore?.noticeAction(button.dataset.statusAction);
                 if (!action) return;
                 // The panel is rebuilt with the notices; keep the focus on its toggle.
-                statusStackPanel.hidden = true;
-                statusStackButton?.setAttribute("aria-expanded", "false");
-                statusStackButton?.focus?.();
+                closeStatusStack({ restoreFocus: true });
                 action.onClick();
             });
             document.addEventListener("click", (event) => {
                 if (!statusStackPanel || statusStackPanel.hidden) return;
                 if (statusStackPanel.contains(event.target) || statusStackButton?.contains(event.target)) return;
-                statusStackPanel.hidden = true;
-                statusStackButton?.setAttribute("aria-expanded", "false");
+                closeStatusStack();
             });
             copyWorldAnalysisButton?.addEventListener("click", () => copyTextToClipboard(getWorldAnalysisText(), t("Weltanalyse kopiert.")));
             copySessionLogButton?.addEventListener("click", () => copyTextToClipboard(buildSessionLogTextForCopy(), t("Sitzungs-Verlauf kopiert.")));

@@ -845,6 +845,21 @@
         grid-row: 2;
         justify-self: end;
     }
+    /* Share the lower row with history controls, independently of the much
+       wider settings above. Long safety notices need the available width. */
+    :root[data-layout="studio"] .app-header {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+    }
+    :root[data-layout="studio"] .app-header .header-actions {
+        grid-column: 2 / -1;
+    }
+    :root[data-layout="studio"] .app-header .header-status-area {
+        grid-column: 1 / 3;
+        max-width: none;
+    }
+    :root[data-layout="studio"] .app-header .undo-redo-btns {
+        grid-column: 3;
+    }
 }
 @media (max-width: 760px) {
     :root:is([data-layout="studio"], [data-layout="focus"]) .app-header > * {
@@ -879,6 +894,14 @@
     flex: 0 1 auto;
     width: auto;
     max-width: 100%;
+}
+/* Critical messages get a readable text column. When both notices cannot
+   fit side by side, each uses its own full-width row instead of a text tower. */
+:root[data-layout="studio"] .app-header .header-status-area:has(.status-stack-button:is(.warning, .error)) .server-status-badge {
+    flex: 1 1 260px;
+}
+:root[data-layout="studio"] .app-header .header-status-stack:has(> .status-stack-button:is(.warning, .error)) {
+    flex: 2 1 400px;
 }
 :root[data-layout="studio"] .app-header .server-status-badge.offline.allowed:not(.status-check-failed),
 :root[data-layout="studio"] .app-header .status-stack-button:not(.warning):not(.error):not(.running) {
@@ -1224,6 +1247,10 @@
     }
     :root:is([data-layout="studio"], [data-layout="focus"]) .header-actions #languageSelect {
         grid-column: auto;
+    }
+    :root[data-layout="studio"] .header-actions .logout-form {
+        grid-column: 1 / -1;
+        justify-self: end;
     }
 }
 @media (max-width: 760px) {

@@ -3974,6 +3974,7 @@ body.item-browser-open {
     .status-stack-panel {
         position: static;
         margin-top: 8px;
+        width: min(520px, 100%);
     }
 }
 

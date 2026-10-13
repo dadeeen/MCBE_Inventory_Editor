@@ -225,6 +225,7 @@ def test_an_active_notice_offers_its_action_in_the_status_panel() -> None:
             }
 
             let panelClick = null;
+            const keydown = {};
             let focused = 0;
             const attributes = {};
             const statusMsg = { className: "save-status", textContent: "", set innerText(value) { this.textContent = value; } };
@@ -233,13 +234,16 @@ def test_an_active_notice_offers_its_action_in_the_status_panel() -> None:
                 statusStackButton: {
                     classList: { toggle() {} },
                     setAttribute(name, value) { attributes[name] = value; },
-                    addEventListener() {},
+                    addEventListener(type, handler) { if (type === "keydown") keydown.button = handler; },
                     focus() { focused += 1; },
                 },
                 statusStackPanel: {
                     innerHTML: "",
                     hidden: false,
-                    addEventListener(type, handler) { if (type === "click") panelClick = handler; },
+                    addEventListener(type, handler) {
+                        if (type === "click") panelClick = handler;
+                        if (type === "keydown") keydown.panel = handler;
+                    },
                 },
                 statusStackCount: { textContent: "" },
                 statusStackHeadline: { textContent: "" },
@@ -267,6 +271,27 @@ def test_an_active_notice_offers_its_action_in_the_status_panel() -> None:
             assert.strictEqual((html.match(/data-status-action=/g) || []).length, 1);
             assert.ok(html.includes('data-status-action="changed">Neu &lt;laden&gt;</button>'));
             assert.strictEqual(store.noticeAction("earlier"), null);
+
+            // Escape works on the toggle and on an action inside the panel.
+            // Closing a disclosure must not dismiss its notice or clear slots.
+            let prevented = 0;
+            let stopped = 0;
+            const escape = { key: "Escape", preventDefault() { prevented += 1; }, stopPropagation() { stopped += 1; } };
+            for (const handler of [keydown.button, keydown.panel]) {
+                elements.statusStackPanel.hidden = false;
+                handler({ ...escape, key: "Enter" });
+                assert.strictEqual(elements.statusStackPanel.hidden, false);
+                handler(escape);
+                assert.strictEqual(elements.statusStackPanel.hidden, true);
+                assert.strictEqual(attributes["aria-expanded"], "false");
+                assert.strictEqual(store.noticeAction("changed").onClick, action.onClick);
+                handler(escape); // A closed panel leaves global shortcuts alone.
+            }
+            assert.strictEqual(prevented, 2);
+            assert.strictEqual(stopped, 2);
+            assert.strictEqual(focused, 2);
+            focused = 0;
+            elements.statusStackPanel.hidden = false;
 
             clickOn("changed");
             assert.strictEqual(runs, 1);

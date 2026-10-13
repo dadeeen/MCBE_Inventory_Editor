@@ -36,7 +36,7 @@ SCRIPTS = (
 )
 
 
-def render_template(root=ROOT, locale="de"):
+def render_template(root=ROOT, locale="de", *, authenticated=False):
     catalog = json.loads((root / "static/i18n/en.json").read_text("utf-8")) if locale == "en" else {}
     template = Environment(loader=FileSystemLoader(root / "templates"), autoescape=True).get_template("index.html")
     text = template.render(
@@ -46,8 +46,8 @@ def render_template(root=ROOT, locale="de"):
         csrf_token="offline-preview",
         i18n_catalog=catalog,
         app_config={
-            "mode": "local",
-            "auth_enabled": False,
+            "mode": "docker" if authenticated else "local",
+            "auth_enabled": authenticated,
             "distribution": {"kind": "SOURCE", "project_version": "dev", "app_root": "/example"},
             "data_root_status": {"path": "/example"},
         },
@@ -69,8 +69,8 @@ def settle(page):
     }""")
 
 
-def create_page(page, root=ROOT, locale="de", layout="studio", view="inventory"):
-    html = render_template(root, locale)
+def create_page(page, root=ROOT, locale="de", layout="studio", view="inventory", *, authenticated=False):
+    html = render_template(root, locale, authenticated=authenticated)
     page.route(
         "**/*",
         lambda route: route.fulfill(status=200, content_type="text/html", body=html) if route.request.url == "http://mcbe-preview.test/" else route.abort(),
@@ -81,11 +81,13 @@ def create_page(page, root=ROOT, locale="de", layout="studio", view="inventory")
     for name in SCRIPTS:
         page.add_script_tag(content=(root / "static" / name).read_text("utf-8"))
     page.evaluate(
-        """({layout,view}) => {
+        """({layout,view,locale}) => {
       const byId=id=>document.getElementById(id);
       localStorage.setItem('mcbe-inventory-editor:layout',layout);
       document.documentElement.dataset.layout=layout;
       document.documentElement.dataset.theme='dark';
+      byId('themeSelect').value='dark';
+      byId('languageSelect').value=locale;
       document.body.dataset.workflowView=view;
       document.body.classList.toggle('app-world-loaded',view!=='world');
       document.body.classList.toggle('app-player-loaded',view==='inventory');
@@ -164,7 +166,7 @@ def create_page(page, root=ROOT, locale="de", layout="studio", view="inventory")
       selectWorld(view==='world'?null:{name:'Survival – Bergdorf',path:'/synthetic/survival',
         folder:'Survival',source_label:window.t('Minecraft-Standardordner')});
     }""",
-        {"layout": layout, "view": view},
+        {"layout": layout, "view": view, "locale": locale},
     )
     for name in ("layout_controller.js", "focus_workspace.js"):
         page.add_script_tag(content=(root / "static" / name).read_text("utf-8"))
@@ -187,6 +189,92 @@ def metrics(page):
 
 def overlap(a, b):
     return min(a["right"], b["right"]) - max(a["x"], b["x"]) > 1 and min(a["bottom"], b["bottom"]) - max(a["y"], b["y"]) > 1
+
+
+def apply_header_warning(page, root=ROOT):
+    """Exercise the real status models with the longest common write gate."""
+    for name in ("status_stack_view.js", "write_status_view.js"):
+        page.add_script_tag(path=str(root / "static" / name))
+    page.evaluate("""() => {
+      const el=id=>document.getElementById(id);
+      const message=window.t('Nur ansehen: Der Bedrock-Server wurde seit dem Laden dieses Spielers online gesehen. '
+        +'Stoppe den Server und lade den Spieler neu, um ihn zu bearbeiten.');
+      const write=window.MCBEWriteStatusView, status=window.MCBEStatusStackView;
+      write.applyServerStatusBadgeModel(el('serverStatusBadge'),write.serverStatusBadgeModel({
+        gate:{allowed:false,stale_loaded_player:true,reason:message},status:{status:'online'},appConfig:{mode:'docker'},
+      }));
+      status.applyStatusStackModel({button:el('statusStackButton'),count:el('statusStackCount'),
+        headline:el('statusStackHeadline'),summary:el('statusStackSummary'),panel:el('statusStackPanel'),live:el('statusStackLive')},
+        status.statusStackModel({visibleNotices:[{type:'error',message,active:true}]}));
+    }""")
+
+
+def check_header_statuses(browser, root):
+    checks = 0
+    for locale in ("de", "en"):
+        for authenticated in (False, True):
+            for layout in ("classic", "studio", "focus"):
+                page = browser.new_page(viewport={"width": 1920, "height": 1080}, reduced_motion="reduce")
+                create_page(page, root, locale, layout, authenticated=authenticated)
+                apply_header_warning(page, root)
+                for width in (1920, 1440, 1181, 1024, 900, 761, 760, 601, 600, 390, 320):
+                    page.set_viewport_size({"width": width, "height": 1080})
+                    for theme in ("dark", "light"):
+                        page.evaluate("theme=>{document.documentElement.dataset.theme=theme;document.getElementById('themeSelect').value=theme;}", theme)
+                        settle(page)
+                        context = (locale, authenticated, layout, width, theme)
+                        observed = page.evaluate("""() => {
+                          const box=selector=>{
+                            const el=document.querySelector(selector),r=el.getBoundingClientRect();
+                            return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height,
+                              clipped:el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1};
+                          };
+                          return {overflow:document.documentElement.scrollWidth-innerWidth,
+                            header:box('.app-header'),logo:box('.logo'),actions:box('.header-actions'),
+                            commands:box('.focus-command-bar'),undo:box('.undo-redo-btns'),
+                            area:box('.header-status-area'),badge:box('#serverStatusBadge'),
+                            status:box('#statusStackButton'),summary:box('#statusStackSummary'),
+                            selects:['#layoutSelect','#themeSelect','#languageSelect'].map(box)};
+                        }""")
+                        assert observed["overflow"] <= 1, (*context, observed)
+                        if layout == "focus":
+                            assert not overlap(observed["logo"], observed["commands"]), (*context, observed)
+                        else:
+                            for first, second in (("logo", "actions"), ("area", "actions"), ("area", "undo"), ("badge", "status")):
+                                assert not overlap(observed[first], observed[second]), (*context, first, second, observed)
+                            assert observed["actions"]["right"] <= observed["header"]["right"], (*context, observed)
+                        if layout == "studio":
+                            assert not observed["summary"]["clipped"], (*context, observed)
+                            assert observed["status"]["width"] >= min(400, observed["area"]["width"]) - 1, (*context, observed)
+                            if width >= 1440:
+                                assert observed["status"]["height"] <= 60, (*context, observed)
+                            if width <= 760:
+                                bottoms = [item["bottom"] for item in observed["selects"]]
+                                assert max(bottoms) - min(bottoms) <= 1, (*context, observed)
+                        # Classic and Focus intentionally keep short header labels;
+                        # their complete error text must fit the expanded detail.
+                        page.evaluate("document.getElementById('statusStackPanel').hidden=false")
+                        panel = page.locator("#statusStackPanel")
+                        box = panel.bounding_box()
+                        assert box and box["x"] >= 0 and box["x"] + box["width"] <= width, (*context, box)
+                        assert box["width"] >= min(320, observed["header"]["width"] - 44), (*context, box)
+                        assert panel.locator(".status-stack-message").inner_text() == page.locator("#statusStackSummary").text_content()
+                        assert panel.evaluate("el=>el.scrollWidth<=el.clientWidth+1"), context
+                        if layout != "focus" and width <= 1180:
+                            parent = page.locator(".header-status-stack").bounding_box()
+                            assert box["x"] + box["width"] <= parent["x"] + parent["width"] + 1, (*context, box, parent)
+                        page.evaluate("document.getElementById('statusStackPanel').hidden=true")
+                        if layout == "focus":
+                            page.locator("#serverStatusBadge").press("Enter")
+                            panel = page.locator("#focusServerStatusPanel")
+                            box = panel.bounding_box()
+                            assert box and box["x"] >= 0 and box["x"] + box["width"] <= width, (*context, box)
+                            assert box["width"] >= min(320, observed["header"]["width"] - 44), (*context, box)
+                            assert panel.evaluate("el=>el.scrollWidth<=el.clientWidth+1"), context
+                            page.locator("#serverStatusBadge").press("Enter")
+                        checks += 1
+                page.close()
+    return checks
 
 
 def capture(browser, root, output):
@@ -393,6 +481,7 @@ def run_checks(browser, root):
             assert page.locator("#worldPresenceBanner").is_visible() and page.locator("#loadErrorPanel").is_visible(), (locale, layout)
             checks += 1
             page.close()
+    checks += check_header_statuses(browser, root)
     return checks
 
 
