@@ -55,6 +55,9 @@ function setup() {
   const toolbar = add('toolbar'), gridSearch = add('gridSearch');
   const input = add('focusPlayerSearch'), refresh = add('focusRefreshPlayers'), refreshOriginal = add('btnRefreshPlayers');
   add('focusPlayerSearchEmpty').hidden = true;
+  add('playerManagerSearch');
+  add('playerManagerCount');
+  add('playerManagerSearchEmpty').hidden = true;
   const playerSummary = add('playerSummaryName');
   const positionX = add('statPosX'), positionY = add('statPosY'), positionZ = add('statPosZ'), xp=add('statXpLevel');
   const gamemode=add('statGamemode'), health=add('statHealth'), food=add('statFoodLevel'), dim=add('statDimensionId');
@@ -110,7 +113,7 @@ test('focus reuses the player list and keeps equipment beside the inventory', ()
   assert.equal(h.nodes.toolbar.nextSibling, h.nodes.equipment);
   assert.equal(h.nodes.saveArea.parentNode, h.nodes.contextBar);
   assert.deepEqual(h.nodes.header.children.map(node => node.id),
-    ['headerStatus','headerActions','history','panelToggle'], 'original header node order restored');
+    ['headerStatus','panelToggle'], 'original header node order restored');
   for (const id of ['loadErrorPanel','worldPresenceBanner']) {
     assert.equal(h.nodes[id].parentNode, h.nodes.worldSection, `${id} is restored`);
   }
@@ -118,15 +121,37 @@ test('focus reuses the player list and keeps equipment beside the inventory', ()
     ['loadErrorPanel','worldPresenceBanner','dirtyBanner']);
 });
 
-test('filters the live player list only in the rail, not in the full player-management view', () => {
-  const h=setup(); h.enable(); h.nodes.focusPlayerSearch.value='al';
+test('shares name and key filtering across the rail and every player-management layout', () => {
+  const h=setup(); h.enable(); h.controller.wire();
+  h.nodes.focusPlayerSearch.value='al'; h.nodes.focusPlayerSearch.dispatch('input');
   h.controller.sync();
   assert.equal(h.rowA.style.display,'none');
   assert.equal(h.rowB.style.display,'');
   h.body.dataset.workflowView='player'; h.controller.sync();
-  assert.equal(h.rowA.style.display,'');
+  assert.equal(h.rowA.style.display,'none');
   assert.equal(h.rowB.style.display,'');
   assert.equal(h.nodes.playersList.parentNode,h.nodes.playerManager);
+  assert.equal(h.nodes.playerManagerSearch.value, 'al');
+  h.rowA.dataset = { playerKey: 'server-key-42' };
+  h.nodes.playerManagerSearch.value = 'KEY-42';
+  h.nodes.playerManagerSearch.dispatch('input');
+  assert.equal(h.rowA.style.display, '');
+  assert.equal(h.rowB.style.display, 'none');
+  assert.equal(h.nodes.playerManagerCount.textContent, '1 / 2');
+  assert.equal(h.nodes.focusPlayerSearch.value, 'KEY-42');
+  h.nodes.playerManagerSearch.value = 'no-match';
+  h.controller.filterPlayers();
+  assert.equal(h.nodes.playerManagerSearchEmpty.hidden, false);
+  for (const layout of ['classic', 'studio', 'focus']) {
+    h.root.dataset.layout = layout; h.controller.sync();
+    assert.equal(h.rowA.style.display, 'none');
+    assert.equal(h.rowB.style.display, 'none');
+    assert.equal(h.nodes.playerManagerSearchEmpty.hidden, false);
+  }
+  h.nodes.playerManagerSearch.value = ''; h.nodes.playerManagerSearch.dispatch('input');
+  assert.equal(h.rowA.style.display, '');
+  assert.equal(h.rowB.style.display, '');
+  assert.equal(h.nodes.playerManagerSearchEmpty.hidden, true);
 });
 
 test('live notices retain their order and handlers across Focus editors and other layouts', () => {
@@ -153,8 +178,8 @@ test('live notices retain their order and handlers across Focus editors and othe
   assert.equal(activations, 7);
 });
 
-test('an unmatched Focus player search shows a local empty state and clears it when leaving the rail', () => {
-  const h = setup(); h.enable();
+test('an unmatched search moves its empty state between the rail and player manager', () => {
+  const h = setup(); h.enable(); h.controller.wire();
   h.nodes.focusPlayerSearch.value = 'missing';
   h.controller.sync();
   assert.equal(h.nodes.focusPlayerSearchEmpty.hidden, false);
@@ -165,13 +190,14 @@ test('an unmatched Focus player search shows a local empty state and clears it w
   assert.equal(h.nodes.focusPlayerSearchEmpty.hidden, true);
   assert.equal(h.rowA.style.display, '');
   h.nodes.focusPlayerSearch.value = 'missing';
-  h.controller.filterPlayers();
+  h.nodes.focusPlayerSearch.dispatch('input');
   assert.equal(h.nodes.focusPlayerSearchEmpty.hidden, false);
   h.body.dataset.workflowView = 'player';
   h.controller.sync();
   assert.equal(h.nodes.focusPlayerSearchEmpty.hidden, true);
-  assert.equal(h.rowA.style.display, '');
-  assert.equal(h.rowB.style.display, '');
+  assert.equal(h.nodes.playerManagerSearchEmpty.hidden, false);
+  assert.equal(h.rowA.style.display, 'none');
+  assert.equal(h.rowB.style.display, 'none');
 });
 
 test('shows real form values and uses placeholders when no editable player exists', () => {
@@ -218,7 +244,7 @@ test('repeated focus/classic switches keep one warning element and do not duplic
     assert.equal(h.nodes.worldSection.children.filter(n=>n===h.nodes.worldPresenceBanner).length,1);
     assert.equal(h.nodes.playerManager.children.filter(n=>n===h.nodes.playersList).length,1);
     assert.equal(h.nodes.inventorySection.children.filter(n=>n===h.nodes.equipment).length,1);
-    assert.deepEqual(h.nodes.header.children.map(node => node.id), ['headerStatus','headerActions','history','panelToggle']);
+    assert.deepEqual(h.nodes.header.children.map(node => node.id), ['headerStatus','panelToggle']);
   }
 });
 
@@ -244,8 +270,9 @@ test('equipment keeps its parent, live handlers and identity across repeated lay
 });
 
 
-test('focus settings menu keeps original select nodes, closes on Escape/outside and resets on layout switch', () => {
+for (const layout of ['classic', 'studio', 'focus']) test(`${layout} settings menu keeps original select nodes, closes on Escape/outside and resets on layout switch`, () => {
   const h = setup(); h.controller.wire(); h.enable(); h.controller.sync();
+  h.root.dataset.layout = layout; h.controller.sync();
   assert.equal(h.nodes.headerActions.parentNode, h.nodes.focusSettingsMount);
   h.nodes.focusSettingsToggle.dispatch('click');
   assert.equal(h.nodes.focusSettingsPanel.hidden, false);
@@ -257,16 +284,16 @@ test('focus settings menu keeps original select nodes, closes on Escape/outside 
   h.doc.dispatch('click', { target: h.nodes.body });
   assert.equal(h.nodes.focusSettingsPanel.hidden, true);
   h.nodes.focusSettingsToggle.dispatch('click');
-  h.root.dataset.layout='studio'; h.controller.sync();
-  assert.equal(h.nodes.headerActions.parentNode, h.nodes.header);
+  h.root.dataset.layout = layout === 'studio' ? 'classic' : 'studio'; h.controller.sync();
+  assert.equal(h.nodes.headerActions.parentNode, h.nodes.focusSettingsMount);
   assert.equal(h.nodes.focusSettingsPanel.hidden, true);
   assert.equal(h.nodes.focusSettingsToggle.getAttribute('aria-expanded'), 'false');
 });
 
 
-test('compact Focus status preserves write-block severity and full accessible server message', () => {
+for (const layout of ['focus', 'studio']) test(`compact ${layout} status preserves write-block severity and full accessible server message`, () => {
   const h = setup();
-  h.root.dataset.layout = 'focus';
+  h.root.dataset.layout = layout;
   for (const id of ['serverStatusBadge','statusStackButton','statusStackSummary','focusServerStatusText','focusServerStatusHint','languageSelect']) {
     h.nodes[id] = new Node(id);
   }
@@ -282,7 +309,7 @@ test('compact Focus status preserves write-block severity and full accessible se
   h.nodes.languageSelect.value = 'de';
   h.controller.updateFocusStatusLabels();
   assert.equal(server.dataset.focusLabel, 'Schreiben gesperrt');
-  assert.equal(stack.dataset.focusLabel, 'Hinweise');
+  assert.equal(stack.dataset.focusLabel, 'Meldungen');
   assert.equal(h.nodes.focusServerStatusText.textContent, server.textContent);
   assert.equal(h.nodes.focusServerStatusHint.textContent, server.title);
   assert.equal(server.getAttribute('role'), 'button');
@@ -291,7 +318,7 @@ test('compact Focus status preserves write-block severity and full accessible se
   h.nodes.languageSelect.value = 'en';
   h.controller.updateFocusStatusLabels();
   assert.equal(server.dataset.focusLabel, 'Writes blocked');
-  assert.equal(stack.dataset.focusLabel, 'Notices');
+  assert.equal(stack.dataset.focusLabel, 'Messages');
   server.classList = { contains: cls => cls === 'status-check-failed' };
   h.controller.updateFocusStatusLabels();
   assert.equal(server.dataset.focusLabel, 'Check failed');

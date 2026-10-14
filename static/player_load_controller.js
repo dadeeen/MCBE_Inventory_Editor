@@ -334,7 +334,7 @@
                 } else {
                     logLoadStatus(t("Spielerliste aktualisiert: {count} Datensätze.", {
                         count: getState().players.length,
-                    }), "success");
+                    }), "info");
                 }
                 return true;
             } catch (e) {
@@ -502,7 +502,11 @@
                     logLoadStatus(warning, "warning");
                     showToast(warning, "warning", 5200);
                 } else {
-                    logLoadStatus(t("{player} geladen", { player: getCurrentPlayerLabel() }), "success");
+                    logLoadStatus(t("{player} geladen", { player: getCurrentPlayerLabel() }), "info");
+                }
+                for (const warning of data.catalog_warnings || []) {
+                    logLoadStatus(warning, "warning");
+                    showToast(warning, "warning", 8000);
                 }
                 return true;
             } catch (e) {

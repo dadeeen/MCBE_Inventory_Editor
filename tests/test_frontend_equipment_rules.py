@@ -1,6 +1,31 @@
+import json
 import textwrap
 
 from tests.node_runner import run_node
+
+
+def test_equipment_catalog_frontend_and_backend_agree():
+    from mcbe_editor import item_data
+    from mcbe_editor.root_equipment import item_allowed_in_equipment_slot
+
+    result = run_node("""
+        const fs = require('fs'), vm = require('vm');
+        const db = JSON.parse(fs.readFileSync('mcbe_editor/resources/item_db.json', 'utf8'));
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync('static/equipment_rules.js', 'utf8'), context);
+        const rules = context.window.MCBEEquipmentRules;
+        rules.setItemComponents(db.item_components);
+        console.log(JSON.stringify(Object.fromEntries(Object.keys(db.items).map(id =>
+            [id, [100,101,102,103,-106].map(slot => rules.itemAllowedInEquipmentSlot(slot,id))]))));
+    """)
+    frontend = json.loads(result.stdout)
+    # Compare the shipped catalog, independent of any locally updated catalog.
+    from unittest.mock import patch
+
+    bundled = json.loads(item_data.BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))
+    with patch.dict(item_data.ITEM_COMPONENTS, bundled["item_components"], clear=True):
+        for item_id, allowed in frontend.items():
+            assert allowed == [item_allowed_in_equipment_slot(slot, item_id) for slot in (100, 101, 102, 103, -106)], item_id
 
 
 def test_frontend_equipment_rules_mirror_backend_wearability() -> None:
@@ -15,6 +40,10 @@ def test_frontend_equipment_rules_mirror_backend_wearability() -> None:
 
             const rules = context.window.MCBEEquipmentRules;
             rules.setItemComponents({
+                allow_off_hand: {
+                    "minecraft:future_offhand": { value: true },
+                    "minecraft:shield": { value: false },
+                },
                 wearable: {
                     "minecraft:future_hat": { slot: "slot.armor.head" },
                     "minecraft:future_sword": { slot: "slot.weapon.offhand" },
@@ -48,11 +77,12 @@ def test_frontend_equipment_rules_mirror_backend_wearability() -> None:
             // Prädikat für die Offhand-Erlaubnis, ergänzt die Liste also nur.
             // totem_of_undying trägt hier bewusst eine Mainhand-Komponente und
             // muss trotzdem in der Schildhand erlaubt bleiben.
-            ["shield", "totem_of_undying", "arrow", "firework_rocket", "filled_map", "nautilus_shell"].forEach(name => {
+            ["future_offhand", "totem_of_undying", "arrow", "firework_rocket", "filled_map", "nautilus_shell"].forEach(name => {
                 assert.strictEqual(rules.itemAllowedInEquipmentSlot(-106, `minecraft:${name}`), true, name);
             });
             assert.strictEqual(rules.itemAllowedInEquipmentSlot(102, "minecraft:totem_of_undying"), false);
             assert.strictEqual(rules.itemAllowedInEquipmentSlot(-106, "minecraft:diamond_sword"), false);
+            assert.strictEqual(rules.itemAllowedInEquipmentSlot(-106, "minecraft:shield"), false);
 
             // Normale Slots unbeschränkt.
             assert.strictEqual(rules.itemAllowedInEquipmentSlot(5, "minecraft:stone"), true);

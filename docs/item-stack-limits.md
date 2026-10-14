@@ -20,6 +20,8 @@ The updater reports unresolved limits. Future engine-defined items require an ad
 
 ## Preservation and UI
 
+The Item DB dry run reports content changes, metadata-only changes, unchanged data or an incomplete check as a structured result. Its automatic comparison validates identifier syntax, DE/EN name presence, addable-item catalog references and limit ranges. Missing names for current registry IDs can be completed from exact-ID entries in the reviewed bundled catalog; existing names remain intact. Differences against available direct Mojang names and explicit component limits appear in expandable details. Name differences are informational, not proof of incorrect translation. Invalid catalog structure prevents writing. This comparison does not run Minecraft or establish compatibility with a world's add-ons.
+
 The backend accepts a recorded original amount even when it exceeds the recorded limit or the safe bound. The original must resolve through normal server-side provenance checks; a client-supplied original count is not evidence. New or changed unverified Vanilla stacks can have amount 1 only.
 
 The frontend displays unverified limits separately from actual Max-Stack values, disables the maximum shortcut, and rejects oversized detail/bulk-fill inputs rather than silently substituting 1. Bulk count changes skip unverified stacks when the requested amount exceeds the safe bound. Existing unknown add-on records retain the separate format-range editing policy, but have no automatic Max-Stack action. Regression tests cover component parsing, database migration, aliases, boundary counts, unchanged/moved NBT, forged original amounts, and matching browser behavior.

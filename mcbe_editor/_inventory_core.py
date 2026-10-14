@@ -1852,7 +1852,7 @@ def _nbt_view_value(tag, depth: int = 0):
             value[key] = _nbt_view_value(tag[key], depth + 1)
         result = {"type": tag_type, "value": value}
         if len(keys) > MAX_NBT_VIEW_ITEMS:
-            result["truncated"] = f"{len(keys) - MAX_NBT_VIEW_ITEMS} weitere Felder"
+            result["truncated"] = t("{count} weitere Felder", count=len(keys) - MAX_NBT_VIEW_ITEMS)
         return result
 
     if _is_list_tag(tag):
@@ -1870,7 +1870,7 @@ def _nbt_view_value(tag, depth: int = 0):
         sequence = list(converted)
         value = sequence[:MAX_NBT_VIEW_ITEMS]
         if len(sequence) > MAX_NBT_VIEW_ITEMS:
-            return {"type": tag_type, "value": value, "truncated": f"{len(sequence) - MAX_NBT_VIEW_ITEMS} weitere Werte"}
+            return {"type": tag_type, "value": value, "truncated": t("{count} weitere Werte", count=len(sequence) - MAX_NBT_VIEW_ITEMS)}
     return {"type": tag_type, "value": value}
 
 

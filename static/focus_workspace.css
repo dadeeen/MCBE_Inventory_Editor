@@ -154,6 +154,17 @@
     min-width: 0;
 }
 :root[data-layout="focus"] body.app-player-loaded .focus-context-facts { display: grid; }
+/* Reserve the desktop facts track before loading, without adding an empty
+   second row on smaller screens. Values are cleared by updateFacts(). */
+@media (min-width: 1280px) {
+    :root[data-layout="focus"] .layout-context-bar {
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.05fr) minmax(0, 1.25fr);
+    }
+    :root[data-layout="focus"] .focus-context-facts { display: grid; }
+    :root[data-layout="focus"] body:not(.app-player-loaded) .focus-context-facts strong {
+        color: var(--text-secondary);
+    }
+}
 :root[data-layout="focus"] .focus-context-facts > div {
     min-width: 0;
     padding: 3px 10px;
@@ -176,28 +187,28 @@
     white-space: normal;
 }
 
-/* Workspace tabs are integrated with the editor surface. */
+/* Workspace navigation remains a separate, stable surface in every view. */
 :root[data-layout="focus"] .app-workflow-nav {
     order: -2;
     display: flex;
     min-width: 0;
     width: 100%;
     margin: 0;
-    padding: 5px 11px 0;
+    padding: 5px 11px;
     justify-content: flex-start;
     align-items: stretch;
     gap: 2px;
     flex-wrap: nowrap;
     overflow-x: auto;
-    border-radius: 13px 13px 0 0;
+    border-radius: 13px;
     background: var(--floating-card-bg);
-    border-bottom: 0;
+    border: 1px solid var(--card-border);
 }
 :root[data-layout="focus"] .app-workflow-nav button {
     flex: 0 0 auto;
     min-width: 114px;
     min-height: 45px;
-    border-radius: 8px 8px 0 0;
+    border-radius: 8px;
     border: 1px solid transparent;
     box-shadow: none;
     background: transparent;
@@ -236,7 +247,7 @@
     padding: 12px;
     background: var(--floating-card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 0 0 13px 13px;
+    border-radius: 13px;
 }
 :root[data-layout="focus"] body[data-workflow-view="inventory"].app-player-loaded .workspace > .left-panel {
     display: flex;
@@ -376,8 +387,6 @@
 }
 :root[data-layout="focus"] body[data-workflow-view="inventory"] #playerInventorySummary { display: none !important; }
 :root[data-layout="focus"] body[data-workflow-view="inventory"] #safeEditBanner { display: none !important; }
-:root[data-layout="focus"] body[data-workflow-view="inventory"].app-dirty #safeEditBanner { display: flex !important; padding: 10px; }
-:root[data-layout="focus"] body[data-workflow-view="inventory"].app-dirty #safeEditBanner > div:first-child { display: none; }
 :root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-section { gap: 10px; min-width: 0; }
 :root[data-layout="focus"] body[data-workflow-view="inventory"] .inventory-section .grid-title {
     color: var(--text-primary);
@@ -547,23 +556,18 @@
 :root[data-layout="focus"] body:not([data-workflow-view="inventory"]) .workspace,
 :root[data-layout="focus"] body[data-workflow-view="inventory"]:not(.app-player-loaded) .workspace {
     border: 1px solid var(--card-border);
-    border-radius: 0 0 13px 13px;
+    border-radius: 13px;
     background: var(--floating-card-bg);
     padding: 14px;
     margin-top: 0;
 }
 
-/* World selection needs readable rows, not the width of the three-column
-   inventory. Use the workspace frame once and give the results the space left
+/* World selection shares the shell width with the editor views.
+   Use the workspace frame once and give the results the space left
    below their controls. Expanded notices and tools may still grow the page. */
-:root[data-layout="focus"] body[data-workflow-view="world"] .app-container {
-    max-width: 1540px;
-    gap: 10px;
-}
 :root[data-layout="focus"] body[data-workflow-view="world"] .workspace {
     padding: 0;
-    margin-top: -10px;
-    border-top: 0;
+    margin-top: 0;
 }
 :root[data-layout="focus"] body[data-workflow-view="world"] #worldSection {
     gap: 12px;
@@ -911,19 +915,21 @@
     gap: 10px;
     min-width: 0;
 }
-:root[data-layout="focus"] .focus-history-mount {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-history-mount {
     display: flex;
     align-items: center;
     padding-right: 10px;
     border-right: 1px solid var(--card-border);
 }
-:root[data-layout="focus"] .focus-history-mount .undo-redo-btns {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-history-mount .undo-redo-btns {
     display: flex;
     flex-wrap: nowrap;
     gap: 3px;
     min-width: 0;
+    padding: 0;
+    border: 0;
 }
-:root[data-layout="focus"] .focus-history-mount .btn-undo {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-history-mount .btn-undo {
     width: 34px;
     min-width: 34px;
     min-height: 36px;
@@ -936,8 +942,8 @@
     text-shadow: none;
     border-radius: 8px;
 }
-:root[data-layout="focus"] .focus-history-mount .btn-undo:not(:disabled):hover { background: var(--workspace-well-bg); border-color: var(--card-border); }
-:root[data-layout="focus"] .focus-history-mount .btn-undo:disabled { opacity: .36; cursor: not-allowed; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-history-mount .btn-undo:not(:disabled):hover { background: var(--workspace-well-bg); border-color: var(--card-border); }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-history-mount .btn-undo:disabled { opacity: .36; cursor: not-allowed; }
 :root[data-layout="focus"] .focus-save-mount .layout-context-action {
     display: flex;
     flex-direction: row;
@@ -965,8 +971,8 @@
     border-radius: 8px;
     white-space: nowrap;
 }
-:root[data-layout="focus"] .focus-settings-menu { position: relative; flex: 0 0 auto; }
-:root[data-layout="focus"] .focus-settings-toggle {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-menu { position: relative; flex: 0 0 auto; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-toggle {
     display: grid;
     place-items: center;
     width: 37px;
@@ -978,11 +984,11 @@
     color: var(--text-secondary);
     cursor: pointer;
 }
-:root[data-layout="focus"] .focus-settings-toggle:is(:hover, [aria-expanded="true"]) {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-toggle:is(:hover, [aria-expanded="true"]) {
     color: var(--text-primary);
     border-color: var(--primary);
 }
-:root[data-layout="focus"] .focus-settings-panel {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
@@ -994,14 +1000,14 @@
     background: var(--card-bg);
     box-shadow: 0 15px 38px rgba(0,0,0,.35);
 }
-:root[data-layout="focus"] .focus-settings-panel[hidden] { display: none; }
-:root[data-layout="focus"] .focus-settings-heading {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel[hidden] { display: none; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-heading {
     display: block;
     margin: 0 0 10px;
     font-size: .83rem;
     color: var(--text-primary);
 }
-:root[data-layout="focus"] .focus-settings-panel .header-actions {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .header-actions {
     display: flex !important;
     flex-direction: column;
     align-items: stretch;
@@ -1010,23 +1016,23 @@
     width: 100%;
     gap: 7px;
 }
-:root[data-layout="focus"] .focus-settings-panel .layout-choice {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .layout-choice {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     width: 100%;
     gap: 5px;
 }
-:root[data-layout="focus"] .focus-settings-panel .layout-choice > span { display: block; }
-:root[data-layout="focus"] .focus-settings-panel .focus-settings-label {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .layout-choice > span { display: block; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .focus-settings-label {
     display: block;
     margin: 5px 0 0;
     color: var(--text-secondary);
     font-size: .74rem;
     font-weight: 650;
 }
-:root[data-layout="focus"] .focus-settings-panel .theme-select,
-:root[data-layout="focus"] .focus-settings-panel .layout-choice .theme-select {
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .theme-select,
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .layout-choice .theme-select {
     width: 100%;
     min-width: 0;
     min-height: 37px;
@@ -1034,8 +1040,8 @@
     font-size: .82rem;
     padding: 6px 28px 6px 9px;
 }
-:root[data-layout="focus"] .focus-settings-panel .logout-form { align-self: stretch; margin-top: 7px; }
-:root[data-layout="focus"] .focus-settings-panel .header-link { width: 100%; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .logout-form { align-self: stretch; margin-top: 7px; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel .header-link { width: 100%; }
 
 /* There is no detached Save card in the second selector row. */
 :root[data-layout="focus"] .layout-context-bar { padding: 9px 11px; min-height: 68px; }
@@ -1063,8 +1069,8 @@
         max-height: min(55dvh, 330px);
     }
     :root[data-layout="focus"] .focus-command-bar { gap: 5px; }
-    :root[data-layout="focus"] .focus-history-mount { padding-right: 5px; }
-    :root[data-layout="focus"] .focus-history-mount .btn-undo { width: 30px; min-width: 30px; height: 34px; min-height: 34px; }
+    :root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-history-mount { padding-right: 5px; }
+    :root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-history-mount .btn-undo { width: 30px; min-width: 30px; height: 34px; min-height: 34px; }
     :root[data-layout="focus"] .focus-save-mount { flex: 1 1 auto; min-width: 0; }
     :root[data-layout="focus"] .focus-save-mount .layout-context-action { justify-content: flex-end; gap: 6px; }
     :root[data-layout="focus"] .focus-save-mount .layout-save-status {
@@ -1074,7 +1080,7 @@
         font-size: .67rem;
     }
     :root[data-layout="focus"] .focus-save-mount #layoutSaveAction { padding: 6px 8px; font-size: .72rem; }
-    :root[data-layout="focus"] .focus-settings-toggle { width: 35px; height: 35px; }
+    :root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-toggle { width: 35px; height: 35px; }
 }
 @media (max-width: 360px) {
     :root[data-layout="focus"] .focus-save-mount .layout-save-status { display: none; }
@@ -1103,7 +1109,7 @@
     flex: 0 0 auto;
     width: 6px;
     height: 6px;
-    background: var(--info-text);
+    background: var(--text-secondary);
     border-radius: 50%;
 }
 :root[data-layout="focus"] .focus-inline-status .status-stack-button.warning::before { background: var(--warning-text); }
@@ -1123,17 +1129,17 @@
 }
 
 /* Opaque settings flyout: avoid readable content showing through the menu. */
-:root[data-layout="focus"] .focus-settings-panel { background: #10202a; backdrop-filter: none; }
-:root[data-layout="focus"][data-theme="light"] .focus-settings-panel { background: #fff; }
-:root[data-layout="focus"][data-theme="minecraft"] .focus-settings-panel { background: #17241b; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) .focus-settings-panel { background: #10202a; backdrop-filter: none; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"])[data-theme="light"] .focus-settings-panel { background: #fff; }
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"])[data-theme="minecraft"] .focus-settings-panel { background: #17241b; }
 
-/* Full server/write-gate text stays reachable on click or keyboard. Anchor
-   both detail panels to the header, not its much narrower inline labels. */
+/* Full server/write-gate text stays reachable on click or keyboard.
+   The controller anchors details to their triggers and clamps them to the viewport. */
 .focus-server-status-panel { display: none; }
 :root[data-layout="focus"] .focus-inline-status .header-status-area { position: static; }
 :root[data-layout="focus"] .focus-inline-status .server-status-badge { cursor: pointer; }
 :root[data-layout="focus"] .focus-inline-status .server-status-badge:is(:focus-visible, :hover) { text-decoration: underline; outline-offset: 3px; }
-:root[data-layout="focus"] .focus-server-status-panel:not([hidden]) {
+:root:is([data-layout="classic"], [data-layout="focus"], [data-layout="studio"]) .focus-server-status-panel:not([hidden]) {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1153,8 +1159,134 @@
     line-height: 1.48;
     font-size: .8rem;
 }
-:root[data-layout="focus"] .focus-server-status-panel strong { font-size: .85rem; }
-:root[data-layout="focus"] .focus-server-status-panel p { overflow-wrap: anywhere; }
-:root[data-layout="focus"] .focus-server-status-panel p:last-child { color: var(--text-secondary); }
-:root[data-layout="focus"][data-theme="light"] .focus-server-status-panel:not([hidden]) { background: #fff; }
-:root[data-layout="focus"][data-theme="minecraft"] .focus-server-status-panel:not([hidden]) { background: #17241b; }
+:root:is([data-layout="classic"], [data-layout="focus"], [data-layout="studio"]) .focus-server-status-panel strong { font-size: .85rem; }
+:root:is([data-layout="classic"], [data-layout="focus"], [data-layout="studio"]) .focus-server-status-panel p { overflow-wrap: anywhere; }
+:root:is([data-layout="classic"], [data-layout="focus"], [data-layout="studio"]) .focus-server-status-panel p:last-child { color: var(--text-secondary); }
+:root:is([data-layout="classic"], [data-layout="focus"], [data-layout="studio"])[data-theme="light"] .focus-server-status-panel:not([hidden]) { background: #fff; }
+:root:is([data-layout="classic"], [data-layout="focus"], [data-layout="studio"])[data-theme="minecraft"] .focus-server-status-panel:not([hidden]) { background: #17241b; }
+
+/* Shared settings and history keep each layout's header actions together. */
+:root:is([data-layout="classic"], [data-layout="studio"]) .app-header {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    align-items: center;
+    gap: 12px 18px;
+}
+:root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .logo { grid-column: 1; grid-row: 1; }
+:root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .header-status-area { grid-column: 2; grid-row: 1; }
+:root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .focus-command-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
+}
+:root:is([data-layout="classic"], [data-layout="studio"]) .focus-save-mount { display: none; }
+:root .focus-settings-panel { max-height: min(480px, calc(100dvh - 130px)); overflow-y: auto; }
+:root .app-header .focus-settings-panel .header-actions { margin: 0; }
+:root .app-header .focus-settings-panel .layout-choice { display: flex; }
+:root .app-header .focus-settings-panel .layout-choice > span { display: block; }
+:root .app-header .focus-settings-panel .logout-form { align-self: stretch; margin-left: 0; }
+@media (max-width: 1180px) {
+    :root:is([data-layout="classic"], [data-layout="studio"]) .app-header { grid-template-columns: minmax(0, 1fr) auto; }
+    :root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .header-status-area { grid-column: 1 / -1; grid-row: 2; }
+    :root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .focus-command-bar { grid-column: 2; grid-row: 1; }
+}
+@media (max-width: 480px) {
+    :root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .logo { grid-column: 1 / -1; }
+    :root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .focus-command-bar { grid-column: 1 / -1; grid-row: 2; }
+    :root:is([data-layout="classic"], [data-layout="studio"]) .app-header > .header-status-area { grid-row: 3; }
+}
+
+.player-manager-search { display: grid; gap: 6px; margin-bottom: 12px; }
+.player-manager-search small { color: var(--text-secondary); }
+.player-manager-selection { min-width: 0; }
+:root[data-layout="focus"] .player-manager-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+:root[data-layout="focus"] .player-manager-selection,
+:root[data-layout="focus"] .player-manager-tools { min-width: 0; }
+:root[data-layout="focus"] .player-manager-selection .player-row { padding: 10px 12px; }
+:root[data-layout="focus"] .player-manager-selection .player-name { overflow-wrap: anywhere; white-space: normal; }
+:root[data-layout="focus"] .player-manager-selection .player-badge { align-self: start; }
+@media (max-width: 900px) {
+    :root[data-layout="focus"] .player-manager-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.app-header #serverStatusBadge { cursor: pointer; }
+.app-header #serverStatusBadge:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+/* History counters stay inside the hit area without creating a second line. */
+.app-header .focus-history-mount .btn-undo {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    line-height: 1;
+}
+:root .app-header .focus-history-mount .btn-undo[data-history-count]:not([data-history-count=""]) {
+    padding-right: 8px;
+}
+.app-header .focus-history-mount .btn-undo[data-history-count]:not([data-history-count=""])::after {
+    content: attr(data-history-count);
+    position: absolute;
+    top: 1px;
+    right: 0;
+    min-width: 13px;
+    height: 13px;
+    padding: 0 2px;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    border-radius: 5px;
+    background: var(--workspace-well-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+}
+
+/* Wide Focus headers give status its own centered column; narrow windows
+   retain the inline placement beneath the title. */
+@media (min-width: 1181px) {
+    :root[data-layout="focus"] .app-header {
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    }
+    :root[data-layout="focus"] .app-header > .focus-inline-status {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: center;
+        align-self: center;
+    }
+    :root[data-layout="focus"] .focus-command-bar { grid-column: 3; }
+    :root[data-layout="focus"] .focus-inline-status .header-status-area { justify-content: center; }
+    :root[data-layout="focus"] .focus-inline-status :is(.server-status-badge, .status-stack-button)::after {
+        font-size: .8125rem;
+        line-height: 20px;
+    }
+}
+
+/* Classic keeps its detailed status cards centered in the space between
+   the title and commands, with a dedicated row when that space is too small. */
+:root[data-layout="classic"] .app-header > .header-status-area {
+    width: 100%;
+    max-width: 660px;
+    justify-self: center;
+    align-self: center;
+}
+@media (min-width: 1281px) {
+    :root[data-layout="classic"] .app-header {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+}
+@media (min-width: 481px) and (max-width: 1280px) {
+    :root[data-layout="classic"] .app-header { grid-template-columns: minmax(0, 1fr) auto; }
+    :root[data-layout="classic"] .app-header > .header-status-area { grid-column: 1 / -1; grid-row: 2; }
+    :root[data-layout="classic"] .app-header > .focus-command-bar { grid-column: 2; grid-row: 1; }
+}
+
+/* Review and discard live in the global change workflow, not above the grid. */
+:root:is([data-layout="classic"], [data-layout="studio"], [data-layout="focus"]) body[data-workflow-view="inventory"] #safeEditBanner { display: none !important; }

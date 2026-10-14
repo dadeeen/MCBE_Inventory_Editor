@@ -41,8 +41,8 @@ def test_frontend_bulk_edit_logic_fill_and_clear_plans() -> None:
                 item: { name: "minecraft:stone", count: 64, damage: 0 },
                 undoLabel: "Markierte Slots mit minecraft:stone gefüllt",
                 skippedProtected: true,
-                statusMessage: "2 markierte Slot(s) gefüllt mit minecraft:stone",
-                actionMessage: "2 markierte Slot(s) gefüllt mit minecraft:stone",
+                statusMessage: "2 markierte Slot(s) gefüllt mit minecraft:stone – noch nicht gespeichert",
+                actionMessage: "2 markierte Slot(s) gefüllt mit minecraft:stone – noch nicht gespeichert",
             });
             assert.deepStrictEqual(plain(logic.bulkClearPlan({
                 writableCount: 2,
@@ -52,8 +52,8 @@ def test_frontend_bulk_edit_logic_fill_and_clear_plans() -> None:
                 ok: true,
                 undoLabel: "Markierte Slots geleert",
                 skippedProtected: false,
-                statusMessage: "2 markierte Slot(s) geleert",
-                actionMessage: "2 markierte Slot(s) geleert",
+                statusMessage: "2 markierte Slot(s) geleert – noch nicht gespeichert",
+                actionMessage: "2 markierte Slot(s) geleert – noch nicht gespeichert",
             });
             assert.strictEqual(logic.bulkClearPlan({ writableCount: 0 }).ok, false);
             """
@@ -93,8 +93,8 @@ def test_frontend_bulk_edit_logic_count_and_repair_plans() -> None:
             assert.deepStrictEqual(plain(logic.bulkSetCountOutcome(3)), {
                 recordMessage: "Menge für 3 markierte Slot(s) gesetzt",
                 toast: {
-                    message: "Menge für 3 Slot(s) gesetzt.",
-                    type: "success",
+                    message: "Menge für 3 Slot(s) gesetzt – noch nicht gespeichert.",
+                    type: "info",
                     ms: 2500,
                 },
             });
@@ -103,16 +103,16 @@ def test_frontend_bulk_edit_logic_count_and_repair_plans() -> None:
                 undoLabel: "Markierte Items repariert",
                 recordMessage: "2 markierte Item(s) repariert",
                 toast: {
-                    message: "2 markierte Item(s) repariert.",
-                    type: "success",
+                    message: "2 markierte Item(s) repariert – noch nicht gespeichert.",
+                    type: "info",
                     ms: 2500,
                 },
             });
             assert.deepStrictEqual(plain(logic.repairAllPlan({ targetCount: 4 })), {
                 ok: true,
                 undoLabel: "Alle reparierbaren Items repariert",
-                statusMessage: "Reparierte haltbare Items: 4 (inkl. Enderchest).",
-                statusType: "success",
+                statusMessage: "Reparierte haltbare Items: 4 (inkl. Enderchest) – noch nicht gespeichert.",
+                statusType: "info",
                 actionMessage: "Haltbare Items repariert: 4",
             });
             assert.deepStrictEqual(plain(logic.repairAllPlan({ targetCount: 0 })), {

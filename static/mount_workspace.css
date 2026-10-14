@@ -215,7 +215,7 @@
 .mount-warning-list li { margin-top: 8px; overflow-wrap: anywhere; }
 .mount-warning-list li:first-child { margin-top: 0; }
 .mount-create-status { color: var(--text-secondary); font-size: .82rem; line-height: 1.45; overflow-wrap: anywhere; }
-.mount-create-status:empty, #mountPendingPanel:empty { display: none; }
+.mount-create-status:empty, #mountPendingPanel:empty, #mountPreviewPanel:empty { display: none; }
 .mount-create-status.error { color: var(--danger-text); }
 
 /* Native modal puts the diagnostic view above the app and contains focus. */

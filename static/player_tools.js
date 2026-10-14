@@ -430,7 +430,7 @@
                 renderPlayerInventorySummary();
                 setDirty(true);
                 recordAction(t("Daten von {player} übernommen", { player: data.player?.label || key }), "copy");
-                showToast(t("Daten lokal übernommen. Prüfe die Änderungen vor dem Speichern."), "success");
+                showToast(t("Daten lokal übernommen. Prüfe die Änderungen vor dem Speichern."), "info");
                 return true;
             } catch (e) {
                 if (requestId !== copyRequestId || !playerContextIsCurrent(worldPath, targetPlayerKey)) return false;

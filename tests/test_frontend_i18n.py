@@ -93,6 +93,6 @@ def test_frontend_has_no_legacy_dom_translation_fallback() -> None:
     assert "data-i18n-legacy" not in template
     assert "translateLegacyDom" not in source
     assert "translateDom" not in source
-    assert "data-expand-label=\"{{ t('Aufklappen') }}\"" in template
+    assert '<h2 id="playerTransferTitle">{{ t("Spieler übertragen") }}</h2>' in template
     assert "content: 'Aufklappen'" not in style
     assert "content: 'Einklappen'" not in style

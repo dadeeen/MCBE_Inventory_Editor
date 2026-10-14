@@ -227,7 +227,7 @@
                 if (statusStackPanel.contains(event.target) || statusStackButton?.contains(event.target)) return;
                 closeStatusStack();
             });
-            copyWorldAnalysisButton?.addEventListener("click", () => copyTextToClipboard(getWorldAnalysisText(), t("Weltanalyse kopiert.")));
+            copyWorldAnalysisButton?.addEventListener("click", () => copyTextToClipboard(getWorldAnalysisText(), t("Spielerdiagnose kopiert.")));
             copySessionLogButton?.addEventListener("click", () => copyTextToClipboard(buildSessionLogTextForCopy(), t("Sitzungs-Verlauf kopiert.")));
             clearSessionLogButton?.addEventListener("click", clearSessionLog);
             updateHeaderStatusStack({ announce: false });

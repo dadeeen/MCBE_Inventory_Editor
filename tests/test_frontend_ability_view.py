@@ -376,7 +376,7 @@ def test_frontend_ability_view_location_conversion_models_are_explicit() -> None
                 targetDimension: "1",
             });
             assert.strictEqual(toNether.disabled, false);
-            assert.strictEqual(toNether.label, "Für Nether umrechnen (X/Z ÷ 8)");
+            assert.strictEqual(toNether.label, "Zum Nether umrechnen (X/Z ÷ 8)");
 
             const toEnd = view.locationConversionModel({
                 sourceDimension: 0,
@@ -415,11 +415,11 @@ def test_frontend_ability_view_location_conversion_models_are_explicit() -> None
                 targetDimension: "1",
                 blocked: true,
             }).note, /gesperrt/);
-            assert.match(view.locationConversionModel({
+            assert.strictEqual(view.locationConversionModel({
                 sourceDimension: 0,
                 targetDimension: "1",
                 converted: true,
-            }).note, /einmal angewendet/);
+            }).label, "Umrechnung zurücknehmen");
 
             // A wrong reason is worse than none: an unknown source dimension must not
             // be reported as "pick the other dimension", which the user already did.

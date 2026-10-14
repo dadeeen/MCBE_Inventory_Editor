@@ -48,22 +48,22 @@
         const removeLabel = model.isProtectedEffect ? t("Geschützter Effekt wird vom Editor nicht gelöscht") : t("Effekt entfernen");
         const removeDisabledAttrs = `${model.isProtectedEffect ? "disabled " : ""}title="${removeLabel}" aria-label="${removeLabel}"`;
         return `
+            <button class="effect-remove" data-index="${model.index}" ${removeDisabledAttrs}>✕</button>
             <div class="effect-name" title="${escapeHtml(model.nameEn)}${model.desc ? " - " + escapeHtml(model.desc) : ""}">${escapeHtml(model.nameDe)}</div>
             ${model.desc ? `<div class="effect-desc">${escapeHtml(model.desc)}</div>` : ""}
             <div class="effect-controls">
-                <div class="effect-field">
-                    <label>${t("Stufe")}</label>
+                <label class="effect-field">
+                    <span>${t("Stufe")}</span>
                     <input type="number" class="eff-level" min="1" max="256" value="${escapeHtml(model.level)}" data-index="${model.index}" ${disabledAttrs} />
-                </div>
-                <div class="effect-field">
-                    <label>${t("Dauer (s)")}</label>
+                </label>
+                <label class="effect-field">
+                    <span>${t("Dauer (s)")}</span>
                     <input type="number" class="eff-duration" min="0" max="107374182" value="${escapeHtml(model.durationSeconds)}" data-index="${model.index}" ${disabledAttrs} />
-                </div>
-                <label class="effect-field" style="cursor:pointer;">
-                    <span style="font-size:0.65rem;color:var(--text-secondary);text-transform:uppercase;">${t("Partikel")}</span>
+                </label>
+                <label class="effect-field effect-particles-field">
+                    <span>${t("Partikel")}</span>
                     <input type="checkbox" class="eff-particles" aria-label="${t("Partikel anzeigen")}" ${model.showParticles ? "checked" : ""} data-index="${model.index}" ${disabledAttrs} />
                 </label>
-                <button class="effect-remove" data-index="${model.index}" ${removeDisabledAttrs}>✕</button>
             </div>
         `;
     }

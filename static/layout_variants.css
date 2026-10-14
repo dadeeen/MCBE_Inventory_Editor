@@ -69,7 +69,7 @@
         max-width: 1810px;
         margin: 0 auto;
         display: grid;
-        grid-template-columns: 206px minmax(0, 1fr);
+        grid-template-columns: clamp(206px, 15vw, 260px) minmax(0, 1fr);
         grid-template-rows: auto minmax(0,1fr);
         column-gap: clamp(18px, 2vw, 32px);
         row-gap: 15px;
@@ -193,9 +193,8 @@
     /* Studio's slot grid and inspector never change tracks on selection. The
        stable inspector slot also avoids oversized inventory cells on wide monitors. */
     :root[data-layout="studio"] body.app-world-loaded[data-workflow-view="inventory"] .workspace {
-        /* Fill the same main-content track as the header and world summary.
-           On wide monitors the inspector absorbs extra width so item slots
-           grow only moderately, without a blank stripe between the columns. */
+        /* Fill the same main-content track as the header and world summary,
+           with a bounded inspector and the remaining space for inventory. */
         max-width: none;
         grid-template-columns: minmax(0,1fr) clamp(296px, 25vw, 355px);
         grid-template-rows: auto;
@@ -247,11 +246,11 @@
 :root[data-layout="studio"] .inventory-section { gap: 16px; }
 :root[data-layout="studio"] .inventory-section .grid-title { margin-top: 10px; }
 
-/* Extra-wide Studio displays: increase inspector space as the main canvas
-   widens, keeping the actual nine-column inventory grid compact and close. */
+/* Keep the wide Studio inspector close to Classic sizing; spare space
+   belongs to the inventory and the readable navigation rail. */
 @media (min-width: 1601px) {
     :root[data-layout="studio"] body.app-world-loaded[data-workflow-view="inventory"] .workspace {
-        grid-template-columns: minmax(0,1fr) clamp(355px, calc(56vw - 541px), 540px);
+        grid-template-columns: minmax(0,1fr) clamp(355px, 25vw, 400px);
     }
 }
 
@@ -637,25 +636,17 @@
 :root[data-layout="studio"] body.app-world-loaded[data-workflow-view="inventory"] #worldSection > :not(#loadErrorPanel):not(#worldPresenceBanner) {
     display: none !important;
 }
-/* Player selection and save review already expose the loaded world in their
+/* Player selection, player editing and save review expose the loaded world in their
    context selector. Retain the original live notices in the document flow. */
-:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded:is([data-workflow-view="player"], [data-workflow-view="save"]) #worldSection {
+:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded:is([data-workflow-view="player"], [data-workflow-view="player-edit"], [data-workflow-view="save"]) #worldSection {
     display: contents;
 }
-:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded:is([data-workflow-view="player"], [data-workflow-view="save"]) #worldSection > :not(#loadErrorPanel):not(#worldPresenceBanner) {
+:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded:is([data-workflow-view="player"], [data-workflow-view="player-edit"], [data-workflow-view="save"]) #worldSection > :not(#loadErrorPanel):not(#worldPresenceBanner) {
     display: none !important;
 }
-:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded:is([data-workflow-view="player"], [data-workflow-view="save"]) :is(#loadErrorPanel, #worldPresenceBanner) {
+:root:is([data-layout="studio"], [data-layout="focus"]) body.app-world-loaded:is([data-workflow-view="player"], [data-workflow-view="player-edit"], [data-workflow-view="save"]) :is(#loadErrorPanel, #worldPresenceBanner) {
     grid-column: 1 / -1;
 }
-/* The remaining context selector must identify the complete world/player,
-   including on touch screens where a hover title would not be accessible. */
-:root:is([data-layout="studio"], [data-layout="focus"]) body:is([data-workflow-view="player"], [data-workflow-view="save"]) .layout-context-chip strong {
-    white-space: normal;
-    overflow-wrap: anywhere;
-    line-height: 1.35;
-}
-
 /* FOCUS — shared workspace foundations. The current header, inventory columns
    and inspector are defined in focus_workspace.css. */
 :root[data-layout="focus"] body { padding: 18px clamp(14px, 2.5vw, 32px) 40px; }
@@ -872,78 +863,94 @@
     }
 }
 
-/* Studio's routine status is quiet text with a modest status icon. Only a
-   confirmed writable/offline state is neutralized; uncertain or blocked
-   access and warning/error/running notices retain their semantic colors. */
+/* Studio uses compact, accessible status controls. Full live messages remain
+   in the shared history and server details anchored to the complete header. */
 :root[data-layout="studio"] .app-header .header-status-area {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 12px;
-    position: relative;
+    gap: 4px 16px;
+    position: static;
 }
 :root[data-layout="studio"] .app-header .header-status-stack {
-    /* A content-based basis makes routine messages rewrap the whole status
-       row and move the workspace. Reserve a stable, shrinkable message track;
-       warning and error text can still wrap inside it. */
-    flex: 1 1 240px;
+    flex: 0 0 auto;
     max-width: 100%;
     position: static;
 }
-:root[data-layout="studio"] .app-header .server-status-badge {
-    flex: 0 1 auto;
+:root[data-layout="studio"] .app-header .server-status-badge,
+:root[data-layout="studio"] .app-header .status-stack-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex: 0 0 auto;
     width: auto;
     max-width: 100%;
-}
-/* Critical messages get a readable text column. When both notices cannot
-   fit side by side, each uses its own full-width row instead of a text tower. */
-:root[data-layout="studio"] .app-header .header-status-area:has(.status-stack-button:is(.warning, .error)) .server-status-badge {
-    flex: 1 1 260px;
-}
-:root[data-layout="studio"] .app-header .header-status-stack:has(> .status-stack-button:is(.warning, .error)) {
-    flex: 2 1 400px;
-}
-:root[data-layout="studio"] .app-header .server-status-badge.offline.allowed:not(.status-check-failed),
-:root[data-layout="studio"] .app-header .status-stack-button:not(.warning):not(.error):not(.running) {
+    min-height: 36px;
+    padding: 6px 2px;
+    gap: 7px;
+    border: 0;
+    border-radius: 4px;
     background: transparent;
-    border-color: transparent;
     box-shadow: none;
-    color: var(--text-secondary);
+    cursor: pointer;
 }
-:root[data-layout="studio"] .app-header .server-status-badge.offline.allowed:not(.status-check-failed)::before {
-    content: "";
+:root[data-layout="studio"] .app-header .server-status-badge {
+    font-size: 0;
+}
+:root[data-layout="studio"] .app-header .status-stack-button > :is(span, strong, small) {
+    display: none;
+}
+:root[data-layout="studio"] .app-header :is(.server-status-badge, .status-stack-button)::after {
+    content: attr(data-focus-label);
+    font-size: .8125rem;
+    line-height: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+:root[data-layout="studio"] .app-header :is(.server-status-badge, .status-stack-button)::before {
+    content: '';
     width: 6px;
     height: 6px;
     flex: 0 0 6px;
-    margin-right: 7px;
+    margin: 0;
     border-radius: 50%;
-    background: var(--success-text);
+    background: currentColor;
 }
-:root[data-layout="studio"] .app-header .status-stack-button:not(.warning):not(.error):not(.running) span {
-    background: transparent;
-}
-:root[data-layout="studio"] .app-header .server-status-badge.status-check-failed {
-    background: var(--warning-bg);
-    border-color: var(--warning-border);
-    color: var(--warning-text);
-}
-:root[data-layout="studio"] .app-header .status-stack-button:hover {
-    border-color: var(--card-border);
-}
-:root[data-layout="studio"] .app-header .status-stack-button:focus-visible {
+:root[data-layout="studio"] .app-header .status-stack-button::before { background: var(--text-secondary); }
+:root[data-layout="studio"] .app-header .status-stack-button.error::before { background: var(--danger-text); }
+:root[data-layout="studio"] .app-header .status-stack-button.warning::before { background: var(--warning-text); }
+:root[data-layout="studio"] .app-header .status-stack-button.success::before { background: var(--success-text); }
+:root[data-layout="studio"] .app-header .server-status-badge.offline.allowed { color: var(--text-secondary); }
+:root[data-layout="studio"] .app-header .server-status-badge.offline.allowed::before { background: var(--success-text); }
+:root[data-layout="studio"] .app-header :is(.server-status-badge, .status-stack-button):hover { text-decoration: underline; }
+:root[data-layout="studio"] .app-header :is(.server-status-badge, .status-stack-button):focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
-:root[data-layout="studio"] .app-header .status-stack-button:is(.warning, .error) small {
-    white-space: normal;
-    overflow-wrap: anywhere;
-}
-/* Anchor the log to the complete status row so a short status button cannot
-   push the wider popover beyond the left edge of a narrow window. */
 :root[data-layout="studio"] .app-header .status-stack-panel {
-    left: 0;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 16px;
     right: auto;
-    width: min(520px, 100%);
+    width: min(520px, calc(100% - 32px));
+    margin: 0;
+}
+@media (min-width: 1600px) {
+    :root[data-layout="studio"] .app-header {
+        grid-template-columns: minmax(0, 1fr) auto auto auto;
+        grid-template-rows: auto;
+        column-gap: 16px;
+        align-items: center;
+    }
+    :root[data-layout="studio"] .app-header .header-status-area { grid-column: 2; grid-row: 1; }
+    :root[data-layout="studio"] .app-header .undo-redo-btns {
+        grid-column: 3;
+        grid-row: 1;
+        gap: 4px;
+        padding-right: 12px;
+        border-right: 1px solid var(--card-border);
+    }
+    :root[data-layout="studio"] .app-header .header-actions { grid-column: 4; grid-row: 1; }
 }
 
 
@@ -982,13 +989,18 @@
     font-weight: 750;
     color: var(--text-secondary);
 }
+/* Keep context names compact and stable across every workspace view. */
 :root:is([data-layout="studio"], [data-layout="focus"]) .layout-context-chip strong {
     min-width: 0;
     grid-column: 1;
     font-size: .89rem;
-    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     overflow: hidden;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
 }
 :root:is([data-layout="studio"], [data-layout="focus"]) .layout-context-chip .layout-context-change {
     grid-column: 2;
@@ -1288,17 +1300,6 @@
         grid-column: 1 / -1;
         gap: 6px;
     }
-    :root[data-layout="studio"] .header-status-area .server-status-badge,
-    :root[data-layout="studio"] .status-stack-button {
-        min-height: 36px;
-        padding: 6px 8px;
-        font-size: .7rem;
-        border-radius: 8px;
-    }
-    :root[data-layout="studio"] .status-stack-button { grid-template-columns: 18px minmax(0, 1fr); gap: 5px; }
-    :root[data-layout="studio"] .status-stack-button strong { display: none; }
-    :root[data-layout="studio"] .status-stack-button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    :root[data-layout="studio"] #statusStackCount { width: 18px; height: 18px; font-size: .65rem; }
     :root[data-layout="studio"] .layout-context-bar { padding: 8px; gap: 6px; }
     :root[data-layout="studio"] .layout-context-action { padding-top: 7px; }
     :root[data-layout="studio"] .layout-context-action .btn { min-height: 36px; padding: 7px 10px; font-size: .78rem; }

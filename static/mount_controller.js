@@ -450,7 +450,7 @@
                 selectedPlacementRadius = lastPreview?.placement_search?.radius || placementRadius;
                 ensureSelectableCandidate();
                 renderIdle();
-                logStatus(t("Mount-Vorschau geladen"), "success");
+                logStatus(t("Mount-Vorschau geladen"), "info");
                 return true;
             } catch (error) {
                 if (requestId !== previewRequestId || requestedContext !== previewContextKey()) return false;
@@ -539,10 +539,10 @@
                 serverGuardEpoch: lastPreview.server_guard_epoch,
             });
             onPendingChanged(getPendingMounts());
-            const status = allowUncheckedPlacement ? "warning" : "success";
+            const status = allowUncheckedPlacement ? "warning" : "info";
             renderIdle();
-            showToast(t("{label} als ungespeicherte Änderung vorgemerkt.", { label: mountLabel }), "success");
-            logStatus(t("Mount vorgemerkt"), status);
+            showToast(t("{label} als ungespeicherte Änderung vorgemerkt.", { label: mountLabel }), status);
+            logStatus(t("Mount vorgemerkt – noch nicht gespeichert"), status);
         }
 
         function getPendingMounts() {
@@ -661,6 +661,10 @@
             el.horseProfileMode?.addEventListener("change", () => {
                 updateHorseProfileFromDom();
                 renderIdle();
+                if (selectedHorseProfile.mode === "custom") {
+                    const stats = elements().panel?.querySelector('details[data-disclosure="horse-stats"]');
+                    if (stats) stats.open = true;
+                }
             }, { once: true });
             doc.querySelectorAll(".mount-horse-profile-field").forEach(input => {
                 const update = () => {

@@ -13,7 +13,8 @@ def test_discard_controls_have_unique_explicit_ids() -> None:
     assert 'id="btnDiscardChanges"' not in html
     assert html.count('id="btnDirtyDiscardChanges"') == 1
     assert html.count('id="btnSafeEditDiscardChanges"') == 1
-    assert html.count('data-discard-changes="true"') == 2
+    assert html.count('id="btnReviewDiscardChanges"') == 1
+    assert html.count('data-discard-changes="true"') == 3
 
 
 def test_frontend_save_workflow_view_empty_states_are_owned_by_view_module() -> None:

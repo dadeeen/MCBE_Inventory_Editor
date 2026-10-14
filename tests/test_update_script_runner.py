@@ -47,6 +47,7 @@ def test_run_update_db_builds_command_env_and_directories(tmp_path, monkeypatch)
         update_script_runner.sys.executable,
         "-m",
         "scripts.update_db",
+        "--json-summary",
         "--dry-run",
         "--force",
         "--cache",

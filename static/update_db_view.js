@@ -5,6 +5,79 @@
 
     const EMPTY_OUTPUT = t("Noch kein Update ausgeführt.");
     const outputBuffers = new WeakMap();
+    const sectionLabels = {
+        items: "Katalogeinträge", stack_limits: "Stapellimits", durability: "Haltbarkeitswerte",
+        effects: "Effekte", enchants: "Verzauberungen", addable_items: "Hinzufügbare Items",
+        block_items: "Block-Items", block_only_items: "Reine Block-IDs",
+        enchantable: "Verzauberbare Items", wearable: "Tragbare Items", allow_off_hand: "Nebenhand-Items",
+    };
+    const issueLabels = {
+        invalid_ids: "Ungültige IDs", missing_names: "Fehlende DE/EN-Namen", missing_entries: "Fehlende Katalogreferenzen",
+        invalid_stack_limits: "Ungültige Stapellimits", invalid_durability: "Ungültige Haltbarkeitswerte",
+        unverified_stack_limits: "Ungeprüfte Stapellimits", name_differences_de: "Abweichende deutsche Namen",
+        name_differences_en: "Abweichende englische Namen", source_conflicts_stack_limits: "Abweichende Stapellimits der Quellen",
+        source_conflicts_durability: "Abweichende Haltbarkeitswerte der Quellen",
+    };
+
+    function renderResult(outputEl, data, dryRun, scopeText) {
+        const doc = outputEl?.ownerDocument;
+        const result = doc?.getElementById?.("updateDbResult");
+        const auditEl = doc?.getElementById?.("updateDbAudit");
+        if (!result || !auditEl) return;
+        result.replaceChildren();
+        auditEl.replaceChildren();
+        const add = (parent, text, tag = "p") => {
+            const el = doc.createElement(tag);
+            el.textContent = text;
+            parent.appendChild(el);
+        };
+        const report = data.summary;
+        const state = !data.success ? "incomplete" : report?.status || "unknown";
+        result.dataset.state = state;
+        const titles = {
+            available: t("Update verfügbar"), current: t("Keine inhaltlichen Änderungen"),
+            metadata_only: t("Nur Quelleninformationen geändert"), incomplete: t("Prüfung unvollständig oder fehlgeschlagen"),
+            unknown: t("Keine Ergebniszusammenfassung verfügbar. Bitte Details prüfen."),
+        };
+        let title = dryRun ? titles[state] || titles.unknown : data.success ? t("Update abgeschlossen.") : t("Update fehlgeschlagen.");
+        if (dryRun && state === "available" && report?.release) title = t("Update auf Mojang {release} verfügbar", {release: report.release});
+        add(result, title, "strong");
+        add(result, t("Bereich: {scope}", {scope: scopeText}));
+        if (data.error) add(result, data.error);
+        if (data.reload_warning) add(result, data.reload_warning);
+        for (const [key, counts] of Object.entries(report?.sections || {})) {
+            if (!(counts.added || counts.removed || counts.changed)) continue;
+            add(['items', 'stack_limits', 'durability', 'effects', 'enchants'].includes(key) ? result : auditEl,
+                t("{section}: {added} ergänzt, {removed} entfernt, {changed} geändert.", {
+                    section: t(sectionLabels[key] || key), ...counts,
+                }));
+        }
+        const audit = report?.audit;
+        if (audit) {
+            add(result, t("Automatischer Abgleich: {count} Katalogeinträge geprüft.", {count: audit.checked_items}));
+            const issues = audit.issues || [];
+            const expectedNames = audit.expected_name_differences || [];
+            if (expectedNames.length) {
+                add(auditEl, t("Erwartete Namensabweichungen ({count})", {count: new Set(expectedNames.map(entry => entry.id)).size}), "strong");
+                for (const entry of expectedNames) add(auditEl, `${String(entry.locale).toUpperCase()} · ${t("{id}: Katalog „{catalog}“ · Quelle „{source}“", entry)}`);
+            }
+            if (!issues.length) add(result, t("Keine Auffälligkeiten in den geprüften Daten."));
+            else {
+                add(result, t("Abgleich: {findings}. Details anzeigen.", {findings: issues.map(issue => `${t(issueLabels[issue.code] || issue.code)}: ${issue.count}`).join(" · ")}));
+                for (const issue of issues) {
+                    add(auditEl, `${t(issueLabels[issue.code] || issue.code)} (${issue.count})`, "strong");
+                    if (issue.comparisons?.length) {
+                        for (const entry of issue.comparisons) add(auditEl, t("{id}: Katalog „{catalog}“ · Quelle „{source}“", entry));
+                    } else add(auditEl, (issue.items || []).join(', '));
+                }
+                if (issues.some(issue => issue.code.startsWith('name_differences_'))) {
+                    add(auditEl, t("Abweichende Namen sind kein automatischer Fehler. Vorhandene Übersetzungen werden nicht allein wegen dieses Abgleichs ersetzt."));
+                }
+            }
+        }
+        for (const blocked of report?.blocked || []) add(result, `${blocked.section}: ${blocked.reason}`);
+        if (dryRun) add(result, t("Keine Änderungen an der Item-Datenbank übernommen."));
+    }
 
     function outputLineType(line) {
         const text = String(line || "").trim();
@@ -37,6 +110,8 @@
 
     function appendOutput(outputEl, text) {
         if (!outputEl) return;
+        const wrapper = outputEl.closest?.(".update-db-output-wrapper");
+        if (wrapper) wrapper.hidden = false;
         const initial = outputEl.textContent === EMPTY_OUTPUT ? "" : outputEl.textContent;
         const current = outputBuffers.has(outputEl) ? outputBuffers.get(outputEl) : initial;
         const raw = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -122,6 +197,14 @@
             }
             updateRunning = true;
             setUpdateControlsDisabled(true);
+            outputBuffers.delete(outputEl);
+            outputEl.textContent = EMPTY_OUTPUT;
+            const resultEl = outputEl.ownerDocument?.getElementById?.("updateDbResult");
+            if (resultEl) { resultEl.textContent = t("Prüfung läuft …"); resultEl.dataset.state = "running"; }
+            const auditEl = outputEl.ownerDocument?.getElementById?.("updateDbAudit");
+            if (auditEl) auditEl.replaceChildren();
+            const detailsEl = outputEl.ownerDocument?.getElementById?.("updateDbDetails");
+            if (detailsEl) detailsEl.open = false;
 
             const mode = dryRun ? "Dry-Run" : "Update";
             const statusKey = dryRun ? "database-update:dry-run" : "database-update:apply";
@@ -160,6 +243,7 @@
                 const data = await parseJsonResponse(res);
 
                 if (data.output) append(data.output);
+                renderResult(outputEl, data, dryRun, selectedScopeText(onlySelect, only));
 
                 if (data.success) {
                     progress?.finalizing();
@@ -219,6 +303,7 @@
                 append(`\n${t("{mode} fehlgeschlagen: {error}", { mode, error: message })}`);
                 updateStatus(t("{mode} fehlgeschlagen: {error}", { mode, error: message }), "error", true);
                 showToast(message, "error", 5000);
+                renderResult(outputEl, {success: false, error: message}, dryRun, selectedScopeText(onlySelect, only));
                 return { success: false, error: message };
             } finally {
                 progress?.stop();
@@ -231,6 +316,8 @@
         dryRunButton?.addEventListener("click", () => run(true, false));
         onlySelect?.addEventListener?.("change", () => {
             reviewedSources = null;
+            const summary = onlySelect.ownerDocument?.getElementById("updateScopeSummary");
+            if (summary) summary.textContent = selectedScopeText(onlySelect);
         });
         applyButton?.addEventListener("click", async () => {
             const only = onlySelect?.value || null;
@@ -249,6 +336,9 @@
             if (outputEl) {
                 outputBuffers.delete(outputEl);
                 outputEl.textContent = EMPTY_OUTPUT;
+                const wrapper = outputEl.closest?.(".update-db-output-wrapper");
+                if (wrapper) wrapper.hidden = true;
+                dryRunButton?.focus?.();
             }
         });
 

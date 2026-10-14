@@ -22,12 +22,14 @@
         return {
             undo: {
                 disabled: undoCount === 0,
-                text: undoCount ? `↩ ${undoCount}` : "↩",
+                text: "↩",
+                count: undoCount,
                 title: undoCount ? t("Rückgängig: {label}", { label: undoLabels[undoLabels.length - 1] || t("letzte Änderung") }) : t("Rückgängig (Ctrl+Z)"),
             },
             redo: {
                 disabled: redoCount === 0,
-                text: redoCount ? `↪ ${redoCount}` : "↪",
+                text: "↪",
+                count: redoCount,
                 title: redoCount ? t("Wiederholen: {label}", { label: redoLabels[redoLabels.length - 1] || t("letzte Änderung") }) : t("Wiederholen (Ctrl+Y)"),
             },
         };
@@ -40,13 +42,18 @@
         ];
         for (const [button, state] of pairs) {
             if (!button || !state) continue;
+            const count = Math.max(0, Math.trunc(Number(state.count) || 0));
+            const countLabel = t("Verfügbare Schritte: {count}", { count });
+            const title = count ? `${state.title} · ${countLabel}` : state.title;
+            button.dataset.historyCount = count ? (count > 99 ? "99+" : String(count)) : "";
             const apply = window.MCBEWriteStatusView?.applyIntrinsicEditControlState;
             if (apply) {
-                apply(button, state);
+                apply(button, { ...state, title });
             } else {
                 button.disabled = Boolean(state.disabled || state.blocked);
-                button.title = state.blockedTitle || state.title || "";
+                button.title = state.blockedTitle || title || "";
             }
+            button.setAttribute("aria-label", button.title || title || "");
             button.textContent = state.text || "";
         }
     }

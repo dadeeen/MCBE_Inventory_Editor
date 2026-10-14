@@ -26,7 +26,7 @@ from .inventory import (
     validate_item_original_bounds,
     validate_item_stack_count,
 )
-from .item_data import item_wearable_slot
+from .item_data import item_component, item_wearable_slot
 
 # In modernen Bedrock-Spielständen ist die Root-Armor-Liste eine dichte Liste
 # ohne Slot-Keys; die Position ergibt sich aus dem Listenindex.  Anhand echter
@@ -237,7 +237,8 @@ def item_allowed_in_equipment_slot(slot: int, name: str) -> bool:
     Komponente auf den Slot zeigt; ohne Komponente greift die Suffix-Heuristik
     plus kuratierte Ausnahmen wie Kürbis/Köpfe/Elytra.
 
-    Die Schildhand entscheidet bewusst anders: ``minecraft:wearable`` ist in
+    Für die Schildhand ist ein explizites ``minecraft:allow_off_hand`` maßgeblich.
+    Ohne diese Angabe gilt: ``minecraft:wearable`` ist in
     Bedrock nicht das Prädikat für die Offhand-Erlaubnis (Totem, Pfeile oder
     Karten haben gar keine Wearable-Komponente). Die offizielle Angabe ergänzt
     deshalb nur die kuratierte Positivliste, statt sie zu ersetzen. So kann ein
@@ -247,6 +248,9 @@ def item_allowed_in_equipment_slot(slot: int, name: str) -> bool:
 
     normalized = str(name).strip().lower()
     if slot == OFFHAND_SLOT:
+        offhand = item_component(normalized, "allow_off_hand")
+        if offhand is not None and type(offhand.get("value")) is bool:
+            return offhand["value"]
         official_slot = WEARABLE_COMPONENT_UI_SLOTS.get(item_wearable_slot(normalized) or "")
         return official_slot == OFFHAND_SLOT or _local_item_name(normalized) in OFFHAND_ITEM_NAMES
     if slot in ARMOR_SLOTS:

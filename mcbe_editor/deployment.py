@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import AppConfig
+from .i18n import t
 
 
 def _looks_like_world(path: Path) -> bool:
@@ -51,7 +52,7 @@ def worlds_root_status(config: AppConfig) -> dict[str, Any]:
             "root": None,
             "status": "not-configured",
             "bind_mount_required": config.is_docker,
-            "message": "Kein Welt-Root konfiguriert.",
+            "message": t("Kein Welt-Root konfiguriert."),
         }
 
     root = Path(root_value)
@@ -61,7 +62,7 @@ def worlds_root_status(config: AppConfig) -> dict[str, Any]:
             "root": str(root),
             "status": "missing",
             "bind_mount_required": config.is_docker,
-            "message": f"Welt-Root existiert nicht: {root}",
+            "message": t("Welt-Root existiert nicht: {root}", root=root),
         }
     if root.is_symlink():
         return {
@@ -69,7 +70,7 @@ def worlds_root_status(config: AppConfig) -> dict[str, Any]:
             "root": str(root),
             "status": "symlink",
             "bind_mount_required": config.is_docker,
-            "message": f"Welt-Root ist ein Symlink und wird nicht empfohlen: {root}",
+            "message": t("Welt-Root ist ein Symlink und wird nicht empfohlen: {root}", root=root),
         }
     if not root.is_dir():
         return {
@@ -77,7 +78,7 @@ def worlds_root_status(config: AppConfig) -> dict[str, Any]:
             "root": str(root),
             "status": "not-directory",
             "bind_mount_required": config.is_docker,
-            "message": f"Welt-Root ist kein Ordner: {root}",
+            "message": t("Welt-Root ist kein Ordner: {root}", root=root),
         }
 
     try:
@@ -88,7 +89,7 @@ def worlds_root_status(config: AppConfig) -> dict[str, Any]:
             "root": str(root),
             "status": "unreadable",
             "bind_mount_required": config.is_docker,
-            "message": f"Welt-Root kann nicht gelesen werden: {exc}",
+            "message": t("Welt-Root kann nicht gelesen werden: {error}", error=exc),
         }
 
     if not entries:
@@ -97,7 +98,7 @@ def worlds_root_status(config: AppConfig) -> dict[str, Any]:
             "root": str(root),
             "status": "empty",
             "bind_mount_required": config.is_docker,
-            "message": (f"Welt-Root {root} ist leer. Im Docker-Modus muss der Host-Weltenordner nach {root} gemountet werden."),
+            "message": t("Welt-Root {root} ist leer. Im Docker-Modus muss der Host-Weltenordner nach {root} gemountet werden.", root=root),
         }
 
     return {
@@ -107,7 +108,7 @@ def worlds_root_status(config: AppConfig) -> dict[str, Any]:
         "bind_mount_required": config.is_docker,
         "entry_count": len(entries),
         "contains_world_hint": _has_world_hint(root, max_depth=min(max(config.world_scan_depth, 0), 3)),
-        "message": f"Welt-Root {root} ist lesbar.",
+        "message": t("Welt-Root {root} ist lesbar.", root=root),
     }
 
 
@@ -116,7 +117,7 @@ def write_gate_setup_status(config: AppConfig) -> dict[str, Any]:
         if config.is_local:
             return {
                 "status": "disabled",
-                "message": (
+                "message": t(
                     "Server-Offline-Schreibsperre ist im Lokalmodus deaktiviert. "
                     "Öffne Welten nur, wenn Minecraft oder ein Bedrock-Server diese Welt nicht parallel nutzt."
                 ),
@@ -125,14 +126,14 @@ def write_gate_setup_status(config: AppConfig) -> dict[str, Any]:
             }
         return {
             "status": "disabled",
-            "message": "Server-Offline-Schreibsperre ist deaktiviert.",
+            "message": t("Server-Offline-Schreibsperre ist deaktiviert."),
             "writes_blocked_without_server_host": False,
             "local_world_access_warning": False,
         }
     if not config.server_host:
         return {
             "status": "server-host-missing",
-            "message": (
+            "message": t(
                 "MCBE_REQUIRE_SERVER_OFFLINE=true, aber MCBE_SERVER_HOST ist nicht gesetzt. "
                 "Schreibaktionen werden blockiert, weil der Serverstatus unbekannt ist."
             ),
@@ -141,7 +142,7 @@ def write_gate_setup_status(config: AppConfig) -> dict[str, Any]:
         }
     return {
         "status": "configured",
-        "message": f"Server-Offline-Schreibsperre prüft {config.server_host}:{config.server_port}.",
+        "message": t("Server-Offline-Schreibsperre prüft {host}:{port}.", host=config.server_host, port=config.server_port),
         "writes_blocked_without_server_host": False,
         "local_world_access_warning": False,
     }

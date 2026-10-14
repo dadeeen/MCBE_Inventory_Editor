@@ -13,6 +13,7 @@ from typing import Any
 from . import item_db_verification
 from .i18n import t
 from .service_errors import public_error_text
+from .update_db_report import extract_report
 
 _UPDATE_REVIEW_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -111,11 +112,14 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
             expected_review_token=expected_review_token,
         )
 
+        output, report = extract_report(output)
         result = {
             "success": returncode == 0,
             "returncode": returncode,
             "output": output,
         }
+        if report:
+            result["summary"] = report
         resolved_review = update_review_snapshot(deps, only) if returncode == 0 else {}
         if dry_run and returncode == 0 and resolved_review:
             result.update(

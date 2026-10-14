@@ -982,7 +982,7 @@
             updateGridVisuals?.();
             updateDetailPreview();
             setDirty?.(true);
-            logStatus?.(currentEditingIsEnder ? t("Enderchest-Slot {slot} aktualisiert", { slot: slotId }) : t("Slot {slot} aktualisiert", { slot: slotId }), "success");
+            logStatus?.(currentEditingIsEnder ? t("Enderchest-Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }) : t("Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }), "info");
             recordAction?.(t("{slot} aktualisiert", { slot: slotDisplayName(slotId, containerName) }), "edit");
         }
 
@@ -1016,7 +1016,7 @@
             updateDetailPreview();
             updateGridVisuals?.();
             setDirty?.(true);
-            logStatus?.(`${slotDisplayName(target.slotId, target.containerName)} geleert`, "success");
+            logStatus?.(t("{label} geleert – noch nicht gespeichert", { label: slotDisplayName(target.slotId, target.containerName) }), "info");
             recordAction?.(`${slotDisplayName(target.slotId, target.containerName)} geleert`, "edit");
         }
 

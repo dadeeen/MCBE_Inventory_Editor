@@ -67,7 +67,7 @@ def test_frontend_backup_restore_logic_plans_and_outcomes() -> None:
         eq(logic.openBackupFolderOutcome({ success: true, path: "C:/World/backups" }), {
             ok: true,
             nextBackupDir: "C:/World/backups",
-            toast: { message: "Backupordner geöffnet.", type: "success", ms: 2500 },
+            toast: { message: "Backupordner geöffnet.", type: "info", ms: 2500 },
         });
         eq(logic.openBackupFolderOutcome({ success: false, error: "kein Zugriff" }).toast, {
             message: "kein Zugriff",

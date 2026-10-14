@@ -82,7 +82,7 @@
                 ok: true,
                 nextExportDir: nextDir,
                 statusMessage: t("Exportordner geöffnet: {path}", { path: nextDir || data.path }),
-                statusType: "success",
+                statusType: "info",
             };
         }
         const message = apiErrorMessage(data, t("Exportordner konnte nicht geöffnet werden."));

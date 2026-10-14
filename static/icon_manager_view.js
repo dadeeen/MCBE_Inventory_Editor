@@ -79,7 +79,6 @@
             <div class="icon-source-main">
                 <strong>${escapeHtml(src.label || src.path || t("Icon-Quelle"))}</strong>
                 <span>${escapeHtml(sourceKind(src))} · ${escapeHtml(sourceStatus(src))} · ${src.archive ? t("Archiv") : t("Ordner")}</span>
-                <small>${escapeHtml(src.path || "")}</small>
             </div>
             <div class="icon-source-actions">
                 ${src.manual ? `<button class="btn-text icon-source-move" type="button" data-path="${escapeAttr(src.path)}" data-direction="up" title="${t("Priorität erhöhen")}">${t("Hoch")}</button>
@@ -99,25 +98,28 @@
                 <strong>${escapeHtml(setupTitle)}</strong>
                 <p>${t("Minecraft-Assets werden bewusst nicht mitgeliefert und es werden keine externen Bilder geladen. Wähle ein Resource Pack (.mcpack/.zip) oder einen Ordner mit textures/items bzw. textures/blocks; bis dahin nutzt die App Platzhalter.")}</p>
             </div>
-            <button class="btn btn-secondary btn-sm" type="button" id="btnFocusIconSource">${t("Icon-Pfad eintragen")}</button>
+            <button class="btn btn-secondary btn-sm" type="button" id="btnFocusIconSource">${t("Quelle hinzufügen …")}</button>
         </div>` : "";
         return `
         ${setupHtml}
-        <div class="icon-manager-status">
-            <div><span>${t("Aktiver Icon-Index")}</span><strong>${t("{count} Icons", { count: formatDe(summary.count) })}</strong><small>${t("Lokale Quellen · keine externen Downloads")}</small></div>
-            <div><span>${t("Asset-Status")}</span><strong>${escapeHtml(healthLabel)}</strong><small>${t("{existing} von {enabled} aktiven Quellen vorhanden", { existing: formatDe(health.existing_sources), enabled: formatDe(health.enabled_sources) })}</small></div>
-            <div><span>Performance</span><strong>${escapeHtml(cacheLabel)}</strong><small>${t("{count} geprüfte Dateien", { count: formatDe(summary.scanned_files) })} · ${escapeHtml(cache.path || t("kein Cache"))}</small></div>
-            <div><span>${t("Konfiguration")}</span><strong>${escapeHtml(summary.settings_path || t("lokal"))}</strong><small>${t("Gespeichert werden nur Pfade, keine Texturen")}</small></div>
-        </div>
+        <p class="tool-status-line"><strong>${t("{count} Icons", { count: formatDe(summary.count) })}</strong><span>${escapeHtml(healthLabel)}</span></p>
+        ${warningHtml}
+        <div class="tool-source-list">${rows}</div>
         <div class="icon-preview-panel">
             <div><strong>${t("Pack-Vorschau")}</strong><small>${t("{found} von {total} typischen Items gefunden", { found: formatDe(health.sample_found), total: formatDe(health.sample_total) })}</small></div>
             <div class="icon-preview-grid">${sampleRows || `<span class="hint-text">${t("Noch keine Vorschau verfügbar.")}</span>`}</div>
         </div>
-        ${rows}
-        ${warningHtml}
+        <details class="tool-details" data-icon-details><summary>${t("Technische Details")}</summary>
+        <dl class="tool-facts">
+            ${sources.map(src => `<div><dt>${escapeHtml(src.label || t("Icon-Quelle"))}</dt><dd>${escapeHtml(src.path || "")}</dd></div>`).join("")}
+            <div><dt>${t("Asset-Status")}</dt><dd>${t("{existing} von {enabled} aktiven Quellen vorhanden", { existing: formatDe(health.existing_sources), enabled: formatDe(health.enabled_sources) })}</dd></div>
+            <div><dt>${escapeHtml(cacheLabel)}</dt><dd>${t("{count} geprüfte Dateien", { count: formatDe(summary.scanned_files) })} · ${escapeHtml(cache.path || t("kein Cache"))}</dd></div>
+            <div><dt>${t("Konfiguration")}</dt><dd>${escapeHtml(summary.settings_path || t("lokal"))}</dd></div>
+        </dl>
+        <p class="hint-text">${t("Die aktuelle Mojang-Version wird automatisch geprüft; ein bereits passender Download wird sicher wiederverwendet.")}</p>
         <div class="inline-actions icon-manager-footer">
             <button id="btnCopyIconDiagnostics" class="btn btn-secondary btn-sm" type="button">${t("Icon-Diagnose kopieren")}</button>
-        </div>
+        </div></details>
     `;
     }
 

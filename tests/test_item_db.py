@@ -77,7 +77,7 @@ class TestGetMaxStack(unittest.TestCase):
         # Ohne die offizielle Komponente würde das _spear-Suffix hier den
         # Trident-Slot liefern und damit Impaling/Riptide statt Sharpness.
         self.assertEqual(enchantment_slots_for_item("minecraft:iron_spear"), {"melee_spear"})
-        self.assertEqual(set(ITEM_COMPONENTS), {"enchantable", "wearable"})
+        self.assertEqual(set(ITEM_COMPONENTS), {"enchantable", "wearable", "allow_off_hand"})
 
     def test_returns_curated_engine_limits_for_damageable_items_missing_from_behavior_json(self):
         expected_durability = {

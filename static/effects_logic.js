@@ -187,20 +187,35 @@
             [elements.foodSaturation, "food_saturation"],
         ];
         let conversionApplied = false;
+        let conversionOriginalPosition = null;
         let conversionSourceDimension = null;
 
         function formElements() {
             return elements;
         }
 
+        function conversionPosition(values) {
+            // Preserve stored precision when a displayed coordinate is unchanged.
+            return abilityState?.positionFromFormValues
+                ? abilityState.positionFromFormValues(values, getPlayerStats?.()?.pos)
+                : [values.posX, values.posY, values.posZ];
+        }
+
         function markTouched(field) {
             if (field) touchedFields.add(field);
+        }
+
+        function resetConversion() {
+            conversionApplied = false;
+            conversionOriginalPosition = null;
+            refreshLocationConversion();
         }
 
         function render() {
             const model = abilityView.statsFormModel(getPlayerStats?.() || {});
             abilityView.applyStatsFormModel(formElements(), model);
             conversionApplied = false;
+            conversionOriginalPosition = null;
             refreshLocationConversion();
         }
 
@@ -211,15 +226,16 @@
             // Applying the form starts a new conversion from the accepted dimension.
             if (sourceDimension !== conversionSourceDimension) {
                 conversionApplied = false;
+                conversionOriginalPosition = null;
                 conversionSourceDimension = sourceDimension;
             }
-            const targetDimension = values.dimensionId;
+            const targetDimension = Number(sourceDimension) === 0 ? 1 : 0;
             const source = Number(sourceDimension);
             const target = Number(targetDimension);
             const supportedPair = (source === 0 && target === 1) || (source === 1 && target === 0);
             const convertedPosition = supportedPair
                 ? abilityState?.convertPositionBetweenDimensions?.(
-                    [values.posX, values.posY, values.posZ],
+                    conversionPosition(values),
                     sourceDimension,
                     targetDimension,
                 )
@@ -232,7 +248,7 @@
             );
             const model = abilityView.locationConversionModel({
                 sourceDimension,
-                targetDimension,
+                targetDimension: values.dimensionId,
                 blocked: locationBlocked,
                 converted: conversionApplied,
                 positionInvalid: supportedPair && !conversionApplied && !convertedPosition,
@@ -263,14 +279,27 @@
                 });
             });
             elements.convertLocation?.addEventListener("click", () => {
+                if (elements.convertLocation.disabled) return;
+                if (conversionApplied && conversionOriginalPosition) {
+                    elements.dimensionId.value = conversionOriginalPosition[2];
+                    elements.posX.value = conversionOriginalPosition[0];
+                    elements.posZ.value = conversionOriginalPosition[1];
+                    conversionApplied = false;
+                    conversionOriginalPosition = null;
+                    markTouched("pos");
+                    refreshLocationConversion();
+                    return;
+                }
                 const values = abilityView.readStatsFormValues(formElements());
-                const position = [values.posX, values.posY, values.posZ];
+                const position = conversionPosition(values);
                 const converted = abilityState?.convertPositionBetweenDimensions?.(
                     position,
                     getPlayerStats?.()?.dimension_id,
-                    values.dimensionId,
+                    Number(getPlayerStats?.()?.dimension_id) === 0 ? 1 : 0,
                 );
                 if (!converted) return;
+                conversionOriginalPosition = [elements.posX.value, elements.posZ.value, elements.dimensionId.value];
+                elements.dimensionId.value = String(Number(getPlayerStats?.()?.dimension_id) === 0 ? 1 : 0);
                 [elements.posX, elements.posY, elements.posZ].forEach((input, index) => {
                     if (input) input.value = String(converted[index]);
                 });
@@ -285,6 +314,7 @@
             elements: formElements,
             markTouched,
             refreshLocationConversion,
+            resetConversion,
             render,
             touchedFields,
             wireTouchedTracking,
@@ -329,6 +359,7 @@
         getProtectedNbt,
         getPlayerStats,
         setPlayerStats,
+        onStatsApplied = () => {},
         getPlayerEffects,
         getPlayerAbilities,
         setPlayerAbilities,
@@ -469,51 +500,37 @@
         function renderEffectPicker() {
             const select = doc.getElementById("effectToAdd");
             const addButton = doc.getElementById("btnAddEffect");
-            const details = doc.getElementById("effectPickerDetails");
-            const summary = doc.getElementById("effectPickerSummary");
             const list = doc.getElementById("effectPickerList");
-            const description = doc.getElementById("effectPickerDescription");
-            if (!select || !addButton || !details || !summary || !list || !description) return;
-            const options = logic.availableEffectOptions(playerEffects(), effectsDb());
-            const previousValue = select.value;
-            const selectedOption = options.find(option => String(option.id) === previousValue) || null;
-            select.value = selectedOption ? previousValue : "";
-            summary.textContent = selectedOption?.label || t("Effekt auswählen …");
-            description.textContent = selectedOption?.description
-                || t("Bewege den Mauszeiger auf einen Effekt oder fokussiere ihn, um die Beschreibung zu sehen.");
+            if (!select || !addButton || !list) return;
+            const used = new Set(playerEffects().map(effect => Number(effect.id)));
+            const options = logic.availableEffectOptions([], effectsDb());
+            const query = (doc.getElementById("effectCatalogSearch")?.value || "").trim().toLocaleLowerCase();
+            const selected = options.find(option => String(option.id) === select.value && !used.has(option.id));
+            if (!selected) select.value = "";
+            doc.getElementById("effectPickerSummary").textContent = selected?.label || t("Effekt auswählen …");
+            doc.getElementById("effectPickerDescription").textContent = selected?.description || t("Wähle einen Effekt aus, um Beschreibung und Werte anzuzeigen.");
             list.innerHTML = "";
-            options.forEach(optionModel => {
+            for (const optionModel of options) {
+                if (query && ![optionModel.label, ...effectsDb()[optionModel.id].slice(0, 2), String(optionModel.id)].join(" ").toLocaleLowerCase().includes(query)) continue;
                 const option = doc.createElement("button");
                 option.type = "button";
                 option.className = "effect-picker-option";
                 option.dataset.effectId = String(optionModel.id);
-                option.setAttribute("role", "option");
-                option.setAttribute("aria-selected", String(String(optionModel.id) === select.value));
-                option.textContent = optionModel.label;
-                const previewDescription = () => {
-                    description.textContent = optionModel.description;
-                };
-                option.addEventListener("mouseenter", previewDescription);
-                option.addEventListener("focus", previewDescription);
+                option.setAttribute("aria-pressed", String(String(optionModel.id) === select.value));
+                option.disabled = used.has(optionModel.id);
+                option.textContent = optionModel.label + (option.disabled ? " · " + t("Bereits aktiv") : "");
                 option.addEventListener("click", () => {
                     if (isEditingBlocked()) return;
                     select.value = String(optionModel.id);
-                    list.querySelectorAll("[role='option']").forEach(entry => {
-                        entry.setAttribute("aria-selected", String(entry === option));
-                    });
-                    summary.textContent = optionModel.label;
-                    description.textContent = optionModel.description;
-                    details.open = false;
-                    abilityView.applyControlState(addButton, { disabled: false });
+                    renderEffectPicker();
+                    list.querySelector(`[data-effect-id="${optionModel.id}"]`)?.focus();
                 });
                 list.appendChild(option);
-            });
-            const blocked = protectedNbt().active_effects_opaque === true
-                || options.length === 0;
-            details.classList.toggle("disabled", blocked);
-            details.setAttribute("aria-disabled", String(blocked));
-            if (blocked) details.open = false;
-            abilityView.applyControlState(addButton, { disabled: blocked || select.value === "", blocked: isEditingBlocked() });
+            }
+            if (!list.children.length) list.textContent = t("Keine passenden Effekte gefunden.");
+            const blocked = protectedNbt().active_effects_opaque === true || options.length === 0;
+            abilityView.applyControlState(doc.getElementById("btnOpenEffectPicker"), { disabled: blocked, blocked: isEditingBlocked() });
+            abilityView.applyControlState(addButton, { disabled: blocked || !selected, blocked: isEditingBlocked() });
         }
 
         function syncEffectsFromUI() {
@@ -633,9 +650,10 @@
                 pushUndo?.();
                 setPlayerStats?.(result.nextStats);
                 getTouchedStatsFields?.()?.clear?.();
+                onStatsApplied();
 
                 setDirty?.(true);
-                logStatus?.(t("Spieler-Statistiken aktualisiert (Speichern zum Bestätigen)"), "success");
+                logStatus?.(t("Spieler-Statistiken aktualisiert (Speichern zum Bestätigen)"), "info");
 
                 doc.querySelectorAll("#dashStats input, #dashStats select").forEach(el => {
                     el.classList.add("stat-changed");
@@ -646,16 +664,27 @@
 
         function wireAddEffect() {
             const select = doc.getElementById("effectToAdd");
-            const details = doc.getElementById("effectPickerDetails");
-            details?.querySelector("summary")?.addEventListener("click", event => {
-                if (details.classList.contains("disabled")) event.preventDefault();
+            const dialog = doc.getElementById("effectPickerDialog");
+            const trigger = doc.getElementById("btnOpenEffectPicker");
+            trigger?.addEventListener("click", () => {
+                if (isEditingBlocked() || protectedNbt().active_effects_opaque === true) return;
+                select.value = "";
+                doc.getElementById("effectCatalogSearch").value = "";
+                doc.getElementById("effectCatalogLevel").value = "1";
+                doc.getElementById("effectCatalogDuration").value = "30";
+                renderEffectPicker();
+                dialog.showModal();
+                doc.getElementById("effectCatalogSearch").focus();
             });
-            details?.addEventListener("keydown", event => {
-                if (event.key === "Escape") {
-                    details.open = false;
-                    details.querySelector("summary")?.focus();
-                }
+            doc.getElementById("btnCloseEffectPicker")?.addEventListener("click", () => dialog.close());
+            dialog?.addEventListener("close", () => trigger?.focus());
+            dialog?.addEventListener("keydown", event => {
+                // Keep application shortcuts out of the modal while retaining
+                // native text editing, Tab navigation and Escape-to-close.
+                event.stopPropagation();
+                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") event.preventDefault();
             });
+            doc.getElementById("effectCatalogSearch")?.addEventListener("input", renderEffectPicker);
             doc.getElementById("btnAddEffect")?.addEventListener("click", () => {
                 if (isEditingBlocked()) return;
                 const decision = logic.addEffectDecision({
@@ -668,9 +697,16 @@
                     showToast?.(decision.message, "warning", decision.toastMs);
                     return;
                 }
+                const level = doc.getElementById("effectCatalogLevel");
+                const duration = doc.getElementById("effectCatalogDuration");
+                if (!level.reportValidity() || !duration.reportValidity()) return;
+                Object.assign(decision.effect, effectsView.effectPatchFromRowValues({
+                    levelValue: level.value, durationSecondsValue: duration.value, showParticles: true,
+                }));
                 pushUndo?.();
                 setEffectsTouched?.(true);
                 playerEffects().push(decision.effect);
+                dialog?.close();
                 renderEffectsList();
                 setDirty?.(true);
                 showToast?.(decision.toastMessage);
@@ -732,7 +768,7 @@
                     setAbilitiesTouched?.(true);
                 }
                 setDirty?.(true);
-                logStatus?.(t("Effekte & Fähigkeiten aktualisiert (Speichern zum Bestätigen)"), "success");
+                logStatus?.(t("Effekte & Fähigkeiten aktualisiert (Speichern zum Bestätigen)"), "info");
                 recordAction?.(t("Effekte & Fähigkeiten aktualisiert"), "edit");
             });
         }

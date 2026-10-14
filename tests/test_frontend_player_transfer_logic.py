@@ -46,7 +46,7 @@ def test_frontend_player_transfer_logic_export_and_picker_plans() -> None:
             ok: true,
             nextExportDir: "C:/exports",
             statusMessage: "Exportordner geöffnet: C:/exports",
-            statusType: "success",
+            statusType: "info",
         });
         assert.strictEqual(logic.openExportFolderOutcome({ success: false, error: "kein Zugriff" }).statusMessage, "kein Zugriff");
         assert.strictEqual(

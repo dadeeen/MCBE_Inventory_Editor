@@ -126,16 +126,83 @@ form.wireTouchedTracking(); form.render();
 MCBEEffectsLogic.createEffectsAbilitiesController({
     statsFormElements: () => elements, getTouchedStatsFields: () => form.touchedFields,
     getPlayerStats: () => stats, setPlayerStats: value => { stats = value; }, getProtectedNbt: () => ({}),
+    onStatsApplied: () => form.resetConversion(),
 }).wire();
-elements.dimensionId.value = '1'; elements.dimensionId.emit('change');
+const beforeConversion = { dimension: elements.dimensionId.value, x: elements.posX.value, z: elements.posZ.value };
 assert.equal(elements.convertLocation.disabled, false);
 elements.convertLocation.click();
-assert.equal(elements.convertLocation.disabled, true);
-elements.convertLocation.click(); // Still disabled until the converted form is accepted.
+assert.equal(elements.convertLocation.disabled, false);
+assert.equal(elements.dimensionId.value, '1');
+assert.equal(elements.posX.value, '10');
+elements.convertLocation.click(); // Undo the draft, never divide it a second time.
+assert.equal(elements.dimensionId.value, beforeConversion.dimension);
+assert.equal(elements.posX.value, beforeConversion.x);
+assert.equal(elements.posZ.value, beforeConversion.z);
+elements.convertLocation.click();
 apply.click();
 assert.equal(stats.dimension_id, 1); assert.deepEqual(stats.pos, [10, 64, 20]);
-elements.dimensionId.value = '0'; elements.dimensionId.emit('change');
 assert.equal(elements.convertLocation.disabled, false);
 elements.convertLocation.click(); apply.click();
 assert.equal(stats.dimension_id, 0); assert.deepEqual(stats.pos, [80, 64, 160]);
+""")
+
+
+def test_modal_dialogs_keep_global_edit_shortcuts_out_of_the_editor():
+    run_node(r"""
+const assert = require('node:assert/strict');
+global.window = global;
+require('./static/workflow_state.js');
+let modalOpen = true;
+let nativeDialog = true;
+const calls = [];
+const keyboard = MCBEWorkflowState.createAppKeyboardController({
+    doc: {
+        querySelector: selector => selector === 'dialog[open]' && nativeDialog && modalOpen ? {} : null,
+        querySelectorAll: () => [{ getClientRects: () => !nativeDialog && modalOpen ? [{}] : [] }],
+    },
+    undo: () => calls.push('undo'), redo: () => calls.push('redo'),
+    saveButton: { click: () => calls.push('save') },
+    clearSelection: () => calls.push('clear'), hasSelection: () => true,
+    inventoryClipboardController: { handleKeydown: () => { calls.push('clipboard'); return false; } },
+});
+const press = (key, ctrlKey = false) => {
+    let prevented = false;
+    keyboard.handleKeydown({ key, ctrlKey, target: { matches: () => false },
+        preventDefault: () => { prevented = true; } });
+    return prevented;
+};
+for (nativeDialog of [true, false]) {
+    for (const key of ['z', 'y', 'c', 'v']) press(key, true);
+    assert.equal(press('s', true), true); // Do not open the browser's Save Page dialog.
+    assert.equal(press('Escape'), false); // The dialog owns Escape.
+    assert.deepEqual(calls, []);
+}
+modalOpen = false;
+press('z', true);
+assert.deepEqual(calls, ['undo']);
+""")
+
+
+def test_workspace_shortcut_obeys_native_custom_and_loading_modals():
+    run_node(r"""
+const assert = require('node:assert/strict');
+global.window = global;
+require('./static/workflow_state.js');
+require('./static/workspace_view.js');
+let nativeOpen = false, overlayOpen = false, opens = 0, handler;
+const doc = {
+    querySelector: () => nativeOpen ? {} : null,
+    querySelectorAll: () => [{ getClientRects: () => overlayOpen ? [{}] : [] }],
+    addEventListener: (name, callback) => { handler = callback; },
+};
+MCBEWorkspaceView.createWorkspaceController({ openWorkspaceDashboard: () => opens++ }).wireActions({ doc });
+for (const flags of [{ctrlKey: true}, {metaKey: true}]) {
+    const press = () => handler({ key: 'P', shiftKey: true, ...flags, preventDefault() {} });
+    nativeOpen = true; press();
+    nativeOpen = false; overlayOpen = true; press();
+    assert.equal(opens, 0);
+}
+overlayOpen = false;
+handler({ key: 'p', ctrlKey: true, shiftKey: true, preventDefault() {} });
+assert.equal(opens, 1);
 """)

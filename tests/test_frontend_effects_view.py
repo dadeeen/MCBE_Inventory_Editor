@@ -96,12 +96,12 @@ def test_frontend_effects_view_translates_labels_and_explains_particles() -> Non
                 showParticles: true,
             });
 
-            assert.ok(html.includes("<label>Level</label>"));
-            assert.ok(html.includes("<label>Duration (s)</label>"));
+            assert.ok(html.includes("<span>Level</span>"));
+            assert.ok(html.includes("<span>Duration (s)</span>"));
             assert.ok(html.includes(">Particles</span>"));
             assert.ok(html.includes('aria-label="Show particles"'));
             assert.ok(html.includes('aria-label="Remove effect"'));
-            assert.ok(!html.includes("<label>Stufe</label>"));
+            assert.ok(!html.includes("<span>Stufe</span>"));
             """
         )
     )

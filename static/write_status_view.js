@@ -32,6 +32,7 @@
         "#btnConvertOverworldNether",
         "#btnResetAbilitySpeeds",
         "#btnAddEffect",
+        "#btnOpenEffectPicker",
         "#btnApplyEffects",
         "#dashEffects .effect-remove",
         "#btnCopyFromPlayer",
@@ -311,6 +312,7 @@
         getIsLoading = () => false,
         buildChangeSummary = () => ({ total: 0 }),
         updateImportControls = () => {},
+        onEditControlsUpdated = () => {},
         updatePlayerTransferControls = () => {},
         renderSaveWorkflowPanel = () => {},
         updateDirtyBanner = () => {},
@@ -427,6 +429,7 @@
                 summary: buildChangeSummary({ limit: 3, includeSections: false }),
             });
             applyWriteControlModel({ saveButtons, restoreButtons, backupCreateButtons, editControls }, model);
+            onEditControlsUpdated();
             updateImportControls();
             updatePlayerTransferControls();
             renderSaveWorkflowPanel();

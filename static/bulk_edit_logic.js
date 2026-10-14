@@ -85,8 +85,8 @@
             item: { name, count, damage },
             undoLabel: t("Markierte Slots mit {name} gefüllt", { name }),
             skippedProtected: skippedProtected(writableCount, selectedCount),
-            statusMessage: t("{label} gefüllt mit {name}", { label, name }),
-            actionMessage: t("{label} gefüllt mit {name}", { label, name }),
+            statusMessage: t("{label} gefüllt mit {name} – noch nicht gespeichert", { label, name }),
+            actionMessage: t("{label} gefüllt mit {name} – noch nicht gespeichert", { label, name }),
         };
     }
 
@@ -97,8 +97,8 @@
             ok: true,
             undoLabel: t("Markierte Slots geleert"),
             skippedProtected: skippedProtected(writableCount, selectedCount),
-            statusMessage: t("{label} geleert", { label }),
-            actionMessage: t("{label} geleert", { label }),
+            statusMessage: t("{label} geleert – noch nicht gespeichert", { label }),
+            actionMessage: t("{label} geleert – noch nicht gespeichert", { label }),
         };
     }
 
@@ -135,8 +135,8 @@
         return {
             recordMessage: t("Menge für {count} markierte Slot(s) gesetzt", { count: changed }),
             toast: {
-                message: t("Menge für {count} Slot(s) gesetzt.", { count: changed }),
-                type: "success",
+                message: t("Menge für {count} Slot(s) gesetzt – noch nicht gespeichert.", { count: changed }),
+                type: "info",
                 ms: 2500,
             },
         };
@@ -158,8 +158,8 @@
             undoLabel: t("Markierte Items repariert"),
             recordMessage: t("{count} markierte Item(s) repariert", { count: targetCount }),
             toast: {
-                message: t("{count} markierte Item(s) repariert.", { count: targetCount }),
-                type: "success",
+                message: t("{count} markierte Item(s) repariert – noch nicht gespeichert.", { count: targetCount }),
+                type: "info",
                 ms: 2500,
             },
         };
@@ -176,8 +176,8 @@
         return {
             ok: true,
             undoLabel: t("Alle reparierbaren Items repariert"),
-            statusMessage: t("Reparierte haltbare Items: {count} (inkl. Enderchest).", { count: targetCount }),
-            statusType: "success",
+            statusMessage: t("Reparierte haltbare Items: {count} (inkl. Enderchest) – noch nicht gespeichert.", { count: targetCount }),
+            statusType: "info",
             actionMessage: t("Haltbare Items repariert: {count}", { count: targetCount }),
         };
     }
@@ -287,7 +287,7 @@
                 }
                 window.MCBEInventoryState.fillTargets(wearableTargets, plan.item);
                 finishBulkEdit();
-                logStatus?.(plan.statusMessage, "success");
+                logStatus?.(plan.statusMessage, "info");
                 recordAction?.(plan.actionMessage, "edit");
             });
         }
@@ -309,7 +309,7 @@
                 window.MCBEInventoryState.clearTargets(writableTargets);
                 finishBulkEdit();
                 if (plan.skippedProtected) showToast?.(t("Geschützte Slots wurden übersprungen."), "warning", 3000);
-                logStatus?.(plan.statusMessage, "success");
+                logStatus?.(plan.statusMessage, "info");
                 recordAction?.(plan.actionMessage, "edit");
             });
         }

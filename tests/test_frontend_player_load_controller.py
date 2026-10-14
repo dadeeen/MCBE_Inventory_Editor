@@ -232,7 +232,7 @@ def test_loaded_controls_restore_current_protection_and_undo_after_busy_state() 
         const protection = protectedFields => protectedFields ? {
             stat_fields_opaque: {health: 'Health'}, ability_fields_opaque: {fly_speed: 'flySpeed'},
         } : {};
-        const control = () => ({disabled: false, title: '', dataset: {}, value: ''});
+        const control = () => ({disabled: false, title: '', dataset: {}, value: '', setAttribute(name, value) { this[name] = value; }});
         (async () => {
             for (const nextProtected of [false, true]) {
                 let load;
@@ -479,7 +479,7 @@ def test_frontend_player_load_controller_shows_overlay_while_loading_player() ->
                 assert.strictEqual(state.itemAvailability.classifications.creative[0], "minecraft:bedrock");
                 assert.strictEqual(clearedPendingMounts, 1);
                 assert.strictEqual(statuses[0].type, "running");
-                assert.strictEqual(statuses.at(-1).type, "success");
+                assert.strictEqual(statuses.at(-1).type, "info");
                 assert.ok(statuses.every(entry => entry.options.key === "player-load"));
             })().catch(error => {
                 console.error(error);

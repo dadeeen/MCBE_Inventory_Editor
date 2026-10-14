@@ -334,7 +334,7 @@ def run_state_checks(browser, root):
     page = browser.new_page(viewport={"width": 1440, "height": 960}, reduced_motion="reduce")
     create_mount_page(page, root=root, loaded=True)
     page.locator("#mountHorseProfileMode").select_option("custom")
-    page.locator('details[data-disclosure="horse-stats"] > summary').click()
+    assert page.locator('details[data-disclosure="horse-stats"]').evaluate("node=>node.open")
     page.locator("#mountHorseHealthInput").fill("27")
     page.locator("#mountHorseColorSelect").select_option("5")
     page.locator("#mountTypeSelect").focus()
@@ -555,7 +555,7 @@ def run_value_checks(browser, root):
                 page.evaluate("theme=>document.documentElement.dataset.theme=theme", theme)
                 page.locator("#mountHorseProfileMode").select_option("custom")
                 details = page.locator('details[data-disclosure="horse-stats"]')
-                details.locator("summary").click()
+                assert details.evaluate("node=>node.open"), context
                 for field in fields:
                     page.locator(f"#mountHorse{field}Input").fill("100")
                 assert page.locator('[aria-invalid="true"]').count() == 4, context

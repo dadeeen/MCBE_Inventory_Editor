@@ -182,7 +182,8 @@ def test_frontend_undo_redo_app_respects_editing_block() -> None:
             let current = { inv: {}, ec: {}, stats: {}, effects: [], abilities: {}, mounts: [] };
             vm.runInNewContext(fs.readFileSync("static/undo_redo_view.js", "utf8"), context);
             let blocked = true;
-            const buttons = { undo: {}, redo: {} };
+            const button = () => ({dataset: {}, setAttribute(key, value) { this[key] = value; }});
+            const buttons = { undo: button(), redo: button() };
             const snapshot = () => JSON.parse(JSON.stringify(current));
             const controller = context.window.MCBEUndoRedoController.createUndoRedoAppController({
                 buttons,

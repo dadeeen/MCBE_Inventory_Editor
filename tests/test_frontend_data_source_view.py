@@ -3,6 +3,22 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_catalog_conflicts_override_verified_status_and_escape_diagnostics():
+    run_node(r"""
+const assert = require('node:assert/strict');
+global.window = global;
+require('./static/data_source_view.js');
+const status = {status: 'conflict', verification: {verified: true}, message: 'Effekte: IDs 1, 99 <blocked>'};
+const html = MCBEDataSourceView.itemDbStatusHtml({itemDbStatus: status});
+assert.match(html, /Katalogbereich gesperrt/);
+assert.match(html, /IDs 1, 99 &lt;blocked&gt;/);
+assert.ok(!html.includes('<blocked>'));
+const notice = MCBEDataSourceView.assetDataStatusHtml({itemDbStatus: status});
+assert.match(notice, /Katalogbereich gesperrt/);
+assert.match(notice, /data-open-db-status/);
+""")
+
+
 def test_frontend_data_source_view_asset_status_html_formats_current_state() -> None:
     run_node(
         textwrap.dedent(
@@ -41,14 +57,17 @@ def test_frontend_data_source_view_asset_status_html_formats_current_state() -> 
                 hasCurrentPlayer: true,
             });
 
-            assert.ok(html.includes("Datenquellenstatus"));
             assert.ok(html.includes("data-open-db-status"));
-            assert.ok(html.includes("1.200 Items"));
-            assert.ok(html.includes("Mojang 1.21.80"));
-            assert.ok(html.includes("geprüft"));
-            assert.ok(html.includes("120 lokale Icons"));
+            assert.ok(!html.includes('status-tile'));
             assert.ok(html.includes("3 ID(s)"));
             assert.ok(html.includes("Item-Daten werden erhalten; DB-Stand prüfen."));
+            assert.strictEqual(view.assetDataStatusHtml({
+                itemDbStatus: {status: 'ok', verification: {verified: true}},
+                iconSummary: {count: 120}, hasCurrentPlayer: true,
+            }), '');
+            assert.ok(view.assetDataStatusHtml({
+                itemDbStatus: {status: 'unavailable', message: '<failed>'},
+            }).includes('&lt;failed&gt;'));
             """
         )
     )
@@ -100,7 +119,7 @@ def test_frontend_data_source_view_item_db_status_html_formats_history_state() -
             assert.ok(html.includes('aria-expanded="true"'));
             assert.ok(html.includes("Versionen ausblenden"));
             assert.ok(html.includes("2 Versionseinträge"));
-            assert.ok(html.includes("Datenordner"));
+            assert.ok(html.includes("data-db-details"));
             assert.ok(html.includes("C:\\Data\\item_db.json"));
             assert.ok(html.includes("&lt;today&gt;"));
             assert.ok(!html.includes("<today>"));

@@ -460,6 +460,17 @@ def test_presence_flags_keep_legacy_equipment_shapes():
     assert flags["root_item_lists_present"].get("Mainhand") == 1
 
 
+def test_offhand_component_overrides_fallback(monkeypatch):
+    import mcbe_editor.root_equipment as equipment
+
+    components = {"minecraft:shield": {"value": False}, "minecraft:future_item": {"value": True}}
+    monkeypatch.setattr(equipment, "item_component", lambda name, component: components.get(name))
+    assert not equipment.item_allowed_in_equipment_slot(-106, "minecraft:shield")
+    assert equipment.item_allowed_in_equipment_slot(-106, "minecraft:future_item")
+    assert equipment.item_allowed_in_equipment_slot(-106, "minecraft:arrow")
+    assert not equipment.item_allowed_in_equipment_slot(103, "minecraft:future_item")
+
+
 def test_item_allowed_in_equipment_slot_matches_wearable_items():
     # Rüstung: Slot ergibt sich aus der Item-ID.
     assert item_allowed_in_equipment_slot(103, "minecraft:diamond_helmet")

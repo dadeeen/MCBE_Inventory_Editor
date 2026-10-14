@@ -229,7 +229,6 @@
             themeSelect?.addEventListener("change", () => {
                 const theme = applyTheme(themeSelect.value);
                 saveCurrentWorkspace({ theme });
-                showToast(t("Darstellung: {theme}", { theme: themeSelect.options[themeSelect.selectedIndex]?.text || theme }), "success");
             });
             favoriteButton?.addEventListener("click", () => {
                 const selectedWorld = getSelectedWorld();
@@ -244,8 +243,8 @@
             doc.addEventListener("keydown", event => {
                 if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "p") {
                     event.preventDefault();
+                    if (window.MCBEWorkflowState.isModalOpen(doc)) return;
                     openWorkspaceDashboard();
-                    showToast(t("Arbeitsbereich geöffnet."), "success", 1800);
                 }
             });
         }

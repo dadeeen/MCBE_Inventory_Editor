@@ -192,7 +192,7 @@ def test_stats_form_clamps_manual_values_to_declared_input_range() -> None:
     )
 
 
-def test_stats_form_dimension_conversion_is_explicit_and_one_shot() -> None:
+def test_stats_form_dimension_conversion_is_explicit_and_reversible() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -225,7 +225,7 @@ def test_stats_form_dimension_conversion_is_explicit_and_one_shot() -> None:
                     posZ: elements.posZ.value,
                 }),
                 locationConversionModel: ({ sourceDimension, targetDimension, blocked, converted }) => ({
-                    disabled: blocked || converted || !(Number(sourceDimension) === 0 && Number(targetDimension) === 1),
+                    disabled: blocked || (!converted && !(Number(sourceDimension) === 0 && Number(targetDimension) === 1)),
                     label: converted ? "converted" : "convert",
                 }),
                 applyLocationConversionModel: (button, model) => {
@@ -258,7 +258,7 @@ def test_stats_form_dimension_conversion_is_explicit_and_one_shot() -> None:
             assert.strictEqual(posX.value, "10");
             assert.strictEqual(posY.value, "70");
             assert.strictEqual(posZ.value, "-5");
-            assert.strictEqual(convertLocation.disabled, true);
+            assert.strictEqual(convertLocation.disabled, false);
             assert.strictEqual(controller.touchedFields.has("dimension_id"), true);
             assert.strictEqual(controller.touchedFields.has("pos"), true);
 
@@ -266,7 +266,17 @@ def test_stats_form_dimension_conversion_is_explicit_and_one_shot() -> None:
             dimensionId.listeners.change();
             dimensionId.value = "1";
             dimensionId.listeners.change();
-            assert.strictEqual(convertLocation.disabled, true);
+            assert.strictEqual(convertLocation.disabled, false);
+            posY.value = "75";
+            convertLocation.listeners.click();
+            assert.strictEqual(posX.value, "80");
+            assert.strictEqual(posZ.value, "-40");
+            assert.strictEqual(posY.value, "75");
+            assert.strictEqual(dimensionId.value, "1");
+            convertLocation.listeners.click();
+            assert.strictEqual(posX.value, "10");
+            controller.resetConversion();
+            assert.strictEqual(convertLocation.textContent, "convert");
             """
         )
     )

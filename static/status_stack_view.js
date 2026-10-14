@@ -87,15 +87,18 @@
             : (hideTransientFallback ? [] : fallbackEntries({ statusText: normalizedStatusText, statusClassName }));
         const activeEntries = entries.filter(entryIsActive);
         const latestEntry = entries[0] || null;
-        const currentEntry = highestPriorityEntry(activeEntries) || entries[0] || null;
-        const severity = currentEntry ? entryType(currentEntry) : "info";
+        // One-shot failures are not persistent notices, but remain relevant
+        // while they are the current operation status. History alone is neutral.
+        const issues = activeEntries.filter(entry => ["warning", "error"].includes(entryType(entry)));
+        const currentIssue = !hideTransientFallback && ["warning", "error"].includes(normalizeStatusClassName(statusClassName))
+            ? entries.find(entry => entry.message === normalizedStatusText && ["warning", "error"].includes(entryType(entry))) : null;
+        if (currentIssue && !issues.includes(currentIssue)) issues.push(currentIssue);
+        const activeIssue = highestPriorityEntry(issues);
+        const currentEntry = activeIssue || highestPriorityEntry(activeEntries) || latestEntry;
+        const severity = activeIssue ? entryType(activeIssue) : "info";
         const latestType = latestEntry ? entryType(latestEntry) : "info";
-        const openCount = activeEntries.length;
-        const headline = severity === "error"
-            ? t("Fehler")
-            : severity === "warning"
-                ? t("Hinweise")
-                : severity === "running" ? t("Aktiv") : "Status";
+        const openCount = issues.length;
+        const headline = t("Meldungen");
         // Anzeige-Grenze: Server-Meldungen laufen durch t(); unbekannte Texte
         // bleiben unverändert (deutsche Quelle als Fallback).
         const summary = currentEntry?.message ? t(currentEntry.message) : t("Keine Hinweise");
@@ -150,7 +153,7 @@
             live = null,
         } = elements;
         if (count) count.textContent = model.countText || "0";
-        if (headline) headline.textContent = model.headline || "Status";
+        if (headline) headline.textContent = model.headline || t("Meldungen");
         if (summary) summary.textContent = model.summary || t("Keine Hinweise");
         if (button) {
             for (const type of Object.keys(STATUS_META)) {

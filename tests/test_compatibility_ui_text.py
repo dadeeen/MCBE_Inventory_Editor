@@ -45,7 +45,7 @@ def test_player_load_warning_guides_users_to_the_player_analysis() -> None:
 
             const message = logic.playerLoadStatusMessage();
             assert.ok(message.includes("Alex"));
-            assert.ok(message.includes("Analyse"));
+            assert.ok(message.includes("Diagnose"));
             assert.ok(!message.includes("Werkzeuge"));
             """
         )

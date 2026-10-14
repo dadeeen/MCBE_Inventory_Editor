@@ -43,10 +43,12 @@
             hintBanner,
             emptyStateHint,
             emptyStateVanillaButton,
+            sourceDialog, openSourceButton, closeSourceButton, sourceFeedback,
         } = elements;
         let iconSourceSummary = { count: 0, roots: [], warnings: [] };
         let iconRescanRunning = false;
         let iconRequestId = 0;
+        let sourceAdding = false;
 
         function currentIconWorld() {
             return getWorldPath() || getSelectedWorldPath() || "";
@@ -114,10 +116,10 @@
 
         function applyAppStateControlLocks() {
             const locked = !canWriteAppState();
-            const controls = [addButton, pickPackButton, pickFolderButton, updateVanillaButton, emptyStateVanillaButton, sourcePathInput];
+            const controls = [addButton, pickPackButton, pickFolderButton, updateVanillaButton, emptyStateVanillaButton, sourcePathInput, openSourceButton];
             for (const control of controls) {
                 if (!control) continue;
-                control.disabled = locked;
+                control.disabled = locked || sourceAdding;
                 control.title = locked ? READ_ONLY_SOURCES_MESSAGE : "";
             }
         }
@@ -131,14 +133,14 @@
         function renderIconManager(data = null) {
             if (!panel) return;
             const summary = data || iconSourceSummary || {};
+            const detailsOpen = panel.querySelector("[data-icon-details]")?.open || false;
             panel.innerHTML = iconManagerView.iconManagerHtml(summary, {
                 itemEmoji,
                 itemLabel,
             });
-            panel.querySelector("#btnFocusIconSource")?.addEventListener("click", () => {
-                sourcePathInput?.focus();
-                sourcePathInput?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-            });
+            const details = panel.querySelector("[data-icon-details]");
+            if (details) details.open = detailsOpen;
+            panel.querySelector("#btnFocusIconSource")?.addEventListener("click", openSourceDialog);
             const sourcesLocked = !canWriteAppState();
             const wireSourceButton = (selector, handler) => {
                 panel.querySelectorAll(selector).forEach(btn => {
@@ -231,16 +233,22 @@
         }
 
         async function addIconSource(path) {
+            if (sourceAdding) return;
             if (!canWriteAppState()) {
                 showToast(READ_ONLY_SOURCES_MESSAGE, "warning");
                 return;
             }
             const clean = String(path || "").trim();
             if (!clean) {
+                sourceMessage(t("Bitte Resource-Pack-, ZIP-, MCPACK- oder Icon-Ordner-Pfad eingeben."));
                 showToast(t("Bitte Resource-Pack-, ZIP-, MCPACK- oder Icon-Ordner-Pfad eingeben."), "warning");
                 return;
             }
             if (addButton) addButton.disabled = true;
+            sourceAdding = true;
+            sourceMessage(t("Icon-Quelle wird geprüft und indiziert..."));
+            if (pickPackButton) pickPackButton.disabled = true;
+            if (pickFolderButton) pickFolderButton.disabled = true;
             showLoading(t("Icon-Quelle wird geprüft und indiziert..."));
             const request = beginIconRequest();
             try {
@@ -250,12 +258,15 @@
                 );
                 await applyMutationIconIndexData(data, request);
                 if (sourcePathInput) sourcePathInput.value = "";
+                sourceDialog?.close();
                 showToast(t("Icon-Quelle gespeichert. {count} Icons erkannt.", { count: data.count || 0 }), "success");
             } catch (err) {
+                sourceMessage(err?.message || t("Icon-Quelle konnte nicht hinzugefügt werden."));
                 showToast(err?.message || t("Icon-Quelle konnte nicht hinzugefügt werden."), "error");
             } finally {
                 hideLoading();
-                if (addButton) addButton.disabled = false;
+                sourceAdding = false;
+                applyAppStateControlLocks();
             }
         }
 
@@ -325,9 +336,10 @@
             }
             try {
                 const endpoint = kind === "folder" ? "/api/icons/pick_folder" : "/api/icons/pick_pack";
-                const data = await postJson(endpoint);
+                const data = requireSuccess(await postJson(endpoint), t("Icon-Quelle konnte nicht gewählt werden."));
                 if (data.path) await addIconSource(data.path);
             } catch (err) {
+                sourceMessage(err?.message || t("Icon-Quelle konnte nicht gewählt werden."));
                 showToast(err?.message || t("Icon-Quelle konnte nicht gewählt werden."), "error");
             }
         }
@@ -387,8 +399,25 @@
             }
         }
 
+        function sourceMessage(message) {
+            if (!sourceFeedback) return;
+            sourceFeedback.textContent = message;
+            sourceFeedback.hidden = !message;
+        }
+        function openSourceDialog() {
+            if (!canWriteAppState()) return;
+            sourceMessage("");
+            sourceDialog?.showModal();
+        }
         function wire() {
             applyAppStateControlLocks();
+            openSourceButton?.addEventListener("click", openSourceDialog);
+            closeSourceButton?.addEventListener("click", () => sourceDialog?.close());
+            sourceDialog?.addEventListener("click", event => {
+                if (event.target !== sourceDialog) return;
+                const bounds = sourceDialog.getBoundingClientRect();
+                if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) sourceDialog.close();
+            });
             addButton?.addEventListener("click", () => addIconSource(sourcePathInput?.value || ""));
             sourcePathInput?.addEventListener("keydown", event => {
                 if (event.key === "Enter") {
@@ -449,6 +478,10 @@
     function collectInventoryIconSourceElements(doc = document) {
         return {
             panel: doc.getElementById("iconManagerPanel"),
+            sourceDialog: doc.getElementById("iconSourceDialog"),
+            openSourceButton: doc.getElementById("btnOpenIconSource"),
+            closeSourceButton: doc.getElementById("btnCloseIconSource"),
+            sourceFeedback: doc.getElementById("iconSourceFeedback"),
             sourcePathInput: doc.getElementById("iconSourcePath"),
             addButton: doc.getElementById("btnAddIconSource"),
             pickPackButton: doc.getElementById("btnPickIconPack"),

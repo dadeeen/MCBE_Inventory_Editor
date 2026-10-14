@@ -82,6 +82,7 @@
         multiSelectPanel = null,
         onInspectorOpen = null,
         onClassicLayout = null,
+        onAlternativeLayout = null,
     } = {}) {
         const resolve = value => typeof value === "function" ? value() : value;
         let current = readStoredLayout(storage, storageKey);
@@ -129,8 +130,17 @@
             // original player view without resetting the player or edited data.
             if (previous !== "classic" && current === "classic" &&
                     resolve(body)?.dataset?.workflowView === "player-edit") onClassicLayout?.();
+            if (previous === "classic" && current !== "classic" &&
+                    resolve(body)?.dataset?.workflowView === "player" &&
+                    resolve(body)?.classList?.contains("app-player-loaded")) onAlternativeLayout?.();
             refreshWorkflow(resolve(body)?.dataset?.workflowView);
             refreshContext();
+            if (previous !== current && resolve(body)?.dataset?.workflowView === "inventory") {
+                for (const candidate of [detailPanel, multiSelectPanel]) {
+                    const panel = resolve(candidate);
+                    if (panel?.style?.display === "flex") onInspectorOpen?.(panel, current);
+                }
+            }
             return current;
         }
 
@@ -182,11 +192,19 @@
             playerSource: () => doc.getElementById("playerSummaryName"),
             detailPanel: () => doc.getElementById("detailEditorPanel"),
             multiSelectPanel: () => doc.getElementById("multiSelectPanel"),
-            onClassicLayout: () => window.setWorkflowView?.("player", { scroll: false }),
+            onClassicLayout: () => window.setWorkflowView?.("player", { scroll: false, preserveEditor: true }),
+            onAlternativeLayout: () => window.setWorkflowView?.("player-edit", { scroll: false, preserveEditor: true }),
             onInspectorOpen: (panel, layout) => {
                 // Let the browser place the inspector first. Do not scroll if
                 // the user has already changed view/layout or closed it again.
                 window.requestAnimationFrame(() => {
+                    if (layout === "classic") {
+                        if (window.innerWidth <= 1024 && doc.body?.dataset?.workflowView === "inventory" &&
+                                doc.documentElement?.dataset?.layout === layout && panel.style.display === "flex") {
+                            doc.querySelector?.('.btn-toggle[data-panel="right"]')?.click();
+                        }
+                        return;
+                    }
                     if (window.innerWidth > STACKED_INSPECTOR_MAX_WIDTH[layout]
                             || doc.documentElement?.dataset?.layout !== layout
                             || doc.body?.dataset?.workflowView !== "inventory"

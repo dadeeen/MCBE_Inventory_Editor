@@ -9,6 +9,7 @@
         const body = doc.body;
         const originalPositions = new Map();
         let wired = false;
+        let previousLayout = root.dataset.layout;
 
         function remember(node) {
             if (node && !originalPositions.has(node)) {
@@ -25,7 +26,9 @@
         function restore(node) {
             const origin = originalPositions.get(node);
             if (!origin || !node || node.parentNode === origin.parent) return;
-            origin.parent.insertBefore(node, origin.next?.parentNode === origin.parent ? origin.next : null);
+            let next = origin.next;
+            while (next && next.parentNode !== origin.parent) next = originalPositions.get(next)?.next;
+            origin.parent.insertBefore(node, next || null);
         }
 
         function inventoryIsFocused() {
@@ -34,16 +37,23 @@
         }
 
         function filterPlayers() {
-            const query = inventoryIsFocused() ? String(byId("focusPlayerSearch")?.value || "").trim().toLocaleLowerCase() : "";
+            const managerFocused = !inventoryIsFocused();
+            const query = String(inventoryIsFocused() ? byId("focusPlayerSearch")?.value || "" : byId("playerManagerSearch")?.value || "").trim().toLocaleLowerCase();
             let visiblePlayers = 0;
+            let totalPlayers = 0;
             byId("playersList")?.querySelectorAll(".player-row").forEach(row => {
                 const name = row.querySelector(".player-name")?.textContent || "";
-                const matches = name.toLocaleLowerCase().includes(query);
+                totalPlayers++;
+                const matches = `${name} ${row.dataset?.playerKey || ""}`.toLocaleLowerCase().includes(query);
                 row.style.display = matches ? "" : "none";
                 if (matches) visiblePlayers++;
             });
             const empty = byId("focusPlayerSearchEmpty");
-            if (empty) empty.hidden = !query || visiblePlayers > 0;
+            if (empty) empty.hidden = managerFocused || !query || visiblePlayers > 0;
+            const managerEmpty = byId("playerManagerSearchEmpty");
+            if (managerEmpty) managerEmpty.hidden = !managerFocused || !query || visiblePlayers > 0;
+            const count = byId("playerManagerCount");
+            if (count) count.textContent = `${visiblePlayers} / ${totalPlayers}`;
         }
 
         function fieldValue(id) {
@@ -96,15 +106,10 @@
             else if (is("offline")) serverLabel = local("Server offline", "Server offline");
             else serverLabel = local("Server ungeprüft", "Server unverified");
             if (server.dataset.focusLabel !== serverLabel) server.dataset.focusLabel = serverLabel;
-            const isFocus = root.dataset.layout === "focus";
-            if (isFocus) {
-                server.setAttribute("role", "button");
-                server.setAttribute("tabindex", "0");
-                server.setAttribute("aria-controls", "focusServerStatusPanel");
-                if (!server.hasAttribute?.("aria-expanded")) server.setAttribute("aria-expanded", "false");
-            } else {
-                for (const name of ["role", "tabindex", "aria-controls", "aria-expanded"]) server.removeAttribute?.(name);
-            }
+            server.setAttribute("role", "button");
+            server.setAttribute("tabindex", "0");
+            server.setAttribute("aria-controls", "focusServerStatusPanel");
+            if (!server.hasAttribute?.("aria-expanded")) server.setAttribute("aria-expanded", "false");
             const text = byId("focusServerStatusText");
             const hint = byId("focusServerStatusHint");
             if (text) text.textContent = server.textContent?.trim() || "";
@@ -113,22 +118,27 @@
                 hint.hidden = !server.title;
             }
 
-            const severity = ["error", "warning", "running", "success"].find(name => status.classList?.contains?.(name)) || "info";
-            const summary = String(byId("statusStackSummary")?.textContent || "").toLowerCase();
-            let statusLabel;
-            if (severity === "error") statusLabel = local("Fehler", "Error");
-            else if (severity === "warning") statusLabel = local("Hinweise", "Notices");
-            else if (severity === "running") statusLabel = local("Vorgang läuft", "In progress");
-            else if (severity === "success") statusLabel = local("Erfolgreich", "Success");
-            else if (/(weltsuche|world scan|world search)/.test(summary) && /(läuft|running|searching)/.test(summary)) {
-                statusLabel = local("Weltsuche läuft", "Searching worlds");
-            } else if (/(bereit|ready|keine hinweise|no notices)/.test(summary)) statusLabel = local("Bereit", "Ready");
-            else statusLabel = local("Status", "Status");
+            const needsAttention = status.classList?.contains?.("error") || status.classList?.contains?.("warning");
+            const count = Number(byId("statusStackCount")?.textContent) || 0;
+            const statusLabel = local("Meldungen", "Messages") + (needsAttention && count > 0 ? ` (${count})` : "");
             if (status.dataset.focusLabel !== statusLabel) status.dataset.focusLabel = statusLabel;
+        }
+
+        function placeHeaderStatus() {
+            const host = byId("focusInlineStatus");
+            if (root.dataset.layout === "focus" && win.innerWidth >= 1181) {
+                move(host, doc.querySelector(".app-header"));
+            } else {
+                restore(host);
+            }
         }
 
         function sync() {
             const focus = root.dataset.layout === "focus";
+            if (previousLayout !== root.dataset.layout) {
+                closeSettings({ restoreFocus: true });
+                previousLayout = root.dataset.layout;
+            }
             const focusedInventory = inventoryIsFocused();
             // Capture all original positions BEFORE moving anything, including
             // adjacent nodes. Otherwise restoring could silently reorder them.
@@ -144,23 +154,19 @@
             const headerActions = doc.querySelector(".app-header .header-actions");
             const history = doc.querySelector(".app-header .undo-redo-btns");
             [headerStatus, headerActions, history, saveArea, playerList, ...warnings].forEach(remember);
+            move(history, byId("focusHistoryMount"));
+            move(headerActions, byId("focusSettingsMount"));
 
             // Dock the *existing* status, history, review action and settings.
             // Neither save semantics nor the undo stack are reimplemented.
             if (focus) {
                 move(headerStatus, byId("focusInlineStatus"));
-                move(history, byId("focusHistoryMount"));
                 move(saveArea, byId("focusSaveMount"));
-                move(headerActions, byId("focusSettingsMount"));
             } else {
-                // Restore siblings in reverse original order, maintaining the
-                // old header layout and tab order exactly on every switch.
-                restore(history);
-                restore(headerActions);
+                // Settings/history stay shared; restore layout-specific status
+                // and save placement without recreating their controls.
                 restore(headerStatus);
                 restore(saveArea);
-                closeSettings();
-                closeServerDetails();
             }
             if (focusedInventory) {
                 move(playerList, byId("focusPlayerListMount"));
@@ -180,9 +186,11 @@
                 for (const warning of [...warnings].reverse()) restore(warning);
             }
 
+            placeHeaderStatus();
             filterPlayers();
             updateFacts();
             updateFocusStatusLabels();
+            positionStatusDetails();
         }
 
         function closeServerDetails({ restoreFocus = false } = {}) {
@@ -203,6 +211,49 @@
             if (restoreFocus) toggle?.focus?.();
         }
 
+        function fitSettingsPanel() {
+            const panel = byId("focusSettingsPanel");
+            const toggle = byId("focusSettingsToggle");
+            if (!panel || panel.hidden || !toggle?.getBoundingClientRect) return;
+            const rect = toggle.getBoundingClientRect();
+            const below = Math.max(0, win.innerHeight - rect.bottom - 20);
+            const above = Math.max(0, rect.top - 20);
+            const openAbove = below < Math.min(260, panel.scrollHeight) && above > below;
+            panel.style.top = openAbove ? "auto" : "calc(100% + 8px)";
+            panel.style.bottom = openAbove ? "calc(100% + 8px)" : "auto";
+            panel.style.maxHeight = `${Math.min(480, openAbove ? above : below)}px`;
+        }
+
+        function positionStatusDetails() {
+            for (const [triggerId, panelId, preferredWidth] of [
+                ["serverStatusBadge", "focusServerStatusPanel", 440],
+                ["statusStackButton", "statusStackPanel", 520],
+            ]) {
+                const trigger = byId(triggerId);
+                const panel = byId(panelId);
+                if (!panel || panel.hidden || !trigger?.getBoundingClientRect) continue;
+                const anchor = trigger.getBoundingClientRect();
+                const viewportWidth = doc.documentElement.clientWidth || win.innerWidth;
+                const width = Math.min(preferredWidth, viewportWidth - 24);
+                panel.style.position = "absolute";
+                panel.style.width = `${width}px`;
+                panel.style.right = "auto";
+                panel.style.bottom = "auto";
+                panel.style.margin = "0";
+                const parent = panel.offsetParent;
+                if (!parent) continue;
+                const origin = parent.getBoundingClientRect();
+                const below = Math.max(0, win.innerHeight - anchor.bottom - 20);
+                const above = Math.max(0, anchor.top - 20);
+                const openAbove = below < 120 && above > below;
+                panel.style.maxHeight = `${Math.min(320, openAbove ? above : below)}px`;
+                const left = Math.max(12, Math.min(anchor.left, viewportWidth - width - 12));
+                const top = openAbove ? anchor.top - 8 - panel.getBoundingClientRect().height : anchor.bottom + 8;
+                panel.style.left = `${left - origin.left + parent.scrollLeft - parent.clientLeft}px`;
+                panel.style.top = `${top - origin.top + parent.scrollTop - parent.clientTop}px`;
+            }
+        }
+
         function wire() {
             if (wired) return;
             wired = true;
@@ -214,18 +265,38 @@
                 const willOpen = settingsPanel.hidden;
                 settingsPanel.hidden = !willOpen;
                 settingsToggle.setAttribute("aria-expanded", String(willOpen));
+                if (willOpen) fitSettingsPanel();
             });
+            win.addEventListener?.("resize", fitSettingsPanel);
+            win.addEventListener?.("resize", () => {
+                placeHeaderStatus();
+                positionStatusDetails();
+            });
+            doc.addEventListener("scroll", positionStatusDetails, true);
+            for (const id of ["focusServerStatusPanel", "statusStackPanel"]) {
+                const panel = byId(id);
+                if (panel) observerFactory(positionStatusDetails).observe(panel, {
+                    attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true, characterData: true,
+                });
+            }
+            if (win.ResizeObserver) {
+                const geometryObserver = new win.ResizeObserver(positionStatusDetails);
+                for (const selector of [".app-header", "#serverStatusBadge", "#statusStackButton"]) {
+                    const element = doc.querySelector(selector);
+                    if (element) geometryObserver.observe(element);
+                }
+            }
             const serverBadge = byId("serverStatusBadge");
             const serverPanel = byId("focusServerStatusPanel");
             serverBadge?.addEventListener("click", () => {
-                if (root.dataset.layout !== "focus" || !serverPanel) return;
+                if (!serverPanel) return;
                 closeSettings();
                 const willOpen = serverPanel.hidden;
                 serverPanel.hidden = !willOpen;
                 serverBadge.setAttribute("aria-expanded", String(willOpen));
+                positionStatusDetails();
             });
             serverBadge?.addEventListener("keydown", event => {
-                if (root.dataset.layout !== "focus") return;
                 if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     serverBadge.click();
@@ -240,8 +311,15 @@
                 if (!settingsPanel?.hidden) closeSettings({ restoreFocus: true });
                 if (!serverPanel?.hidden) closeServerDetails({ restoreFocus: true });
             });
-            const input = byId("focusPlayerSearch");
-            input?.addEventListener("input", filterPlayers);
+            for (const id of ["focusPlayerSearch", "playerManagerSearch"]) {
+                byId(id)?.addEventListener("input", event => {
+                    for (const otherId of ["focusPlayerSearch", "playerManagerSearch"]) {
+                        const other = byId(otherId);
+                        if (other && other !== event.target) other.value = event.target.value;
+                    }
+                    filterPlayers();
+                });
+            }
             byId("focusRefreshPlayers")?.addEventListener("click", () => byId("btnRefreshPlayers")?.click());
             const trackedInputs = new Set(["statDimensionId", "statPosX", "statPosY", "statPosZ", "statHealth", "statFoodLevel", "statXpLevel", "statGamemode"]);
             const onFormChange = event => {

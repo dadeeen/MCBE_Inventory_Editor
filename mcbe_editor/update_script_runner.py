@@ -51,7 +51,7 @@ def run_update_db(
     progress_path: Path | None = None,
 ) -> tuple[int, str]:
     """Run the item_db update script and return its output."""
-    cmd = [sys.executable, "-m", "scripts.update_db"]
+    cmd = [sys.executable, "-m", "scripts.update_db", "--json-summary"]
     if dry_run:
         cmd.append("--dry-run")
     if force:

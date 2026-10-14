@@ -154,8 +154,8 @@
                 const data = await parseJsonResponse(res);
                 if (res.ok !== false && data?.success === true) {
                     // The API confirms the launch request, not OS window focus.
-                    logStatus(t("Ordner an den Dateimanager übergeben: {path}", { path }), "success", { key: WORLD_FOLDER_OPEN_STATUS_KEY });
-                    showToast(t("Ordner wird im Dateimanager geöffnet. Verdeckte Fenster findest du über die Taskleiste oder das Dock."), "success", 8000);
+                    logStatus(t("Ordner an den Dateimanager übergeben: {path}", { path }), "info", { key: WORLD_FOLDER_OPEN_STATUS_KEY });
+                    showToast(t("Ordner wird im Dateimanager geöffnet. Verdeckte Fenster findest du über die Taskleiste oder das Dock."), "info", 8000);
                 } else {
                     const msg = buildErrorMessage(data, t("Ordner konnte nicht geöffnet werden."));
                     logStatus(msg, "error", { key: WORLD_FOLDER_OPEN_STATUS_KEY });
@@ -256,7 +256,7 @@
                     clearLoadError();
                     updateSelectedWorld(selected);
                     renderWorldCards(getLastRenderedWorlds());
-                    logStatus(t("Welt ausgewählt. Klicke auf Laden, wenn du sie öffnen möchtest."), "success");
+                    logStatus(t("Welt ausgewählt. Klicke auf Laden, wenn du sie öffnen möchtest."), "info");
                 });
             });
             if (hadListFocus) {
@@ -310,7 +310,7 @@
                 if (data.success && data.path) {
                     if (worldPathInput) worldPathInput.value = data.path;
                     updateSelectedWorld({ path: data.path, name: t("Manuell gewählte Welt"), folder: data.path, source_label: t("Manueller Pfad") }, { fromManual: true });
-                    pickerStatus(t("Welt-Ordner ausgewählt. Bereit zum Laden."), "success");
+                    pickerStatus(t("Welt-Ordner ausgewählt. Bereit zum Laden."), "info");
                 } else if (data.error) {
                     pickerStatus(window.MCBEApiClient.errorMessageInContext(data, reason => t("Fehler: {error}", { error: reason })), "error");
                 } else {
@@ -369,7 +369,7 @@
                 }
                 updateAutoPathHint(worlds.length === 1
                     ? t("1 Welt automatisch gefunden")
-                    : t("{count} Welten automatisch gefunden", { count: worlds.length }), "success");
+                    : t("{count} Welten automatisch gefunden", { count: worlds.length }), "info");
 
                 if (!getSelectedWorld() && !String(worldPathInput?.value || "").trim() && worlds.length === 1) {
                     updateSelectedWorld(worlds[0]);

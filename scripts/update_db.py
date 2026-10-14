@@ -25,7 +25,9 @@ def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     from mcbe_editor import item_db_verification
+    from mcbe_editor.item_name_policy import reviewed_item_label_repairs
     from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
+    from mcbe_editor.numeric_catalog_policy import canonical_numeric_name, reconcile_numeric_catalog
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
     from mcbe_editor.update_output_i18n import output_t
     from mcbe_editor.update_progress import report_progress
@@ -38,6 +40,9 @@ def _load_runtime_dependencies():
         is_technical_block_only_item_id,
         output_t,
         report_progress,
+        reviewed_item_label_repairs,
+        canonical_numeric_name,
+        reconcile_numeric_catalog,
     )
 
 
@@ -49,6 +54,9 @@ def _load_runtime_dependencies():
     is_technical_block_only_item_id,
     tr,
     report_progress,
+    reviewed_item_label_repairs,
+    canonical_numeric_name,
+    reconcile_numeric_catalog,
 ) = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
@@ -152,11 +160,12 @@ CURATED_ENGINE_DURABILITY = {
 
 # Nur Komponenten, die im Editor tatsächlich eine Entscheidung treffen:
 # ``enchantable`` bestimmt die Verzauberungs-Kompatibilität, ``wearable`` die
-# Rüstungsslots. Weitere Mojang-Komponenten werden bewusst nicht extrahiert;
+# Rüstungsslots und ``allow_off_hand`` die Nebenhand. Weitere Komponenten werden nicht extrahiert;
 # unbenutzte Daten mit fail-closed-Validierung können nur schaden.
 TRACKED_ITEM_COMPONENTS = (
     "enchantable",
     "wearable",
+    "allow_off_hand",
 )
 KNOWN_ENCHANTABLE_SLOTS = {
     "all",
@@ -244,18 +253,6 @@ ENCH_LANG_TO_JSON = {
 # always use the same canonical name. Without these aliases the updater creates
 # duplicate numeric IDs, which is unsafe because the UI writes these IDs back into
 # player NBT data.
-EFFECT_IDENTIFIER_ALIASES = {
-    "village_hero": "hero_of_the_village",
-}
-
-ENCHANTMENT_IDENTIFIER_ALIASES = {
-    "binding": "binding_curse",
-    "curse_of_binding": "binding_curse",
-    "bow_infinity": "infinity",
-    "vanishing": "vanishing_curse",
-    "curse_of_vanishing": "vanishing_curse",
-}
-
 NON_ITEM_LANG_IDENTIFIER_PREFIXES = (
     "axolotlcolor",
     "tropicalcolor",
@@ -315,13 +312,11 @@ def _normalize_identifier(value: str) -> str:
 
 
 def _canonical_effect_identifier(value: str) -> str:
-    identifier = _normalize_identifier(value)
-    return EFFECT_IDENTIFIER_ALIASES.get(identifier, identifier)
+    return canonical_numeric_name(value)
 
 
 def _canonical_enchantment_identifier(value: str) -> str:
-    identifier = _normalize_identifier(value)
-    return ENCHANTMENT_IDENTIFIER_ALIASES.get(identifier, identifier)
+    return canonical_numeric_name(value)
 
 
 def _is_non_item_lang_identifier(identifier: str) -> bool:
@@ -1059,6 +1054,14 @@ def _normalize_enchantable_component(value, *, member: str) -> dict:
     return {"slot": slot, "value": enchantability}
 
 
+def _normalize_allow_off_hand_component(value, *, member: str) -> dict:
+    if isinstance(value, dict):
+        value = value.get("value")
+    if type(value) is not bool:
+        raise _component_error(member, "minecraft:allow_off_hand", tr("value muss true oder false sein"))
+    return {"value": value}
+
+
 def _normalize_wearable_component(value, *, member: str) -> dict:
     component = "minecraft:wearable"
     if not isinstance(value, dict):
@@ -1135,6 +1138,7 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
         normalizers = {
             "enchantable": _normalize_enchantable_component,
             "wearable": _normalize_wearable_component,
+            "allow_off_hand": _normalize_allow_off_hand_component,
         }
         for component_name, normalizer in normalizers.items():
             namespaced_name = f"minecraft:{component_name}"
@@ -1417,6 +1421,16 @@ def compute_addable_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, st
     # im Anzeigekatalog aber eigene Namen.
     del items
     return sorted(item_id for item_id in item_ids if not is_technical_block_only_item_id(item_id))
+
+
+def complete_registry_names(items: dict, registry_ids: list[str], reviewed_items: dict) -> dict:
+    """Fill missing names only for current registry IDs with reviewed exact-ID facts."""
+    result = dict(items)
+    for item_id in registry_ids:
+        names = reviewed_items.get(item_id)
+        if item_id not in result and isinstance(names, (list, tuple)) and len(names) == 2 and all(isinstance(name, str) and name.strip() for name in names):
+            result[item_id] = tuple(names)
+    return result
 
 
 def compute_block_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]]) -> list[str]:
@@ -1725,7 +1739,8 @@ def merge_items(
 ) -> dict[str, tuple[str, str]]:
     """Merge existing items + official item IDs.
 
-    Existing localized entries stay untouched. Existing English fallbacks may be
+    Known shipped obsolete labels use the same exact-match repairs as the runtime.
+    Other existing localized entries stay untouched. Existing English fallbacks may be
     corrected when Mojang's mojang-items.json points the canonical ID at a
     legacy serialization/localization key. A label that names one variant of a
     multi-variant ID is replaced by Mojang's base name for that ID. Tooltip
@@ -1766,6 +1781,9 @@ def merge_items(
                 merged[full_id] = (de_name, old_en or en_name)
             continue
         merged[full_id] = (de_name, en_name)
+    # Run after localization fallback resolution as well: a formerly English-only
+    # pair can acquire its German half during this merge (e.g. poplar signs).
+    merged.update(reviewed_item_label_repairs(merged, _bundled_limits.get("items", {})))
     return merged
 
 
@@ -1800,51 +1818,35 @@ def merge_effects(
     local_numeric_ids: dict[str, int],
 ) -> dict[int, tuple[str, str, str, str]]:
     """Merge Mojang identifiers/names with locally reviewed Bedrock IDs."""
-    merged = dict(old)
-    name_to_id: dict[str, int] = {}
-    for key, values in old.items():
-        de_name, en_name, _desc_de, _desc_en = values
-        for candidate in (en_name, de_name):
-            if candidate:
-                name_to_id.setdefault(_canonical_effect_identifier(candidate), key)
-
-    mojang_identifiers = {_canonical_effect_identifier(json_id) for json_id in json_ids}
-    missing_numeric_ids = sorted(mojang_identifiers - set(local_numeric_ids))
-    if missing_numeric_ids:
-        raise RuntimeError(tr("Lokale numerische IDs fehlen für neue Mojang-Effekte: {identifiers}", identifiers=", ".join(missing_numeric_ids)))
-
-    for identifier in mojang_identifiers:
-        old_id = name_to_id.get(identifier)
-        reviewed_id = local_numeric_ids[identifier]
-        if old_id is not None and old_id != reviewed_id:
-            merged.pop(old_id, None)
-
+    identifiers = {_canonical_effect_identifier(value) for value in json_ids}
+    missing = sorted(identifiers - set(local_numeric_ids))
+    if missing:
+        raise RuntimeError(tr("Lokale numerische IDs fehlen für neue Mojang-Effekte: {identifiers}", identifiers=", ".join(missing)))
+    _validate_numeric_targets(identifiers, local_numeric_ids)
+    bundled = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))["effects"]
+    reviewed = {}
     for json_id in json_ids:
-        canonical_json_id = _canonical_effect_identifier(json_id)
-        reviewed_id = local_numeric_ids[canonical_json_id]
-        existing_id = name_to_id.get(canonical_json_id)
-        if existing_id is not None:
-            reviewed_entry = old[existing_id]
-        else:
-            en_name = en_names.get(canonical_json_id, en_names.get(json_id, canonical_json_id.replace("_", " ").title()))
-            de_name = de_names.get(canonical_json_id, de_names.get(json_id, en_name))
-            reviewed_entry = (_cap(de_name), _cap(en_name), "", "")
+        identifier = _canonical_effect_identifier(json_id)
+        numeric_id = local_numeric_ids[identifier]
+        en_name = en_names.get(identifier, en_names.get(json_id, identifier.replace("_", " ").title()))
+        de_name = de_names.get(identifier, de_names.get(json_id, en_name))
+        facts = bundled.get(str(numeric_id))
+        descriptions = facts[2:] if facts and canonical_numeric_name(facts[1]) == identifier else ("", "")
+        reviewed[numeric_id] = (_cap(de_name), _cap(en_name), *descriptions)
+    return _reconcile_numeric(old, reviewed, identifiers, local_numeric_ids, kind="effects")
 
-        collision = merged.get(reviewed_id)
-        if collision is not None:
-            collision_name = _canonical_effect_identifier(collision[1] or collision[0])
-            if collision_name != canonical_json_id:
-                raise RuntimeError(
-                    tr(
-                        "Geprüfte Effekt-ID {numeric_id} für {identifier} kollidiert mit vorhandenem Eintrag {collision}",
-                        numeric_id=reviewed_id,
-                        identifier=canonical_json_id,
-                        collision=collision_name,
-                    )
-                )
-        merged[reviewed_id] = reviewed_entry
 
-    return merged
+def _validate_numeric_targets(identifiers: set[str], numeric_ids: dict[str, int]) -> None:
+    targets = [numeric_ids[identifier] for identifier in identifiers]
+    if len(targets) != len(set(targets)):
+        raise RuntimeError(tr("Numerische IDs sind im geprüften Katalog doppelt vergeben."))
+
+
+def _reconcile_numeric(old, reviewed, identifiers, numeric_ids, *, kind):
+    try:
+        return reconcile_numeric_catalog(old, reviewed, kind=kind, identifiers={name: numeric_ids[name] for name in identifiers})
+    except ValueError as exc:
+        raise RuntimeError(tr(str(exc))) from exc
 
 
 # ─── ENCHANTMENTS ───────────────────────────────────────────────────────────
@@ -1894,14 +1896,6 @@ def merge_enchantments(
     local_numeric_ids: dict[str, int],
 ) -> dict[int, tuple[str, str, int, str]]:
     """Merge Mojang identifiers/names with reviewed Bedrock IDs and max levels."""
-    merged = dict(old)
-    name_to_id: dict[str, int] = {}
-    for key, values in old.items():
-        de_name, en_name, _max_level, _desc = values
-        for candidate in (en_name, de_name):
-            if candidate:
-                name_to_id.setdefault(_canonical_enchantment_identifier(candidate), key)
-
     mojang_identifiers = {_canonical_enchantment_identifier(name) for name, _ in json_list}
     missing_levels = sorted(mojang_identifiers - set(local_max_levels))
     if missing_levels:
@@ -1910,58 +1904,14 @@ def merge_enchantments(
     if missing_numeric_ids:
         raise RuntimeError(tr("Lokale numerische IDs fehlen für neue Mojang-Verzauberungen: {identifiers}", identifiers=", ".join(missing_numeric_ids)))
 
-    numeric_id_owners: dict[int, str] = {}
-    for identifier in mojang_identifiers:
-        numeric_id = local_numeric_ids[identifier]
-        duplicate = numeric_id_owners.get(numeric_id)
-        if duplicate is not None:
-            raise RuntimeError(
-                tr(
-                    "Numerische Verzauberungs-ID {numeric_id} ist doppelt vergeben: {first}, {second}",
-                    numeric_id=numeric_id,
-                    first=duplicate,
-                    second=identifier,
-                )
-            )
-        numeric_id_owners[numeric_id] = identifier
-
-    # Frühere Updater vergaben für neue Namen lediglich die nächste freie ID.
-    # Entferne solche namensgleichen Altpositionen, bevor die geprüften
-    # Bedrock-IDs geschrieben werden.
-    for identifier in mojang_identifiers:
-        old_id = name_to_id.get(identifier)
-        reviewed_id = local_numeric_ids[identifier]
-        if old_id is not None and old_id != reviewed_id:
-            merged.pop(old_id, None)
-
+    _validate_numeric_targets(mojang_identifiers, local_numeric_ids)
+    reviewed = {}
     for json_name, _ in json_list:
-        canonical_json_name = _canonical_enchantment_identifier(json_name)
-        max_lvl = local_max_levels[canonical_json_name]
-        reviewed_id = local_numeric_ids[canonical_json_name]
-        existing_id = name_to_id.get(canonical_json_name)
-        if existing_id is not None:
-            de_name, en_name, _old_max_lvl, description = old[existing_id]
-            reviewed_entry = (de_name, en_name, max_lvl, description)
-        else:
-            en_name = en_names.get(canonical_json_name, en_names.get(json_name, canonical_json_name.replace("_", " ").title()))
-            de_name = de_names.get(canonical_json_name, de_names.get(json_name, en_name))
-            reviewed_entry = (_cap(de_name), _cap(en_name), max_lvl, "")
-
-        collision = merged.get(reviewed_id)
-        if collision is not None:
-            collision_name = _canonical_enchantment_identifier(collision[1] or collision[0])
-            if collision_name != canonical_json_name:
-                raise RuntimeError(
-                    tr(
-                        "Geprüfte Verzauberungs-ID {numeric_id} für {identifier} kollidiert mit vorhandenem Eintrag {collision}",
-                        numeric_id=reviewed_id,
-                        identifier=canonical_json_name,
-                        collision=collision_name,
-                    )
-                )
-        merged[reviewed_id] = reviewed_entry
-
-    return merged
+        identifier = _canonical_enchantment_identifier(json_name)
+        en_name = en_names.get(identifier, en_names.get(json_name, identifier.replace("_", " ").title()))
+        de_name = de_names.get(identifier, de_names.get(json_name, en_name))
+        reviewed[local_numeric_ids[identifier]] = (_cap(de_name), _cap(en_name), local_max_levels[identifier], "")
+    return _reconcile_numeric(old, reviewed, mojang_identifiers, local_numeric_ids, kind="enchantments")
 
 
 # ─── HELPERS ────────────────────────────────────────────────────────────────
@@ -2491,11 +2441,14 @@ def report_blocked_sections(blocked_sections: list[tuple[str, str]]) -> int:
 def main() -> int:
     import argparse
 
+    from mcbe_editor.update_db_report import REPORT_PREFIX, audit_items, build_report
+
     parser = argparse.ArgumentParser(
         description=tr("Aktualisiert item_db.json aus Mojang/bedrock-samples und lokal geprüften Vanilla-Fakten."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--dry-run", action="store_true", help=tr("Nur anzeigen, nicht schreiben"))
+    parser.add_argument("--json-summary", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--force", action="store_true", help=tr("Ohne Nachfrage schreiben"))
     parser.add_argument(
         "--cache",
@@ -2584,6 +2537,8 @@ def main() -> int:
     changes: list[str] = []
     blocked_sections: list[tuple[str, str]] = []
     pending_source_version: dict | None = None
+    audit = None
+    sections = {}
 
     en_content = de_content = ""
     en_lang = de_lang = None
@@ -2628,6 +2583,7 @@ def main() -> int:
                     item_serialization_aliases,
                     item_localizations,
                 )
+                new_items = complete_registry_names(new_items, compute_addable_item_ids(zf, new_items), _bundled_limits.get("items", {}))
                 if show_diff("ITEMS", old_items, new_items):
                     changes.append("ITEMS")
                     final_items = format_items(new_items)
@@ -2736,6 +2692,35 @@ def main() -> int:
                 log(f"  {Colors.GREEN}{message}{Colors.END}")
 
             # ── EFFECTS ──
+            if not args.only or args.only == "items":
+                sections.update(
+                    {
+                        "items": (old_items, final_items),
+                        "stack_limits": (old_stack_limits, final_stack_limits),
+                        "durability": (old_durability, final_durability),
+                        "addable_items": (dict.fromkeys(old_addable_items), dict.fromkeys(new_addable_items)),
+                        "block_only_items": (dict.fromkeys(old_block_only), dict.fromkeys(new_block_only)),
+                        "block_items": (dict.fromkeys(old_block_items), dict.fromkeys(new_block_items)),
+                    }
+                )
+                for component in TRACKED_ITEM_COMPONENTS:
+                    sections[component] = (old_item_components.get(component, {}), final_item_components.get(component, {}))
+                audit = audit_items(
+                    final_items,
+                    new_addable_items,
+                    final_stack_limits,
+                    final_durability,
+                    {
+                        "de": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in de_item_names.items()},
+                        "en": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in en_item_names.items()},
+                    },
+                    {"stack_limits": component_stack_limits, "durability": component_durability},
+                    {"stack_limits": CURATED_ENGINE_STACK_LIMITS, "durability": CURATED_ENGINE_DURABILITY},
+                )
+                log(tr("Automatischer Abgleich: {count} Katalogeinträge geprüft.", count=audit["checked_items"]))
+                for issue in audit["issues"]:
+                    log(f"  {issue['code']} ({issue['count']}): {', '.join(issue['items'])}")
+
             if not args.only or args.only == "effects":
                 step(tr("3/4 · Effekte verarbeiten"))
                 # Fehlen geprüfte numerische IDs, bleibt der Abschnitt bewusst
@@ -2799,6 +2784,10 @@ def main() -> int:
                 log(f"  {Colors.GREEN}{tr('Verzauberungen: {old_count} -> {new_count}', old_count=len(old_enchants), new_count=len(new_enchants))}{Colors.END}")
 
     old_version = read_source_version()
+    if not args.only or args.only == "effects":
+        sections["effects"] = (old_effects, final_effects)
+    if not args.only or args.only == "enchants":
+        sections["enchants"] = (old_enchants, final_enchants)
     new_version = merge_source_metadata(
         old_version,
         release_info=release_info or None,
@@ -2806,6 +2795,19 @@ def main() -> int:
         item_listing_snapshot=item_listing_snapshot,
     )
     source_identity_changed = source_identity_from_metadata(old_version) != source_identity_from_metadata(new_version)
+    report = build_report(
+        scope=args.only,
+        release=release_info.get("resource_pack_release"),
+        sections=sections,
+        metadata_changed=source_identity_changed or old_behavior_item_source != final_behavior_item_source,
+        audit=audit,
+        blocked=blocked_sections,
+    )
+    if args.json_summary:
+        print(REPORT_PREFIX + json.dumps(report, ensure_ascii=True))
+    if audit and any(issue["severity"] == "error" for issue in audit["issues"]):
+        log(tr("Abgleich fehlgeschlagen. Keine Änderungen geschrieben."))
+        return 1
     verification_eligible = args.only is None and not blocked_sections
     if source_identity_changed:
         show_diff("SOURCE_VERSION", old_version, new_version)

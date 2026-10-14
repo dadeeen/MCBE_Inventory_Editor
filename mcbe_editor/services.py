@@ -48,6 +48,7 @@ from .inventory import (
     protected_player_nbt_flags,
 )
 from .leveldb_readonly import ReadonlyLevelDbAdapter, WorldChangedWhileReadingError
+from .numeric_catalog_policy import numeric_catalog_conflict_messages
 from .player_directory import PlayerDirectory
 from .player_state_transfer import (
     PLAYER_STATE_TRANSFER_SCHEMA_VERSION,
@@ -485,6 +486,7 @@ class BedrockEditorService:
                     "enchantment_compatibility": catalog["ENCHANTMENT_COMPATIBILITY"],
                     "item_components": catalog["ITEM_COMPONENTS"],
                     "effects_db": catalog["EFFECTS"],
+                    "catalog_warnings": numeric_catalog_conflict_messages(catalog.get("ITEM_DB_CONFLICTS", {})),
                     "stack_limits": {**catalog["STACK_LIMITS"], "__default__": catalog["DEFAULT_MAX_STACK"]},
                     "max_damage": {**catalog["DURABILITY"], "__default__": catalog["MAX_DATA_VALUE"]},
                 }

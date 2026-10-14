@@ -4,9 +4,8 @@
     const t = window.t || ((text, params) => String(text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m)));
 
     // Spiegelt mcbe_editor/root_equipment.py: Welche Items sind in den
-    // Ausrüstungsslots (100-103, -106) tatsächlich tragbar? Rüstung wird über
-    // die Item-ID abgeleitet (Suffix + kuratierte Ausnahmen); die Schildhand
-    // nutzt die kuratierte Bedrock-Positivliste (Minecraft Wiki "Off-hand").
+    // Ausrüstungsslots (100-103, -106) tatsächlich tragbar? Prüfung über die
+    // offiziellen Komponenten, mit Vanilla-Ausnahmen als Fallback.
     const HEAD_ITEM_NAMES = new Set([
         "carved_pumpkin",
         "mob_head",
@@ -86,12 +85,12 @@
 
     function itemAllowedInEquipmentSlot(slotId, name) {
         const slot = Number(slotId);
-        // Die Schildhand entscheidet bewusst anders als die Rüstungsslots:
-        // minecraft:wearable ist in Bedrock nicht das Prädikat für die
-        // Offhand-Erlaubnis (Totem, Pfeile oder Karten haben gar keine
-        // Wearable-Komponente). Die offizielle Angabe ergänzt deshalb nur die
-        // kuratierte Positivliste, statt sie zu ersetzen.
+        // Explicit allow_off_hand values win, including false. Missing values
+        // fall back to known Bedrock items; absence is not proof of rejection.
         if (slot === OFFHAND_SLOT) {
+            const normalized = String(name || "").trim().toLowerCase();
+            const offhand = itemComponents?.allow_off_hand?.[normalized];
+            if (typeof offhand?.value === "boolean") return offhand.value;
             return officialWearableSlot(name).slot === OFFHAND_SLOT || OFFHAND_ITEM_NAMES.has(localItemName(name));
         }
         if (ARMOR_SLOTS.has(slot)) return inferredArmorSlot(name) === slot;

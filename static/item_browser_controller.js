@@ -13,6 +13,8 @@
         getItemIconTint = () => "",
         getItemVariantsForId = () => [],
         getItemAvailability = () => null,
+        getEquipmentTargets = () => [],
+        equipmentRules = window.MCBEEquipmentRules,
         onDetailItemChanged = () => {},
         onDetailItemVariantSelected = () => {},
         onApplyDetailItem = () => {},
@@ -32,6 +34,7 @@
             closeButton,
             detailBrowserButton,
             bulkBrowserButton,
+            title,
         } = elements;
         let browserActiveInput = null;
         let returnFocusElement = null;
@@ -43,15 +46,31 @@
             return inputEl && inputEl === detailInput;
         }
 
+        function equipmentTargets(inputEl) {
+            return getEquipmentTargets(isDetailInput(inputEl))
+                .filter(target => equipmentRules?.isEquipmentSlot(target.slotId, target.container));
+        }
+
+        function allowedForInput(id, inputEl) {
+            return equipmentTargets(inputEl).every(target => equipmentRules.itemAllowedInEquipmentSlot(target.slotId, id));
+        }
+
+        function browserTitle(inputEl) {
+            const slots = [...new Set(equipmentTargets(inputEl).map(target => Number(target.slotId)))];
+            const titles = { 103: "Helm auswählen", 102: "Brustausrüstung auswählen", 101: "Beinausrüstung auswählen", 100: "Stiefel auswählen", [-106]: "Nebenhand auswählen" };
+            const text = slots.length === 1 ? titles[slots[0]] : "📖 Item-Browser";
+            return window.t ? window.t(text) : text;
+        }
+
         function autocompleteMatches(query, inputEl = detailInput, limit = 10) {
             return itemBrowserLogic.autocompleteMatches(
                 getItemsDb(),
                 query,
-                limit,
+                Infinity,
                 getBlockOnlyItems(),
                 getAddableItems(),
                 isDetailInput(inputEl) ? getItemVariantsForId : null,
-            );
+            ).filter(item => allowedForInput(item.id, inputEl)).slice(0, limit);
         }
 
         function itemIconTarget(id, damage) {
@@ -66,6 +85,7 @@
 
         function selectAutocompleteItem(inputEl, listEl, item, options = {}) {
             if (!inputEl || !listEl || !item || !item.id) return;
+            if (!allowedForInput(item.id, inputEl)) return;
             const previousName = String(inputEl.value || "").trim().toLowerCase();
             inputEl.value = item.id;
             listEl.style.display = "none";
@@ -247,6 +267,7 @@
         }
 
         function selectBrowserItem(id, metadata = null) {
+            if (!allowedForInput(id, browserActiveInput)) return;
             const previousName = String(browserActiveInput?.value || "").trim().toLowerCase();
             if (browserActiveInput) {
                 browserActiveInput.value = id;
@@ -281,7 +302,8 @@
                 blockItemIds: getBlockItems(),
             };
             if (isDetailInput(browserActiveInput)) browserOptions.itemVariantsForId = getItemVariantsForId;
-            const items = itemBrowserLogic.browserItems(getItemsDb(), browserOptions);
+            const items = itemBrowserLogic.browserItems(getItemsDb(), browserOptions)
+                .filter(([id]) => allowedForInput(id, browserActiveInput));
 
             if (items.length === 0) {
                 grid.innerHTML = itemBrowserLogic.browserEmptyHtml();
@@ -346,6 +368,7 @@
         function openItemBrowser(inputEl, focusTarget = null) {
             if (!overlay || !searchInput) return;
             browserActiveInput = inputEl;
+            if (title) title.textContent = browserTitle(inputEl);
             returnFocusElement = focusTarget || documentObj.activeElement || inputEl || null;
             overlay.style.display = "flex";
             overlay.setAttribute?.("aria-hidden", "false");
@@ -407,6 +430,7 @@
             closeButton: doc.getElementById("btnBrowserClose"),
             detailBrowserButton: doc.getElementById("btnBrowserDetail"),
             bulkBrowserButton: doc.getElementById("btnBrowserBulk"),
+            title: doc.getElementById("itemBrowserTitle"),
         };
     }
 
@@ -418,6 +442,7 @@
         getBlockOnlyItems = () => null,
         getBlockItems = () => null,
         getItemAvailability = () => null,
+        getEquipmentTargets = () => [],
         onDetailItemChanged = () => {},
         onDetailItemVariantSelected = () => {},
         onApplyDetailItem = () => {},
@@ -434,6 +459,7 @@
             getItemIconTint: itemCatalog.getItemIconTint,
             getItemVariantsForId: itemCatalog.addableItemVariantsForId,
             getItemAvailability,
+            getEquipmentTargets,
             onDetailItemChanged,
             onDetailItemVariantSelected,
             onApplyDetailItem,

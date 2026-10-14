@@ -721,7 +721,7 @@
     }
 
     function emptyStateHtml(hasReferencePlayer = false) {
-        return `<div class="mount-empty-state">${hasReferencePlayer ? t("Prüfe die Umgebung, um einen Standplatz auszuwählen.") : t("Lade zuerst eine Welt und einen Spieler.")}</div>`;
+        return hasReferencePlayer ? "" : `<div class="mount-empty-state">${t("Lade zuerst eine Welt und einen Spieler.")}</div>`;
     }
 
     function applyMountPanelState({ previewPanel = null, optionsPanel = null, pendingPanel = null, statusPanel = null, preview = null, pendingMounts = [], message = "", status = "info", selectedMountType = "minecraft:horse", selectedPlacementRadius = 6, horseProfile = DEFAULT_HORSE_PROFILE, mountStats = {}, mountTamed = false, hasReferencePlayer = false } = {}) {

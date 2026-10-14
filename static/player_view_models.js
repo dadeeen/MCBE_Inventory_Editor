@@ -154,6 +154,7 @@
         if (!model.canSelect) row.disabled = true;
         // Finds the row again after the list is rendered anew.
         if (model.playerKey) row.dataset.playerKey = model.playerKey;
+        row.title = [model.name, model.playerKey].filter(Boolean).join(" · ");
         row.innerHTML = playerRowHtml(model);
         return row;
     }

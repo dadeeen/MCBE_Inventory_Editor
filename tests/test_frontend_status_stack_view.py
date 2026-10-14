@@ -29,7 +29,7 @@ def test_frontend_status_stack_view_builds_models_and_escapes_html() -> None:
             assert.strictEqual(warningModel.countText, "1");
             assert.strictEqual(warningModel.hasWarning, true);
             assert.strictEqual(warningModel.severity, "warning");
-            assert.strictEqual(warningModel.headline, "Hinweise");
+            assert.strictEqual(warningModel.headline, "Meldungen");
             assert.strictEqual(warningModel.summary, "Achtung <prüfen>");
 
             const warningWithNewSuccess = view.statusStackModel({
@@ -56,11 +56,17 @@ def test_frontend_status_stack_view_builds_models_and_escapes_html() -> None:
                     { time: "12:01", type: "warning", message: "Historischer Hinweis", active: false },
                 ],
             });
-            assert.strictEqual(resolvedModel.countText, "✓");
-            assert.strictEqual(resolvedModel.severity, "success");
-            assert.strictEqual(resolvedModel.headline, "Status");
+            assert.strictEqual(resolvedModel.countText, "i");
+            assert.strictEqual(resolvedModel.severity, "info");
+            assert.strictEqual(resolvedModel.headline, "Meldungen");
             assert.strictEqual(resolvedModel.summary, "Update erfolgreich.");
 
+            const historicalError = view.statusStackModel({visibleNotices: [
+                {type: "error", message: "Alter Fehler", active: false},
+            ]});
+            assert.strictEqual(historicalError.severity, "info");
+            assert.strictEqual(historicalError.openCount, 0);
+            assert.ok(view.statusStackPanelHtml(historicalError.entries).includes("Alter Fehler"));
             const errorModel = view.statusStackModel({
                 visibleNotices: [
                     { time: "12:03", type: "warning", message: "Warnung", active: true },
@@ -69,7 +75,7 @@ def test_frontend_status_stack_view_builds_models_and_escapes_html() -> None:
             });
             assert.strictEqual(errorModel.countText, "2");
             assert.strictEqual(errorModel.severity, "error");
-            assert.strictEqual(errorModel.headline, "Fehler");
+            assert.strictEqual(errorModel.headline, "Meldungen");
             assert.strictEqual(errorModel.summary, "Fehler");
 
             const fallbackModel = view.statusStackModel({
@@ -78,9 +84,9 @@ def test_frontend_status_stack_view_builds_models_and_escapes_html() -> None:
                 statusClassName: "save-status success",
                 isDirty: false,
             });
-            assert.strictEqual(fallbackModel.countText, "✓");
-            assert.strictEqual(fallbackModel.severity, "success");
-            assert.strictEqual(fallbackModel.headline, "Status");
+            assert.strictEqual(fallbackModel.countText, "i");
+            assert.strictEqual(fallbackModel.severity, "info");
+            assert.strictEqual(fallbackModel.headline, "Meldungen");
             assert.strictEqual(fallbackModel.summary, "Bereit");
             assert.strictEqual(
                 JSON.stringify(fallbackModel.entries),
@@ -203,7 +209,7 @@ def test_clearing_status_updates_header_without_reannouncing_history() -> None:
             assert.strictEqual(controller.clearStatus("dirty"), true);
             assert.strictEqual(live.textContent, "", "Auflösung kündigt keinen alten Verlaufseintrag erneut an");
             assert.strictEqual(elements.statusStackSummary.textContent, "Icon-Update erfolgreich.");
-            assert.strictEqual(elements.statusStackCount.textContent, "✓");
+            assert.strictEqual(elements.statusStackCount.textContent, "i");
             assert.strictEqual(controller.clearStatus("icons"), true);
             assert.strictEqual(statusText, "");
             assert.strictEqual(elements.statusStackSummary.textContent, "Keine Hinweise");

@@ -20,19 +20,13 @@ Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht.
 
 [![Beispielinventar](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
 
-## Drei Layouts – unabhängig vom Farbtheme
+## Drei Layouts
 
-**Layout** in der Kopfzeile bietet **Klassisch** (Voreinstellung, bisherige Oberfläche), **Studio** (gruppierte Seitenleiste mit dauerhaftem Editor-Inspector) und **Fokus** (kompakte Aktionsleiste, Editor-Tabs und kontextabhängiger Inspector; Ansicht/Sprache im Zahnradmenü). Welt und Spieler bilden den **Bearbeitungskontext**; Mounts sind optional und Prüfen/Speichern ist eine globale Aktion. Der Wechsel erfolgt ohne Neuladen oder Verlust der Bearbeitungen und wird lokal im Browser gespeichert. Das Farbtheme lässt sich separat wählen.
+Wähle zwischen **Klassisch**, **Studio** und **Fokus**, unabhängig vom hellen oder dunklen Farbtheme. Beim Layoutwechsel bleiben laufende Bearbeitungen erhalten.
 
-Im Fokus-Layout bleiben Rüstung und Nebenhand als beschriftete Slotreihe oberhalb des Inventars erreichbar, während der Sloteditor geöffnet ist. Das Lore-Feld hat eine Mindesthöhe und lässt sich vertikal vergrößern. Lange Weltlisten scrollen in einem begrenzten Bereich; Suche und Laden bleiben außerhalb. Beim Öffnen eines Weltordners bestätigt eine sichtbare Meldung die Übergabe an den Dateimanager und hilft, ein verdecktes Fenster zu finden.
+## Mounts konfigurieren
 
-## Mounts konfigurieren und ansehen
-
-Im Mount-Menü stehen Tierart und Eigenschaften zuerst. Daneben zeigt eine drehbare **3D-Ansicht** Pferd, Esel, Maultier, Kamel oder Skelettpferd. Proportionen, Fellfarben, Kopfzeichnungen und die charakteristische Verteilung der Abzeichen orientieren sich an den Vanilla-Referenzen; die Pixeloberflächen sind eigenständig gezeichnet und es werden keine Mojang-Modell- oder Texturdateien mitgeliefert. Beleuchtung und einzelne Pixelmuster unterscheiden sich vom Spiel. Beim Pferd aktualisieren Farbe und Markierung die Ansicht unmittelbar. Zufällige Eigenschaften bleiben als Beispiel gekennzeichnet. Drehen funktioniert durch Ziehen, mit den Pfeiltasten oder den drei Ansichtsschaltflächen; **Pos1** setzt die Ansicht zurück.
-
-Individuelle Pferdewerte sind Spielattribute, keine Prozentangaben: Leben **15–30**, Geschwindigkeit **0,1125–0,3375**, Sprungstärke **0,4–1,0** und ganzzahliger Zähmfortschritt **0–99**. Geschwindigkeit und Sprungstärke zeigen zusätzlich eine ungefähre Umrechnung für das Spiel. Ungültige Werte werden direkt am Feld erklärt und verhindern das Vormerken; sie werden nicht stillschweigend auf einen Grenzwert geändert. Andere Tierarten bieten nur ihre unterstützten variablen Eigenschaften an; leere optionale Felder behalten zufällige Werte.
-
-Unter **Standplatz wählen** prüfst du die Umgebung und wählst eine Position. **Prüfdetails** zeigt in einem deckenden Dialog das Bodenraster mit eingezeichneter Kollisionsfläche; Blockdaten sind aufklappbar. Die Bodenprüfung folgt Tiergröße und genauer Position: Je nach Überlappung werden 2×2, 2×3, 3×2 oder 3×3 Felder geprüft. **Mount vormerken** legt einen sichtbaren Entwurf an; einzelne Eigenschaften lassen sich dort aufklappen und Vormerkungen wieder entfernen. Gespeichert wird über den bestehenden Prüfen-/Speichern-Ablauf. Die Modellansicht benötigt keine zusätzlichen Laufzeitabhängigkeiten.
+Konfiguriere Pferde, Esel, Maultiere, Kamele und Skelettpferde mit einer drehbaren **3D-Vorschau**. Prüfe den Standplatz und kontrolliere vorgemerkte Mounts vor dem Speichern.
 
 ## Download → Backup → Start
 

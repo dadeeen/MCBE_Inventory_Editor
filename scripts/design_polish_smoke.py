@@ -240,18 +240,25 @@ def check_header_statuses(browser, root):
                         if layout == "focus":
                             assert not overlap(observed["logo"], observed["commands"]), (*context, observed)
                         else:
-                            for first, second in (("logo", "actions"), ("area", "actions"), ("area", "undo"), ("badge", "status")):
+                            for first, second in (("logo", "commands"), ("area", "commands"), ("badge", "status")):
                                 assert not overlap(observed[first], observed[second]), (*context, first, second, observed)
                             assert observed["actions"]["right"] <= observed["header"]["right"], (*context, observed)
                         if layout == "studio":
                             assert not observed["summary"]["clipped"], (*context, observed)
-                            assert observed["status"]["width"] >= min(400, observed["area"]["width"]) - 1, (*context, observed)
                             if width >= 1440:
                                 assert observed["status"]["height"] <= 60, (*context, observed)
-                            if width <= 760:
-                                bottoms = [item["bottom"] for item in observed["selects"]]
-                                assert max(bottoms) - min(bottoms) <= 1, (*context, observed)
-                        # Classic and Focus intentionally keep short header labels;
+                        page.locator("#focusSettingsToggle").press("Enter")
+                        settings = page.locator("#focusSettingsPanel")
+                        assert settings.is_visible(), context
+                        settings_box = settings.bounding_box()
+                        assert settings_box["x"] >= 0 and settings_box["x"] + settings_box["width"] <= width, (*context, settings_box)
+                        for selector in ("#layoutSelect", "#themeSelect", "#languageSelect"):
+                            assert page.locator(selector).is_visible(), (*context, selector)
+                        assert settings.evaluate("el=>el.scrollWidth<=el.clientWidth+1"), context
+                        page.keyboard.press("Escape")
+                        assert settings.is_hidden(), context
+                        assert page.locator("#focusSettingsToggle").evaluate("el=>document.activeElement===el"), context
+                        # Compact header labels retain complete accessible details;
                         # their complete error text must fit the expanded detail.
                         page.evaluate("document.getElementById('statusStackPanel').hidden=false")
                         panel = page.locator("#statusStackPanel")
@@ -260,18 +267,21 @@ def check_header_statuses(browser, root):
                         assert box["width"] >= min(320, observed["header"]["width"] - 44), (*context, box)
                         assert panel.locator(".status-stack-message").inner_text() == page.locator("#statusStackSummary").text_content()
                         assert panel.evaluate("el=>el.scrollWidth<=el.clientWidth+1"), context
-                        if layout != "focus" and width <= 1180:
-                            parent = page.locator(".header-status-stack").bounding_box()
-                            assert box["x"] + box["width"] <= parent["x"] + parent["width"] + 1, (*context, box, parent)
+                        anchor = page.locator("#statusStackButton").bounding_box()
+                        assert abs(box["y"] - anchor["y"] - anchor["height"] - 8) <= 1, (*context, box, anchor)
+                        expected_left = max(12, min(anchor["x"], width - box["width"] - 12))
+                        assert abs(box["x"] - expected_left) <= 1, (*context, box, anchor)
                         page.evaluate("document.getElementById('statusStackPanel').hidden=true")
-                        if layout == "focus":
-                            page.locator("#serverStatusBadge").press("Enter")
-                            panel = page.locator("#focusServerStatusPanel")
-                            box = panel.bounding_box()
-                            assert box and box["x"] >= 0 and box["x"] + box["width"] <= width, (*context, box)
-                            assert box["width"] >= min(320, observed["header"]["width"] - 44), (*context, box)
-                            assert panel.evaluate("el=>el.scrollWidth<=el.clientWidth+1"), context
-                            page.locator("#serverStatusBadge").press("Enter")
+                        page.locator("#serverStatusBadge").press("Enter")
+                        panel = page.locator("#focusServerStatusPanel")
+                        box = panel.bounding_box()
+                        anchor = page.locator("#serverStatusBadge").bounding_box()
+                        assert box and box["x"] >= 0 and box["x"] + box["width"] <= width, (*context, box)
+                        assert abs(box["y"] - anchor["y"] - anchor["height"] - 8) <= 1, (*context, box, anchor)
+                        expected_left = max(12, min(anchor["x"], width - box["width"] - 12))
+                        assert abs(box["x"] - expected_left) <= 1, (*context, box, anchor)
+                        assert panel.evaluate("el=>el.scrollWidth<=el.clientWidth+1"), context
+                        page.locator("#serverStatusBadge").press("Enter")
                         checks += 1
                 page.close()
     return checks
@@ -440,7 +450,6 @@ def run_checks(browser, root):
                 settle(page)
                 after = metrics(page)
                 assert after["pageOverflow"] <= 1, ("Focus world width", locale, theme, width, after)
-                assert after["workspace"]["width"] <= 1540, (locale, theme, width, after)
                 if width >= 1181 and height >= 900:
                     assert after["pageRange"] <= 1, ("Focus world height", locale, theme, width, after)
                 if width >= 1025:

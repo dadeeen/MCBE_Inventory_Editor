@@ -621,11 +621,13 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    max-height: 260px;
+    max-height: min(52dvh, 420px);
     overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 
 .player-row {
+    flex-shrink: 0;
     width: 100%;
     text-align: left;
     background: rgba(255,255,255,0.03);
@@ -635,7 +637,7 @@ body {
     padding: 12px 14px;
     cursor: pointer;
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 12px;
     font-family: var(--font-main);
     transition: all 0.15s;
@@ -667,6 +669,7 @@ body {
     color: var(--text-secondary);
     font-size: 0.78rem;
     grid-column: 1 / -1;
+    overflow-wrap: anywhere;
 }
 
 .player-badge {
@@ -1041,12 +1044,26 @@ body {
     z-index: 4;
 }
 
+/* Original pixel silhouettes identify empty equipment without resembling
+   equipped items. Real item rendering hides the placeholder as before. */
 .slot-overlay {
-    font-size: 1.3rem;
-    opacity: 0.25;
+    width: min(32px, 60%);
+    height: min(32px, calc(100% - var(--equipment-number-space, 0px) - 8px));
+    display: grid;
+    place-items: center;
+    color: #8298a3;
     position: absolute;
     pointer-events: none;
+    opacity: 0.5;
 }
+:is(.armor-slot, .offhand-slot):focus-visible .slot-overlay { opacity: 0.75; }
+@media (hover: hover) {
+    :is(.armor-slot, .offhand-slot):hover .slot-overlay { opacity: 0.75; }
+}
+.slot-overlay svg { display: block; width: 100%; height: 100%; }
+.slot-overlay .equipment-placeholder-edge { fill: #b2c3cb; }
+:root[data-theme="light"] .slot-overlay .equipment-placeholder-edge { fill: #82959f; }
+:root[data-theme="light"] .slot-overlay { color: #657781; }
 
 .item-visual {
     width: 75%;
@@ -1192,6 +1209,40 @@ body {
 .location-actions .field-note {
     margin: 0;
 }
+
+.location-conversion-help { min-width: 0; }
+#btnConversionHelp { min-height: 40px; padding: 8px; }
+#conversionHelp {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    width: min(440px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    padding: 16px;
+    border: 1px solid var(--modal-card-border);
+    border-radius: 12px;
+    background: var(--modal-card-bg);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-main);
+}
+.conversion-help-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.conversion-help-header button { flex-shrink: 0; }
+#conversionHelp .location-conversion-explanation { padding: 0; border: 0; background: transparent; }
+.location-conversion-explanation {
+    max-width: 44rem;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--workspace-well-bg);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    display: grid;
+    gap: 10px;
+}
+.location-conversion-safety { flex-basis: 100%; }
 
 /* Own row below the button: this note explains why the button is disabled, and a
    disabled button never shows its title tooltip. */
@@ -2564,22 +2615,31 @@ body.item-browser-open {
     font-size: 0.78rem;
 }
 
+/* Keep related effect values together; a single card does not stretch. */
 .effects-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 280px;
-    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, max(23rem, calc((100% - 24px) / 3))), 1fr));
+    gap: 12px;
+    max-width: 96rem;
+    align-items: stretch;
+}
+
+.effects-list > .no-backups {
+    grid-column: 1 / -1;
 }
 
 .effect-row {
+    max-width: 32rem;
+    width: 100%;
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    min-width: 0;
+    gap: 6px;
     background: rgba(255,255,255,0.02);
     border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 8px;
-    padding: 8px 12px;
+    border-radius: 10px;
+    padding: 14px;
     font-size: 0.82rem;
 }
 
@@ -2594,63 +2654,89 @@ body.item-browser-open {
 }
 
 .effect-row .effect-controls {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto auto;
-    gap: 8px;
-    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: end;
+    margin-top: auto;
+    padding-top: 10px;
 }
 
 .effect-name {
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    padding-right: 36px;
+    overflow-wrap: anywhere;
+    min-height: 24px;
 }
 
 .effect-desc {
-    font-size: 0.72rem;
+    padding-right: 30px;
+    font-size: 0.75rem;
     color: var(--text-secondary);
-    line-height: 1.3;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
 }
 
 .effect-field {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 2px;
+    align-items: flex-start;
+    gap: 5px;
+    margin: 0;
 }
 
-.effect-field label {
-    font-size: 0.65rem;
+.effect-field > span {
+    font-size: 0.72rem;
     color: var(--text-secondary);
-    text-transform: uppercase;
 }
 
-.effect-field input {
-    width: 60px;
-    background: rgba(0,0,0,0.3);
+.effect-field input[type="number"] {
+    width: 78px;
+    min-height: 40px;
+    box-sizing: border-box;
+    background: var(--workspace-well-bg);
     border: 1px solid var(--slot-border);
     border-radius: 6px;
-    padding: 4px 6px;
+    padding: 8px;
     color: var(--text-primary);
-    font-family: var(--font-main);
-    font-size: 0.82rem;
-    text-align: center;
+    font: inherit;
 }
 
-.effect-field input:focus {
-    border-color: var(--primary);
-    outline: none;
+.effect-field input.eff-duration {
+    width: 116px;
+}
+
+.effect-particles-field {
+    cursor: pointer;
+    min-width: 44px;
+}
+
+.effect-field input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 11px 0;
+    accent-color: var(--primary);
+}
+
+.effect-field input:focus-visible,
+.effect-remove:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 
 .effect-remove {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 40px;
+    height: 40px;
     background: none;
     border: none;
     color: var(--danger);
     cursor: pointer;
     font-size: 1.1rem;
     padding: 4px;
-    border-radius: 4px;
+    border-radius: 6px;
     transition: background 0.15s;
 }
 
@@ -2659,10 +2745,6 @@ body.item-browser-open {
 }
 
 @media (max-width: 600px) {
-    .effect-controls {
-        grid-template-columns: 1fr auto auto;
-    }
-
     .effects-header,
     .effect-add-controls,
     .ability-speed-actions {
@@ -4400,6 +4482,11 @@ body.item-browser-open {
 .diagnostic-details-card code {
     color: var(--text-primary);
 }
+/* Optional compatibility details use native keyboard-accessible disclosure. */
+.preserved-data-details { margin-top: 6px; }
+.preserved-data-details > summary { cursor: pointer; width: fit-content; }
+.preserved-data-details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.preserved-data-details > p { margin: 8px 0 0; }
 .diagnostic-warning {
     margin-top: 8px;
     padding: 8px 10px;
@@ -4536,10 +4623,8 @@ body.item-browser-open {
 
 /* v0.4.5 UX pass: slot quick actions and safer restore review */
 .slot-quick-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     padding: 12px 14px;
     margin: 8px 0 12px;
@@ -4549,8 +4634,7 @@ body.item-browser-open {
 }
 
 .slot-quick-copy {
-    min-width: 120px;
-    flex: 1 1 150px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -4586,18 +4670,19 @@ body.item-browser-open {
 
 .slot-quick-buttons {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 7px;
-    flex: 1 1 360px;
+    min-width: 0;
 }
 
 .slot-quick-buttons .btn {
     width: 100%;
-    min-height: 36px;
+    min-height: 44px;
     justify-content: center;
     padding: 8px 4px;
     font-size: 0.8rem;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .slot-quick-buttons .btn[disabled] {
@@ -4767,17 +4852,6 @@ body.item-browser-open {
 }
 
 @media (max-width: 820px) {
-    .slot-quick-actions {
-        align-items: stretch;
-        flex-direction: column;
-    }
-    .slot-quick-copy {
-        /* The row's width basis must not become 150px of empty height. */
-        flex: 0 0 auto;
-    }
-    .slot-quick-buttons {
-        flex: 0 0 auto;
-    }
     .restore-meta-grid {
         grid-template-columns: 1fr;
     }
@@ -5239,6 +5313,50 @@ body.item-browser-open {
 
 /* v0.5.0 icon manager */
 .icon-manager { display: grid; gap: 1rem; }
+.tools-details { min-width: 0; }
+.tools-details .dashboard-tab-headers { max-width: 100%; overflow-x: auto; }
+.tools-details .tab-btn-dash { flex-shrink: 0; white-space: nowrap; }
+.tool-details { min-width: 0; padding: 12px 0; border-top: 1px solid var(--border-color); }
+.tool-details > summary { cursor: pointer; color: var(--text-secondary); padding: 4px 0; }
+.tool-details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.tool-details[open] > summary { margin-bottom: 12px; }
+.tool-facts { display: grid; gap: 12px; margin: 12px 0; }
+.tool-facts > div { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 3fr); gap: 12px; }
+.tool-facts dt { color: var(--text-secondary); }
+.tool-facts dd { margin: 0; overflow-wrap: anywhere; }
+.tool-source-heading, .tool-status-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.tool-status-line { justify-content: flex-start; margin: 0; }
+.tool-status-line span { color: var(--text-secondary); }
+.tool-notice { border-left: 3px solid var(--warning); padding: 8px 12px; }
+.tool-notice p { margin: 0 0 8px; overflow-wrap: anywhere; }
+#dashIcons .data-source-panel, #dashUpdate .item-db-status-panel { border: 0; padding: 0; background: none; }
+#dashUpdate .item-db-status-hero { border: 0; border-left: 3px solid var(--border-color); border-radius: 0; background: none; }
+#dashUpdate .item-db-status-hero.warning { border-left-color: var(--warning); }
+#dashUpdate .item-db-version-line { display: flex; flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+#updateDbResult { overflow-wrap: anywhere; }
+#updateDbResult p { margin: 8px 0; }
+#updateDbResult[data-state="incomplete"] { border-left: 3px solid var(--warning); padding-left: 12px; }
+#updateDbAudit { overflow-wrap: anywhere; }
+#updateDbAudit p { margin: 8px 0; }
+#dashIcons .icon-source-row { border: 0; border-bottom: 1px solid var(--border-color); border-radius: 0; background: none; padding: 12px 0; }
+#dashIcons .icon-preview-panel { border: 0; padding: 12px 0; background: none; }
+#dashIcons .icon-preview-grid { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); max-width: 860px; }
+#dashIcons .icon-preview-sample { border: 0; padding: 6px; background: none; }
+.tool-source-dialog { margin: auto; width: min(580px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 22px; border: 1px solid var(--modal-card-border); border-radius: 14px; background: var(--modal-card-bg); color: var(--text-primary); box-shadow: 0 20px 60px #0008; }
+.tool-source-dialog::backdrop { background: #0009; }
+.tool-source-dialog .backup-header-section { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.tool-source-dialog .backup-header-section h3 { flex: 1; }
+body:has(.tool-source-dialog[open]) { overflow: hidden; }
+.tool-source-dialog .tool-details { margin-top: 18px; }
+.tool-source-dialog input { width: 100%; min-width: 0; min-height: 42px; padding: 10px; font: inherit; border: 1px solid var(--card-border); border-radius: 8px; background: var(--workspace-well-bg); color: var(--text-primary); }
+.tool-source-dialog label { display: block; margin-bottom: 8px; }
+.tool-source-dialog .hint-text { margin-top: 12px; }
+.tool-source-dialog [role="status"] { margin-top: 12px; overflow-wrap: anywhere; }
+.update-db-output-wrapper[hidden], .data-source-panel[hidden] { display: none; }
+@media (max-width: 600px) {
+    .tool-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .tool-source-dialog { padding: 16px; }
+}
 .icon-manager-add { border: 1px solid var(--border); border-radius: 16px; padding: 1rem; background: var(--surface-muted); }
 .icon-manager-add label { display: block; font-weight: 700; margin-bottom: .45rem; }
 .path-inline { display: flex; gap: .5rem; align-items: center; }
@@ -5590,9 +5708,18 @@ body.item-browser-open {
 }
 .player-tools-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 16px;
+    align-items: start;
 }
+.player-tools-grid > .diagnostic-details-card {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    padding: 16px;
+}
+.player-tools-grid :is(.field-group, .copy-options, .hint-text) { margin: 0; }
+.player-tools-grid select { min-width: 0; max-width: 100%; }
 .copy-options {
     display: grid;
     gap: 7px;
@@ -7758,3 +7885,75 @@ body[data-workflow-view="tools"] #dashboardPanel {
         justify-content: flex-end;
     }
 }
+
+/* Native modal keeps the effect catalog within the viewport and traps focus. */
+.effect-catalog-dialog { margin: auto; width: min(780px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border: 1px solid var(--modal-card-border); border-radius: 14px; background: var(--modal-card-bg); color: var(--text-primary); box-shadow: 0 20px 60px #0008; }
+.effect-catalog-dialog::backdrop { background: #0009; }
+body:has(.effect-catalog-dialog[open]) { overflow: hidden; }
+.effect-catalog-dialog, .effect-catalog-list { overscroll-behavior: contain; }
+.effect-catalog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.effect-catalog-header h2 { font-size: 1.2rem; }
+.effect-catalog-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; }
+.effect-catalog-selection, .effect-catalog-config { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.effect-catalog-list { max-height: min(48dvh, 390px); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.effect-catalog-list .effect-picker-option { width: 100%; flex-shrink: 0; text-align: left; white-space: normal; }
+.effect-catalog-list .effect-picker-option[aria-pressed="true"] { background: var(--primary); color: #06261e; }
+:root[data-theme="light"] .effect-catalog-list .effect-picker-option[aria-pressed="true"] { color: #fff; }
+.effect-catalog-list .effect-picker-option:disabled { opacity: .65; cursor: default; }
+.effect-catalog-config p { line-height: 1.5; }
+.effect-catalog-dialog input:not([type="hidden"]), .player-manager-search input {
+    width: 100%; min-width: 0; min-height: 40px; padding: 9px 12px;
+    border: 1px solid var(--card-border); border-radius: 8px;
+    background: var(--workspace-well-bg); color: var(--text-primary); font: inherit;
+}
+.effect-catalog-dialog input:focus-visible, .player-manager-search input:focus-visible {
+    outline: 2px solid var(--primary); outline-offset: 2px;
+}
+:root[data-theme="light"] .effect-catalog-dialog { background: #fff; }
+@media (max-width: 600px) {
+    .effect-catalog-dialog { padding: 14px; }
+    .effect-catalog-body { grid-template-columns: minmax(0, 1fr); }
+    .effect-catalog-list { max-height: 24dvh; }
+}
+
+/* Player selection and management are separate, stable sections in every layout. */
+.player-manager-tools { min-width: 0; border-top: 1px solid var(--border-color); margin-top: 20px; padding-top: 16px; display: grid; gap: 12px; }
+body:not([data-workflow-view="player"]) .player-manager-tools { display: none; }
+.player-selection-hint { display: none; }
+body[data-workflow-view="player"] #playerManager:has(.player-row):not(:has(.player-row.active)) .player-selection-hint { display: block; }
+.world-card-badges:not(:has(*)) { display: none; }
+.player-manager-tools h3 { font-size: 0.95rem; }
+.player-manager-tools > .btn-text { justify-self: start; }
+.player-tool-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.player-tool-actions .btn { min-height: 44px; }
+.player-tool-overlay { z-index: 19990; padding: 12px; }
+.player-tool-dialog { width: min(100%, 720px); max-width: 720px; align-items: stretch; gap: 18px; padding: 24px; }
+.player-tool-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.player-tool-heading h2 { font-size: 1.2rem; }
+.player-tool-body { display: grid; gap: 14px; min-width: 0; }
+.player-tool-context { display: grid; gap: 4px; padding: 12px; background: var(--workspace-well-bg); border: 1px solid var(--border-color); border-radius: 8px; overflow-wrap: anywhere; }
+.player-tool-context span { color: var(--text-secondary); font-size: 0.8rem; }
+.player-tool-body .field-group { min-width: 0; }
+.player-tool-body :is(input, select) { max-width: 100%; min-width: 0; }
+@media (max-width: 600px) {
+    .player-tool-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+    .player-tool-dialog { padding: 16px; max-height: calc(100dvh - 24px); }
+    .player-tool-body .path-input-group { flex-direction: column; align-items: stretch; }
+}
+.player-tool-heading > button { flex: 0 0 auto; white-space: nowrap; }
+.player-tool-heading h2 { min-width: 0; }
+.player-tool-body .check-row { align-items: flex-start; }
+.player-tool-body .check-row input[type="checkbox"] { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 2px; }
+.analysis-overview-details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.analysis-overview-details[open] > summary { margin-bottom: 12px; }
+.analysis-overview-details > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.world-analysis-panel .diagnostic-details-card ul { padding-inline-start: 20px; }
+.world-analysis-panel .diagnostic-details-card li + li { margin-top: 6px; }
+#sectionEditorConfig .dashboard-tab-headers { flex-wrap: wrap; max-height: none; overflow: visible; }
+#sectionEditorConfig .tab-btn-dash { white-space: normal; min-width: 0; }
+@media (max-width: 600px) {
+    #sectionEditorConfig .dashboard-tab-headers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+    #sectionEditorConfig .tab-btn-dash { min-height: 44px; padding: 8px; }
+}
+/* The inventory/editor switch belongs only to the inventory workflow. */
+body:not([data-workflow-view="inventory"]) .panel-toggle { display: none; }

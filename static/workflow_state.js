@@ -87,6 +87,7 @@
         panelToggles = [],
     } = {}) {
         const toggles = Array.from(panelToggles || []);
+        let lastWorkflowView = null;
 
         function isNarrowViewport() {
             return win.innerWidth <= breakpoint;
@@ -99,15 +100,26 @@
         }
 
         function activateForWorkflow(view) {
-            if (!isNarrowViewport()) return;
-            activatePanel(view === "world" ? "left" : "right");
+            const remembered = view === "inventory" && lastWorkflowView === view
+                ? doc.querySelector(".btn-toggle.active")?.dataset.panel : null;
+            const panel = remembered || (["world", "inventory", "save"].includes(view) ? "left" : "right");
+            lastWorkflowView = view;
+            // Keep the remembered toggle aligned even on desktop, before a
+            // later resize makes the panel selection relevant.
+            toggles.forEach(btn => btn.classList.toggle("active", btn.dataset.panel === panel));
+            if (isNarrowViewport()) activatePanel(panel);
         }
 
         function sync() {
             if (isNarrowViewport()) {
                 toggles.forEach(btn => { btn.style.display = ""; });
                 const activeToggle = doc.querySelector(".btn-toggle.active");
-                activatePanel(activeToggle?.dataset.panel || "left");
+                const view = doc.body?.dataset?.workflowView;
+                // A resize must not restore an old inventory toggle over the
+                // currently selected workflow (for example the player page).
+                const workflowPanel = ["world", "save"].includes(view) ? "left"
+                    : ["player", "player-edit", "mounts", "tools"].includes(view) ? "right" : null;
+                activatePanel(workflowPanel || activeToggle?.dataset.panel || "left");
             } else {
                 toggles.forEach(btn => { btn.style.display = "none"; });
                 if (leftPanel) leftPanel.classList.remove("visible");
@@ -119,8 +131,7 @@
             toggles.forEach(btn => {
                 btn.addEventListener("click", () => activatePanel(btn.dataset.panel));
             });
-            if (isNarrowViewport()) activatePanel("left");
-            else sync();
+            sync();
             win.addEventListener("resize", sync);
         }
 
@@ -176,14 +187,14 @@
             renderSaveWorkflowPanel();
         }
 
-        function setWorkflowView(view, { scroll = true, user = false } = {}) {
+        function setWorkflowView(view, { scroll = true, user = false, preserveEditor = false } = {}) {
             const requested = String(view || "world");
             if (user && !viewAllowed(requested, currentContext())) showToast(unavailableMessage(requested), "warning", 2600);
             const activeView = resolvedView(requested, currentContext());
             setActiveView(activeView);
             applyShellState();
 
-            if (activeView === "player" || activeView === "player-edit") switchToPlayerDashboard();
+            if (!preserveEditor && (activeView === "player" || activeView === "player-edit")) switchToPlayerDashboard();
             if (activeView === "save") renderSaveWorkflowPanel();
             if (activeView === "tools") renderToolsDashboard();
             if (activeView === "mounts") renderMountsPanel();
@@ -332,6 +343,12 @@
         return { switchTo, wire };
     }
 
+    function isModalOpen(doc = document) {
+        return Boolean(doc.querySelector?.("dialog[open]")
+            || Array.from(doc.querySelectorAll?.(".modal-overlay, .loading-overlay") || [])
+                .some(overlay => overlay.getClientRects().length > 0));
+    }
+
     function createAppKeyboardController({
         doc = document,
         inventoryClipboardController = null,
@@ -348,6 +365,12 @@
         showToast = () => {},
     } = {}) {
         function handleKeydown(event) {
+            // Modal dialogs make the page inert, but document listeners still
+            // receive keyboard events. Keep editor actions outside all modals.
+            if (isModalOpen(doc)) {
+                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") event.preventDefault();
+                return;
+            }
             const isEditableTarget = isEditableTextTarget(event.target);
             if ((event.ctrlKey || event.metaKey) && event.key === "z" && !event.shiftKey && !isEditableTarget) {
                 event.preventDefault();
@@ -376,7 +399,6 @@
                 if (hasSelection(currentSelectionState())) {
                     event.preventDefault();
                     clearSelection();
-                    showToast(t("Auswahl aufgehoben"), "success", 1800);
                 }
             }
         }
@@ -634,6 +656,7 @@
     }
 
     window.MCBEWorkflowState = {
+        isModalOpen,
         appBodyClassModel,
         hasLoadedEditablePlayer,
         hasLoadedMountReferencePlayer,

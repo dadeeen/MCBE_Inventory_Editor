@@ -48,6 +48,30 @@ def _deps(**overrides):
     return deps
 
 
+def test_update_db_returns_structured_report_without_protocol_in_visible_output():
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    report = {"schema": 1, "status": "available", "sections": {"items": {"added": 1, "removed": 0, "changed": 0}}}
+    deps = _deps(run_update_db=Mock(return_value=(0, "Details\n" + REPORT_PREFIX + json.dumps(report) + "\n")))
+    with patch.object(item_db_api_routes, "update_review_snapshot", return_value={"token": "a" * 64, "resource_pack_release": "v1"}):
+        result = item_db_api_routes.update_db({"dry_run": True}, deps)[1]
+    assert result["success"]
+    assert result["summary"] == report
+    assert result["output"] == "Details\n"
+
+
+def test_failed_update_keeps_partial_report_without_a_success_receipt():
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    report = {"schema": 1, "status": "incomplete"}
+    deps = _deps(run_update_db=Mock(return_value=(1, REPORT_PREFIX + json.dumps(report))))
+    result = item_db_api_routes.update_db({"dry_run": True}, deps)[1]
+    assert not result["success"]
+    assert result["summary"] == report
+    assert "update_review_token" not in result
+    deps.reload_item_db_after_update.assert_not_called()
+
+
 def test_update_db_rejects_invalid_scope_without_running_update():
     run_update_db = Mock()
     deps = _deps(run_update_db=run_update_db)

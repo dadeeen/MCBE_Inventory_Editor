@@ -132,7 +132,7 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync('static/app.js', 'utf8');
-const match = source.match(/refreshImportedPlayer: (async [\s\S]*?\n        }),\n/);
+const match = source.match(/refreshImportedPlayer: (async [\s\S]*?\r?\n        }),\r?\n/);
 assert.ok(match, 'production refresh callback missing');
 let current = true;
 let loads = 0;
@@ -321,7 +321,7 @@ const loader = context.window.MCBEPlayerLoadController.createPlayerLoadControlle
         },
     },
 });
-const callback = fs.readFileSync('static/app.js', 'utf8').match(/refreshImportedPlayer: (async [\s\S]*?\n        }),\n/);
+const callback = fs.readFileSync('static/app.js', 'utf8').match(/refreshImportedPlayer: (async [\s\S]*?\r?\n        }),\r?\n/);
 assert.ok(callback);
 const refresh = vm.runInNewContext('(' + callback[1] + ')', {
     loadPlayersList: (...args) => loader.loadPlayersList(...args), loadPlayer: (...args) => loader.loadPlayer(...args),

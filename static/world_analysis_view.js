@@ -14,7 +14,7 @@
     }
 
     function emptyWorldAnalysisHtml() {
-        return `<div class="no-backups">${t("Analyse wird nach dem Laden einer Welt angezeigt.")}</div>`;
+        return `<div class="no-backups">${t("Diagnose wird nach dem Laden einer Welt angezeigt.")}</div>`;
     }
 
     function compatibilityCardDetail(compatErrors, compatWarnings, compatNotes) {
@@ -34,8 +34,17 @@
         const inventory = analysis.inventory || {};
         const ender = analysis.ender || {};
         const hidden = analysis.hidden || {};
-        const hints = compatErrors.concat(compatWarnings);
+        const hints = [...new Set(compatErrors.concat(compatWarnings))];
+        const restrictions = Array.isArray(analysis.restrictions) ? [...new Set(analysis.restrictions)] : [];
+        const list = entries => `<ul>${entries.map(entry => `<li>${escapeHtml(entry)}</li>`).join("")}</ul>`;
         return `
+        <div class="diagnostic-details-card${hints.length ? " warn" : ""}">
+            <h4>${t("Was benötigt Aufmerksamkeit?")}</h4>
+            ${hints.length ? list(hints) : `<p>${t("Keine Kompatibilitätsfehler oder -warnungen gemeldet.")}</p>`}
+            ${hints.length ? `<p class="hint-text">${t("Prüfe die genannten Bereiche vor dem Speichern. Bei unklaren Meldungen kopiere die Diagnose für die Fehlersuche.")}</p>` : ""}
+        </div>
+        ${restrictions.length ? `<div class="diagnostic-details-card"><h4>${t("Einschränkungen beim Bearbeiten")}</h4>${list(restrictions)}<p class="hint-text">${t("Geschützte Daten bleiben unverändert. Fehlende Datenbereiche werden nur nach ausdrücklicher Bestätigung angelegt.")}</p></div>` : ""}
+        <details class="diagnostic-details-card analysis-overview-details"><summary>${t("Überblick & Kennzahlen")}</summary>
         <div class="analysis-grid">
             <div class="overview-card"><span class="overview-label">${t("Spieler")}</span><strong>${escapeHtml(analysis.players_total ?? 0)}</strong><small>${t("{editable} editierbar · {exportOnly} nur Export", { editable: escapeHtml(analysis.players_editable ?? 0), exportOnly: escapeHtml(analysis.players_export_only ?? 0) })}</small></div>
             <div class="overview-card"><span class="overview-label">${t("Inventar")}</span><strong>${escapeHtml(inventory.used ?? 0)} / ${escapeHtml(inventorySlotCount)}</strong><small>${t("{damaged} beschädigt · {unknown} unbekannt", { damaged: escapeHtml(inventory.damaged ?? 0), unknown: escapeHtml(inventory.unknown ?? 0) })}</small></div>
@@ -47,8 +56,8 @@
             <p>${escapeHtml(analysis.player)}</p>
             <p class="hint-text">${t("Verzauberte Items: {count}", { count: escapeHtml(Number(inventory.enchantments || 0) + Number(ender.enchantments || 0)) })} · ${t("Geschützte/unknown Slots: {count}", { count: escapeHtml(Number(hidden.inventory || 0) + Number(hidden.ender_chest || 0)) })}</p>
         </div>
-        ${hints.length ? `<div class="diagnostic-details-card warn"><h4>${t("Hinweise")}</h4><ul>${hints.map(w => `<li>${escapeHtml(w)}</li>`).join("")}</ul></div>` : ""}
-        ${compatNotes.length ? `<div class="diagnostic-details-card"><h4>${t("Erhaltene Zusatzdaten")}</h4><ul>${compatNotes.map(note => `<li>${escapeHtml(note)}</li>`).join("")}</ul></div>` : ""}
+        </details>
+        ${compatNotes.length ? `<div class="diagnostic-details-card"><h4>${t("Erhaltene Zusatzdaten")}</h4><p>${t("Zusätzliche Daten bleiben beim Speichern erhalten. Es ist keine Aktion erforderlich.")}</p><details class="preserved-data-details"><summary>${t("Technische Details anzeigen")}</summary>${compatNotes.map(note => `<p>${escapeHtml(note)}</p>`).join("")}</details></div>` : ""}
     `;
     }
 

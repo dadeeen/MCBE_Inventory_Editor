@@ -164,6 +164,7 @@ test("returning to Classic from player data restores the original player view", 
     h.window.setWorkflowView = (view, opts) => {
         assert.equal(view, "player");
         assert.equal(opts.scroll, false);
+        assert.equal(opts.preserveEditor, true);
         redirected++;
         h.body.dataset.workflowView = "player";
     };
@@ -172,6 +173,22 @@ test("returning to Classic from player data restores the original player view", 
     assert.equal(h.root.dataset.layout, "classic");
     assert.equal(h.body.dataset.workflowView, "player");
     assert.equal(redirected, 1);
+});
+
+test("Classic player editing maps to the alternative editor without resetting forms", () => {
+    const h = editorHarness();
+    h.body.dataset.workflowView = "player";
+    const redirects = [];
+    h.window.setWorkflowView = (view, options) => redirects.push({ view, ...options });
+    h.select.value = "studio";
+    h.select.dispatch("change");
+    assert.equal(redirects.length, 0, "unloaded player selection stays on selection");
+    h.select.value = "classic";
+    h.select.dispatch("change");
+    h.body.classList.toggle("app-player-loaded", true);
+    h.select.value = "focus";
+    h.select.dispatch("change");
+    assert.deepEqual(redirects, [{ view: "player-edit", scroll: false, preserveEditor: true }]);
 });
 
 test("stacked layouts only scroll to the inspector on newly opened slot selections", () => {

@@ -518,6 +518,7 @@ class TestMicrosoftItemListings(unittest.TestCase):
         self.assertEqual(
             components,
             {
+                "allow_off_hand": {},
                 "enchantable": {
                     "minecraft:copper_spear": {"slot": "melee_spear", "value": 13},
                 },
@@ -970,8 +971,10 @@ class TestMergeEffects(unittest.TestCase):
 
         merged = update_db.merge_effects(old, json_ids, en_names, de_names, numeric_ids)
 
-        self.assertEqual(merged[29], old[29])
-        self.assertEqual(merged[1], ("Geschwindigkeit", "Speed", "", ""))
+        self.assertEqual(merged[29][:2], old[29][:2])
+        self.assertTrue(all(merged[29][2:]))
+        self.assertEqual(merged[1][:2], ("Geschwindigkeit", "Speed"))
+        self.assertTrue(all(merged[1][2:]))
         hero_entries = [entry for entry in merged.values() if entry[1] == "Hero of the Village"]
         self.assertEqual(len(hero_entries), 1)
 
@@ -997,7 +1000,9 @@ class TestMergeEffects(unittest.TestCase):
         )
 
         self.assertNotIn(99, merged)
-        self.assertEqual(merged[37], old[99])
+        self.assertEqual(merged[37][:2], old[99][:2])
+        self.assertTrue(all(merged[37][2:]))
+        self.assertNotEqual(merged[37][2:], old[99][2:])
 
 
 def test_bundled_effect_numeric_ids_are_loaded_from_reviewed_database():
@@ -1360,7 +1365,8 @@ def test_main_rejects_changed_review_token_before_processing_sources(monkeypatch
         update_db.main()
 
 
-def test_full_no_op_update_commits_server_side_verification(monkeypatch, tmp_path):
+@pytest.mark.parametrize("invalid_limit", [False, True])
+def test_full_update_verifies_no_op_but_never_commits_invalid_limits(monkeypatch, tmp_path, invalid_limit):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     archive = cache_dir / "bedrock_resource_pack.zip"
@@ -1404,7 +1410,7 @@ def test_full_no_op_update_commits_server_side_verification(monkeypatch, tmp_pat
     monkeypatch.setattr(update_db, "compute_addable_item_ids", lambda *_args: [])
     monkeypatch.setattr(update_db, "read_addable_item_ids", lambda: [])
     monkeypatch.setattr(update_db, "parse_json_item_components", lambda _zf: ({}, {}, item_components))
-    monkeypatch.setattr(update_db, "merge_item_limits", lambda *_args, **_kwargs: ({}, {}))
+    monkeypatch.setattr(update_db, "merge_item_limits", lambda *_args, **_kwargs: ({"minecraft:test": 0} if invalid_limit else {}, {}))
     monkeypatch.setattr(update_db, "compute_block_item_ids", lambda *_args: [])
     monkeypatch.setattr(update_db, "read_block_item_ids", lambda: [])
     monkeypatch.setattr(update_db, "parse_json_effects", lambda _zf: [])
@@ -1421,7 +1427,10 @@ def test_full_no_op_update_commits_server_side_verification(monkeypatch, tmp_pat
     monkeypatch.setattr(update_db, "show_diff", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(sys, "argv", ["update_db.py", "--cache", "--force"])
 
-    assert update_db.main() == 0
+    assert update_db.main() == (1 if invalid_limit else 0)
+    if invalid_limit:
+        committed.assert_not_called()
+        return
 
     committed.assert_called_once()
     kwargs = committed.call_args.kwargs

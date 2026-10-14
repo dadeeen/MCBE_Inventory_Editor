@@ -275,18 +275,18 @@
         let label = t("Oberwelt ↔ Nether umrechnen");
         let title = t("Wähle als Ziel Oberwelt oder Nether. Die Umrechnung verändert nur X und Z; Y bleibt unverändert.");
         let available = false;
-        if (source === 0 && target === 1) {
-            label = t("Für Nether umrechnen (X/Z ÷ 8)");
+        if (source === 0 && target !== 2) {
+            label = t("Zum Nether umrechnen (X/Z ÷ 8)");
             title = t("Rechnet die aktuell eingetragenen X-/Z-Koordinaten ausdrücklich für den Nether um.");
             available = true;
-        } else if (source === 1 && target === 0) {
-            label = t("Für Oberwelt umrechnen (X/Z × 8)");
+        } else if (source === 1 && target !== 2) {
+            label = t("Zur Oberwelt umrechnen (X/Z × 8)");
             title = t("Rechnet die aktuell eingetragenen X-/Z-Koordinaten ausdrücklich für die Oberwelt um.");
             available = true;
         }
         if (converted) {
-            label = t("Koordinaten umgerechnet");
-            title = t("Die Umrechnung wurde einmal angewendet. Prüfe die Zielposition vor dem Übernehmen.");
+            label = t("Umrechnung zurücknehmen");
+            title = t("Stellt Dimension und X-/Z-Koordinaten vor der Umrechnung wieder her. Die Höhe bleibt unverändert.");
         } else if (available && positionInvalid) {
             title = t("X, Y und Z müssen vollständig ausgefüllte, endliche Zahlen sein.");
         }
@@ -296,18 +296,19 @@
         if (blocked) {
             note = t("Dimension oder Position sind für diese Welt gesperrt.");
         } else if (converted) {
-            note = title;
+            note = "";
         } else if (source === null) {
             note = t("Die Ausgangsdimension der Welt ist nicht bekannt. Eine Umrechnung ist deshalb nicht möglich.");
         } else if (source === 2) {
             note = t("Aus dem Ende gibt es keine Koordinatenumrechnung. Nur Oberwelt und Nether stehen im Verhältnis 1:8.");
+
         } else if (!available) {
             note = t("Nur zwischen Oberwelt und Nether möglich. Wähle oben die jeweils andere Dimension.");
         } else if (positionInvalid) {
             note = title;
         }
         return {
-            disabled: blocked || !available || converted || positionInvalid,
+            disabled: blocked || (!converted && (!available || positionInvalid)),
             label,
             title,
             note,

@@ -135,7 +135,7 @@ def test_world_folder_picker_replaces_running_status_with_terminal_status() -> N
                 assert.strictEqual(worldPathInput.value, "C:/World");
                 assert.strictEqual(selected.length, 1);
                 assert.strictEqual(statuses[0].type, "running");
-                assert.strictEqual(statuses.at(-1).type, "success");
+                assert.strictEqual(statuses.at(-1).type, "info");
                 assert.ok(statuses.every(entry => entry.options.key === "world-folder-picker"));
             })().catch(error => {
                 console.error(error);

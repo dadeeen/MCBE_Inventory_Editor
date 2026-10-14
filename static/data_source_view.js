@@ -54,6 +54,7 @@
 
     function itemDbStatusValue(status = null) {
         if (!status) return t("lädt");
+        if (status.status === "conflict") return t("Katalogbereich gesperrt");
         if (status.reload_warning) return t("Item-DB-Aktualisierung fehlgeschlagen.");
         if (status.status === "unavailable") return t("Status nicht verfügbar");
         if (status.status !== "ok") return t("Herkunft fehlt");
@@ -62,6 +63,7 @@
 
     function itemDbSourceText(status = null) {
         if (!status) return t("Status wird geladen");
+        if (status.status === "conflict") return status.message || t("Katalogbereich gesperrt");
         if (status.reload_warning) return status.reload_warning;
         if (status.status === "unavailable") return status.message || t("Item-DB-Status konnte nicht geladen werden.");
         const meta = status.source_version || {};
@@ -158,20 +160,12 @@
         const unknownDetail = hasCurrentPlayer
             ? (unknownItems ? t("Item-Daten werden erhalten; DB-Stand prüfen.") : t("geladener Spieler passt zur Item-DB"))
             : t("nach dem Laden eines Spielers sichtbar");
-        return `
-            <div class="data-source-header">
-                <div>
-                    <strong>${t("Datenquellenstatus")}</strong>
-                    <small>${t("Item-Datenbank, lokale Icons und Welt-Kompatibilität werden hier zusammengeführt.")}</small>
-                </div>
-                <button class="btn-text" type="button" data-open-db-status>${t("Item-DB öffnen")}</button>
-            </div>
-            <div class="status-tile-grid data-source-grid">
-                ${statusTile(t("Item-DB"), itemDbStatusValue(itemDbStatus), `${itemDbCountsText(itemDbStatus)} · ${itemDbSourceText(itemDbStatus)}`, dbRank)}
-                ${statusTile(t("Icons"), iconState.value, iconState.detail, iconState.rank)}
-                ${statusTile(t("Unbekannte Items"), unknownValue, unknownDetail, unknownItems ? 1 : 0)}
-            </div>
-        `;
+        const notices = [];
+        if (dbRank && itemDbStatus) notices.push(`<p>${escapeHtml(itemDbStatusValue(itemDbStatus))} · ${escapeHtml(itemDbSourceText(itemDbStatus))}</p>`);
+        if (hasCurrentPlayer && unknownItems) notices.push(`<p>${escapeHtml(t("Unbekannte Items"))}: ${escapeHtml(unknownValue)} · ${escapeHtml(unknownDetail)}</p>`);
+        if (iconSummary?.status === "unavailable") notices.push(`<p>${escapeHtml(iconState.detail)}</p>`);
+        if (!notices.length) return "";
+        return `<div class="tool-notice">${notices.join("")}<button class="btn-text" type="button" data-open-db-status>${t("Item-DB öffnen")}</button></div>`;
     }
 
     function itemDbStatusHtml({
@@ -192,23 +186,26 @@
         return `
             <div class="item-db-status-hero ${statusClass}">
                 <div>
-                    <span>${t("Aktive Item-Datenbank")}</span>
-                    <strong>${escapeHtml(itemDbStatusValue(itemDbStatus))}</strong>
-                    <small>${escapeHtml(sourceLine)}</small>
+                    <div class="item-db-version-line"><strong>${t("Aktive Item-Datenbank")}</strong><span>${escapeHtml(itemDbStatus?.source_version?.resource_pack_release ? `Mojang ${itemDbStatus.source_version.resource_pack_release}` : t("Herkunft fehlt"))}</span></div>
+                    ${dbRank ? `<small>${escapeHtml(itemDbStatusValue(itemDbStatus))} · ${escapeHtml(sourceLine)}</small>` : ""}
                 </div>
-                <button class="btn btn-secondary btn-sm" type="button" data-toggle-db-versions aria-expanded="${historyVisible ? "true" : "false"}">${historyVisible ? t("Versionen ausblenden") : t("Versionen ansehen")}</button>
+                <span>${escapeHtml(itemDbCountsText(itemDbStatus))}</span>
             </div>
-            <div class="status-tile-grid data-source-grid">
-                ${statusTile(t("Einträge"), t("geladen"), itemDbCountsText(itemDbStatus), 0)}
-                ${statusTile(t("Schema"), `v${itemDbStatus?.schema_version || "?"}`, historyText, dbRank)}
-                ${statusTile(t("Pfad"), itemDbStatus?.is_configured_persistent ? t("Datenordner") : t("gebündelt"), pathText, 0)}
-            </div>
+            <details class="tool-details" data-db-details><summary>${t("Technische Details")}</summary>
+            <dl class="tool-facts">
+                <div><dt>${t("Prüfnachweis")}</dt><dd>${escapeHtml(itemDbStatusValue(itemDbStatus))} · ${t("Bestätigt die gespeicherte Datenbank und ihre Quellenmetadaten, nicht die Aktualität oder Spielkompatibilität.")}</dd></div>
+                <div><dt>${t("Aktive Item-Datenbank")}</dt><dd>${escapeHtml(sourceLine)}</dd></div>
+                <div><dt>${t("Schema")}</dt><dd>v${escapeHtml(itemDbStatus?.schema_version || "?")} · ${escapeHtml(historyText)}</dd></div>
+                <div><dt>${t("Pfad")}</dt><dd>${escapeHtml(pathText)}</dd></div>
+            </dl>
+            <p class="hint-text">${t("Updates laden offizielle Identifier und Namen aus Mojang/bedrock-samples. Verzauberungs-Maximalstufen stammen aus einer mitgelieferten, geprüften Vanilla-Tabelle.")}</p>
+            <button class="btn-text" type="button" data-toggle-db-versions aria-expanded="${historyVisible ? "true" : "false"}">${historyVisible ? t("Versionen ausblenden") : t("Versionen ansehen")}</button>
             ${itemDbVersionHistoryHtml({
                 visible: historyVisible,
                 loading: historyLoading,
                 error: historyError,
                 entries: historyEntries,
-            })}
+            })}</details>
         `;
     }
 
@@ -247,10 +244,12 @@
                     unknownItems,
                     hasCurrentPlayer: Boolean(hasCurrentPlayer()),
                 });
+                assetDataStatusPanel.hidden = !assetDataStatusPanel.innerHTML.trim();
                 assetDataStatusPanel.querySelector("[data-open-db-status]")?.addEventListener("click", openItemDbStatus);
             }
 
             if (itemDbStatusPanel) {
+                const detailsOpen = itemDbStatusPanel.querySelector("[data-db-details]")?.open || false;
                 itemDbStatusPanel.innerHTML = itemDbStatusHtml({
                     itemDbStatus,
                     appItemDbPath: appConfig?.item_db_path,
@@ -259,6 +258,8 @@
                     historyError,
                     historyEntries,
                 });
+                const details = itemDbStatusPanel.querySelector("[data-db-details]");
+                if (details) details.open = detailsOpen;
                 itemDbStatusPanel.querySelector("[data-toggle-db-versions]")?.addEventListener("click", toggleVersionHistory);
             }
         }

@@ -36,7 +36,7 @@ function setup(fetchResponse, { locale = 'de' } = {}) {
   return { controller, button, attributes, requests, statuses, toasts, statusStore };
 }
 
-test('folder opening reports pending and success and prevents duplicate launches', async () => {
+test('folder opening reports pending and an informational handoff and prevents duplicate launches', async () => {
   let resolve;
   const h = setup(() => new Promise(done => { resolve = done; }));
   const first = h.controller.openPathInFileManager('C:/Welten/Meine Welt');
@@ -54,10 +54,10 @@ test('folder opening reports pending and success and prevents duplicate launches
   assert.equal(h.attributes.size, 0);
   assert.equal(h.button.textContent, 'Ordner öffnen');
   assert.equal(h.toasts.length, 1);
-  assert.equal(h.toasts[0][1], 'success');
+  assert.equal(h.toasts[0][1], 'info');
   assert.ok(h.toasts[0][2] >= 6000, 'the foreground hint needs enough reading time');
   assert.match(h.toasts[0][0], /Taskleiste/);
-  assert.equal(h.statuses.at(-1)[1], 'success');
+  assert.equal(h.statuses.at(-1)[1], 'info');
   assert.equal(h.statuses[0][2].key, h.statuses.at(-1)[2].key, 'terminal status replaces pending status');
   assert.equal(h.statusStore.allNotices().length, 1);
   assert.equal(h.statusStore.allNotices()[0].active, false);

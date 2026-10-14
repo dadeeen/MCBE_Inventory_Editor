@@ -289,7 +289,7 @@ def _hidden_unknown_slots_has_issues(summary: dict[str, Any]) -> bool:
 
 def _format_limited(values: list[str], *, limit: int = 12) -> str:
     shown = values[:limit]
-    suffix = f" (+{len(values) - limit} weitere)" if len(values) > limit else ""
+    suffix = t(" (+{count} weitere)", count=len(values) - limit) if len(values) > limit else ""
     return ", ".join(shown) + suffix
 
 
@@ -303,16 +303,16 @@ def _unknown_item_details(container_label: str, items: Any) -> list[str]:
             continue
         slot = item.get("slot", "?")
         count = item.get("count", "?")
-        details.append(f"{container_label} {slot}: {item_id} (Menge {count})")
+        details.append(t("{container} {slot}: {item} (Menge {count})", container=container_label, slot=slot, item=item_id, count=count))
     return details
 
 
 def _hidden_unknown_slot_details(summary: dict[str, Any]) -> list[str]:
     details: list[str] = []
     if summary.get("inventory_opaque"):
-        details.append("Inventory ist kein ListTag")
+        details.append(t("Inventory ist kein ListTag"))
     if summary.get("ender_chest_opaque"):
-        details.append("EnderChestInventory ist kein ListTag")
+        details.append(t("EnderChestInventory ist kein ListTag"))
     if summary.get("inventory"):
         details.append(t("Inventory enthält {count} versteckte Slot-ID(s) außerhalb des editierbaren Bereichs", count=summary["inventory"]))
     if summary.get("ender_chest"):
@@ -341,7 +341,7 @@ def _protected_nbt_issue_details(protected: dict[str, Any]) -> list[str]:
     }
     for key, label in opaque_labels.items():
         if protected.get(key):
-            details.append(label)
+            details.append(t(label))
 
     for field_name, tag_name in sorted((protected.get("ability_fields_opaque") or {}).items()):
         details.append(t("abilities.{tag} für {field} hat einen unerwarteten Typ", tag=tag_name, field=field_name))
@@ -357,7 +357,7 @@ def _protected_nbt_issue_details(protected: dict[str, Any]) -> list[str]:
     for tag_name, count in sorted((protected.get("root_item_lists_present") or {}).items()):
         details.append(t("{tag} enthält {count} zusätzliche Root-Item-Eintrag(e)", tag=tag_name, count=count))
     for tag_name in sorted((protected.get("root_item_lists_opaque") or {}).keys()):
-        details.append(f"{tag_name} ist keine editierbare Item-Liste")
+        details.append(t("{tag} ist keine editierbare Item-Liste", tag=tag_name))
     return details
 
 

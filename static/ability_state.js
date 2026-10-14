@@ -258,6 +258,7 @@
         convertPositionBetweenDimensions,
         formatAbilitySpeed,
         formatPositionForDisplay,
+        positionFromFormValues,
         isAbilitySpeedLocked,
         isFieldProtected,
         movementSpeedLock,

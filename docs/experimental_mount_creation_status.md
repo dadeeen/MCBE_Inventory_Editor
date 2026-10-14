@@ -29,6 +29,12 @@ Generated values must remain within the observed bounds and pass the same post-w
 
 Values the game rolls per specimen are rolled, not fixed. Taming progress (`Temper`) is one of them: 41 scanned horse, donkey and mule records spread over 0 to 98, so a constant would mark every created animal as editor-made. Horses take it from the horse profile — random mode draws it from the same seeded generator as the other profile values, so one seed still reproduces one exact record, and custom mode exposes it as a bounded field. Donkeys and mules roll it from the same generator that already rolls their health, and expose the same bounded field on their wild variant. Skeleton horses and camels carry no `Temper` at all, and taming removes it — the tamed variants therefore offer no field, and a submitted value is dropped rather than written.
 
+## Visual preview
+
+The rotatable 3D preview represents the supported species with independently drawn pixel surfaces. Proportions, coat families and marking placement follow Vanilla references; Mojang model and texture files are not bundled. Lighting and individual pixel patterns differ from the game. The renderer adds no runtime dependencies.
+
+Horse coat and marking changes update the preview immediately. Random profiles are labeled as examples rather than predictions of the generated entity. Attribute bounds and placement checks remain authoritative; the visual model does not establish that a location is safe.
+
 ## Persistence invariants
 
 A persistent entity requires coordinated LevelDB records:

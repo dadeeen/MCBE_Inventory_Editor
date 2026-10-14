@@ -170,6 +170,14 @@ test("copy keeps target stats and asks to create the target ender chest", async 
   await page.locator("#copyStatsArea").check();
   await page.locator("#btnCopyFromPlayer").click();
   await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await expect(page.locator("#confirmMessage")).toContainText("Quellspieler");
+  await expect(page.locator("#confirmMessage")).toContainText("Zielspieler");
+  await page.locator("#confirmCancel").click();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  expect(savedPayload).toBeUndefined();
+  await expect(page.locator("#statXpLevel")).toHaveValue("2");
+  await page.locator("#btnCopyFromPlayer").click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
   await page.locator("#confirmOk").click();
   await expect(page.locator("#confirmOverlay")).toBeHidden();
   for (const [id, value] of [["statHealth", 7], ["statPosX", 120], ["statPosY", 80], ["statPosZ", -95]]) {
@@ -188,11 +196,11 @@ test("copy keeps target stats and asks to create the target ender chest", async 
   expect(browserErrors).toEqual([]);
 });
 
-async function openDragFixture(page, overrides = {}) {
+async function openDragFixture(page, overrides = {}, players = null) {
   const player = { player_key: "drag-player", label: "Drag Test", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: true };
   await page.route("**/api/icons/scan", route => route.fulfill({ json: { success: true, icons: {}, count: 0 } }));
   await page.route("**/api/heartbeat", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
-  await page.route("**/api/players", route => route.fulfill({ json: { success: true, world_name: "Drag Test World", players: [player] } }));
+  await page.route("**/api/players", route => route.fulfill({ json: { success: true, world_name: "Drag Test World", players: players || [player] } }));
   await page.route("**/api/player/load", route => route.fulfill({ json: {
     success: true, player, player_revision: "drag-revision",
     inventory: {
@@ -206,7 +214,7 @@ async function openDragFixture(page, overrides = {}) {
     items_db: { "minecraft:stone": ["Stein", "Stone"], "minecraft:carrot": ["Karotte", "Carrot"], "minecraft:iron_helmet": ["Eisenhelm", "Iron Helmet"] },
     ench_db: {}, stack_limits: { __default__: 64 }, max_damage: { __default__: 0 },
     // A function answers each load with the values current at that moment.
-    ...(typeof overrides === "function" ? overrides() : overrides),
+    ...(typeof overrides === "function" ? overrides(route.request().postDataJSON()) : overrides),
   } }));
   await openAppWithSmokeWorldScan(page);
   await page.locator(".world-card").click();
@@ -636,6 +644,112 @@ for (const scenario of ["foreign_text", "foreign_internal", "drag_ended", "previ
   });
 }
 
+for (const viewport of [{width: 1440, theme: 'dark'}, {width: 390, theme: 'light'}]) {
+test(`equipment browser filters by slot and resets for ordinary inventory (${viewport.width}/${viewport.theme})`, async ({ page }) => {
+  const ids = ['stone', 'iron_helmet', 'elytra', 'iron_leggings', 'iron_boots', 'shield', 'future_offhand'];
+  await openDragFixture(page, {
+    items_db: Object.fromEntries(ids.map(id => [`minecraft:${id}`, [id, id]])),
+    addable_items: ids.map(id => `minecraft:${id}`),
+    item_components: { allow_off_hand: { 'minecraft:future_offhand': { value: true } } },
+  });
+  for (const layout of ['classic', 'studio', 'focus']) {
+    await page.setViewportSize({ width: viewport.width, height: 1000 });
+    await selectSetting(page, 'layoutSelect', layout);
+    await selectSetting(page, 'themeSelect', viewport.theme);
+    for (const [slot, title, expected] of [
+      [103, 'Helm auswählen', ['iron_helmet']],
+      [102, 'Brustausrüstung auswählen', ['elytra']],
+      [101, 'Beinausrüstung auswählen', ['iron_leggings']],
+      [100, 'Stiefel auswählen', ['iron_boots']],
+      [-106, 'Nebenhand auswählen', ['shield', 'future_offhand']],
+      [0, '📖 Item-Browser', ids],
+    ]) {
+      const inventoryToggle = page.locator('.btn-toggle[data-panel="left"]');
+      if (await inventoryToggle.isVisible()) await inventoryToggle.click();
+      await page.locator(`.inventory-slot[data-slot="${slot}"]`).click();
+      const editorToggle = page.locator('.btn-toggle[data-panel="right"]');
+      if (await editorToggle.isVisible()) await editorToggle.click();
+      await page.locator('#detailItemSearch').fill('minecraft:');
+      const suggestions = await page.locator('#detailItemAutocomplete .autocomplete-item').count();
+      expect(suggestions).toBe(expected.length);
+      await page.locator('#detailItemSearch').press('Escape');
+      await page.locator('#btnBrowserDetail').click();
+      await expect(page.locator('#itemBrowserTitle')).toHaveText(title);
+      const rendered = await page.locator('#browserGrid .browser-item-id').allTextContents();
+      expect(rendered.map(id => id.trim()).sort()).toEqual(expected.map(id => `minecraft:${id}`).sort());
+      await page.locator('#browserSearchInput').fill('stone');
+      await expect(page.locator('#browserGrid .browser-item')).toHaveCount(slot === 0 ? 1 : 0);
+      await page.locator('#btnBrowserClose').click();
+    }
+  }
+});
+}
+
+test("focus reserves desktop facts without stale values or mobile placeholder rows", async ({ page }) => {
+  await openDragFixture(page);
+  await selectSetting(page, 'layoutSelect', 'focus');
+  const facts = page.locator('#focusContextFacts');
+  const values = page.locator('#focusContextFacts strong');
+  const geometry = () => page.locator('.layout-context-bar').evaluate(el =>
+    [el, ...el.children].map(node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }));
+  for (const theme of ['dark', 'light']) {
+    await selectSetting(page, 'themeSelect', theme);
+    for (const width of [1280, 1440, 1830]) {
+      await page.setViewportSize({width, height: 1000});
+      await expect(facts).toBeVisible();
+      await expect(page.locator('#focusFactPosition')).toHaveText('0.00, 64.00, 0.00');
+      const loaded = await geometry();
+      // Retain old form values deliberately: the unloaded state must mask them.
+      await page.evaluate(() => document.body.classList.remove('app-player-loaded'));
+      await expect(values).toHaveText(['—', '—', '—']);
+      await expect(page.locator('#focusFactMode')).toHaveAttribute('title', '');
+      expect(await geometry()).toEqual(loaded);
+      await page.evaluate(() => document.body.classList.add('app-player-loaded'));
+      await expect(page.locator('#focusFactPosition')).toHaveText('0.00, 64.00, 0.00');
+      expect(await geometry()).toEqual(loaded);
+    }
+    for (const width of [390, 760, 1279]) {
+      await page.setViewportSize({width, height: 1000});
+      await page.evaluate(() => document.body.classList.remove('app-player-loaded'));
+      await expect(values).toHaveText(['—', '—', '—']);
+      await expect(facts).toBeHidden();
+      await page.evaluate(() => document.body.classList.add('app-player-loaded'));
+    }
+  }
+});
+
+test("slot quick actions keep a compact two by two grid at every panel width", async ({ page }) => {
+  await openDragFixture(page);
+  for (const layout of ['classic', 'studio', 'focus']) {
+    for (const slot of [0, 1]) {
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await selectSetting(page, 'layoutSelect', layout);
+      await page.locator(`.inventory-slot[data-slot="${slot}"]`).click();
+      for (const width of [320, 504, 820, 1180, 1181, 1830]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const toggle = page.locator('.btn-toggle[data-panel="right"]');
+        if (layout === 'classic' && width <= 1024) await expect(toggle).toBeVisible();
+        if (await toggle.isVisible()) await toggle.click();
+        await expect(page.locator('#slotQuickActions'), `${layout}/${slot}/${width}`).toBeVisible();
+        const boxes = await page.locator('.slot-quick-buttons button').evaluateAll(buttons => buttons.map(button => {
+          const r = button.getBoundingClientRect();
+          return { x: r.x, y: r.y, height: r.height, overflow: button.scrollWidth - button.clientWidth };
+        }));
+        expect(boxes).toHaveLength(4);
+        expect(boxes[0].y).toBeCloseTo(boxes[1].y, 0);
+        expect(boxes[2].y).toBeCloseTo(boxes[3].y, 0);
+        expect(boxes[2].y).toBeGreaterThan(boxes[0].y);
+        expect(boxes[0].x).toBeCloseTo(boxes[2].x, 0);
+        for (const box of boxes) {
+          expect(box.height).toBeGreaterThanOrEqual(44);
+          expect(box.height).toBeLessThan(60);
+          expect(box.overflow).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  }
+});
+
 test("inventory drag supports moving copying equipment and undo redo", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   // Plain HTTP on a LAN has getRandomValues, but no secure-context randomUUID.
@@ -728,7 +842,7 @@ test.describe("English locale", () => {
     await expect(sourceGroup).not.toContainText("Konfigurierter Welt-Root");
     await expect(sourceGroup.locator(".world-card").filter({ hasText: "Second Smoke World" })).toBeVisible();
     const secondWorldAction = secondCard.locator(".world-card-action");
-    await expect(secondWorldAction).toHaveText("Select");
+    await expect(secondWorldAction).toHaveCount(0);
     await secondCard.click();
     await expect(secondWorldAction).toHaveText("Selected");
 
@@ -815,18 +929,8 @@ test.describe("English locale", () => {
     expect(localizedModels.serverPayload.server_status.message).toBe(
       "Server status unknown: server address could not be resolved.",
     );
-    const transferToggleLabels = await page.evaluate(() => {
-      const panel = document.querySelector(".player-transfer-panel.export-panel");
-      const summary = panel?.querySelector("summary");
-      if (!panel || !summary) return null;
-      const label = () => getComputedStyle(summary, "::after").content.replace(/^[\"'](.*)[\"']$/, "$1");
-      const collapsed = label();
-      panel.open = true;
-      const expanded = label();
-      panel.open = false;
-      return { collapsed, expanded };
-    });
-    expect(transferToggleLabels).toEqual({ collapsed: "Expand", expanded: "Collapse" });
+    await expect(page.locator('[data-player-tool="playerExportDialog"]')).toHaveText("Export …");
+    await expect(page.locator('#playerExportTitle')).toHaveText("Export player");
     const bilingualRegressionModels = await page.evaluate(() => {
       const button = document.querySelector("#btnToggleEnderChest");
       if (!button) return null;
@@ -1292,7 +1396,7 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
   await expect(page.locator("#inventoryContainer")).toBeHidden();
   await page.locator(".player-row").filter({ hasText: "Lokaler Spieler" }).click();
   await expect(page.locator("body")).toHaveAttribute("data-workflow-view", "player");
-  await page.locator("#themeSelect").selectOption("light");
+  await selectSetting(page, "themeSelect", "light");
   await page.locator('.tab-btn-dash[data-tab-dash="dashEffects"]').click();
   await expect(page.locator("#abilityMovementLockNote")).toBeVisible();
   await expect(page.locator("#abilityMovementLockNote")).toContainText("Modifikatoren");
@@ -1313,8 +1417,8 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
   await expect(page.locator("#abWalkSpeedNote")).toContainText("nur auf das Sichtfeld");
   await expect(page.locator("#abVerticalFlySpeed")).toHaveValue("1");
   await expect(page.locator("#abMayfly, #abInstabuild, #abMaybuild")).toHaveCount(0);
-  await expect(page.locator("details.state-transfer-panel")).toBeVisible();
-  await page.locator("details.state-transfer-panel summary").click();
+  await page.locator('[data-player-tool="playerTransferDialog"]').click();
+  await expect(page.locator("#playerTransferDialog")).toBeVisible();
   await expect(page.locator("#stateTransferSourcePlayerSelect")).toHaveValue("local");
   await expect(page.locator("#stateTransferTargetPlayerSelect")).toHaveValue("remote");
   await expect(page.locator("#btnApplyStateTransfer")).toBeDisabled();
@@ -1363,25 +1467,42 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
     element.scrollWidth <= element.clientWidth + 1
   ));
   expect(migrationResultFits).toBe(true);
+  await page.locator("#playerTransferDialog [data-close-player-tool]").click();
 
   await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
   await page.locator('.tab-btn-dash[data-tab-dash="dashEffects"]').click();
-  await page.locator("#effectPickerSummary").click();
+  await page.locator("#btnOpenEffectPicker").click();
+  await expect(page.locator("#effectPickerDialog")).toBeVisible();
+  await page.locator("#effectCatalogSearch").fill("speed");
   const speedOption = page.locator('.effect-picker-option[data-effect-id="1"]');
-  await speedOption.hover();
-  await expect(page.locator("#effectPickerDescription")).toContainText("Beschreibung für Mauszeiger");
-  await page.locator('.effect-picker-option[data-effect-id="5"]').focus();
-  await expect(page.locator("#effectPickerDescription")).toContainText("Beschreibung für Tastaturfokus");
   await speedOption.click();
-  await expect(page.locator("#effectPickerSummary")).toContainText("Geschwindigkeit");
-  await page.locator("#effectPickerSummary").click();
-  await expect(speedOption).toHaveAttribute("aria-selected", "true");
-  await page.locator("#effectPickerSummary").click();
-  await expect(page.locator("#btnAddEffect")).toBeEnabled();
+  await expect(page.locator("#effectPickerDescription")).toContainText("Beschreibung für Mauszeiger");
+  await expect(speedOption).toHaveAttribute("aria-pressed", "true");
+  const selectedEffectColors = await speedOption.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { foreground: style.color, background: style.backgroundColor };
+  });
+  expect(contrastRatio(selectedEffectColors.foreground, selectedEffectColors.background)).toBeGreaterThanOrEqual(4.5);
+  await page.locator("#effectCatalogLevel").fill("3");
+  await page.locator("#effectCatalogDuration").fill("90");
   await page.locator("#btnAddEffect").click();
+  await expect(page.locator("#effectPickerDialog")).toBeHidden();
+  await expect(page.locator("#btnOpenEffectPicker")).toBeFocused();
   await expect(page.locator("#effectsContainer .effect-row")).toHaveCount(1);
-  await expect(page.locator("#effectsContainer .eff-level")).toHaveValue("1");
-  await expect(page.locator("#effectsContainer .eff-duration")).toHaveValue("30");
+  await expect(page.locator("#effectsContainer .eff-level")).toHaveValue("3");
+  await expect(page.locator("#effectsContainer .eff-duration")).toHaveValue("90");
+  await page.locator("#btnOpenEffectPicker").click();
+  await expect(speedOption).toBeDisabled();
+  await expect(speedOption).toContainText("Bereits aktiv");
+  await page.locator("#btnCloseEffectPicker").focus();
+  await page.keyboard.press("Control+z");
+  await expect(page.locator("#effectsContainer .effect-row")).toHaveCount(1);
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("#effectPickerDialog")).toBeVisible();
+  await expect(page.locator("#saveReviewOverlay")).toBeHidden();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#effectPickerDialog")).toBeHidden();
   await expect(page.locator("#selectedWorldSafetyNote")).toBeVisible();
   const dirtyBadgeTheme = await page.locator("#selectedWorldSafetyNote").evaluate(element => {
     const style = getComputedStyle(element);
@@ -1478,7 +1599,7 @@ test("unexpected server block responses are shown as errors instead of green sta
   await expect(page.locator("#loadErrorPanel")).toBeVisible();
   await expect(page.locator("#loadErrorPanel")).toContainText("Server läuft noch");
   // The header names the severity; the server message keeps its own wording.
-  await expect(page.locator("#statusStackHeadline")).toHaveText("Fehler");
+  await expect(page.locator("#statusStackHeadline")).toHaveText("Meldungen");
   await expect(page.locator("#statusStackSummary")).toContainText("Server läuft noch");
   await expect(page.locator("#statusStackSummary")).not.toContainText("Fehler:");
   await expect(page.locator("#statusStackButton")).toHaveClass(/error/);
@@ -2047,7 +2168,7 @@ test("light item browser keeps readable colors and a stable width while scrollin
     body: JSON.stringify({ success: true, worlds: [] }),
   }));
   await openAppAndWaitForScan(page);
-  await page.locator("#themeSelect").selectOption("light");
+  await selectSetting(page, "themeSelect", "light");
   await page.evaluate(() => {
     document.body.classList.add("app-world-loaded", "app-player-loaded");
     document.body.dataset.workflowView = "inventory";
@@ -2224,7 +2345,7 @@ test("regular tools update refreshes the dismissed setup banner and resolves rel
   await page.locator('.app-section-nav button[data-workflow-view="tools"]').click();
   await page.locator('.tab-btn-dash[data-tab-dash="dashUpdate"]').click();
   await expect(page.locator("#updateDbUseCache")).toHaveCount(0);
-  await expect(page.locator("#dashUpdate")).toContainText(/automatisch geprüft|checked automatically/);
+  await expect(page.locator("#btnUpdateDbApply")).toBeEnabled();
 
   await page.locator("#btnUpdateDbApply").click();
   await expect(page.locator("#confirmOverlay")).toBeVisible();
@@ -2464,15 +2585,15 @@ test("keyboard focus returns to its element after loading and saving", async ({ 
   await expect(page.locator("#btnLoad")).toBeHidden();
   await expect(page.locator('[data-view-landing="inventory"]')).toBeFocused();
 
-  // A narrow layout shows one column at a time, here not the inventory; the
-  // focus lands at the start of the shown column instead.
+  // A narrow layout also opens the inventory after loading a world and
+  // restores focus to the visible inventory landing point.
   await page.setViewportSize({ width: 1000, height: 800 });
   await page.locator('.app-section-nav button[data-workflow-view="world"]').click();
   await page.locator("#btnLoad").focus();
   await page.keyboard.press("Enter");
   await expect.poll(() => loads).toBe(4);
-  await expect(page.locator('[data-view-landing="inventory"]')).toBeHidden();
-  await expect(page.locator('[data-view-landing="player"]')).toBeFocused();
+  await expect(page.locator('[data-view-landing="inventory"]')).toBeVisible();
+  await expect(page.locator('[data-view-landing="inventory"]')).toBeFocused();
   expect(browserErrors).toEqual([]);
 });
 
@@ -2486,7 +2607,8 @@ test("dialogs return the keyboard focus to the element that opened them", async 
 
   // Cancelling the question about discarding changes returns to its button.
   await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
-  const discard = page.locator("#btnSafeEditDiscardChanges");
+  await page.locator('.app-section-nav button[data-workflow-view="save"]').click();
+  const discard = page.locator("#btnReviewDiscardChanges");
   await discard.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#confirmOverlay")).toBeVisible();
@@ -2616,7 +2738,7 @@ test("load errors and notifications stay opaque and readable in every theme and 
     for (const [theme, colorScheme] of [["dark", "dark"], ["light", "light"], ["minecraft", "dark"], ["system", "light"]]) {
       await page.emulateMedia({ colorScheme });
       if (!(await page.locator("#themeSelect").isVisible())) await page.locator("#focusSettingsToggle").click();
-      await page.locator("#themeSelect").selectOption(theme);
+      await selectSetting(page, "themeSelect", theme);
       const samples = await page.evaluate(() => {
         const panel = document.getElementById("loadErrorPanel");
         const backdrop = document.createElement("span");
@@ -2693,12 +2815,19 @@ test("status overview follows the server status shown in the header", async ({ p
   expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
 });
 
+async function selectSetting(page, id, value) {
+  const select = page.locator(`#${id}`);
+  if (!(await select.isVisible())) await page.locator("#focusSettingsToggle").click();
+  await select.selectOption(value);
+  if (await page.locator("#focusSettingsPanel").isVisible()) await page.locator("#focusSettingsToggle").click();
+}
+
 async function selectLayout(page, layout) {
   const select = page.locator("#layoutSelect");
   if (!(await select.isVisible())) await page.locator("#focusSettingsToggle").click();
   await select.selectOption(layout);
   await expect(page.locator("html")).toHaveAttribute("data-layout", layout);
-  if (layout === "focus" && await page.locator("#focusSettingsPanel").isVisible()) {
+  if (await page.locator("#focusSettingsPanel").isVisible()) {
     await page.locator("#focusSettingsToggle").click();
   }
 }
@@ -2709,11 +2838,11 @@ test("studio and focus provide distinct layouts without changing items, theme or
   await page.route("**/api/icons/scan", route => route.fulfill({ json: { success: true, icons: {}, count: 0 } }));
   await openDragFixture(page);
 
-  await page.locator("#themeSelect").selectOption("light");
+  await selectSetting(page, "themeSelect", "light");
   const originalItem = await page.evaluate(() => JSON.stringify(inventory[0]));
   await expect(page.locator("#layoutSelect")).toHaveValue("classic");
 
-  await page.locator("#layoutSelect").selectOption("studio");
+  await selectSetting(page, "layoutSelect", "studio");
   await expect(page.locator("html")).toHaveAttribute("data-layout", "studio");
   await expect(page.locator("#layoutViewTitle")).toHaveText("Inventar bearbeiten");
   const studio = await page.evaluate(() => ({
@@ -2744,7 +2873,7 @@ test("studio and focus provide distinct layouts without changing items, theme or
   await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:stone");
   expect(await page.locator("#detailEditorPanel").evaluate(el => getComputedStyle(el).position)).not.toBe("fixed");
 
-  await page.locator("#layoutSelect").selectOption("focus");
+  await selectSetting(page, "layoutSelect", "focus");
   await expect(page.locator("html")).toHaveAttribute("data-layout", "focus");
   const focus = await page.evaluate(() => {
     const drawer = document.querySelector("#detailEditorPanel").getBoundingClientRect();
@@ -2852,8 +2981,11 @@ test("alternative layouts preserve live warnings without duplicate world cards i
         if (view === "player" || view === "save") {
           await expect(page.locator("#selectedWorldBar")).toBeHidden();
           await expect(page.locator("#layoutCurrentWorld")).toBeVisible();
-          expect(await page.locator("#layoutCurrentWorld").evaluate(node =>
-            node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1)).toBe(false);
+          expect(await page.locator("#layoutCurrentWorld").evaluate(node => {
+            const style = getComputedStyle(node);
+            return node.getBoundingClientRect().height <= parseFloat(style.lineHeight) * 2 + 1
+              && style.webkitLineClamp === "2";
+          })).toBe(true);
           await expect(page.locator(view === "player" ? "#playerManager" : "#saveWorkflowPanel")).toBeVisible();
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
@@ -2877,13 +3009,28 @@ test("Studio keeps warning details readable and its status log inside narrow win
   const status = page.locator("#statusStackButton");
   const panel = page.locator("#statusStackPanel");
 
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+  for (const viewport of [{ width: 1920, height: 1080 }, { width: 1600, height: 900 }, { width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(viewport);
     await expect(status).toBeVisible();
     await expect(page.locator("#statusStackSummary")).toHaveText(message);
-    const clipped = await page.locator("#statusStackSummary").evaluate(node =>
-      node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
-    expect(clipped).toBe(false);
+    await expect(status).toHaveAttribute("data-focus-label", "Meldungen (1)");
+    await expect(page.locator("#statusStackSummary")).toBeHidden();
+    if (viewport.width >= 1600) {
+      const centers = await page.evaluate(() =>
+        [".logo", ".header-status-area", ".focus-command-bar"].map(selector => {
+          const rect = document.querySelector(`.app-header ${selector}`).getBoundingClientRect();
+          return rect.y + rect.height / 2;
+        }));
+      expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1);
+    }
+    const server = page.locator("#serverStatusBadge");
+    await expect(server).toHaveCSS("font-size", "0px");
+    await server.press("Enter");
+    await expect(page.locator("#focusServerStatusPanel")).toBeVisible();
+    await expect(page.locator("#focusServerStatusText")).toHaveText(await server.textContent());
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#focusServerStatusPanel")).toBeHidden();
+    await expect(server).toBeFocused();
     await status.focus();
     await page.keyboard.press("Enter");
     await expect(status).toHaveAttribute("aria-expanded", "true");
@@ -3008,14 +3155,14 @@ test("layout preferences persist after reload and mobile controls remain accessi
   await page.setViewportSize({ width: 390, height: 844 });
   await openAppWithEmptyWorldScan(page);
   await expect(page.locator("#layoutSelect")).toHaveValue("classic");
-  await page.locator("#themeSelect").selectOption("minecraft");
+  await selectSetting(page, "themeSelect", "minecraft");
   // An existing installation has a color preference but no layout key yet.
   await page.evaluate(() => localStorage.removeItem("mcbe-inventory-editor:layout"));
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-layout", "classic");
   await expect(page.locator("#layoutSelect")).toHaveValue("classic");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "minecraft");
-  await page.locator("#layoutSelect").selectOption("focus");
+  await selectSetting(page, "layoutSelect", "focus");
   await page.reload();
   await expect(page.locator("#layoutSelect")).toHaveValue("focus");
   await expect(page.locator("html")).toHaveAttribute("data-layout", "focus");
@@ -3025,7 +3172,22 @@ test("layout preferences persist after reload and mobile controls remain accessi
     await selectLayout(page, layout);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     expect(overflow, `horizontal overflow in ${layout}`).toBeLessThanOrEqual(0);
-    await expect(page.locator(layout === "focus" ? "#focusSettingsToggle" : "#layoutSelect")).toBeVisible();
+    await expect(page.locator("#focusSettingsToggle")).toBeVisible();
+    for (const viewport of [{ width: 320, height: 568 }, { width: 844, height: 390 }]) {
+      await page.setViewportSize(viewport);
+      const toggle = page.locator("#focusSettingsToggle");
+      await toggle.press("Enter");
+      const panel = page.locator("#focusSettingsPanel");
+      await expect(panel).toBeVisible();
+      const box = await panel.boundingBox();
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+      await page.locator("#languageSelect").focus();
+      await expect(page.locator("#languageSelect")).toBeInViewport();
+      await page.keyboard.press("Escape");
+      await expect(panel).toBeHidden();
+      await expect(toggle).toBeFocused();
+    }
     if (layout !== 'classic') {
       await expect(page.locator('.layout-context-chip[data-workflow-view="world"]')).toBeVisible();
       await expect(page.locator('.layout-context-chip[data-workflow-view="player"]')).toBeVisible();
@@ -3052,7 +3214,7 @@ test("Studio world selection keeps the card and world list stationary", async ({
   // Receiving headers does not mean the response body has been rendered yet.
   await expect(page.locator(".world-card")).toHaveCount(worlds.length);
   await expect(page.locator("#worldScanLoading")).toBeHidden();
-  await page.locator("#layoutSelect").selectOption("studio");
+  await selectSetting(page, "layoutSelect", "studio");
   const selection = page.locator("#selectedWorldBar");
   await expect(selection).toBeVisible();
   await expect(selection).toContainText("Keine Welt ausgewählt");
@@ -3074,9 +3236,9 @@ test("Studio world selection keeps the card and world list stationary", async ({
   expect(Math.abs(after.card.height - before.card.height)).toBeLessThanOrEqual(1);
   await page.reload();
   await expect(selection).toContainText("Keine Welt ausgewählt");
-  await page.locator("#layoutSelect").selectOption("classic");
+  await selectSetting(page, "layoutSelect", "classic");
   await expect(selection).toBeHidden();
-  await page.locator("#layoutSelect").selectOption("focus");
+  await selectSetting(page, "layoutSelect", "focus");
   await expect(selection).toBeVisible();
   await expect(page.locator("#btnLoad")).toBeDisabled();
   await selectLayout(page, "studio");
@@ -3189,7 +3351,7 @@ test("Studio keeps the world load action in view while long search results scrol
   }));
   await page.route("**/api/scan_worlds", route => route.fulfill({ json: { success: true, worlds } }));
   await openAppAndWaitForScan(page);
-  await page.locator("#layoutSelect").selectOption("studio");
+  await selectSetting(page, "layoutSelect", "studio");
   await page.locator(".world-card").first().click();
   await expect(page.locator("#btnLoad")).toBeVisible();
 
@@ -3249,9 +3411,21 @@ test("Focus fits world selection to the window and keeps search and loading outs
   }));
   await page.route("**/api/scan_worlds", route => route.fulfill({ json: { success: true, worlds } }));
   await openAppAndWaitForScan(page);
-  const classicWidth = await page.locator(".app-container").evaluate(el => el.getBoundingClientRect().width);
   await selectLayout(page, "focus");
-  expect(await page.locator(".app-container").evaluate(el => el.getBoundingClientRect().width)).toBe(classicWidth);
+  const worldWidth = await page.locator(".app-container").evaluate(el => el.getBoundingClientRect().width);
+  const navigationGeometry = () => page.locator(".app-workflow-nav").evaluate(el => {
+    const rect = el.getBoundingClientRect(), style = getComputedStyle(el);
+    const workspace = document.querySelector(".workspace").getBoundingClientRect();
+    return {height: rect.height, radius: style.borderRadius, border: style.borderBottomWidth,
+      gap: workspace.top - rect.bottom};
+  });
+  const worldNavigation = await navigationGeometry();
+  await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+  expect(await navigationGeometry()).toEqual(worldNavigation);
+  expect(worldNavigation.gap).toBeGreaterThanOrEqual(9);
+  expect(worldNavigation.border).toBe("1px");
+  expect(await page.locator(".app-container").evaluate(el => el.getBoundingClientRect().width)).toBe(worldWidth);
+  await page.locator('.layout-context-chip[data-workflow-view="world"]').click();
 
   const geometry = () => page.evaluate(() => {
     const list = document.getElementById("worldList");
@@ -3270,7 +3444,8 @@ test("Focus fits world selection to the window and keeps search and loading outs
   });
   await expect(page.locator("#btnLoad")).toBeDisabled();
   const before = await geometry();
-  expect(before.listHeight).toBeGreaterThan(400);
+  // The separate navigation frame reserves its own padding and content gap.
+  expect(before.listHeight).toBeGreaterThan(360);
   await page.locator(".world-card").first().click();
   await expect(page.locator("#btnLoad")).toBeEnabled();
   const selected = await geometry();
@@ -3314,14 +3489,13 @@ test("Focus fits world selection to the window and keeps search and loading outs
   expect(browserErrors).toEqual([]);
 });
 
-test("Studio keeps one world summary in player data and omits it in inventory", async ({ page }) => {
+test("Studio omits duplicate world summaries in player data and inventory", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openDragFixture(page);
-  await page.locator("#layoutSelect").selectOption("studio");
+  await selectSetting(page, "layoutSelect", "studio");
   for (const view of ["player-edit", "inventory"]) {
     await page.locator(`.app-workflow-nav button[data-workflow-view="${view}"]`).click();
-    if (view === "player-edit") await expect(page.locator("#selectedWorldBar")).toBeVisible();
-    else await expect(page.locator("#selectedWorldBar")).toBeHidden();
+    await expect(page.locator("#selectedWorldBar")).toBeHidden();
     const borders = await page.evaluate(() => ({
       outer: getComputedStyle(document.getElementById("worldSection")).borderTopWidth,
       inner: getComputedStyle(document.getElementById("selectedWorldBar")).borderTopWidth,
@@ -3329,7 +3503,7 @@ test("Studio keeps one world summary in player data and omits it in inventory", 
     expect(borders.outer, `outer world-card border in ${view}`).toBe("0px");
     expect(borders.inner, `missing selected-world card border in ${view}`).toBe("1px");
   }
-  await page.locator("#layoutSelect").selectOption("classic");
+  await selectSetting(page, "layoutSelect", "classic");
   await expect(page.locator("html")).toHaveAttribute("data-layout", "classic");
 });
 
@@ -3337,7 +3511,7 @@ test("Studio uses one stable inspector track for empty, single and multiple slot
   const errors = collectBrowserErrors(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await openDragFixture(page);
-  await page.locator("#layoutSelect").selectOption("studio");
+  await selectSetting(page, "layoutSelect", "studio");
 
   const measurements = async () => page.evaluate(() => {
     const slot = document.querySelector('.main-inventory-grid [data-slot="9"]');
@@ -3381,31 +3555,46 @@ test("Studio uses one stable inspector track for empty, single and multiple slot
 
   // The new placeholder is exclusively a Studio desktop feature; the real
   // forms and their selected data are shared unchanged across layouts.
-  await page.locator("#layoutSelect").selectOption("focus");
+  await selectSetting(page, "layoutSelect", "focus");
   await expect(page.locator("#studioInspectorStandby")).toBeHidden();
   await selectLayout(page, "classic");
   await expect(page.locator("#studioInspectorStandby")).toBeHidden();
   expect(errors).toEqual([]);
 });
 
-test("Studio keeps discard available when edits are pending but removes duplicate review buttons", async ({ page }) => {
-  await openDragFixture(page);
-  await page.locator("#layoutSelect").selectOption("studio");
-  await page.locator("#safeEditBanner").evaluate(banner => {
-    banner.classList.add("dirty");
-    document.getElementById("btnSafeEditDiscardChanges").disabled = false;
-  });
-  await expect(page.locator("#safeEditBanner")).toBeVisible();
-  await expect(page.locator("#btnSafeEditDiscardChanges")).toBeVisible();
-  await expect(page.locator("#btnShowSavePreview")).toBeHidden();
-  await expect(page.locator("#layoutSaveAction")).toBeVisible();
-  await page.locator("#safeEditBanner").evaluate(banner => banner.classList.remove("dirty"));
-  await expect(page.locator("#safeEditBanner")).toBeHidden();
+for (const width of [390, 1440]) {
+test(`inventory review actions stay in the global change workflow (${width}px)`, async ({ page }) => {
+  await page.setViewportSize({width, height: 900});
+  await openDragFixture(page, {stack_limits: {"minecraft:stone": 64}});
+  if (width === 390) await selectSetting(page, 'themeSelect', 'light');
+  for (const layout of ['classic', 'studio', 'focus']) {
+    await selectLayout(page, layout);
+    await page.locator('.app-workflow-nav [data-workflow-view="inventory"]').click();
+    const before = await page.locator('#inventoryContainer').evaluate(el => el.getBoundingClientRect().top + scrollY);
+    await page.locator('[data-slot="0"]').click();
+    if (layout === 'classic' && width <= 1024) await page.locator('.btn-toggle[data-panel="right"]').click();
+    await page.locator('#detailCount').fill(layout === 'classic' ? '2' : layout === 'studio' ? '3' : '4');
+    await page.locator('#btnApplySingle').click();
+    await expect(page.locator('#safeEditBanner')).toBeHidden();
+    if (width > 1024) expect(await page.locator('#inventoryContainer').evaluate(el => el.getBoundingClientRect().top + scrollY)).toBeCloseTo(before, 0);
+    await page.locator(layout === 'classic' ? '.app-workflow-nav [data-workflow-view="save"]' : '#layoutSaveAction').click();
+    await expect(page.locator('#btnReviewDiscardChanges')).toBeVisible();
+    await expect(page.locator('#btnReviewDiscardChanges')).toBeEnabled();
+    await page.locator('#btnReviewDiscardChanges').click();
+    await expect(page.locator('#confirmOverlay')).toBeVisible();
+    await page.locator('#confirmCancel').click();
+    await expect(page.locator('body')).toHaveClass(/app-dirty/);
+  }
+  await page.locator('#btnReviewDiscardChanges').click();
+  await page.locator('#confirmOk').click();
+  await expect(page.locator('body')).not.toHaveClass(/app-dirty/);
+  await expect(page.locator('#btnReviewDiscardChanges')).toBeDisabled();
 });
+}
 
 test("Studio sidebar only scrolls internally when the available height really demands it", async ({ page }) => {
   await openDragFixture(page);
-  await page.locator("#layoutSelect").selectOption("studio");
+  await selectSetting(page, "layoutSelect", "studio");
 
   for (const height of [650, 900]) {
     await page.setViewportSize({ width: 1440, height });
@@ -3433,3 +3622,597 @@ test("Studio sidebar only scrolls internally when the available height really de
   await page.locator(".layout-controls").evaluate(rail => { rail.scrollTop = rail.scrollHeight; });
   await expect(page.locator("#layoutSaveAction")).toBeInViewport();
 });
+
+test("player management dialogs preserve selection and return keyboard focus", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openDragFixture(page);
+  await expect(page.locator(".player-manager-tools")).toBeHidden();
+  await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
+  const selectedName = await page.locator('#playersList .player-row.active .player-name').innerText();
+  for (const kind of ["Transfer", "Export", "Import"]) {
+    const trigger = page.locator(`[data-player-tool="player${kind}Dialog"]`);
+    const overlay = page.locator(`#player${kind}Dialog`);
+    await trigger.click();
+    await expect(overlay).toBeVisible();
+    expect(await page.locator('.app-container').evaluate(el => el.inert)).toBe(true);
+    if (kind !== "Transfer") await expect(overlay.locator('[data-player-tool-context]')).toHaveText(selectedName);
+    await expect(overlay.locator('[data-close-player-tool]')).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    expect(await overlay.evaluate(el => el.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press("Tab");
+    await expect(overlay.locator('[data-close-player-tool]')).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(overlay).toBeHidden();
+    await expect(trigger).toBeFocused();
+    expect(await page.locator('.app-container').evaluate(el => el.inert)).toBe(false);
+  }
+  await expect(page.locator('#playersList .player-row.active .player-name')).toHaveText(selectedName);
+  expect(errors).toEqual([]);
+});
+
+test("dimension conversion help is keyboard accessible and keeps safety guidance visible", async ({ page }) => {
+  await openDragFixture(page);
+  await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
+  const help = page.locator('#conversionHelp');
+  await expect(help.locator('.location-conversion-explanation')).toBeHidden();
+  await expect(page.locator('.location-conversion-safety')).toBeVisible();
+  await expect(page.locator('#btnConvertOverworldNether')).toBeEnabled();
+  await expect(page.locator('#locationConversionNote')).toBeHidden();
+  await page.locator('#btnConversionHelp').focus();
+  const healthTop = await page.locator('#statHealth').evaluate(el => el.getBoundingClientRect().top + scrollY);
+  await page.keyboard.press('Enter');
+  await expect(help.locator('.location-conversion-explanation')).toBeVisible();
+  await expect(help).toContainText('Die Höhe (Y) bleibt unverändert');
+  expect(await page.locator('#statHealth').evaluate(el => el.getBoundingClientRect().top + scrollY)).toBeCloseTo(healthTop, 0);
+  await page.keyboard.press('Escape');
+  await expect(help.locator('.location-conversion-explanation')).toBeHidden();
+  await expect(page.locator('#btnConversionHelp')).toBeFocused();
+  await page.locator('#btnConversionHelp').click();
+  await help.getByRole('button', { name: 'Schließen' }).click();
+  await expect(help).toBeHidden();
+  await page.locator('#btnConversionHelp').click();
+  await page.locator('#statHealth').click();
+  await expect(help).toBeHidden();
+  await page.locator('#statDimensionId').selectOption('1');
+  await expect(page.locator('#btnConvertOverworldNether')).toBeEnabled();
+});
+
+test("player view survives resizing across the compact panel breakpoint", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await openDragFixture(page);
+  await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
+  for (const layout of ["classic", "studio", "focus"]) {
+    await page.setViewportSize({ width: 1280, height: 1000 });
+    await selectSetting(page, "layoutSelect", layout);
+    await page.locator(layout === "classic"
+      ? '.app-section-nav button[data-workflow-view="player"]'
+      : '.layout-context-chip[data-workflow-view="player"]').click();
+    for (const width of [1080, 1025, 1024, 1000, 768, 390, 1280, 1000]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(page.locator('#playerManager')).toBeVisible();
+    await expect(page.locator('#playersList')).toBeVisible();
+    if (layout === "classic") await expect(page.locator('#dashboardPanel')).toBeVisible();
+    await expect(page.locator('.panel-toggle')).toBeHidden();
+    }
+  }
+});
+
+test("modal dialogs isolate editor shortcuts and restore focus", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openDragFixture(page);
+  await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
+  const state = () => page.evaluate(() => ({
+    inventory: JSON.stringify(inventory), selection: [...selectedSlots], dirty: isDirty,
+    undo: document.getElementById('btnUndo').dataset.historyCount,
+  }));
+  const before = await state();
+  for (const layout of ['classic', 'studio', 'focus']) {
+    await selectLayout(page, layout);
+    await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+    await page.locator('[data-tab-dash="dashIcons"]').click();
+    await page.locator('#btnOpenIconSource').click();
+    await page.locator('#btnCloseIconSource').focus();
+    for (const key of ['Control+z', 'Control+y', 'Control+s', 'Control+Shift+p', 'Meta+Shift+p']) {
+      await page.keyboard.press(key);
+      expect(await state()).toEqual(before);
+      await expect(page.locator('#dashIcons')).toBeVisible();
+      await expect(page.locator('#iconSourceDialog')).toBeVisible();
+    }
+    await expect(page.locator('#iconSourceDialog')).toBeVisible();
+    await expect(page.locator('#saveReviewOverlay')).toBeHidden();
+    expect(await state()).toEqual(before);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#iconSourceDialog')).toBeHidden();
+    await expect(page.locator('#btnOpenIconSource')).toBeFocused();
+    expect(await state()).toEqual(before);
+    await page.keyboard.press('Control+Shift+p');
+    await expect(page.locator('#dashWorkspace')).toBeVisible();
+    await page.locator('[data-workflow-view="player"]').first().evaluate(el => el.click());
+    for (const dialog of ['playerTransferDialog', 'playerExportDialog', 'playerImportDialog']) {
+      const opener = page.locator(`[data-player-tool="${dialog}"]`);
+      await opener.click();
+      await expect(page.locator(`#${dialog} [data-close-player-tool]`)).toBeFocused();
+      const activeTab = await page.locator('.tab-content-dash.active').getAttribute('id');
+      for (const key of ['Control+z', 'Control+y', 'Control+s', 'Control+Shift+p', 'Meta+Shift+p']) {
+        await page.keyboard.press(key);
+        expect(await state()).toEqual(before);
+        await expect(page.locator('.tab-content-dash.active')).toHaveAttribute('id', activeTab);
+      }
+      await expect(page.locator('#saveReviewOverlay')).toBeHidden();
+      await page.keyboard.press('Escape');
+      await expect(page.locator(`#${dialog}`)).toBeHidden();
+      await expect(opener).toBeFocused();
+      expect(await state()).toEqual(before);
+    }
+  }
+  expect(errors).toEqual([]);
+});
+
+test("catalog conflicts lock effect editing while preserving other editor controls", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  const warning = 'Effekte: Kollidierende Einträge im numerischen Katalog. Betroffene IDs: 1, 99. Bearbeitung gesperrt; vorhandene Daten bleiben erhalten.';
+  await openDragFixture(page, {
+    effects: [{id: 1, amplifier: 0, duration: 200, show_particles: true}],
+    effects_db: {}, catalog_warnings: [warning],
+    ench_db: {17: {name_de: 'Haltbarkeit', name_en: 'Unbreaking', max_lvl: 3}},
+  });
+  await expect(page.locator('#statusStackButton')).toContainText('Betroffene IDs: 1, 99');
+  await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
+  await page.locator('[data-tab-dash="dashEffects"]').click();
+  await expect(page.locator('#btnOpenEffectPicker')).toBeDisabled();
+  await expect(page.locator('#effectsContainer .effect-row')).toHaveCount(1);
+  await expect(page.locator('#effectsContainer .eff-level')).toBeDisabled();
+  await expect(page.locator('#effectsContainer .eff-duration')).toBeDisabled();
+  await page.locator('[data-tab-dash="dashStats"]').click();
+  await expect(page.locator('#statHealth')).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test("main workflows retain their content across responsive breakpoints", async ({ page }) => {
+  await openDragFixture(page);
+  for (const layout of ['classic', 'studio', 'focus']) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await selectSetting(page, 'layoutSelect', layout);
+    for (const [view, content] of [['world', '#worldPicker'], ['player', '#playerManager'], ['inventory', '#inventoryContainer'], ['save', '#saveWorkflowPanel'], ['tools', '#dashboardPanel'], ['mounts', '#mountsPanel']]) {
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      // Use the existing navigation handler even when a layout places the action in its footer.
+      await page.locator(`[data-workflow-view="${view}"]`).first().evaluate(el => el.click());
+      for (const width of [1440, 1181, 1180, 1025, 1024, 1000, 761, 760, 390, 1025, 1440]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await expect(page.locator(content), `${layout}/${view}/${width}`).toBeVisible();
+      }
+    }
+  }
+});
+
+test("compact inventory preserves the chosen editor panel through resizes and navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await openDragFixture(page);
+  await page.locator('.btn-toggle[data-panel="right"]').click();
+  await expect(page.locator('.right-panel')).toBeVisible();
+  for (const width of [1025, 1024, 390, 1000]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.locator('.right-panel')).toBeVisible();
+  }
+  await page.locator('.app-section-nav button[data-workflow-view="player"]').click();
+  await page.locator('.app-section-nav button[data-workflow-view="inventory"]').click();
+  await expect(page.locator('#inventoryContainer')).toBeVisible();
+});
+
+for (const width of [390, 1024, 1440]) {
+  test(`design transitions preserve pending edits and the active editor (${width}px)`, async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    await page.setViewportSize({ width, height: 900 });
+    await openDragFixture(page, { stack_limits: { "minecraft:stone": 64, __default__: 64 } });
+    if (width === 1024) await selectSetting(page, 'themeSelect', 'light');
+    await selectLayout(page, 'studio');
+    await page.locator('[data-slot="0"]').click();
+    await page.locator('#detailCount').fill('12');
+    await page.locator('#btnApplySingle').click();
+    await expect(page.locator('body')).toHaveClass(/app-dirty/);
+    await page.locator('#detailCustomName').fill('Unapplied slot draft');
+    await page.locator('#detailLore').fill('Draft line one\nDraft line two');
+    const unexpectedRequests = [];
+    page.on('request', request => {
+      if (/\/api\/(player\/(load|save)|world\/load|workspace\/save)(?:\?|$)/.test(request.url())) unexpectedRequests.push(request.url());
+    });
+    const initial = await page.evaluate(() => ({
+      inventory: JSON.stringify(inventory), player: currentPlayerKey, world: worldPath,
+    }));
+    const transitions = ['focus', 'classic', 'studio', 'classic', 'focus', 'studio'];
+    for (const layout of transitions) {
+      await selectLayout(page, layout);
+      await expect(page.locator('#detailEditorPanel')).toBeVisible();
+      await expect(page.locator('#detailCustomName')).toHaveValue('Unapplied slot draft');
+      await expect(page.locator('#detailLore')).toHaveValue('Draft line one\nDraft line two');
+      await expect(page.locator('#detailSlotNum')).toHaveText('0');
+      expect(await page.evaluate(() => ({
+        inventory: JSON.stringify(inventory), player: currentPlayerKey, world: worldPath,
+      }))).toEqual(initial);
+      await expect(page.locator('body')).toHaveClass(/app-dirty/);
+    }
+    await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
+    await page.locator('#statHealth').fill('13');
+    await page.locator('[data-tab-dash="dashEffects"]').click();
+    await page.locator('#abMovementSpeed').fill('0.17');
+    for (const layout of transitions) {
+      await selectLayout(page, layout);
+      await expect(page.locator('#dashboardPanel')).toBeVisible();
+      await expect(page.locator('#dashEffects')).toBeVisible();
+      await expect(page.locator('#abMovementSpeed')).toHaveValue('0.17');
+      await expect(page.locator('#statHealth')).toHaveValue('13');
+      await expect(page.locator('body')).toHaveClass(/app-dirty/);
+      expect(await page.evaluate(() => ({
+        inventory: JSON.stringify(inventory), player: currentPlayerKey, world: worldPath,
+      }))).toEqual(initial);
+    }
+    expect(unexpectedRequests).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const layout of ['classic', 'studio', 'focus']) {
+  test(`conversion can be reverted before applying and globally undone after applying (${layout})`, async ({ page }) => {
+    await openDragFixture(page, { stats: { pos: [94.41, 71.62, 93.52], dimension_id: 0, health: 20, xp_level: 0, xp_progress: 0, food_level: 20, food_saturation: 5, gamemode: 0 } });
+    await selectLayout(page, layout);
+    await page.locator(`.app-workflow-nav [data-workflow-view="${layout === 'classic' ? 'player' : 'player-edit'}"]`).click();
+    const convert = page.locator('#btnConvertOverworldNether');
+    await convert.click();
+    await expect(page.locator('#statPosX')).toHaveValue('11.80125');
+    await expect(convert).toHaveText('Umrechnung zurücknehmen');
+    await expect(page.locator('#btnUndo')).toBeDisabled();
+    await page.locator('#statPosY').fill('75');
+    await convert.click();
+    await expect(page.locator('#statPosX')).toHaveValue('94.41');
+    await expect(page.locator('#statPosZ')).toHaveValue('93.52');
+    await expect(page.locator('#statPosY')).toHaveValue('75');
+    await expect(page.locator('#statDimensionId')).toHaveValue('0');
+    await convert.click();
+    await page.locator('#btnApplyStats').click();
+    await expect(convert).toHaveText('Zur Oberwelt umrechnen (X/Z × 8)');
+    await page.locator('#btnUndo').click();
+    await expect(page.locator('#statDimensionId')).toHaveValue('0');
+    await expect(page.locator('#statPosX')).toHaveValue('94.41');
+    await page.locator('#btnRedo').click();
+    await expect(page.locator('#statDimensionId')).toHaveValue('1');
+    await expect(page.locator('#statPosX')).toHaveValue('11.80');
+    expect(await page.evaluate(() => playerStats.pos[0])).toBe(11.80125);
+    await page.locator('#statDimensionId').selectOption('0');
+    await convert.click();
+    await expect(page.locator('#statPosX')).toHaveValue('94.41');
+    await convert.click();
+    await expect(page.locator('#statPosX')).toHaveValue('11.80');
+  });
+}
+
+test('effect cards use one to three columns based on available width in every design', async ({ page }) => {
+  await openDragFixture(page, {
+    effects: [1, 2, 3, 4].map(id => ({ id, amplifier: 0, duration: 600, show_particles: true })),
+    effects_db: {1: ['Tempo', 'Speed'], 2: ['Langsamkeit', 'Slowness'], 3: ['Eile', 'Haste'], 4: ['Abbaulähmung', 'Mining Fatigue']},
+  });
+  for (const layout of ['classic', 'studio', 'focus']) {
+    await selectLayout(page, layout);
+    await page.locator(`.app-workflow-nav [data-workflow-view="${layout === 'classic' ? 'player' : 'player-edit'}"]`).click();
+    await page.locator('[data-tab-dash="dashEffects"]').click();
+    for (const theme of ['dark', 'light']) {
+      await selectSetting(page, 'themeSelect', theme);
+      for (const width of [390, 1024, 1830, 2560]) {
+        await page.setViewportSize({width, height: 1000});
+        const grid = page.locator('#effectsContainer');
+        await expect(grid).toBeVisible();
+        const geometry = await grid.evaluate(el => {
+          const style = getComputedStyle(el);
+          return { columns: style.gridTemplateColumns.split(' ').length, width: el.clientWidth,
+            overflow: document.documentElement.scrollWidth - innerWidth };
+        });
+        const min = 23 * await page.locator('html').evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+        const expected = Math.min(3, Math.max(1, Math.floor((geometry.width + 12) / (min + 12))));
+        expect(geometry.columns, `${layout}/${theme}/${width}`).toBe(expected);
+        expect(geometry.overflow).toBeLessThanOrEqual(1);
+      }
+    }
+  }
+});
+
+test('Focus header status labels share a font size at desktop and mobile widths', async ({ page }) => {
+  await openDragFixture(page);
+  await selectLayout(page, 'focus');
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({width, height: 900});
+    const fonts = await page.evaluate(() => {
+      const status = getComputedStyle(document.getElementById('serverStatusBadge'), '::after');
+      const messages = getComputedStyle(document.getElementById('statusStackButton'), '::after');
+      return {status: status.fontSize, messages: messages.fontSize, statusWeight: status.fontWeight, messageWeight: messages.fontWeight};
+    });
+    expect(fonts.status).toBe(fonts.messages);
+    console.log(`Focus header ${width}px: ${JSON.stringify(fonts)}`);
+  }
+});
+
+for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark', 'light']) for (const language of ['de', 'en']) {
+  test(`database result summary (${layout}/${theme}/${language})`, async ({page}) => {
+    test.setTimeout(60_000);
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.context().addCookies([{name: 'mcbe_locale', value: language, url: NORMAL_BASE_URL}]);
+    await page.route('**/api/item-db/status', route => route.fulfill({json: {success: true, item_db: {
+      status: 'ok', verification: {verified: true}, source_version_present: true,
+      source_version: {resource_pack_release: 'v1.26.40.05'}, counts: {items: 2048, effects: 37, enchantments: 42},
+    }}}));
+    let state = 'available';
+    let issues = [];
+    await page.route('**/api/update_db', route => route.fulfill({json: {
+      success: state !== 'incomplete', returncode: state === 'incomplete' ? 1 : 0,
+      error: state === 'incomplete' ? 'Synthetic source failure' : undefined,
+      output: 'Synthetic detailed log', update_review_token: 'a'.repeat(64), resource_pack_release: 'v1.26.50.4',
+      summary: {schema: 1, status: state, scope: 'all', release: 'v1.26.50.4', blocked: [],
+        sections: {items: {added: state === 'available' ? 124 : 0, removed: 0, changed: 0}},
+        audit: {checked_items: 2164, issues, expected_name_differences: [
+          ['bed', 'Weißes Bett', 'White Bed', 'Bett', 'Bed'],
+          ['yellow_flower', 'Löwenzahn', 'Dandelion', 'Blume', 'Flower'],
+          ['stonecutter', 'Steinsäge (alt, ohne Funktion)', 'Stonecutter (Legacy, No Function)', 'Steinsäge', 'Stonecutter'],
+        ].flatMap(([id, de, en, sourceDe, sourceEn]) => [
+          {id: `minecraft:${id}`, locale: 'de', catalog: de, source: sourceDe},
+          {id: `minecraft:${id}`, locale: 'en', catalog: en, source: sourceEn},
+        ])}},
+    }}));
+    await openAppWithEmptyWorldScan(page);
+    await selectLayout(page, layout);
+    await selectSetting(page, 'themeSelect', theme);
+    await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+    await page.locator('[data-tab-dash="dashUpdate"]').click();
+    await expect(page.locator('.item-db-version-line')).toContainText('Mojang v1.26.40.05');
+    await expect(page.locator('.item-db-status-hero')).not.toContainText(language === 'en' ? 'checked' : 'geprüft');
+    const result = page.locator('#updateDbResult');
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({width, height: 1000});
+      await page.locator('#btnUpdateDbDryRun').click();
+      await expect(result).toContainText(language === 'en' ? 'Update to Mojang v1.26.50.4 available' : 'Update auf Mojang v1.26.50.4 verfügbar');
+      await expect(result).toContainText(language === 'en' ? '124 added' : '124 ergänzt');
+      await expect(result).toContainText(language === 'en' ? 'No issues found' : 'Keine Auffälligkeiten');
+      await expect(result).not.toContainText(language === 'en' ? 'Expected name differences' : 'Erwartete Namensabweichungen');
+      await expect(page.locator('#updateDbOutput')).toBeHidden();
+      await page.locator('#updateDbDetails summary').click();
+      await expect(page.locator('#updateDbAudit')).toContainText(language === 'en' ? 'Expected name differences (3)' : 'Erwartete Namensabweichungen (3)');
+      await expect(page.locator('#updateDbAudit')).toContainText('DE · minecraft:bed');
+      await expect(page.locator('#updateDbAudit')).toContainText('EN · minecraft:bed');
+      await expect(page.locator('#updateDbOutput')).toBeVisible();
+      await page.locator('#updateDbDetails summary').click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await capturePlayerLoadEvidence(page, `db-result-${layout}-${theme}-${language}-${width}`);
+    }
+    state = 'current';
+    await page.locator('#btnUpdateDbDryRun').click();
+    await expect(result).toContainText(language === 'en' ? 'No content changes' : 'Keine inhaltlichen Änderungen');
+    await expect(result).not.toContainText('124');
+    state = 'metadata_only';
+    await page.locator('#btnUpdateDbDryRun').click();
+    await expect(result).toContainText(language === 'en' ? 'Only source metadata changed' : 'Nur Quelleninformationen geändert');
+    state = 'available';
+    issues = [{code: 'name_differences_de', severity: 'info', count: 1, items: ['<img src=x onerror=alert(1)>']}];
+    await page.locator('#btnUpdateDbDryRun').click();
+    await expect(result).toContainText(language === 'en' ? 'Differing German names: 1' : 'Abweichende deutsche Namen: 1');
+    await page.locator('#updateDbDetails summary').click();
+    await expect(page.locator('#updateDbAudit')).toContainText('<img src=x');
+    await expect(page.locator('#updateDbAudit img')).toHaveCount(0);
+    state = 'incomplete';
+    await page.locator('#btnUpdateDbDryRun').click();
+    await expect(result).toContainText(language === 'en' ? 'Check incomplete or failed' : 'Prüfung unvollständig oder fehlgeschlagen');
+    await expect(result).toContainText('Synthetic source failure');
+    await expect(page.locator('#updateDbOutput')).toBeHidden();
+    await page.locator('#btnClearUpdateOutput').click();
+    await expect(page.locator('.update-db-output-wrapper')).toBeHidden();
+    await expect(page.locator('#btnUpdateDbDryRun')).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark', 'light']) {
+  test(`compact asset tools keep actions and diagnostics accessible (${layout}/${theme})`, async ({page}) => {
+    test.setTimeout(60_000);
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const itemDb = {status: 'ok', verification: {verified: true}, source_version_present: true,
+      source_version: {resource_pack_release: 'v1.26.40.05'}, counts: {items: 2164, effects: 37, enchantments: 42},
+      schema_version: 3, history_count: 2, path: 'synthetic/item_db.json'};
+    const iconData = {success: true, count: 1868, icons: {}, warnings: [], scanned_files: 1675,
+      sources: [{label: 'Vanilla', path: 'synthetic/vanilla', enabled: true, exists: true, count: 1868}],
+      health: {status: 'ok', enabled_sources: 1, existing_sources: 1, sample_found: 4, sample_total: 4,
+        sample: ['diamond_sword', 'apple', 'stone', 'bow'].map(id => ({item_id: `minecraft:${id}`, found: true}))},
+      cache: {state: 'hit', path: 'synthetic/cache.json'}, settings_path: 'synthetic/icon_sources.json'};
+    await page.route('**/api/item-db/status', route => route.fulfill({json: {success: true, item_db: itemDb}}));
+    await page.route('**/api/item-db/versions', route => route.fulfill({json: {success: true, entries: [{resource_pack_release: 'v1.26.40.05'}]}}));
+    await page.route('**/api/icons/status*', route => route.fulfill({json: iconData}));
+    await page.route('**/api/icons/scan', route => route.fulfill({json: iconData}));
+    let updateRequest;
+    await page.route('**/api/update_db', route => {
+      updateRequest = route.request().postDataJSON();
+      return route.fulfill({json: updateRequest.dry_run
+        ? {success: true, output: 'Synthetic preview completed', update_review_token: 'synthetic-review', resource_pack_release: 'v1.26.40.05'}
+        : {success: false, error: 'Synthetic update failure', returncode: 1}});
+    });
+    await page.route('**/api/icons/sources/add', route => route.fulfill({json:
+      route.request().postDataJSON().path === 'bad' ? {success: false, error: 'Synthetic invalid source'} : iconData}));
+    await page.route('**/api/icons/pick_pack', route => route.fulfill({json: {success: true, path: 'synthetic/pack.mcpack'}}));
+    await page.route('**/api/icons/pick_folder', route => route.fulfill({json: {success: false, error: 'Synthetic picker unavailable'}}));
+    await openAppWithEmptyWorldScan(page);
+    await selectLayout(page, layout);
+    await selectSetting(page, 'themeSelect', theme);
+    await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({width, height: 1000});
+      for (const tab of ['dashUpdate', 'dashIcons']) {
+        await page.locator(`[data-tab-dash="${tab}"]`).click();
+        await expect(page.locator(`#${tab}`)).toBeVisible();
+        await capturePlayerLoadEvidence(page, `compact-tools-${layout}-${theme}-${width}-${tab}`);
+        const overflow = await page.evaluate(() => ({width: document.documentElement.scrollWidth - innerWidth,
+          elements: [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && el.getBoundingClientRect().width > 0).slice(-12).map(el => [el.id, el.className, el.getBoundingClientRect().width])}));
+        expect(overflow.width, JSON.stringify(overflow.elements)).toBeLessThanOrEqual(1);
+      }
+      await expect(page.locator('#assetDataStatusPanel')).toBeHidden();
+      await expect(page.locator('#iconManagerPanel .tool-status-line')).toContainText('1.868');
+      await expect(page.locator('#iconManagerPanel .tool-facts')).toBeHidden();
+      await page.locator('#btnOpenIconSource').click();
+      await expect(page.locator('#iconSourceDialog')).toBeVisible();
+      await page.locator('#iconSourceDialog summary').click();
+      await expect(page.locator('#iconSourcePath')).toBeVisible();
+      expect(await page.locator('#iconSourceDialog').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      await capturePlayerLoadEvidence(page, `compact-tools-${layout}-${theme}-${width}-source-dialog`);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#iconSourceDialog')).toBeHidden();
+      await expect(page.locator('#btnOpenIconSource')).toBeFocused();
+      // Reset the native disclosure for the next viewport.
+      await page.locator('#iconSourceDialog details').evaluate(el => { el.open = false; });
+    }
+    await page.locator('#iconManagerPanel summary').click();
+    await expect(page.locator('#btnCopyIconDiagnostics')).toBeVisible();
+    await page.locator('#btnRescanIcons').click();
+    await expect(page.locator('#iconManagerPanel .tool-facts')).toBeVisible();
+    await page.locator('#btnOpenIconSource').click();
+    await page.locator('#btnPickIconFolder').click();
+    await expect(page.locator('#iconSourceFeedback')).toHaveText('Synthetic picker unavailable');
+    await page.locator('#iconSourceDialog summary').click();
+    await page.locator('#iconSourcePath').fill('bad');
+    await page.locator('#btnAddIconSource').click();
+    await expect(page.locator('#iconSourceFeedback')).toHaveText('Synthetic invalid source');
+    await expect(page.locator('#iconSourcePath')).toHaveValue('bad');
+    await page.locator('#btnPickIconPack').click();
+    await expect(page.locator('#iconSourceDialog')).toBeHidden();
+    await page.locator('[data-tab-dash="dashUpdate"]').click();
+    await expect(page.locator('.update-db-output-wrapper')).toBeHidden();
+    await page.locator('[data-db-details] summary').click();
+    await page.locator('[data-toggle-db-versions]').click();
+    await expect(page.locator('.item-db-version-history')).toContainText('v1.26.40.05');
+    await expect(page.locator('[data-db-details]')).toHaveAttribute('open', '');
+    await page.locator('.update-db-options summary').click();
+    await page.locator('#updateOnlySelect').selectOption('items');
+    await page.locator('.update-db-options summary').click();
+    await expect(page.locator('#updateScopeSummary')).toHaveText('Nur Items');
+    await page.locator('#btnUpdateDbDryRun').click();
+    await expect(page.locator('#updateDbOutput')).toContainText('Synthetic preview completed');
+    expect(updateRequest.only).toBe('items');
+    expect(updateRequest.dry_run).toBe(true);
+    await page.locator('#btnUpdateDbApply').click();
+    await expect(page.locator('#confirmOverlay')).toBeVisible();
+    await page.locator('#confirmCancel').click();
+    await page.locator('#btnUpdateDbApply').click();
+    await page.locator('#confirmOk').click();
+    await expect(page.locator('#updateDbOutput')).toContainText('Synthetic update failure');
+    expect(updateRequest.expected_update_review_token).toBe('synthetic-review');
+    expect(updateRequest.only).toBe('items');
+    await page.locator('#btnClearUpdateOutput').click();
+    await expect(page.locator('.update-db-output-wrapper')).toBeHidden();
+    await expect(page.locator('#btnUpdateDbDryRun')).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const layout of ['classic', 'studio', 'focus']) {
+  for (const theme of ['dark', 'light']) {
+    test(`many-player search and bounded scrolling (${layout}/${theme})`, async ({ page }, testInfo) => {
+      test.setTimeout(60_000);
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route('**/api/world/presence', route => route.fulfill({json: {success: true, other_sessions: []}}));
+      const players = Array.from({length: 150}, (_, i) => ({
+        player_key: i === 0 ? 'drag-player' : `synthetic-key-${i}`,
+        label: i === 0 ? 'Drag Test' : i === 80 ? 'VeryLongSyntheticPlayerName'.repeat(4) : `Testspieler ${i}`,
+        kind: i === 0 ? 'local' : 'remote', editable: i !== 80, exportable: true,
+        has_inventory_tag: true, has_ender_chest_tag: true,
+      }));
+      await openDragFixture(page, request => ({player: players.find(p => p.player_key === request.player_key)}), players);
+      await selectLayout(page, layout);
+      await selectSetting(page, 'themeSelect', theme);
+      const list = page.locator('#playersList');
+      const rows = list.locator('.player-row');
+      const search = page.locator('#playerManagerSearch');
+      async function openManager(currentLayout = layout) {
+        await page.locator(currentLayout === 'classic'
+          ? '.app-workflow-nav [data-workflow-view="player"]'
+          : '.layout-context-chip[data-workflow-view="player"]').click();
+        await expect(search).toBeVisible();
+      }
+      async function checkList(width, rail = false) {
+        await expect(rows).toHaveCount(150);
+        await list.scrollIntoViewIfNeeded();
+        const bounds = await list.evaluate(el => ({
+          height: el.clientHeight, content: el.scrollHeight, overflow: getComputedStyle(el).overflowY,
+          horizontalOverflow: el.scrollWidth - el.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth - innerWidth,
+          minRow: Math.min(...Array.from(el.children, row => row.getBoundingClientRect().height)),
+        }));
+        expect(bounds.height).toBeGreaterThan(100);
+        expect(bounds.height).toBeLessThanOrEqual(Math.min(rail ? 650 : 420, (rail ? .58 : .52) * page.viewportSize().height) + 1);
+        expect(bounds.content).toBeGreaterThan(bounds.height * 5);
+        expect(bounds.overflow).toBe('auto');
+        expect(bounds.minRow).toBeGreaterThanOrEqual(44);
+        expect(bounds.horizontalOverflow).toBeLessThanOrEqual(1);
+        expect(bounds.pageOverflow).toBeLessThanOrEqual(1);
+        await list.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        const lastReachable = await rows.last().evaluate(el => {
+          const row = el.getBoundingClientRect(), parent = el.parentElement.getBoundingClientRect();
+          return row.top >= parent.top - 1 && row.bottom <= parent.bottom + 1;
+        });
+        expect(lastReachable).toBe(true);
+        await list.evaluate(el => { el.scrollTop = 0; });
+        await testInfo.attach(`${layout}-${theme}-${width}${rail ? '-rail' : ''}`, {
+          body: await page.screenshot(), contentType: 'image/png',
+        });
+        await capturePlayerLoadEvidence(page, `players-${layout}-${theme}-${width}-${await page.locator('body').getAttribute('data-workflow-view')}${rail ? '-rail' : ''}`);
+      }
+      for (const width of [390, 1024, 1830]) {
+        await page.setViewportSize({width, height: width === 390 ? 844 : 1000});
+        await openManager();
+        await search.fill('');
+        await checkList(width);
+        await search.fill('TESTSPIELER 149');
+        await expect(list.locator('.player-row:visible')).toHaveCount(1);
+        await expect(page.locator('#playerManagerCount')).toHaveText('1 / 150');
+        await search.fill('synthetic-KEY-80');
+        await expect(list.locator('.player-row:visible')).toHaveCount(1);
+        await expect(list.locator('.player-row:visible .player-name')).toHaveText(players[80].label);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+        await search.fill('no matching synthetic player');
+        await expect(list.locator('.player-row:visible')).toHaveCount(0);
+        await expect(page.locator('#playerManagerSearchEmpty')).toBeVisible();
+        await search.fill('');
+        await expect(page.locator('#playerManagerSearchEmpty')).toBeHidden();
+        await expect(list.locator('.player-row:visible')).toHaveCount(150);
+        // Refresh recreates the rows; the query must still filter the new DOM.
+        await search.fill('Testspieler 149');
+        await page.locator('#btnRefreshPlayers').click();
+        await expect(list.locator('.player-row:visible')).toHaveCount(1);
+        await expect(list.locator('.player-row:visible')).toContainText('Testspieler 149');
+        await list.locator('.player-row:visible').click();
+        await expect.poll(() => page.evaluate(() => currentPlayerKey)).toBe('synthetic-key-149');
+        await openManager();
+        await search.fill('');
+        await page.locator('.app-workflow-nav [data-workflow-view="inventory"]').click();
+        if (layout === 'focus' && width > 760) {
+          await checkList(width, true);
+          await page.locator('#focusPlayerSearch').fill('Testspieler 149');
+          await expect(list.locator('.player-row:visible')).toHaveCount(1);
+          await openManager();
+          await expect(search).toHaveValue('Testspieler 149');
+          await search.fill('');
+        } else if (layout === 'classic') {
+          if (width <= 1024) await page.locator('.btn-toggle[data-panel="right"]').click();
+          await expect(search).toBeVisible();
+          await checkList(width);
+        }
+      }
+      await openManager();
+      await search.fill('Testspieler 149');
+      for (const nextLayout of ['classic', 'studio', 'focus']) {
+        await selectLayout(page, nextLayout);
+        await openManager(nextLayout);
+        await expect(search).toHaveValue('Testspieler 149');
+        await expect(list.locator('.player-row:visible')).toHaveCount(1);
+        await expect(page.locator('#playerManagerCount')).toHaveText('1 / 150');
+      }
+      await list.locator('.player-row:visible').click();
+      await expect.poll(() => page.evaluate(() => currentPlayerKey)).toBe('synthetic-key-149');
+      expect(errors).toEqual([]);
+    });
+  }
+}

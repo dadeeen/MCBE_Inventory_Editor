@@ -93,7 +93,7 @@
             </div>
             <div class="header-status-area">
                 <div class="server-status-badge unknown" id="serverStatusBadge">{{ t("Status wird geprüft") }}</div>
-                <!-- Only Focus exposes a short badge; full backend diagnostics
+                <!-- Focus and Studio expose a short badge; full backend diagnostics
                      remain available through this keyboard-accessible detail. -->
                 <div class="focus-server-status-panel" id="focusServerStatusPanel" role="region"
                      aria-label="{{ t('Serverstatus') }}" hidden>
@@ -104,7 +104,7 @@
                 <div class="header-status-stack">
                     <button type="button" class="status-stack-button info" id="statusStackButton" aria-expanded="false" aria-controls="statusStackPanel" aria-label="{{ t('Status anzeigen') }}">
                         <span id="statusStackCount" aria-hidden="true">0</span>
-                        <strong id="statusStackHeadline">Status</strong>
+                        <strong id="statusStackHeadline">{{ t("Meldungen") }}</strong>
                         <small id="statusStackSummary">{{ t("Bereit · automatische Weltsuche läuft") }}</small>
                     </button>
                     <div class="status-stack-panel" id="statusStackPanel" role="log" aria-label="{{ t('Statusverlauf') }}" hidden>
@@ -357,26 +357,26 @@
                         <div class="armor-offhand-layout">
                             <div class="armor-slots">
                                 <div class="inventory-slot armor-slot" data-slot="103" title="{{ t('Kopf / Helm') }}">
-                                    <div class="slot-overlay">🪖</div>
+                                    <div class="slot-overlay" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor" fill-rule="evenodd" shape-rendering="crispEdges" focusable="false"><path d="M4 2h8v1h2v2h1v8h-4V8H5v5H1V5h1V3h2z"/><path class="equipment-placeholder-edge" d="M4 2h8v1H4z M2 4h1v3H2z M3 3h1v1H3z"/><path fill="#000" opacity=".16" d="M12 4h2v2h1v7h-2V7h-2V6h1z"/></svg></div>
                                     <span class="studio-equipment-label" aria-hidden="true">{{ t("Helm") }}</span>
                                 </div>
                                 <div class="inventory-slot armor-slot" data-slot="102" title="{{ t('Brust / Brustplatte') }}">
-                                    <div class="slot-overlay">👕</div>
+                                    <div class="slot-overlay" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor" fill-rule="evenodd" shape-rendering="crispEdges" focusable="false"><path d="M4 2h2v2h4V2h2v1h2v1h1v4h-3v6H4V8H1V4h1V3h2z"/><path class="equipment-placeholder-edge" d="M4 2h2v1H4z M2 4h3v1H2z M5 6h1v6H5z M10 2h2v1h-2z"/><path fill="#000" opacity=".16" d="M12 5h3v3h-3z M10 7h2v7H4v-1h6z"/></svg></div>
                                     <span class="studio-equipment-label" aria-hidden="true">{{ t("Brust") }}</span>
                                 </div>
                                 <div class="inventory-slot armor-slot" data-slot="101" title="{{ t('Beine / Beinschienen') }}">
-                                    <div class="slot-overlay">👖</div>
+                                    <div class="slot-overlay" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor" fill-rule="evenodd" shape-rendering="crispEdges" focusable="false"><path d="M3 2h10v12H9V8H7v6H3z"/><path class="equipment-placeholder-edge" d="M3 2h10v1H3z M4 4h1v8H4z M10 4h1v2h-1z"/><path fill="#000" opacity=".16" d="M11 4h2v10H9v-1h2z M5 9h2v5H3v-1h2z"/></svg></div>
                                     <span class="studio-equipment-label" aria-hidden="true">{{ t("Beine") }}</span>
                                 </div>
                                 <div class="inventory-slot armor-slot" data-slot="100" title="{{ t('Füße / Stiefel') }}">
-                                    <div class="slot-overlay">🥾</div>
+                                    <div class="slot-overlay" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor" fill-rule="evenodd" shape-rendering="crispEdges" focusable="false"><path d="M3 2h4v12H1v-4h2z M9 2h4v8h2v4H9z"/><path class="equipment-placeholder-edge" d="M3 2h4v1H3z M9 2h4v1H9z M3 4h1v6H3z M9 4h1v7H9z"/><path fill="#000" opacity=".16" d="M1 12h6v2H1z M9 12h6v2H9z M5 4h2v8H5z M11 4h2v6h-2z"/></svg></div>
                                     <span class="studio-equipment-label" aria-hidden="true">{{ t("Füße") }}</span>
                                 </div>
                             </div>
 
                             <div class="offhand-slot-container">
                                 <div class="inventory-slot offhand-slot" data-slot="-106" title="{{ t('Schild / Schildhand') }}">
-                                    <div class="slot-overlay">🛡️</div>
+                                    <div class="slot-overlay" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor" fill-rule="evenodd" shape-rendering="crispEdges" focusable="false"><path d="M3 2h10v1h1v7h-1v2h-2v1H9v1H7v-1H5v-1H3v-2H2V3h1z"/><path class="equipment-placeholder-edge" d="M3 2h10v1H3z M3 4h1v6H3z M4 10h1v2H4z"/><path fill="#000" opacity=".16" d="M12 4h2v6h-1v2h-2v1H9v1H7v-1h2v-2h2V9h1z"/></svg></div>
                                     <span class="studio-equipment-label" aria-hidden="true">{{ t("Nebenhand") }}</span>
                                 </div>
                             </div>
@@ -431,6 +431,7 @@
                         </div>
                     </details>
                     <div class="save-workflow-actions">
+                        <button id="btnReviewDiscardChanges" class="btn btn-danger-soft" type="button" data-discard-changes="true" disabled>{{ t("Alle Änderungen verwerfen") }}</button>
                         <button id="btnSaveWorkflowCopy" class="btn btn-secondary" type="button" disabled>{{ t("Änderungen kopieren") }}</button>
                         <button id="btnSaveWorkflowRun" class="btn btn-save" type="button" disabled>{{ t("Backup erstellen & speichern") }}</button>
                     </div>
@@ -457,79 +458,31 @@
                     <div class="card-header player-card-header">
                         <div>
                             <h2 data-view-landing="player" tabindex="-1">{{ t("Spieler") }}</h2>
-                            <p class="section-subtitle">{{ t("Wähle den aktiven Spieler. Inventar und Spielerdaten kannst du anschließend unabhängig voneinander bearbeiten.") }}</p>
+                            <p class="section-subtitle player-selection-hint">{{ t("Wähle einen Spieler, um sein Inventar und seine Werte zu bearbeiten.") }}</p>
                         </div>
                         <div class="player-header-actions">
                             <div class="layout-player-shortcuts" aria-label="{{ t('Bearbeiten') }}">
                                 <button type="button" class="btn btn-secondary btn-sm" data-workflow-view="inventory" disabled>{{ t("Inventar öffnen") }}</button>
                                 <button type="button" class="btn btn-secondary btn-sm" data-workflow-view="player-edit" disabled>{{ t("Spielerdaten öffnen") }}</button>
                             </div>
-                            <button id="btnCopyPlayerDiagnostics" class="btn-text" type="button">{{ t("Spieler-Diagnose kopieren") }}</button>
                             <button id="btnRefreshPlayers" class="btn-text" type="button">{{ t("Aktualisieren") }}</button>
                         </div>
                     </div>
+                    <div class="player-manager-grid"><div class="player-manager-selection">
+                    <div class="player-manager-search"><label for="playerManagerSearch">{{ t("Spieler suchen") }}</label><input id="playerManagerSearch" type="search" autocomplete="off" /><small id="playerManagerCount" aria-live="polite"></small></div>
                     <div class="player-list" id="playersList">
                         <div class="no-backups">{{ t("Noch keine Spieler geladen.") }}</div>
                     </div>
-                    <details class="player-transfer-panel state-transfer-panel" aria-label="{{ t('Singleplayer ↔ Multiplayer') }}">
-                        <summary data-expand-label="{{ t('Aufklappen') }}" data-collapse-label="{{ t('Einklappen') }}">{{ t("Singleplayer ↔ Multiplayer") }} <span>{{ t("Spielerzustand sicher übertragen") }}</span></summary>
-                        <div class="transfer-heading">
-                            <p>{{ t("Überträgt den Spielstand zwischen einem vorhandenen lokalen Spieler und einem vorhandenen Multiplayer-Spieler. Der Multiplayer-Spieler muss die Welt vorher einmal betreten haben. Zielidentität und Quelldatensatz bleiben erhalten.") }}</p>
+                    <p id="playerManagerSearchEmpty" class="hint-text" hidden>{{ t("Keine passenden Spieler gefunden.") }}</p>
+                    </div><section class="player-manager-tools" aria-labelledby="playerToolsTitle">
+                        <h3 id="playerToolsTitle">{{ t("Spieler verwalten") }}</h3>
+                        <div class="player-tool-actions">
+                            <button type="button" class="btn btn-secondary" data-player-tool="playerTransferDialog" aria-haspopup="dialog" aria-controls="playerTransferDialog">{{ t("Übertragen …") }}</button>
+                            <button type="button" class="btn btn-secondary" data-player-tool="playerExportDialog" aria-haspopup="dialog" aria-controls="playerExportDialog">{{ t("Exportieren …") }}</button>
+                            <button type="button" class="btn btn-secondary" data-player-tool="playerImportDialog" aria-haspopup="dialog" aria-controls="playerImportDialog">{{ t("Importieren …") }}</button>
                         </div>
-                        <div class="field-group">
-                            <label for="stateTransferSourcePlayerSelect">{{ t("Quelle") }}</label>
-                            <select id="stateTransferSourcePlayerSelect" class="select-field"></select>
-                        </div>
-                        <div class="field-group">
-                            <label for="stateTransferTargetPlayerSelect">{{ t("Ziel") }}</label>
-                            <select id="stateTransferTargetPlayerSelect" class="select-field"></select>
-                        </div>
-                        <p class="hint-text">{{ t("Fehlt der lokale Spieler, öffne ausschließlich eine Weltkopie einmal lokal in Minecraft und lade sie danach im Editor neu.") }}</p>
-                        <div class="inline-actions">
-                            <button id="btnSwapStateTransfer" class="btn btn-secondary btn-sm" type="button">{{ t("Richtung tauschen") }}</button>
-                            <button id="btnPreviewStateTransfer" class="btn btn-secondary btn-sm" type="button">{{ t("Migration prüfen") }}</button>
-                        </div>
-                        <div id="stateTransferPreview" class="state-transfer-preview" style="display:none;" aria-live="polite"></div>
-                        <button id="btnOpenStateTransferDetails"
-                                class="btn-text state-transfer-details-trigger"
-                                type="button"
-                                style="display:none;"
-                                aria-haspopup="dialog"
-                                aria-expanded="false"
-                                aria-controls="stateTransferDetailsOverlay">{{ t("Technische Details anzeigen") }}</button>
-                        <button id="btnApplyStateTransfer" class="btn btn-primary full-width" type="button" disabled>{{ t("Migration speichern") }}</button>
-                        <p class="hint-text">{{ t("Vor dem Schreiben wird ein geprüftes Backup erstellt. Bei fehlgeschlagener Nachvalidierung stellt der Editor den vorherigen Zielzustand wieder her.") }}</p>
-                    </details>
-                    <details class="player-transfer-panel export-panel" aria-label="{{ t('Spieler exportieren') }}">
-                        <summary data-expand-label="{{ t('Aufklappen') }}" data-collapse-label="{{ t('Einklappen') }}">{{ t("Export") }} <span>{{ t("kompletten Player als .mcbe-player.zip sichern") }}</span></summary>
-                        <div class="transfer-heading">
-                            <p>{{ t("Speichert den ausgewählten Player als") }} <code>.mcbe-player.zip</code>{{ t(". Der Export enthält den kompletten Player-NBT-Datensatz.") }}</p>
-                        </div>
-                        <div class="transfer-actions">
-                            <button id="btnExportPlayer" class="btn btn-secondary" disabled>{{ t("Ausgewählten Spieler exportieren") }}</button>
-                            <button id="btnOpenPlayerExportFolder" class="btn btn-secondary" disabled>{{ t("Exportordner öffnen") }}</button>
-                        </div>
-                    </details>
-                    <details class="player-transfer-panel import-panel" aria-label="{{ t('Spieler importieren') }}">
-                        <summary data-expand-label="{{ t('Aufklappen') }}" data-collapse-label="{{ t('Einklappen') }}">{{ t("Import") }} <span>{{ t("Vollständigen Player-Datensatz importieren") }}</span></summary>
-                        <div class="transfer-heading">
-                            <p>{{ t("Schreibt den vollständigen Player-Datensatz direkt in die gewählte Welt. Vorher wird ein geprüftes Backup erstellt; Schreibfehler werden auf Datensatzebene zurückgerollt.") }}</p>
-                        </div>
-                        <div class="field-group">
-                            <label for="playerImportPath">{{ t("Import-Datei (.mcbe-player.zip)") }}</label>
-                            <div class="path-input-group compact">
-                                <input type="text" id="playerImportPath" placeholder="{{ t('Pfad zur exportierten .mcbe-player.zip') }}" />
-                                <button id="btnBrowsePlayerExport" class="btn btn-secondary">{{ t("Datei auswählen") }}</button>
-                            </div>
-                        </div>
-                        <label class="check-row small">
-                            <input type="checkbox" id="playerImportAsExportedKey" />
-                            {{ t("Exportierten Spieler-Key als neuen Datensatz anlegen, falls er in der Zielwelt noch nicht existiert") }}
-                        </label>
-                        <p id="playerImportTargetHint" class="hint-text">{{ t("Wähle einen bearbeitbaren Zielspieler oder aktiviere den Import als exportierter Spieler.") }}</p>
-                        <div id="playerImportPreview" class="import-preview" style="display:none;"></div>
-                        <button id="btnImportPlayer" class="btn btn-primary full-width" disabled>{{ t("Player importieren") }}</button>
-                    </details>
+                            <button id="btnCopyPlayerDiagnostics" class="btn-text" type="button">{{ t("Spieler-Diagnose kopieren") }}</button>
+                    </section></div>
                 </div>
 
                 <section id="mountsPanel" class="glass-card mounts-panel" style="display:none;">
@@ -571,10 +524,10 @@
                             <h2 data-view-landing="tools" tabindex="-1">{{ t("Spieler bearbeiten") }}</h2>
                         </div>
                         <div class="tab-headers dashboard-tab-headers">
-                            <button class="tab-btn-dash active" data-tab-dash="dashStats">{{ t("Spieler-Stats") }}</button>
-                            <button class="tab-btn-dash" data-tab-dash="dashAnalysis">{{ t("Analyse") }}</button>
-                            <button class="tab-btn-dash" data-tab-dash="dashPlayerTools">{{ t("Spieler-Tools") }}</button>
-                            <button class="tab-btn-dash" data-tab-dash="dashEffects">{{ t("Effekte") }}</button>
+                            <button class="tab-btn-dash active" data-tab-dash="dashStats">{{ t("Spielerwerte") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashEffects">{{ t("Effekte & Fähigkeiten") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashPlayerTools">{{ t("Vergleichen & Übernehmen") }}</button>
+                            <button class="tab-btn-dash" data-tab-dash="dashAnalysis">{{ t("Diagnose") }}</button>
                         </div>
                     </div>
 
@@ -622,8 +575,20 @@
                             </div>
                         </div>
                         <div class="location-actions">
-                            <button id="btnConvertOverworldNether" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Oberwelt ↔ Nether umrechnen") }}</button>
-                            <small class="field-note">{{ t("Ein Dimensionswechsel verändert Koordinaten niemals automatisch. Die optionale Oberwelt-/Nether-Umrechnung ändert nur X und Z. Zielposition und sicherer Untergrund können offline nicht garantiert werden.") }}</small>
+                            <button id="btnConvertOverworldNether" aria-describedby="locationConversionNote" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Oberwelt ↔ Nether umrechnen") }}</button>
+                            <div class="location-conversion-help">
+                                <button id="btnConversionHelp" class="btn-text" type="button" popovertarget="conversionHelp" aria-haspopup="dialog"><span aria-hidden="true">ⓘ</span> {{ t("Zur Umrechnung") }}</button>
+                                <div id="conversionHelp" popover="auto" role="dialog" aria-labelledby="conversionHelpTitle">
+                                    <div class="conversion-help-header"><strong id="conversionHelpTitle">{{ t("Zur Umrechnung") }}</strong><button type="button" class="btn btn-secondary btn-sm" popovertarget="conversionHelp" popovertargetaction="hide">{{ t("Schließen") }}</button></div>
+                                <div class="location-conversion-explanation">
+                                    <p><strong>{{ t("Wozu dient das?") }}</strong> {{ t("Berechnet die entsprechende X-/Z-Position in der anderen Dimension nach dem Koordinatenverhältnis von Netherportalen.") }}</p>
+                                    <p>{{ t("Oberwelt → Nether: X und Z ÷ 8. Nether → Oberwelt: X und Z × 8. Die Höhe (Y) bleibt unverändert.") }}</p>
+                                    <p>{{ t("Die Dimensionsauswahl verändert keine Koordinaten. „Umrechnen“ wählt die andere Dimension und passt X und Z an.") }}</p>
+                                    <p>{{ t("Bestehende Portale und sichere Standplätze werden nicht geprüft. Ein tatsächliches Portal kann an einer abweichenden Position enden.") }}</p>
+                                </div>
+                                </div>
+                            </div>
+                            <small class="field-note location-conversion-safety">{{ t("Zielposition vor dem Speichern prüfen.") }}</small>
                             <small id="locationConversionNote" class="field-note location-conversion-note" hidden></small>
                         </div>
                         <div class="row">
@@ -666,15 +631,15 @@
                     <div class="tab-content-dash" id="dashAnalysis">
                         <div class="backup-header-section">
                             <div>
-                                <h3>{{ t("Weltanalyse") }}</h3>
-                                <p class="hint-text">{{ t("Kurzer Überblick über geladene Welt, Spieler und den aktuellen Inventarzustand.") }}</p>
+                                <h3>{{ t("Spielerdiagnose") }}</h3>
+                                <p class="hint-text">{{ t("Hinweise zur Bearbeitbarkeit des geladenen Spielers und seiner Daten. Technische Details helfen bei der Fehlersuche.") }}</p>
                             </div>
                             <div class="inline-actions">
-                                <button id="btnCopyWorldAnalysis" class="btn btn-secondary btn-sm" type="button">{{ t("Analyse kopieren") }}</button>
+                                <button id="btnCopyWorldAnalysis" class="btn btn-secondary btn-sm" type="button">{{ t("Diagnose kopieren") }}</button>
                             </div>
                         </div>
                         <div id="worldAnalysisPanel" class="world-analysis-panel">
-                            <div class="no-backups">{{ t("Analyse wird nach dem Laden einer Welt angezeigt.") }}</div>
+                            <div class="no-backups">{{ t("Diagnose wird nach dem Laden einer Welt angezeigt.") }}</div>
                         </div>
                     </div>
 
@@ -682,7 +647,7 @@
                     <div class="tab-content-dash" id="dashPlayerTools">
                         <div class="backup-header-section">
                             <div>
-                                <h3>{{ t("Spieler-Tools") }}</h3>
+                                <h3>{{ t("Vergleichen & Übernehmen") }}</h3>
                                 <p class="hint-text">{{ t("Vergleiche Spieler oder übernimm gezielt Inventarbereiche. Änderungen bleiben lokal, bis du bewusst speicherst.") }}</p>
                             </div>
                         </div>
@@ -760,21 +725,27 @@
                             <div class="effects-section">
                                 <div class="effects-header">
                                     <h3>{{ t("Aktive Effekte 🧪") }}</h3>
-                                    <div class="effect-add-controls">
-                                        <div class="effect-picker">
-                                            <details id="effectPickerDetails">
-                                                <summary id="effectPickerSummary">{{ t("Effekt auswählen …") }}</summary>
-                                                <div class="effect-picker-popover">
-                                                    <div id="effectPickerList" class="effect-picker-list" role="listbox" aria-label="{{ t('Effekt auswählen') }}"></div>
-                                                    <div id="effectPickerDescription" class="effect-picker-description" aria-live="polite">{{ t("Bewege den Mauszeiger auf einen Effekt oder fokussiere ihn, um die Beschreibung zu sehen.") }}</div>
-                                                </div>
-                                            </details>
-                                            <input id="effectToAdd" type="hidden" value="" />
-                                        </div>
-                                        <button id="btnAddEffect" class="btn btn-secondary btn-sm" type="button" disabled>{{ t("Hinzufügen") }}</button>
-                                    </div>
+                                    <button id="btnOpenEffectPicker" class="btn btn-secondary btn-sm" type="button" aria-haspopup="dialog" aria-controls="effectPickerDialog">{{ t("+ Effekt hinzufügen") }}</button>
                                 </div>
-                                <p class="effect-help">{{ t("Neue Effekte starten mit Stufe 1 und 30 Sekunden. Üblich sind Stufen 1–5; höhere Werte sind für Sonderfälle. Die Dauer wird in Sekunden angegeben.") }}</p>
+                                <dialog id="effectPickerDialog" class="effect-catalog-dialog" aria-labelledby="effectCatalogTitle">
+                                    <div class="effect-catalog-header"><h2 id="effectCatalogTitle">{{ t("Effekt hinzufügen") }}</h2><button id="btnCloseEffectPicker" class="btn btn-secondary btn-sm" type="button">{{ t("Schließen") }}</button></div>
+                                    <div class="effect-catalog-body">
+                                        <div class="effect-catalog-selection">
+                                            <label for="effectCatalogSearch">{{ t("Effekte suchen") }}</label>
+                                            <input id="effectCatalogSearch" type="search" autocomplete="off" />
+                                            <div id="effectPickerList" class="effect-catalog-list" aria-label="{{ t('Effekt auswählen') }}"></div>
+                                        </div>
+                                        <div class="effect-catalog-config">
+                                            <h3 id="effectPickerSummary">{{ t("Effekt auswählen …") }}</h3>
+                                            <p id="effectPickerDescription" aria-live="polite"></p>
+                                            <input id="effectToAdd" type="hidden" value="" />
+                                            <label for="effectCatalogLevel">{{ t("Stufe") }}</label><input id="effectCatalogLevel" type="number" min="1" max="256" step="1" value="1" required />
+                                            <label for="effectCatalogDuration">{{ t("Dauer (Sekunden)") }}</label><input id="effectCatalogDuration" type="number" min="0" max="107374182" step="1" value="30" required />
+                                            <p class="hint-text">{{ t("Üblich sind Stufen 1–5; höhere Werte sind für Sonderfälle.") }}</p>
+                                            <button id="btnAddEffect" class="btn btn-primary" type="button" disabled>{{ t("Hinzufügen") }}</button>
+                                        </div>
+                                    </div>
+                                </dialog>
                                 <div class="effects-list" id="effectsContainer">
                                     <div class="no-backups">{{ t("Keine aktiven Effekte.") }}</div>
                                 </div>
@@ -874,28 +845,34 @@
                         <div class="backup-header-section">
                             <div>
                                 <h3>{{ t("Darstellung & Icons") }}</h3>
-                                <p class="hint-text">{{ t("Zusätzliche Icon-Quellen gelten für alle Welten. Aktive Packs der geladenen Welt haben Vorrang; Welten mit denselben Quellen teilen einen Index. Nicht auflösbare Pack-Inhalte erhalten Diagnosehinweise und Standard-Icons oder Ersatzsymbole.") }}</p>
                             </div>
                             <div class="inline-actions">
                                 <button id="btnUpdateVanillaIcons" class="btn btn-primary btn-sm" type="button">{{ t("Vanilla-Icons laden") }}</button>
-                                <button id="btnPickIconPack" class="btn btn-secondary btn-sm" type="button">{{ t("Pack-Datei wählen") }}</button>
-                                <button id="btnPickIconFolder" class="btn btn-secondary btn-sm" type="button">{{ t("Ordner wählen") }}</button>
-                                <button id="btnRescanIcons" class="btn btn-secondary btn-sm" type="button">{{ t("Neu scannen") }}</button>
+                                <button id="btnOpenIconSource" class="btn btn-secondary btn-sm" type="button" aria-haspopup="dialog" aria-controls="iconSourceDialog">{{ t("Quelle hinzufügen …") }}</button>
                             </div>
                         </div>
-                        <p class="hint-text">{{ t("Die aktuelle Mojang-Version wird automatisch geprüft; ein bereits passender Download wird sicher wiederverwendet.") }}</p>
                         <div id="assetDataStatusPanel" class="data-source-panel">
                             <div class="no-backups">{{ t("Datenquellen werden geladen...") }}</div>
                         </div>
                         <div class="icon-manager">
-                            <div class="icon-manager-add">
+                            <dialog id="iconSourceDialog" class="tool-source-dialog" aria-labelledby="iconSourceTitle">
+                                <div class="backup-header-section"><h3 id="iconSourceTitle">{{ t("Icon-Quelle hinzufügen") }}</h3><button id="btnCloseIconSource" class="btn-text" type="button">{{ t("Schließen") }}</button></div>
+                                <div class="inline-actions">
+                                    <button id="btnPickIconPack" class="btn btn-secondary" type="button">{{ t("Pack-Datei wählen") }}</button>
+                                    <button id="btnPickIconFolder" class="btn btn-secondary" type="button">{{ t("Ordner wählen") }}</button>
+                                </div>
+                                <details class="tool-details"><summary>{{ t("Pfad manuell eingeben") }}</summary>
                                 <label for="iconSourcePath">{{ t("Resource-Pack-/Icon-Pfad") }}</label>
                                 <div class="path-inline">
                                     <input type="text" id="iconSourcePath" placeholder="{{ t('z. B. D:\\Packs\\Faithful.mcpack oder /packs/icons') }}" autocomplete="off">
                                     <button id="btnAddIconSource" class="btn btn-primary btn-sm" type="button">{{ t("Hinzufügen") }}</button>
                                 </div>
                                 <p class="hint-text">{{ t("Unterstützt Ordner, .mcpack und .zip. Gespeichert wird nur der Pfad, nicht die Texturen selbst.") }}</p>
-                            </div>
+                                </details>
+                                <p class="hint-text">{{ t("Zusätzliche Quellen gelten für alle Welten. Aktive Packs der geladenen Welt haben Vorrang.") }}</p>
+                                <p id="iconSourceFeedback" role="status" hidden></p>
+                            </dialog>
+                            <div class="tool-source-heading"><h4>{{ t("Icon-Quellen") }}</h4><button id="btnRescanIcons" class="btn-text" type="button">{{ t("Neu scannen") }}</button></div>
                             <div id="iconManagerPanel" class="icon-manager-panel">
                                 <div class="no-backups">{{ t("Noch kein Icon-Scan geladen.") }}</div>
                             </div>
@@ -943,9 +920,6 @@
                             <div class="backup-header-section">
                                 <div>
                                     <h3>{{ t("Item-Datenbank") }}</h3>
-                                    <p class="update-db-description">
-                                        {{ t("Zeigt, welche Item-Datenbank aktiv ist, ob ihre Herkunft bekannt ist und wie viele Items, Effekte und Verzauberungen geladen sind. Updates laden offizielle Identifier und Namen aus Mojang/bedrock-samples. Verzauberungs-Maximalstufen stammen aus einer mitgelieferten, geprüften Vanilla-Tabelle.") }}
-                                    </p>
                                 </div>
                             </div>
 
@@ -954,7 +928,7 @@
                             </div>
 
                             <div class="update-db-controls">
-                                <div class="field-group">
+                                <details class="tool-details update-db-options"><summary>{{ t("Update-Umfang") }}: <span id="updateScopeSummary">{{ t("Alles") }}</span></summary><div class="field-group">
                                     <label for="updateOnlySelect">{{ t("Bereich") }}</label>
                                     <select id="updateOnlySelect" class="select-field">
                                         <option value="">{{ t("Alles (Items + Effekte + Verzauberungen)") }}</option>
@@ -962,21 +936,25 @@
                                         <option value="effects">{{ t("Nur Effekte") }}</option>
                                         <option value="enchants">{{ t("Nur Verzauberungen") }}</option>
                                     </select>
-                                </div>
+                                </div></details>
 
                                 <div class="update-db-actions">
                                     <button id="btnUpdateDbDryRun" class="btn btn-secondary">{{ t("Dry-Run ausführen") }}</button>
                                     <button id="btnUpdateDbApply" class="btn btn-primary">{{ t("Update anwenden") }}</button>
                                 </div>
                             </div>
-                            <p class="hint-text">{{ t("Der Dry-Run zeigt geplante Änderungen, ohne sie anzuwenden.") }} {{ t("Die aktuelle Mojang-Version wird automatisch geprüft; ein bereits passender Download wird sicher wiederverwendet.") }}</p>
+                            <p class="hint-text">{{ t("Der Dry-Run zeigt geplante Änderungen, ohne sie anzuwenden.") }}</p>
 
-                            <div class="update-db-output-wrapper">
+                            <div class="update-db-output-wrapper" hidden>
                                 <div class="update-db-output-header">
-                                    <span>{{ t("Ausgabe") }}</span>
+                                    <strong>{{ t("Ergebnis") }}</strong>
                                     <button id="btnClearUpdateOutput" class="btn-text">{{ t("Leeren") }}</button>
                                 </div>
+                                <div id="updateDbResult" role="status" aria-live="polite"></div>
+                                <details id="updateDbDetails" class="tool-details"><summary>{{ t("Details anzeigen") }}</summary>
+                                <div id="updateDbAudit"></div>
                                 <pre id="updateDbOutput" class="update-db-output">{{ t("Noch kein Update ausgeführt.") }}</pre>
+                                </details>
                             </div>
                         </div>
                     </div>
@@ -1314,6 +1292,81 @@
         </div>
     </div>
 
+    <div id="playerTransferDialog" class="modal-overlay player-tool-overlay" style="display:none;" aria-hidden="true">
+        <section class="modal-box player-tool-dialog state-transfer-panel" role="dialog" aria-modal="true" aria-labelledby="playerTransferTitle">
+            <div class="player-tool-heading"><h2 id="playerTransferTitle">{{ t("Spieler übertragen") }}</h2><button type="button" class="btn btn-secondary btn-sm" data-close-player-tool>{{ t("Schließen") }}</button></div>
+
+            <div class="player-tool-body">
+                        <div class="transfer-heading">
+                            <p>{{ t("Überträgt den Spielstand zwischen einem vorhandenen lokalen Spieler und einem vorhandenen Multiplayer-Spieler. Der Multiplayer-Spieler muss die Welt vorher einmal betreten haben. Zielidentität und Quelldatensatz bleiben erhalten.") }}</p>
+                        </div>
+                        <div class="field-group">
+                            <label for="stateTransferSourcePlayerSelect">{{ t("Quelle") }}</label>
+                            <select id="stateTransferSourcePlayerSelect" class="select-field"></select>
+                        </div>
+                        <div class="field-group">
+                            <label for="stateTransferTargetPlayerSelect">{{ t("Ziel") }}</label>
+                            <select id="stateTransferTargetPlayerSelect" class="select-field"></select>
+                        </div>
+                        <p class="hint-text">{{ t("Fehlt der lokale Spieler, öffne ausschließlich eine Weltkopie einmal lokal in Minecraft und lade sie danach im Editor neu.") }}</p>
+                        <div class="inline-actions">
+                            <button id="btnSwapStateTransfer" class="btn btn-secondary btn-sm" type="button">{{ t("Richtung tauschen") }}</button>
+                            <button id="btnPreviewStateTransfer" class="btn btn-secondary btn-sm" type="button">{{ t("Migration prüfen") }}</button>
+                        </div>
+                        <div id="stateTransferPreview" class="state-transfer-preview" style="display:none;" aria-live="polite"></div>
+                        <button id="btnOpenStateTransferDetails"
+                                class="btn-text state-transfer-details-trigger"
+                                type="button"
+                                style="display:none;"
+                                aria-haspopup="dialog"
+                                aria-expanded="false"
+                                aria-controls="stateTransferDetailsOverlay">{{ t("Technische Details anzeigen") }}</button>
+                        <button id="btnApplyStateTransfer" class="btn btn-primary full-width" type="button" disabled>{{ t("Migration speichern") }}</button>
+                        <p class="hint-text">{{ t("Vor dem Schreiben wird ein geprüftes Backup erstellt. Bei fehlgeschlagener Nachvalidierung stellt der Editor den vorherigen Zielzustand wieder her.") }}</p>
+                    </div>
+        </section>
+    </div>
+    <div id="playerExportDialog" class="modal-overlay player-tool-overlay" style="display:none;" aria-hidden="true">
+        <section class="modal-box player-tool-dialog export-panel" role="dialog" aria-modal="true" aria-labelledby="playerExportTitle">
+            <div class="player-tool-heading"><h2 id="playerExportTitle">{{ t("Spieler exportieren") }}</h2><button type="button" class="btn btn-secondary btn-sm" data-close-player-tool>{{ t("Schließen") }}</button></div>
+            <p class="player-tool-context"><span>{{ t("Ausgewählter Spieler") }}</span> <strong data-player-tool-context></strong></p>
+            <div class="player-tool-body">
+                        <div class="transfer-heading">
+                            <p>{{ t("Speichert den ausgewählten Player als") }} <code>.mcbe-player.zip</code>{{ t(". Der Export enthält den kompletten Player-NBT-Datensatz.") }}</p>
+                        </div>
+                        <div class="transfer-actions">
+                            <button id="btnExportPlayer" class="btn btn-secondary" disabled>{{ t("Ausgewählten Spieler exportieren") }}</button>
+                            <button id="btnOpenPlayerExportFolder" class="btn btn-secondary" disabled>{{ t("Exportordner öffnen") }}</button>
+                        </div>
+                    </div>
+        </section>
+    </div>
+    <div id="playerImportDialog" class="modal-overlay player-tool-overlay" style="display:none;" aria-hidden="true">
+        <section class="modal-box player-tool-dialog import-panel" role="dialog" aria-modal="true" aria-labelledby="playerImportTitle">
+            <div class="player-tool-heading"><h2 id="playerImportTitle">{{ t("Spieler importieren") }}</h2><button type="button" class="btn btn-secondary btn-sm" data-close-player-tool>{{ t("Schließen") }}</button></div>
+            <p class="player-tool-context"><span>{{ t("Ausgewählter Spieler") }}</span> <strong data-player-tool-context></strong></p>
+            <div class="player-tool-body">
+                        <div class="transfer-heading">
+                            <p>{{ t("Schreibt den vollständigen Player-Datensatz direkt in die gewählte Welt. Vorher wird ein geprüftes Backup erstellt; Schreibfehler werden auf Datensatzebene zurückgerollt.") }}</p>
+                        </div>
+                        <div class="field-group">
+                            <label for="playerImportPath">{{ t("Import-Datei (.mcbe-player.zip)") }}</label>
+                            <div class="path-input-group compact">
+                                <input type="text" id="playerImportPath" placeholder="{{ t('Pfad zur exportierten .mcbe-player.zip') }}" />
+                                <button id="btnBrowsePlayerExport" class="btn btn-secondary">{{ t("Datei auswählen") }}</button>
+                            </div>
+                        </div>
+                        <label class="check-row small">
+                            <input type="checkbox" id="playerImportAsExportedKey" />
+                            {{ t("Exportierten Spieler-Key als neuen Datensatz anlegen, falls er in der Zielwelt noch nicht existiert") }}
+                        </label>
+                        <p id="playerImportTargetHint" class="hint-text">{{ t("Wähle einen bearbeitbaren Zielspieler oder aktiviere den Import als exportierter Spieler.") }}</p>
+                        <div id="playerImportPreview" class="import-preview" style="display:none;"></div>
+                        <button id="btnImportPlayer" class="btn btn-primary full-width" disabled>{{ t("Player importieren") }}</button>
+                    </div>
+        </section>
+    </div>
+
     <!-- Player migration technical details -->
     <div id="stateTransferDetailsOverlay"
          class="modal-overlay state-transfer-details-overlay"
@@ -1425,7 +1478,7 @@
                     <ul>
                         <li>{{ t("Normale Editor-Änderungen bleiben lokal, bis du sie in der Speichern-Ansicht bestätigst. Import und Spielermigration besitzen eine eigene Bestätigung.") }}</li>
                         <li>{{ t("Normale Saves und Spielermigrationen erhalten geschützte oder unbekannte NBT-Daten. Ein vollständiger Player-Import ersetzt dagegen den gesamten Ziel-Datensatz.") }}</li>
-                        <li>{{ t("Spielermigrationen findest du direkt unter Spieler → Singleplayer ↔ Multiplayer. Sie benötigen einen vorhandenen lokalen und Multiplayer-Spieler.") }}</li>
+                        <li>{{ t("Spielermigrationen findest du direkt unter Spieler → Spieler verwalten → Übertragen. Sie benötigen einen vorhandenen lokalen und Multiplayer-Spieler.") }}</li>
                         <li>{{ t("Ist eine Aktion blockiert, findest du den Grund unter Werkzeuge → Status & Diagnose.") }}</li>
                         <li>{{ t("Schließe Minecraft oder den Bedrock-Server vor jeder Schreib- oder Wiederherstellungsaktion.") }}</li>
                     </ul>
@@ -1495,6 +1548,8 @@
     <script src="{{ url_for('static', filename='player_load_controller.js') }}"></script>
     <script src="{{ url_for('static', filename='player_load_app.js') }}"></script>
     <script src="{{ url_for('static', filename='player_tools.js') }}"></script>
+    <script src="{{ url_for('static', filename='player_tool_dialogs.js') }}"></script>
+    <script src="{{ url_for('static', filename='conversion_help.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_api.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_model_preview.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_view.js') }}"></script>

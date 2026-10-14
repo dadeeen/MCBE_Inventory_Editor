@@ -224,6 +224,7 @@
         } = elements;
         if (previewButton) previewButton.disabled = Boolean(model.savePreviewDisabled);
         if (discardButton) discardButton.disabled = Boolean(model.saveDiscardDisabled);
+        if (elements.reviewDiscardButton) elements.reviewDiscardButton.disabled = Boolean(model.saveDiscardDisabled);
         if (safeEditBanner) {
             safeEditBanner.classList.toggle("dirty", Boolean(model.safeEditDirty));
             safeEditBanner.classList.toggle("blocked", Boolean(model.safeEditBlocked));
@@ -270,6 +271,7 @@
             dirtyDiscardButton = null,
             savePreviewButton = null,
             safeEditDiscardButton = null,
+            reviewDiscardButton = null,
             safeEditBanner = null,
         } = elements;
 
@@ -372,6 +374,7 @@
             applySavePreviewTriggerModel({
                 previewButton: savePreviewButton,
                 discardButton: safeEditDiscardButton,
+                reviewDiscardButton,
                 safeEditBanner,
             }, viewModel);
         }
@@ -424,6 +427,7 @@
             dirtyDiscardButton: doc.getElementById("btnDirtyDiscardChanges"),
             savePreviewButton: doc.getElementById("btnShowSavePreview"),
             safeEditDiscardButton: doc.getElementById("btnSafeEditDiscardChanges"),
+            reviewDiscardButton: doc.getElementById("btnReviewDiscardChanges"),
             safeEditBanner: doc.getElementById("safeEditBanner"),
         };
     }

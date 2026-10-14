@@ -9,7 +9,7 @@
             return {
                 ok: true,
                 nextBackupDir: data.path || "",
-                toast: { message: t("Backupordner geöffnet."), type: "success", ms: 2500 },
+                toast: { message: t("Backupordner geöffnet."), type: "info", ms: 2500 },
             };
         }
         return {

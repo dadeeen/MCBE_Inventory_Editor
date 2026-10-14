@@ -112,7 +112,7 @@ function getWorkspaceController() {
             getEnderCollapsed: () => getInventoryViewPreferences().getEnderChestCollapsed(),
             onFavoriteSelected: world => {
                 updateSelectedWorld(world);
-                showToast(t("Favorit ausgewählt. Zum Öffnen: Ausgewählte Welt laden."), "success");
+                showToast(t("Favorit ausgewählt. Zum Öffnen: Ausgewählte Welt laden."), "info");
             },
             showToast,
             applyTheme,
@@ -719,6 +719,7 @@ const writeGateController = window.MCBEWriteStatusView.createInventoryWriteGateC
     getIsSaving: () => saveAppController?.isSaving() || false,
     getIsLoading: () => playerLoadApp?.isLoading() || false,
     updateImportControls: () => updateImportControls(),
+    onEditControlsUpdated: () => statsFormController.refreshLocationConversion(),
     updatePlayerTransferControls: () => getPlayerToolsController().updateStateTransferWriteControl(),
     renderSaveWorkflowPanel,
     updateDirtyBanner,
@@ -1374,6 +1375,7 @@ dashboardTabController.wire();
 const effectsAbilitiesController = window.MCBEEffectsLogic.createEffectsAbilitiesController({
     doc: document,
     statsFormElements,
+    onStatsApplied: () => statsFormController.resetConversion(),
     getTouchedStatsFields: () => touchedStatsFields,
     getProtectedNbt: () => protectedNbt,
     getPlayerStats: () => playerStats,
@@ -1405,7 +1407,9 @@ function protectedStatFields() {
     return effectsAbilitiesController.protectedStatFields();
 }
 function setStatsProtectionUI() {
-    return effectsAbilitiesController.setStatsProtectionUI();
+    const result = effectsAbilitiesController.setStatsProtectionUI();
+    statsFormController.refreshLocationConversion();
+    return result;
 }
 function removeProtectedStatsFromPayload(statsPayload) {
     return effectsAbilitiesController.removeProtectedStatsFromPayload(statsPayload);
@@ -1601,6 +1605,9 @@ const itemBrowserController = window.MCBEItemBrowserController.createInventoryIt
     getBlockOnlyItems: () => blockOnlyItems,
     getBlockItems: () => blockItems,
     getItemAvailability: itemAvailabilityCatalog.badgeFor,
+    getEquipmentTargets: detail => selectedEnderSlot >= 0 ? []
+        : (detail ? selectedSlots.slice(0, 1) : selectedSlots)
+            .map(slotId => ({ slotId, container: "inventory" })),
     onDetailItemChanged: resetDetailFormForNewItem,
     onDetailItemVariantSelected: selectDetailItemVariant,
     onApplyDetailItem: applyCurrentSingleSlot,

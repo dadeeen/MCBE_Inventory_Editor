@@ -17,7 +17,7 @@ def test_frontend_world_analysis_view_empty_state_html() -> None:
             const view = context.window.MCBEWorldAnalysisView;
             assert.strictEqual(
                 view.emptyWorldAnalysisHtml(),
-                '<div class="no-backups">Analyse wird nach dem Laden einer Welt angezeigt.</div>',
+                '<div class="no-backups">Diagnose wird nach dem Laden einer Welt angezeigt.</div>',
             );
             """
         )
@@ -46,6 +46,7 @@ def test_frontend_world_analysis_view_html_escapes_dynamic_values() -> None:
                 ender: { used: 0, enchantments: 0 },
                 hidden: { inventory: 0, ender_chest: 0 },
                 compat_errors: ['Fehler <&>'],
+                restrictions: ['Geschützt <&>'],
                 compat_warnings: [],
                 compat_notes: ['Notiz "A"'],
             });
@@ -54,6 +55,10 @@ def test_frontend_world_analysis_view_html_escapes_dynamic_values() -> None:
             assert.ok(html.includes("Fehler &lt;&amp;&gt;"));
             assert.ok(html.includes("Notiz &quot;A&quot;"));
             assert.ok(!html.includes("<Alex & Steve>"));
+            assert.ok(html.includes("Geschützt &lt;&amp;&gt;"));
+            assert.ok(html.indexOf("Fehler &lt;&amp;&gt;") < html.indexOf("analysis-grid"));
+            assert.ok(html.indexOf("Geschützt &lt;&amp;&gt;") < html.indexOf("analysis-grid"));
+            assert.ok(html.includes('<details class="diagnostic-details-card analysis-overview-details">'));
             """
         )
     )

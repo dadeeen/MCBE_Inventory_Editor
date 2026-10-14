@@ -71,7 +71,7 @@
                     <code>${escapeHtml(world.folder || world.path || "")}</code>
                 </span>
                 <span class="world-card-badges">
-                    <span class="world-card-action">${isSelected ? t("Ausgewählt") : t("Auswählen")}</span>
+                    ${isSelected ? `<span class="world-card-action">${t("Ausgewählt")}</span>` : ""}
                     ${hasUnsavedChanges ? `<span class="world-card-dirty">${t("Ungespeichert")}</span>` : ""}
                 </span>
             </button>`;

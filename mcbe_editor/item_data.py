@@ -12,7 +12,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from mcbe_editor.item_name_policy import SUPERSEDED_ITEM_LABELS as SUPERSEDED_ITEM_LABELS
+from mcbe_editor.item_name_policy import reviewed_item_label_repairs
 from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
+from mcbe_editor.numeric_catalog_policy import NumericCatalogConflictError, reconcile_numeric_catalog
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
 from mcbe_editor.world_locks import locked_operation
 
@@ -186,16 +189,18 @@ STACK_LIMITS: dict[str, int] = {}
 DURABILITY: dict[str, int] = {}
 # Nur Komponenten, die im Editor tatsächlich eine Entscheidung treffen:
 # ``enchantable`` bestimmt die Verzauberungs-Kompatibilität, ``wearable`` die
-# Rüstungsslots. Weitere Mojang-Komponenten werden bewusst nicht mitgeführt —
+# Rüstungsslots und ``allow_off_hand`` die Nebenhand. Weitere Komponenten werden nicht mitgeführt —
 # unbenutzte Daten mit fail-closed-Validierung können nur schaden (eine
 # unbekannte Formänderung quarantäniert die persistente DB des Nutzers).
 ITEM_COMPONENTS: dict[str, dict[str, dict[str, Any]]] = {
     "enchantable": {},
     "wearable": {},
+    "allow_off_hand": {},
 }
 ITEMS: dict[str, tuple[str, str]] = {}
 EFFECTS: dict[int, tuple[str, str, str, str]] = {}
 ENCHANTMENTS: dict[int, tuple[str, str, int, str] | tuple[str, str, int]] = {}
+ITEM_DB_CONFLICTS: dict[str, dict[str, Any]] = {}
 COMPAT_ITEM_ALIASES: dict[str, str] = {}
 BLOCK_ONLY_ITEM_IDS: frozenset[str] = frozenset()
 BLOCK_ITEM_IDS: frozenset[str] = frozenset()
@@ -228,7 +233,7 @@ def _validated_item_components(raw: Any) -> dict[str, dict[str, dict[str, Any]]]
     if not isinstance(raw, dict):
         raise ValueError("Item-DB-Abschnitt item_components muss ein Objekt sein.")
     result: dict[str, dict[str, dict[str, Any]]] = {}
-    for component_name in ("enchantable", "wearable"):
+    for component_name in ("enchantable", "wearable", "allow_off_hand"):
         component_map = raw.get(component_name, {})
         if not isinstance(component_map, dict):
             raise ValueError(f"Item-DB-Abschnitt item_components.{component_name} muss ein Objekt sein.")
@@ -247,6 +252,9 @@ def _validated_item_components(raw: Any) -> dict[str, dict[str, dict[str, Any]]]
                     known_slots.update(slots)
                 if slot not in known_slots or type(component.get("value")) is not int:
                     raise ValueError(f"Ungültige Verzauberbarkeits-Komponente: {label}")
+            elif component_name == "allow_off_hand":
+                if type(component.get("value")) is not bool:
+                    raise ValueError(f"Ungültige Nebenhand-Komponente: {label}")
             elif component_name == "wearable":
                 if str(component.get("slot", "")).strip() not in {
                     "slot.armor.body",
@@ -361,87 +369,6 @@ def resolve_item_db_json_path(path: str | os.PathLike | None = None) -> Path:
     return candidate
 
 
-# Persistente Kopien (z. B. data/item_db.json) bekommen vom Updater nur Ergänzungen,
-# nie kuratierte Korrekturen. Für Labels, die früher falsch ausgeliefert wurden und
-# nicht als Fallback (de == en) erkennbar sind, gilt: exakt bekannter Altstand ->
-# gebündeltes Label. Eigene Umbenennungen weichen vom Altstand ab und bleiben.
-SUPERSEDED_ITEM_LABELS: dict[str, tuple[str, str]] = {
-    # Der Legacy-Block minecraft:stonecutter war identisch zur funktionalen
-    # minecraft:stonecutter_block beschriftet; im Spiel ist er ohne Funktion.
-    "minecraft:stonecutter": ("Steinsäge", "Stonecutter"),
-    # Frühere Generatoren übernahmen für Varianten-IDs den ersten Schlüssel
-    # tile.<id>.<variante>.name statt tile.<id>.name oder sogar eine UI-Meldung
-    # wie tile.respawn_anchor.respawnSet.
-    "minecraft:brown_mushroom_block": ("Pilz", "Mushroom"),
-    "minecraft:carpet": ("Schwarzer Teppich", "Black Carpet"),
-    "minecraft:cobblestone_wall": ("Bemooste Bruchsteinmauer", "Mossy Cobblestone Wall"),
-    "minecraft:concrete": ("Schwarzer Beton", "Black Concrete"),
-    "minecraft:concretepowder": ("Schwarzer Trockenbeton", "Black Concrete Powder"),
-    "minecraft:disc_fragment_5": ("Schallplatte – 5", "Music Disc - 5"),
-    "minecraft:double_plant": ("Großer Farn", "Large Fern"),
-    "minecraft:double_stone_slab": ("Ziegelstufe", "Brick Slab"),
-    "minecraft:double_wooden_slab": ("Akazien-Doppelstufe", "Acacia Double Slab"),
-    "minecraft:fireworks": ("Flugdauer:", "Flight Duration:"),
-    "minecraft:fireworkscharge": ("Schwarz", "Black"),
-    "minecraft:log": ("Akazienstamm", "Acacia Log"),
-    "minecraft:monster_egg": ("Befallene Steinziegel", "Infested Stone Bricks"),
-    "minecraft:netherreactor": ("Aktiv!", "Active!"),
-    "minecraft:planks": ("Akazienbretter", "Acacia Planks"),
-    "minecraft:prismarine": ("Prismarinziegel", "Prismarine Bricks"),
-    "minecraft:quartz_block": ("Gemeißelter Quarzblock", "Chiseled Quartz Block"),
-    "minecraft:red_flower": ("Zierlauch", "Allium"),
-    "minecraft:red_sandstone": ("Gemeißelter roter Sandstein", "Chiseled Red Sandstone"),
-    "minecraft:respawn_anchor": ("Wiederbeleben-Punkt festgelegt", "Respawn point set"),
-    "minecraft:sandstone": ("Gemeißelter Sandstein", "Chiseled Sandstone"),
-    "minecraft:sapling": ("Akaziensetzling", "Acacia Sapling"),
-    "minecraft:skull": ("Spielerkopf", "Player Head"),
-    "minecraft:spawn_egg": ("Agenten-Spawn-Ei", "Agent Spawn Egg"),
-    "minecraft:stained_hardened_clay": ("Schwarze Keramik", "Black Terracotta"),
-    "minecraft:standing_banner": ("Schwarzes Banner", "Black Banner"),
-    "minecraft:stonebrick": ("Gemeißelte Steinziegel", "Chiseled Stone Bricks"),
-    "minecraft:tallgrass": ("Farn", "Fern"),
-    "minecraft:wooden_slab": ("Akazienstufe", "Acacia Slab"),
-    "minecraft:wool": ("Schwarze Wolle", "Black Wool"),
-    # Die Variante item.banner_pattern.bricks und die Tooltip-Zeile
-    # item.smithing_template.applies_to statt des Basisnamens <id>.name.
-    "minecraft:banner_pattern": ("Gemauertes Feld", "Field Masoned"),
-    "minecraft:smithing_template": ("Gilt für:", "Applies to:"),
-    # Namen, die nicht Mojangs aktueller Bedrock-Übersetzung entsprachen
-    # (z. B. Brustplatte statt Harnisch, Umbenennung in bedrock-samples 1.26.50).
-    "minecraft:carrot_on_a_stick": ("Karottenrute", "Carrot on a Stick"),
-    "minecraft:chainmail_boots": ("Kettenstiefel", "Chainmail Boots"),
-    "minecraft:chainmail_chestplate": ("Kettenhemd", "Chainmail Chestplate"),
-    "minecraft:chainmail_helmet": ("Kettenhaube", "Chainmail Helmet"),
-    "minecraft:chainmail_leggings": ("Kettenhose", "Chainmail Leggings"),
-    "minecraft:coal_block": ("Kohleblock", "Coal Block"),
-    "minecraft:cod": ("Roher Kabeljau", "Cod"),
-    "minecraft:comparator": ("Redstone-Komparator", "Redstone Comparator"),
-    "minecraft:cooked_beef": ("Gebratenes Rindfleisch", "Cooked Beef"),
-    "minecraft:diamond_block": ("Diamantblock", "Diamond Block"),
-    "minecraft:diamond_chestplate": ("Diamantbrustplatte", "Diamond Chestplate"),
-    "minecraft:diamond_leggings": ("Diamantbeinschienen", "Diamond Leggings"),
-    "minecraft:emerald_block": ("Smaragdblock", "Emerald Block"),
-    "minecraft:ender_eye": ("Enderauge", "Ender Eye"),
-    "minecraft:filled_map": ("Karte", "Filled Map"),
-    "minecraft:gold_block": ("Goldblock", "Gold Block"),
-    "minecraft:golden_chestplate": ("Goldbrustplatte", "Golden Chestplate"),
-    "minecraft:golden_leggings": ("Goldbeinschienen", "Golden Leggings"),
-    "minecraft:iron_block": ("Eisenblock", "Iron Block"),
-    "minecraft:iron_chestplate": ("Eisenbrustplatte", "Iron Chestplate"),
-    "minecraft:iron_leggings": ("Eisenbeinschienen", "Iron Leggings"),
-    "minecraft:lapis_block": ("Lapislazuliblock", "Lapis Lazuli Block"),
-    "minecraft:mutton": ("Rohes Hammelfleisch", "Mutton"),
-    "minecraft:netherite_block": ("Netheritblock", "Netherite Block"),
-    "minecraft:netherite_chestplate": ("Netheritbrustplatte", "Netherite Chestplate"),
-    "minecraft:netherite_leggings": ("Netheritbeinschienen", "Netherite Leggings"),
-    "minecraft:oak_planks": ("Eichenholzbretter", "Oak Planks"),
-    "minecraft:poplar_standing_sign": ("Pappelschild", "Poplar Standing Sign"),
-    "minecraft:redstone": ("Redstone-Staub", "Redstone"),
-    "minecraft:redstone_block": ("Redstone-Block", "Redstone Block"),
-    "minecraft:warped_fungus_on_a_stick": ("Wirrpilzrute", "Warped Fungus on a Stick"),
-}
-
-
 def _looks_like_fallback_pair(pair: tuple[str, str]) -> bool:
     de, en = (str(pair[0] or "").strip(), str(pair[1] or "").strip())
     return not de or de == en
@@ -454,10 +381,9 @@ def _apply_bundled_curation(
 ) -> None:
     """Übernimmt kuratierte Korrekturen der gebündelten Item-DB in eine geladene Kopie.
 
-    Der Updater ergänzt persistente Kopien nur (merge), entfernt aber nie Einträge
-    und überschreibt keine Aliasse. Pseudo-IDs wie minecraft:glazedterracottablack
-    (Lokalisierungsschlüssel, keine gültigen Bedrock-Item-IDs) blieben dadurch in
-    Bestandsinstallationen dauerhaft im Katalog. Beim Laden gilt deshalb:
+    Ältere persistente Kopien können Pseudo-IDs wie minecraft:glazedterracottablack
+    (Lokalisierungsschlüssel, keine gültigen Bedrock-Item-IDs) enthalten.
+    Beim Laden gilt deshalb:
     gebündelte Aliasse gewinnen, wegkuratierte Items werden ausgeblendet,
     fehlende gebündelte Items ergänzt und Fallback-Labels (de == en) sowie
     exakt bekannte Fehl-Labels durch gebündelte Übersetzungen ersetzt.
@@ -498,31 +424,15 @@ def _apply_bundled_curation(
         current = items.get(item_id)
         if current is None or (_looks_like_fallback_pair(current) and not _looks_like_fallback_pair(bundled_pair)):
             items[item_id] = bundled_pair
-    for item_id, superseded_pair in SUPERSEDED_ITEM_LABELS.items():
-        bundled_pair = bundled_items.get(item_id)
-        if bundled_pair is not None and items.get(item_id) == superseded_pair:
-            items[item_id] = bundled_pair
-    effects: dict[int, tuple[str, str, str, str]] = db["EFFECTS"]
-    current_effects_by_name = {str(values[1] or "").strip().casefold(): values for values in effects.values()}
-    bundled_effect_names = {str(values[1] or "").strip().casefold(): effect_id for effect_id, values in bundled_effects.items()}
-    for effect_id, values in list(effects.items()):
-        reviewed_id = bundled_effect_names.get(str(values[1] or "").strip().casefold())
-        if reviewed_id is not None and reviewed_id != effect_id:
-            del effects[effect_id]
-    for effect_id, bundled_effect in bundled_effects.items():
-        name = str(bundled_effect[1] or "").strip().casefold()
-        current = current_effects_by_name.get(name) or effects.get(effect_id)
-        effects[effect_id] = (*current[:2], *bundled_effect[2:]) if current else bundled_effect
-    enchantments: dict[int, tuple[str, str, int, str] | tuple[str, str, int]] = db["ENCHANTMENTS"]
-    current_enchantments_by_name = {str(values[1] or "").strip().casefold(): values for values in enchantments.values()}
-    bundled_enchantment_names = {str(values[1] or "").strip().casefold(): enchantment_id for enchantment_id, values in bundled_enchantments.items()}
-    for enchantment_id, values in list(enchantments.items()):
-        reviewed_id = bundled_enchantment_names.get(str(values[1] or "").strip().casefold())
-        if reviewed_id is not None and reviewed_id != enchantment_id:
-            del enchantments[enchantment_id]
-    for enchantment_id, bundled_values in bundled_enchantments.items():
-        name = str(bundled_values[1] or "").strip().casefold()
-        enchantments[enchantment_id] = current_enchantments_by_name.get(name, bundled_values)
+    items.update(reviewed_item_label_repairs(items, bundled_items))
+    for section, reviewed in (("effects", bundled_effects), ("enchantments", bundled_enchantments)):
+        try:
+            db[section.upper()] = reconcile_numeric_catalog(db[section.upper()], reviewed, kind=section)
+        except NumericCatalogConflictError as exc:
+            # Keep the original section and file intact. A semantic conflict
+            # must not invoke whole-file corruption recovery or block its peers.
+            db["ITEM_DB_CONFLICTS"][section] = exc.details()
+            LOGGER.warning("Item-DB-Bereich %s gesperrt: %s IDs: %s", section, exc, exc.ids)
     persistent_behavior_source = db["BEHAVIOR_ITEM_SOURCE"]
     persistent_release = _release_version_key(persistent_behavior_source["resource_pack_release"])
     bundled_release = _release_version_key(bundled_behavior_source["resource_pack_release"])
@@ -555,7 +465,7 @@ def _apply_bundled_curation(
                 **db["ITEM_COMPONENTS"].get(component, {}),
                 **bundled_item_components.get(component, {}),
             }
-            for component in ("enchantable", "wearable")
+            for component in ("enchantable", "wearable", "allow_off_hand")
         }
         db["BEHAVIOR_ITEM_SOURCE"] = bundled_behavior_source
     db["BLOCK_ONLY_ITEM_IDS"] = frozenset(db["BLOCK_ONLY_ITEM_IDS"] | bundled_block_only)
@@ -619,6 +529,7 @@ def _load_item_database_file(item_db_path: Path) -> dict[str, Any]:
             "UNREVIEWED_ITEM_IDS": frozenset(),
             "EFFECTS": _int_keyed_dict(raw.get("effects", {}), _as_effect),
             "ENCHANTMENTS": _int_keyed_dict(raw.get("enchantments", {}), _as_enchantment),
+            "ITEM_DB_CONFLICTS": {},
             "SOURCE_PATH": str(item_db_path),
             "SCHEMA_VERSION": int(raw.get("schema_version", 1)),
         }
@@ -697,8 +608,12 @@ def database_as_module_globals(path: str | os.PathLike | None = None) -> dict[st
         "DURABILITY": db["DURABILITY"],
         "ITEM_COMPONENTS": db["ITEM_COMPONENTS"],
         "ITEMS": db["ITEMS"],
-        "EFFECTS": db["EFFECTS"],
-        "ENCHANTMENTS": db["ENCHANTMENTS"],
+        # Only unambiguous identities are editable. Empty lookup maps engage
+        # the existing lossless unknown-NBT protection in readers and writers;
+        # the original sections remain in the persistent database untouched.
+        "EFFECTS": {} if "effects" in db["ITEM_DB_CONFLICTS"] else db["EFFECTS"],
+        "ENCHANTMENTS": {} if "enchantments" in db["ITEM_DB_CONFLICTS"] else db["ENCHANTMENTS"],
+        "ITEM_DB_CONFLICTS": db["ITEM_DB_CONFLICTS"],
         "COMPAT_ITEM_ALIASES": db["COMPAT_ITEM_ALIASES"],
         "BLOCK_ONLY_ITEM_IDS": db["BLOCK_ONLY_ITEM_IDS"],
         "BLOCK_ITEM_IDS": db["BLOCK_ITEM_IDS"],

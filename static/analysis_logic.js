@@ -134,7 +134,7 @@
         function playerLoadStatusMessage() {
             const summary = compatibilitySummaryText();
             if (!summary) return t("{player} geladen", { player: currentPlayerLabel() });
-            return t("{player} geladen. {summary}. Details unter Spieler > Analyse.", { player: currentPlayerLabel(), summary });
+            return t("{player} geladen. {summary}. Details unter Spieler > Diagnose.", { player: currentPlayerLabel(), summary });
         }
 
         function buildInventorySummary() {
@@ -184,6 +184,7 @@
                 inventory: getInventoryStatsForMap(getInventory()),
                 ender: getInventoryStatsForMap(getEnderChestInventory()),
                 hidden: getHiddenUnknownSlots() || {},
+                restrictions: [...new Set(currentLoadProtectionMessages().filter(message => !compatWarnings.includes(message) && !compatErrors.includes(message)))],
                 compat_warnings: compatWarnings,
                 compat_notes: currentCompatibilityNotes(),
                 compat_errors: compatErrors,
@@ -194,7 +195,7 @@
         function worldAnalysisText() {
             const a = buildWorldAnalysis();
             const lines = [
-                t("MCBE Inventory Editor - Weltanalyse"),
+                t("MCBE Inventory Editor - Spielerdiagnose"),
                 `Version: ${appConfig?.distribution?.project_version || "dev"}`,
                 t("Modus: {mode}", { mode: appConfig?.mode || t("unbekannt") }),
                 t("Welt: {world}", { world: a.world }),
@@ -207,6 +208,7 @@
             ];
             if (a.compat_errors.length) lines.push(t("Blockierende Kompatibilitätsfehler: {list}", { list: a.compat_errors.join(" | ") }));
             if (a.compat_warnings.length) lines.push(t("Kompatibilitätswarnungen: {list}", { list: a.compat_warnings.join(" | ") }));
+            if (a.restrictions.length) lines.push(t("Einschränkungen beim Bearbeiten: {list}", { list: a.restrictions.join(" | ") }));
             if (a.compat_notes.length) lines.push(t("Erhaltene Zusatzdaten: {list}", { list: a.compat_notes.join(" | ") }));
             return lines.join("\n");
         }
