@@ -2,10 +2,11 @@ Runtime package for the Minecraft Bedrock Inventory Editor.
 
 ## What changed in v0.7.2
 
+- **Visual refresh:** Reworked Classic, Studio and Focus layouts with clearer navigation, reorganized controls and better use of screen space. Studio keeps the inventory grid and inspector aligned on wide screens.
 - **Write-outcome safety:** Import, migration and restore keep further writes blocked after an uncertain response or an explicit reload requirement. Resetting a view or refreshing only the player list cannot release that protection; a successful player or explicit world load can.
 - **Restore refresh and context changes:** A completed restore with a failed follow-up reload remains protected. Switching players in the same restored world preserves the newer view but requires reloading it before further writes; switching to another world leaves that world untouched.
 - **Confirmation lifecycle:** Unknown-server confirmation is limited to the current operation and its matching presence-conflict retry. A possibly completed write or a response requiring reload must not trigger another automatic attempt.
-- **Editor workflows:** Refined Classic, Studio and Focus layouts, contextual controls, effect editing, equipment handling and feedback for updates and file operations. Studio keeps the inventory grid and inspector aligned on wide screens.
+- **Editor workflows:** Improved effect editing, equipment handling and feedback for updates and file operations.
 - **Catalog validation:** Item updates report changes and validation results, including localized names, stack limits and durability. Conflicting effect or enchantment identities block the affected editor section while preserving existing player data.
 - **Runtime and input handling:** Explicit session secrets take precedence over saved setup state. Log access requires authentication for Docker and LAN exposure. Malformed redirects, guard tokens, setup values and player archives produce controlled failures.
 - **Backups and desktop paths:** Backups accept filesystem dates outside the ZIP timestamp range. Folder dialogs and updater output preserve Unicode text, and updater subprocesses resolve data paths before changing directories. The NBT inspector preserves large integers and non-finite values in its display.
