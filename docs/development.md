@@ -46,8 +46,10 @@ pinned Python 3.12 base image. Python 3.15 is not enabled implicitly.
 The project-owned NBT codec and Bedrock LevelDB reader/writer use only the standard
 library. Runtime and ordinary dev installs contain no Amulet, NumPy or Cython.
 A separate Windows Python 3.12 CI job installs `requirements/leveldb-reference.lock`
-and `requirements/nbt-reference.lock` from published wheels and runs the full suite
-with `--require-references`. Missing or unloadable references fail that job before
+and `requirements/nbt-reference.lock` from published wheels into an isolated virtual
+environment and runs the full suite with `--require-references`. Lockfile and
+dependency audits use that same environment, excluding packages preinstalled on
+the runner. Missing or unloadable references fail that job before
 optional tests can silently skip. The reference engine has no Linux wheels, so a
 macOS Python 3.12 job runs the LevelDB suites against it to cover the POSIX `fcntl`
 lock and recovery. Release packaging and Docker publication depend on both jobs as
