@@ -92,6 +92,8 @@ Local and release environments use hash-pinned dependencies for Python 3.12–3.
 
 Runtime ZIPs contain the Python NBT and Bedrock LevelDB implementations without Amulet libraries or bundled LevelDB wheels. Windows setup and Docker install only hash-checked prebuilt dependencies. CI checks fresh environments without native reference libraries and separately runs the independent Amulet comparisons. Also verify the published release ZIP checksum.
 
+The portable Windows ZIP bundles CPython and its dependencies. Its window uses the system WebView2 Evergreen Runtime and the same loopback HTTP API and write guards. Browser/Docker dependencies exclude the desktop host. Desktop build dependencies have a separate audited hash lock; the build explicitly permits the small pure-Python `proxy-tools` source archive in a locked build environment. The application installs no dependencies on the user's machine. Keep `data`, including the WebView profile and desktop log, private and outside release archives.
+
 For a full local security check. Run `setup.bat` once first if `.venv` does not exist yet; it creates the environment on Python 3.12–3.14. The commands call that interpreter directly, because a global one would install the development dependencies system-wide:
 
 ```bash

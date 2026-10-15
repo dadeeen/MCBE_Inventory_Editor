@@ -789,6 +789,15 @@ const dirtyStateController = window.MCBEWorkflowState.createDirtyStateController
 });
 function setDirty(dirty) { return dirtyStateController.setDirty(dirty); }
 
+// Read-only contract for the desktop close guard; the browser uses beforeunload.
+window.MCBEDesktop = Object.freeze({
+    closeState: () => ({
+        dirty: isDirty,
+        title: t("Ungespeicherte Änderungen"),
+        message: t("Ungespeicherte Änderungen verwerfen und den Editor schließen?"),
+    }),
+});
+
 function currentPlayerLabel() {
     return currentPlayer ? currentPlayer.label : t("Spieler");
 }

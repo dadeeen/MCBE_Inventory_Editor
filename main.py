@@ -2253,9 +2253,30 @@ def open_browser_when_ready(host: str, port: int) -> None:
         LOGGER.warning("browser auto-open failed url=%s error=%s", browser_url, exc)
 
 
-if __name__ == "__main__":
+def create_local_server(host: str, port: int, *, debug: bool = False):
+    """Prepare the shared loopback/browser server without owning its UI loop."""
+    global RUNTIME_BIND_HOST, RUNTIME_BIND_PORT, _SERVER, LAST_HEARTBEAT
     from mcbe_editor.local_server import LocalServer
 
+    validate_startup_security(host)
+    app.debug = debug
+    if debug:
+        LOGGER.warning("Flask debug mode enabled; Waitress does not run an interactive debugger or reloader")
+    server = LocalServer(app, host, port)
+    RUNTIME_BIND_HOST = host
+    RUNTIME_BIND_PORT = server.port
+    server_url = f"http://{_host_for_origin(host)}:{server.port}"
+    ALLOWED_ORIGINS.add(server_url)
+    ALLOWED_ORIGINS.add(f"http://localhost:{server.port}")
+    _SERVER = server
+    LAST_HEARTBEAT = _heartbeat_now()
+    log_startup_security_report(host, server.port)
+    start_background_tasks()
+    LOGGER.info("local server ready server=waitress url=%s", server_url)
+    return server
+
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MCBE Inventory Editor")
     parser.add_argument("--host", default=APP_CONFIG.host, help=f"Host (default: {APP_CONFIG.host})")
     parser.add_argument("--port", type=int, default=APP_CONFIG.port, help=f"Port (default: {APP_CONFIG.port})")
@@ -2268,36 +2289,21 @@ if __name__ == "__main__":
     if not HOST:
         parser.error("--host must not be empty")
     PORT = args.port
-    RUNTIME_BIND_HOST = HOST
-    RUNTIME_BIND_PORT = PORT
-
     try:
-        validate_startup_security(HOST)
+        _SERVER = create_local_server(HOST, PORT, debug=bool(args.debug))
     except RuntimeError as exc:
         LOGGER.error("Startup blocked: %s", exc)
         print(f"  Error: {exc}")
         sys.exit(1)
 
-    # Dynamically add origin for the actual host:port so ALLOWED_ORIGINS stays in sync
-    server_url = f"http://{_host_for_origin(HOST)}:{PORT}"
-    ALLOWED_ORIGINS.add(server_url)
-    ALLOWED_ORIGINS.add(f"http://localhost:{PORT}")
-
-    log_startup_security_report(HOST, PORT)
-    start_background_tasks()
-
-    try:
-        app.debug = bool(args.debug)
-        if args.debug:
-            LOGGER.warning("Flask debug mode enabled; Waitress does not run an interactive debugger or reloader")
-        _SERVER = LocalServer(app, HOST, PORT)
     except OSError as e:
         LOGGER.error("Port %s is already in use: %s", PORT, e.strerror)
         print(f"  Error: port {PORT} is already in use ({e.strerror}).")
         print(f"  Use another port: python main.py --port {PORT + 1}")
         sys.exit(1)
 
-    LOGGER.info("local server ready server=waitress url=%s", server_url)
+    PORT = _SERVER.port
+    server_url = f"http://{_host_for_origin(HOST)}:{PORT}"
     print(f"  MCBE Inventory Editor — {server_url}")
     print("  Press Ctrl+C to stop")
     print()

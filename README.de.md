@@ -32,6 +32,8 @@ Konfiguriere Pferde, Esel, Maultiere, Kamele und Skelettpferde mit einer drehbar
 
 ## Download → Backup → Start
 
+Für Windows gibt es außerdem die [portable Desktop-Ausgabe](#portable-windows-app). Die folgenden Schritte gelten für das Runtime-ZIP mit Browserstart.
+
 1. Öffne [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
 2. Lade die Datei mit der Endung `_runtime.zip` und die zugehörige `.sha256`-Datei herunter. Die automatisch erzeugten **Source code**-Archive sind Repository-Schnappschüsse und keine startfertigen Pakete.
 3. Prüfe bei Bedarf die Prüfsumme:
@@ -80,6 +82,18 @@ Standard-Icons oder Ersatzsymbolen. Eigene Blockmodelle, dynamische Darstellung 
 globale Pack-Einstellungen des Minecraft-Clients sind nicht abgedeckt. Der Read-only-Modus
 verwendet zuvor vorbereitete Indizes. Die [Icon-Auflösung](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md)
 beschreibt unterstützte Formate, Prioritäten und Cache-Verhalten.
+
+## Portable Windows-App
+
+Entpacke das **gesamte** Release-Archiv mit der Endung `_windows_x64.zip` in einen beschreibbaren Ordner und starte `MCBEInventoryEditor.exe` per Doppelklick. Python, Node.js, BAT-Dateien und Administratorrechte sind dafür nicht erforderlich. Die EXE und der mitgelieferte Ordner `_internal` gehören zusammen.
+
+Das eigene Fenster verwendet dieselbe Oberfläche und dieselben Speicherdienste wie Browser und Docker. Es benötigt **Microsoft Edge WebView2 Runtime**, die auf Windows 11 normalerweise vorhanden ist. Fehlt sie, installiere die [offizielle Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). Die EXE installiert keine Systemkomponenten selbst. Zielplattform ist Windows x64; der Build enthält CPython 3.12.
+
+Einstellungen, Icons, Backups und Fensterprofil liegen im beim Start angelegten Ordner `data` neben der EXE. Der lokale Dienst bindet ausschließlich an `127.0.0.1`, standardmäßig Port `5001`; der Browserstart verwendet weiterhin Port `5000`. Pro Datenordner läuft ein Desktop-Fenster. Beim Schließen werden ungespeicherte Änderungen abgefragt und laufende Schreibvorgänge abgeschlossen. Startfehler stehen in `data/desktop.log`.
+
+Für ein Update den Editor schließen. Das Installationsverzeichnis kann bleiben: Ersetze die EXE, den **gesamten** Ordner `_internal` und die übrigen Paketdateien einschließlich `RELEASE_MANIFEST.json` durch die zusammengehörige neue Version; behalte dabei `data`. Nur die EXE auszutauschen reicht nicht; entferne den alten Ordner `_internal`, bevor du den neuen hineinkopierst. Alternativ kannst du das Archiv in einen neuen Ordner entpacken und `data` hineinkopieren, damit die alte Installation erhalten bleibt, bis die neue geprüft ist.
+
+Der erste Item-DB-/Icon-Download und die Regeln zum Beenden und Sichern der Welt gelten auch hier. Browserinstallation und Docker benötigen keine Desktop-Abhängigkeiten. Der [Desktop-Build](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/desktop.md) beschreibt Architektur, Prüfungen und Pflege.
 
 ## Lokaler Windows-Start
 

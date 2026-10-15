@@ -4,6 +4,12 @@ The editor supports Python 3.12–3.14. Shared locks are generated on Python 3.1
 
 - `runtime.in` contains the direct runtime dependencies and matches `pyproject.toml`.
 - `docker.in` and `dev.in` extend runtime for Docker and development/CI.
+- `desktop-build.in` extends runtime for the Windows EXE build. It is separate
+  from browser/Docker installations and constrained by the existing runtime/dev
+  pins. Use `--include-desktop` with the compile/check commands on Windows Python
+  3.12. The [desktop build](../docs/desktop.md) uses an isolated environment and
+  documents the explicit hash-pinned pure-Python `proxy-tools` source-build
+  exception; all other desktop dependencies use wheels.
 - `bootstrap.in` pins pip for reproducible setup, CI and offline Docker installation.
 - `leveldb-reference.in` and `nbt-reference.in` contain independent test oracles.
   They are excluded from runtime and ordinary dev installs. A required Windows

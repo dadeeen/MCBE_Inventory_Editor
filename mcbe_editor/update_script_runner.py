@@ -16,6 +16,14 @@ from mcbe_editor.update_progress import PROGRESS_ENV, write_progress
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
+def _run_update(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+    if getattr(sys, "frozen", False):
+        from mcbe_editor.desktop_worker import run_frozen_update
+
+        return run_frozen_update(cmd[2], cmd[3:], cwd=kwargs["cwd"], env=kwargs["env"], timeout=kwargs["timeout"])
+    return subprocess.run(cmd, **kwargs)
+
+
 def strip_terminal_formatting(output: str) -> str:
     """Remove terminal-only ANSI control sequences from captured web output."""
     return _ANSI_ESCAPE_RE.sub("", str(output or "")).replace("\r\n", "\n").replace("\r", "\n")
@@ -93,7 +101,7 @@ def run_update_db(
         }
     )
 
-    proc = subprocess.run(
+    proc = _run_update(
         cmd,
         cwd=str(app_root),
         env=env,
@@ -152,7 +160,7 @@ def run_update_icons(
         }
     )
 
-    proc = subprocess.run(
+    proc = _run_update(
         cmd,
         cwd=str(app_root),
         env=env,

@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS_DIR = ROOT / "requirements"
-LOCKFILES = ["bootstrap.txt", "runtime.txt", "docker.txt", "dev.txt", "leveldb-reference.txt", "nbt-reference.txt"]
+LOCKFILES = ["bootstrap.txt", "runtime.txt", "docker.txt", "dev.txt", "leveldb-reference.txt", "nbt-reference.txt", "desktop-build.txt"]
 COMPATIBILITY_LOCKFILES = {
     "bootstrap.lock": "bootstrap.txt",
     "runtime.lock": "runtime.txt",
@@ -14,6 +14,7 @@ COMPATIBILITY_LOCKFILES = {
     "dev.lock": "dev.txt",
     "nbt-reference.lock": "nbt-reference.txt",
     "leveldb-reference.lock": "leveldb-reference.txt",
+    "desktop-build.lock": "desktop-build.txt",
 }
 HASH_RE = re.compile(r"--hash=sha256:[0-9a-f]{64}")
 WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"[A-Za-z]:\\")

@@ -3031,5 +3031,15 @@
   "Katalogbereich gesperrt": "Catalog section locked",
   "{section}: {reason} Betroffene IDs: {ids}. Bearbeitung gesperrt; vorhandene Daten bleiben erhalten.": "{section}: {reason} Affected IDs: {ids}. Editing is locked; existing data is preserved.",
   "Der Ausgang des Imports ist unklar. Nicht erneut importieren; Welt neu laden und Backups prüfen.": "The import outcome is unclear. Do not import again; reload the world and check the backups.",
-  "Der Ausgang der Migration ist unklar. Nicht erneut migrieren; Welt neu laden und Backups prüfen.": "The migration outcome is unclear. Do not migrate again; reload the world and check the backups."
+  "Der Ausgang der Migration ist unklar. Nicht erneut migrieren; Welt neu laden und Backups prüfen.": "The migration outcome is unclear. Do not migrate again; reload the world and check the backups.",
+  "Ungespeicherte Änderungen verwerfen und den Editor schließen?": "Discard unsaved changes and close the editor?",
+  "Der Editor ist für diesen Datenordner bereits geöffnet.": "The editor is already open for this data directory.",
+  "Laufender Vorgang wird abgeschlossen …": "Finishing the current operation …",
+  "Editor schließen": "Close editor",
+  "Der Bearbeitungsstand kann nicht geprüft werden. Editor trotzdem schließen?": "The editing state could not be checked. Close the editor anyway?",
+  "Der Editor konnte nicht gestartet werden: {error}": "The editor could not be started: {error}",
+  "Details stehen in {path}.": "See {path} for details.",
+  "Spieler-Export (*.mcbe-player.zip;*.zip)": "Player export (*.mcbe-player.zip;*.zip)",
+  "Bedrock-Ressourcenpaket (*.mcpack;*.zip)": "Bedrock resource pack (*.mcpack;*.zip)",
+  "Microsoft Edge WebView2 Runtime fehlt. Installiere die Runtime von https://go.microsoft.com/fwlink/p/?LinkId=2124703.": "Microsoft Edge WebView2 Runtime is missing. Install the Runtime from https://go.microsoft.com/fwlink/p/?LinkId=2124703."
 }

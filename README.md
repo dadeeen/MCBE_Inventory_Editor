@@ -32,6 +32,8 @@ Configure horses, donkeys, mules, camels and skeleton horses with a rotatable **
 
 ## Download → backup → start
 
+Windows also has a [portable desktop edition](#portable-windows-app). The following steps apply to the browser-based runtime ZIP.
+
 1. Open [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
 2. Download the asset ending in `_runtime.zip` and its `.sha256` file. The automatically generated **Source code** archives are repository snapshots, not ready-to-run packages.
 3. Verify the checksum if desired:
@@ -79,6 +81,18 @@ or placeholders. Custom block models, dynamic rendering and the Minecraft
 client's global pack settings are outside this support. Read-only mode uses
 previously prepared indexes. See [icon resolution](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md) for
 the supported formats, priorities and cache behavior.
+
+## Portable Windows app
+
+Extract the **entire** release archive ending in `_windows_x64.zip` into a writable directory and double-click `MCBEInventoryEditor.exe`. Python, Node.js, BAT files and administrator privileges are not required. Keep the EXE and its accompanying `_internal` folder together.
+
+The window uses the same interface and storage services as the browser and Docker editions. It requires **Microsoft Edge WebView2 Runtime**, normally present on Windows 11. If it is missing, install the [official Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). The EXE does not install system components itself. The target is Windows x64; the build bundles CPython 3.12.
+
+Settings, icons, backups and the window profile live in the `data` directory created beside the EXE on first start. The local service binds exclusively to `127.0.0.1`, using port `5001` by default; browser startup keeps port `5000`. One desktop window runs per data directory. Closing checks for unsaved edits and finishes active writes. Startup errors are recorded in `data/desktop.log`.
+
+To update, close the editor. You can keep the installation directory: replace the EXE, the **entire** `_internal` directory and the remaining package files, including `RELEASE_MANIFEST.json`, with the matching new version while retaining `data`. Replacing only the EXE is insufficient; remove the old `_internal` directory before copying the new one. Alternatively, extract into a new directory and copy `data` into it to keep the old installation available until the new one is verified.
+
+The initial item-database/icon download and the requirements to stop and back up the world also apply here. Browser installation and Docker do not require desktop dependencies. The [desktop build](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/desktop.md) describes architecture, validation and maintenance.
 
 ## Local Windows setup
 

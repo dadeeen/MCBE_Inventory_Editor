@@ -1,9 +1,13 @@
 # Architecture
 
 MCBE Inventory Editor is a modular monolith. The application deliberately keeps
-one deployable Python process and a browser frontend without a build step. The
+one deployable Python process and a shared web frontend without a frontend build step. The
 goal is explicit ownership and testable boundaries, not a framework-heavy
 layer model.
+
+The optional [Windows desktop host](desktop.md) wraps the same application in a
+WebView2 window. Its isolated PyInstaller build bundles Python; browser and
+Docker deployments keep their existing entry points and dependencies.
 
 ## Backend dependency direction
 

@@ -3,12 +3,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-APP_ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
 RELEASE_MANIFEST = APP_ROOT / "RELEASE_MANIFEST.json"
 MANIFEST_FORMAT = "mcbe-inventory-editor-release-manifest"
 

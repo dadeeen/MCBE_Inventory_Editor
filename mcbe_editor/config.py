@@ -3,11 +3,12 @@ from __future__ import annotations
 import ipaddress
 import os
 import secrets
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_LOCAL_DATA_ROOT = APP_ROOT / "data"
+DEFAULT_LOCAL_DATA_ROOT = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else APP_ROOT) / "data"
 
 _TRUE_VALUES = {"1", "true", "yes", "y", "on"}
 _FALSE_VALUES = {"0", "false", "no", "n", "off"}

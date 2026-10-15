@@ -21,6 +21,7 @@ REFERENCE_LOCK_TARGETS = [
     (REQUIREMENTS_DIR / "leveldb-reference.in", REQUIREMENTS_DIR / "leveldb-reference.txt"),
     (REQUIREMENTS_DIR / "nbt-reference.in", REQUIREMENTS_DIR / "nbt-reference.txt"),
 ]
+DESKTOP_LOCK_TARGETS = [(REQUIREMENTS_DIR / "desktop-build.in", REQUIREMENTS_DIR / "desktop-build.txt")]
 
 
 def run(cmd: list[str]) -> None:
@@ -68,6 +69,7 @@ def main() -> int:
         action="store_true",
         help="Also compile the independent test oracles; requires Windows Python 3.12 with published wheels.",
     )
+    parser.add_argument("--include-desktop", action="store_true", help="Also compile the Windows desktop build lock.")
     args = parser.parse_args()
 
     if not ((3, 12) <= sys.version_info[:2] < (3, 13)):
@@ -77,7 +79,10 @@ def main() -> int:
     if args.include_references and sys.platform != "win32":
         print("ERROR: Compile reference locks on Windows Python 3.12, where the pinned oracle wheels are available.", file=sys.stderr)
         return 2
-    targets = LOCK_TARGETS + (REFERENCE_LOCK_TARGETS if args.include_references else [])
+    if args.include_desktop and sys.platform != "win32":
+        print("ERROR: Compile desktop locks on Windows Python 3.12.", file=sys.stderr)
+        return 2
+    targets = LOCK_TARGETS + (REFERENCE_LOCK_TARGETS if args.include_references else []) + (DESKTOP_LOCK_TARGETS if args.include_desktop else [])
 
     tmp_dir = ROOT / ".lockcheck" if args.check else ROOT
     if args.check:

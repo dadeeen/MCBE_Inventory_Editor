@@ -299,7 +299,7 @@ def test_ci_release_artifacts_are_revision_specific_and_tags_match_project_versi
     assert 'test "v${project_version}" = "${GITHUB_REF_NAME}"' in workflow
     assert "mcbe_inventory_editor_${GITHUB_SHA}_runtime.zip" in workflow
     assert "mcbe_inventory_editor_${{ github.sha }}_runtime.zip" in workflow
-    assert "needs: [package, docker-publish]" in workflow
+    assert "needs: [package, docker-publish, desktop]" in workflow
     assert 'gh release create "$GITHUB_REF_NAME"' in workflow
     assert 'sha256sum "$release_name"' in workflow
     assert "release_flags+=(--prerelease)" in workflow
@@ -484,9 +484,16 @@ def test_gitignore_uses_explicit_runtime_and_local_tool_patterns():
 def test_runtime_dependencies_are_hash_locked_wheels_and_offline_at_runtime():
     workflow = _read(".github/workflows/ci.yml")
     dockerfile = _read("Dockerfile")
-    for removed in ("requirements/build.lock", "--no-build-isolation", "build-essential", "zlib1g-dev", "libstdc++6"):
+    for removed in ("requirements/build.lock", "build-essential", "zlib1g-dev", "libstdc++6"):
         assert removed not in workflow
         assert removed not in dockerfile
+    assert "--no-build-isolation" not in dockerfile
+    # The desktop build explicitly permits one pinned pure-Python sdist. This
+    # exception must not weaken the ordinary browser/Docker wheel-only setup.
+    source_build_lines = [line.strip() for line in workflow.splitlines() if "--no-build-isolation" in line]
+    assert source_build_lines == [
+        "python -m pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools --no-build-isolation -r requirements/desktop-build.lock"
+    ]
     assert "pip download --no-cache-dir --only-binary=:all: --require-hashes --dest /wheelhouse/runtime" in dockerfile
     assert "pip install --no-cache-dir --no-index --only-binary=:all: --no-deps /wheelhouse/runtime/*.whl" in dockerfile
     security_check = _read("scripts/security_check.py")

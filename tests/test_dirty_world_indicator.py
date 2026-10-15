@@ -232,8 +232,12 @@ def test_app_global_dependencies_are_defined_by_preloaded_scripts() -> None:
         for namespace in re.findall(r"window\.(MCBE[A-Za-z0-9_]+)\s*=", source):
             definitions.setdefault(namespace, script)
 
-    app_uses = set(re.findall(r"window\.(MCBE[A-Za-z0-9_]+)", _read("static/app.js")))
-    missing = sorted(namespace for namespace in app_uses if namespace not in definitions)
+    app_source = _read("static/app.js")
+    app_uses = set(re.findall(r"window\.(MCBE[A-Za-z0-9_]+)", app_source))
+    # APIs exported by app.js itself (such as the desktop close state) are not
+    # dependencies on another script's load order.
+    app_exports = set(re.findall(r"window\.(MCBE[A-Za-z0-9_]+)\s*=", app_source))
+    missing = sorted(namespace for namespace in app_uses - app_exports if namespace not in definitions)
 
     assert missing == []
 

@@ -43,6 +43,11 @@ class LocalServer:
             listener.close()
             raise
 
+    @property
+    def port(self) -> int:
+        """Actual bound port, including when the OS selected port zero."""
+        return int(self._server.effective_port)
+
     def shutdown(self) -> None:
         """Request shutdown from another thread without touching its sockets."""
         self._stop.set()

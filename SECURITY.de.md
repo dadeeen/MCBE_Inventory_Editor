@@ -92,6 +92,8 @@ Lokale und Release-Umgebungen verwenden hashgebundene Abhängigkeiten für Pytho
 
 Runtime-ZIPs enthalten den Python-Code für NBT und Bedrock-LevelDB ohne Amulet-Bibliotheken oder gebündelte LevelDB-Wheels. Windows-Setup und Docker installieren ausschließlich hashgeprüfte vorgefertigte Abhängigkeiten. CI prüft frische Umgebungen ohne native Referenzbibliotheken sowie separat die unabhängigen Amulet-Vergleichstests. Prüfe zusätzlich die veröffentlichte Prüfsumme des Release-ZIPs.
 
+Das portable Windows-ZIP enthält CPython und seine Abhängigkeiten. Das Fenster verwendet die systemweite WebView2 Evergreen Runtime sowie dieselbe lokale HTTP-API und dieselben Schreibsperren. Browser und Docker benötigen keine Desktop-Abhängigkeiten. Die Desktop-Build-Abhängigkeiten besitzen ein separates, auditiertes Hash-Lockfile; der Build erlaubt ausdrücklich das kleine reine Python-Quellarchiv `proxy-tools` in einer gebundenen Build-Umgebung. Die Anwendung installiert keine Abhängigkeiten auf dem Rechner des Nutzers. Halte `data` einschließlich WebView-Profil und Desktop-Log privat und außerhalb von Release-Archiven.
+
 Vollständige lokale Sicherheitsprüfung. Führe zuerst einmal `setup.bat` aus, falls `.venv` noch nicht existiert; das erstellt die Umgebung mit Python 3.12–3.14. Die Befehle rufen diesen Interpreter direkt auf, da ein globaler die Entwicklungsabhängigkeiten systemweit installieren würde:
 
 ```bash

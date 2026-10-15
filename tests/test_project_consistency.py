@@ -16,7 +16,7 @@ def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
 
     assert "pip install --upgrade pip" not in workflow
     assert "pip install --upgrade pip" not in dockerfile
-    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 8
+    assert workflow.count("pip install --require-hashes -r requirements/bootstrap.lock") == 9
     docker_bootstrap = (
         "pip install --no-cache-dir --no-index --only-binary=:all: --find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
     )
@@ -50,6 +50,9 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "leveldb-reference.in",
         "leveldb-reference.txt",
         "leveldb-reference.lock",
+        "desktop-build.in",
+        "desktop-build.txt",
+        "desktop-build.lock",
     }
     actual = {path.name for path in (_base.ROOT / "requirements").iterdir() if path.is_file()}
 
@@ -62,7 +65,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
     runtime_dependencies = [line.strip() for line in _base._read("requirements/runtime.in").splitlines() if line.strip() and not line.lstrip().startswith("#")]
     assert runtime_dependencies == project_dependencies
 
-    for name in ("bootstrap", "runtime", "docker", "dev", "nbt-reference", "leveldb-reference"):
+    for name in ("bootstrap", "runtime", "docker", "dev", "nbt-reference", "leveldb-reference", "desktop-build"):
         assert _base._read(f"requirements/{name}.lock") == f"-r {name}.txt\n"
 
     # Dependabot cannot run pip-compile, so it can only widen version ceilings

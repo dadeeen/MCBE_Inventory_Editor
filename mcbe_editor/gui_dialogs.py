@@ -5,9 +5,18 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 
 from .i18n import t
 from .service_errors import UserFacingRuntimeError
+
+_desktop_dialog: Callable[..., str] | None = None
+
+
+def set_desktop_dialog(provider: Callable[..., str] | None) -> None:
+    """Inject the desktop window's native picker without importing a GUI runtime."""
+    global _desktop_dialog
+    _desktop_dialog = provider
 
 
 def run_gui_script(script: str, timeout: int = 60) -> str:
@@ -34,6 +43,8 @@ def run_gui_script(script: str, timeout: int = 60) -> str:
 
 
 def select_folder(initial_dir: str | None = None) -> str:
+    if _desktop_dialog is not None:
+        return _desktop_dialog(folder=True, initial_dir=initial_dir)
     # This is embedded Python source, not JSON (non-BMP escapes differ).
     initial = ascii(initial_dir or "")
     title = ascii(t('Wähle den Minecraft Welt-Ordner (der den "db" Ordner enthält)'))
@@ -53,6 +64,8 @@ def select_folder(initial_dir: str | None = None) -> str:
 
 
 def select_player_export(initial_dir: str | None = None) -> str:
+    if _desktop_dialog is not None:
+        return _desktop_dialog(folder=False, initial_dir=initial_dir, file_types=(t("Spieler-Export (*.mcbe-player.zip;*.zip)"),))
     initial = ascii(initial_dir or "")
     title = ascii(t("Wähle einen Spieler-Export"))
     all_files = ascii(t("Alle Dateien"))
@@ -75,6 +88,8 @@ def select_player_export(initial_dir: str | None = None) -> str:
 
 
 def select_icon_pack() -> str:
+    if _desktop_dialog is not None:
+        return _desktop_dialog(folder=False, file_types=(t("Bedrock-Ressourcenpaket (*.mcpack;*.zip)"),))
     title = ascii(t("Wähle Resource Pack / Icon Pack"))
     all_files = ascii(t("Alle Dateien"))
     script = (
@@ -93,6 +108,8 @@ def select_icon_pack() -> str:
 
 
 def select_icon_folder() -> str:
+    if _desktop_dialog is not None:
+        return _desktop_dialog(folder=True)
     title = ascii(t("Wähle Resource-Pack- oder Icon-Ordner"))
     script = (
         "import tkinter as tk; "
