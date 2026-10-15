@@ -35,6 +35,7 @@ class RuntimeRouteDeps:
     distribution_snapshot: Callable[[], dict]
     auth_enabled: Callable[[], bool]
     is_authenticated: Callable[[], bool]
+    wide_reachable: Callable[[], bool]
     require_world_db_access_allowed: Callable[[], Any]
     note_heartbeat: Callable[[], None]
     world_fingerprint: Callable[[str], str] = world_fingerprint
@@ -182,7 +183,7 @@ def diagnostics_status(deps: RuntimeRouteDeps):
 
 
 def recent_logs(args: Any, deps: RuntimeRouteDeps):
-    if deps.app_config.is_docker and not deps.auth_enabled():
+    if deps.wide_reachable() and not deps.auth_enabled():
         return deps.api_error("Logeinsicht ist im Docker/LAN-Modus nur mit aktivierter Auth abrufbar.", 403)
     if deps.auth_enabled() and not deps.is_authenticated():
         return deps.api_error("Nicht angemeldet.", 401)

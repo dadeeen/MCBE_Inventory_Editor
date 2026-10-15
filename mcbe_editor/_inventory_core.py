@@ -1840,6 +1840,16 @@ def _is_list_tag(tag) -> bool:
     return isinstance(tag, nbt.ListTag)
 
 
+def _nbt_view_scalar(value):
+    # JSON numbers become JavaScript doubles in the inspector. Keep large NBT
+    # integers exact and show non-finite floats honestly, not as an editable 0.
+    if isinstance(value, int) and abs(value) > (1 << 53) - 1:
+        return str(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        return "NaN" if math.isnan(value) else "Infinity" if value > 0 else "-Infinity"
+    return value
+
+
 def _nbt_view_value(tag, depth: int = 0):
     tag_type = type(tag).__name__
     if depth >= MAX_NBT_VIEW_DEPTH:
@@ -1862,16 +1872,18 @@ def _nbt_view_value(tag, depth: int = 0):
             result["truncated"] = t("{count} weitere Einträge", count=len(entries) - MAX_NBT_VIEW_ITEMS)
         return result
 
-    value = get_tag_value(tag)
+    # Unlike editable fields, this view describes the original NBT, including
+    # NaN and infinity. get_tag_value intentionally normalizes those to zero.
+    value = tag.py_data
     if isinstance(value, str) and len(value) > MAX_NBT_VIEW_STRING:
         value = value[:MAX_NBT_VIEW_STRING] + "..."
     elif isinstance(value, (bytes, bytearray, list, tuple)) or hasattr(value, "tolist"):
         converted = value.tolist() if hasattr(value, "tolist") else value
         sequence = list(converted)
-        value = sequence[:MAX_NBT_VIEW_ITEMS]
+        value = [_nbt_view_scalar(entry) for entry in sequence[:MAX_NBT_VIEW_ITEMS]]
         if len(sequence) > MAX_NBT_VIEW_ITEMS:
             return {"type": tag_type, "value": value, "truncated": t("{count} weitere Werte", count=len(sequence) - MAX_NBT_VIEW_ITEMS)}
-    return {"type": tag_type, "value": value}
+    return {"type": tag_type, "value": _nbt_view_scalar(value)}
 
 
 def _is_editable_item_list(tag) -> bool:

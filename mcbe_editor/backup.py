@@ -993,7 +993,9 @@ def create_backup(
 
     backup_zip_path = None
     try:
-        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+        # ZIP dates cannot represent every valid filesystem timestamp. Clamp
+        # archive metadata only; source files and their contents stay untouched.
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zipf:
             for root, dirs, files in os.walk(world_path, onerror=_raise_walk_error):
                 reject_linklike_entry(root)
                 root_abs = os.path.normpath(os.path.abspath(root))

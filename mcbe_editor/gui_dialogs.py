@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import os
 import subprocess
 import sys
 
@@ -11,11 +11,17 @@ from .service_errors import UserFacingRuntimeError
 
 
 def run_gui_script(script: str, timeout: int = 60) -> str:
+    # File paths must survive both legacy Windows code pages and inherited
+    # PYTHONIOENCODING overrides. Set the same encoding on both pipe ends.
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     try:
         res = subprocess.run(
             [sys.executable, "-c", script],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            env=env,
             check=False,
             timeout=timeout,
         )
@@ -28,8 +34,9 @@ def run_gui_script(script: str, timeout: int = 60) -> str:
 
 
 def select_folder(initial_dir: str | None = None) -> str:
-    initial = json.dumps(initial_dir or "")
-    title = json.dumps(t('Wähle den Minecraft Welt-Ordner (der den "db" Ordner enthält)'))
+    # This is embedded Python source, not JSON (non-BMP escapes differ).
+    initial = ascii(initial_dir or "")
+    title = ascii(t('Wähle den Minecraft Welt-Ordner (der den "db" Ordner enthält)'))
     script = (
         "import tkinter as tk; "
         "from tkinter import filedialog; "
@@ -46,9 +53,9 @@ def select_folder(initial_dir: str | None = None) -> str:
 
 
 def select_player_export(initial_dir: str | None = None) -> str:
-    initial = json.dumps(initial_dir or "")
-    title = json.dumps(t("Wähle einen Spieler-Export"))
-    all_files = json.dumps(t("Alle Dateien"))
+    initial = ascii(initial_dir or "")
+    title = ascii(t("Wähle einen Spieler-Export"))
+    all_files = ascii(t("Alle Dateien"))
     script = (
         "import tkinter as tk; "
         "from tkinter import filedialog; "
@@ -68,8 +75,8 @@ def select_player_export(initial_dir: str | None = None) -> str:
 
 
 def select_icon_pack() -> str:
-    title = json.dumps(t("Wähle Resource Pack / Icon Pack"))
-    all_files = json.dumps(t("Alle Dateien"))
+    title = ascii(t("Wähle Resource Pack / Icon Pack"))
+    all_files = ascii(t("Alle Dateien"))
     script = (
         "import tkinter as tk; "
         "from tkinter import filedialog; "
@@ -86,7 +93,7 @@ def select_icon_pack() -> str:
 
 
 def select_icon_folder() -> str:
-    title = json.dumps(t("Wähle Resource-Pack- oder Icon-Ordner"))
+    title = ascii(t("Wähle Resource-Pack- oder Icon-Ordner"))
     script = (
         "import tkinter as tk; "
         "from tkinter import filedialog; "

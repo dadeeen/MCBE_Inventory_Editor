@@ -192,7 +192,7 @@ class FirstRunSetup:
     def mode(self) -> str:
         with self._lock:
             value = self._state.get("auth_mode")
-        return value if value in {"password", "open"} else "pending"
+        return value if isinstance(value, str) and value in {"password", "open"} else "pending"
 
     def username(self, default: str = "admin") -> str:
         with self._lock:

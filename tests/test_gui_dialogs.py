@@ -1,3 +1,5 @@
+import ast
+import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -20,6 +22,8 @@ def test_run_gui_script_returns_stripped_stdout(monkeypatch):
         [gui_dialogs.sys.executable, "-c", "print('x')"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         check=False,
         timeout=12,
     )
@@ -44,7 +48,12 @@ def test_select_folder_escapes_initial_dir(monkeypatch):
 
     assert result == "C:/World"
     script = run_gui_script.call_args.args[0]
-    assert 'initialdir = "C:/Worlds/\\"Quoted\\"";' in script
+    initial = next(
+        node.value
+        for node in ast.parse(script).body
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "initialdir"
+    )
+    assert ast.literal_eval(initial) == 'C:/Worlds/"Quoted"'
     assert "askdirectory" in script
 
 

@@ -89,9 +89,10 @@ class RecentLogHandler(logging.Handler):
             self.handleError(record)
 
     def tail(self, limit: int = 80, *, min_level: str = "INFO") -> list[dict[str, str]]:
-        level = getattr(logging, str(min_level).upper(), logging.INFO)
+        levels = logging.getLevelNamesMapping()
+        level = levels.get(str(min_level).upper(), logging.INFO)
         with self._lock:
-            rows = [entry for entry in self.records if getattr(logging, entry.get("level", "INFO"), logging.INFO) >= level]
+            rows = [entry for entry in self.records if levels.get(entry.get("level", "INFO"), logging.INFO) >= level]
         return rows[-max(1, min(int(limit or 80), 200)) :]
 
 
@@ -100,7 +101,7 @@ RECENT_LOG_HANDLER = RecentLogHandler()
 
 def _configure_logging() -> logging.Logger:
     level_name = getattr(APP_CONFIG, "log_level", "INFO")
-    level = getattr(logging, str(level_name).upper(), logging.INFO)
+    level = logging.getLevelNamesMapping().get(str(level_name).upper(), logging.INFO)
     formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z")
     logging.basicConfig(
         level=level,
@@ -363,7 +364,8 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = APP_CONFIG.session_cookie_secure
-app.secret_key = SETUP_STATE.secret_key() or APP_CONFIG.secret_key
+# An explicit operator secret takes precedence over persisted setup state.
+app.secret_key = APP_CONFIG.secret_key if APP_CONFIG.secret_key_configured else SETUP_STATE.secret_key() or APP_CONFIG.secret_key
 # Discovery depends on database state, so it outlives catalog-bound services.
 _PLAYER_DIRECTORY = PlayerDirectory()
 editor_service = BedrockEditorService(
@@ -755,12 +757,15 @@ def _auth_required_response():
 
 def _safe_redirect_target(target: str | None) -> str:
     fallback = url_for("index")
-    if not isinstance(target, str):
+    if not isinstance(target, str) or any(ord(char) < 32 or ord(char) == 127 for char in target):
         return fallback
     target = target.strip()
     if not target or "\\" in target or not target.startswith("/") or target.startswith("//"):
         return fallback
-    parsed = urlsplit(target)
+    try:
+        parsed = urlsplit(target)
+    except ValueError:
+        return fallback
     if parsed.scheme or parsed.netloc:
         return fallback
     return target
@@ -1190,7 +1195,7 @@ def require_server_guard_current(data: dict):
         client_token = json_string(data, "server_guard_token")
     except ValueError as exc:
         return api_error(exc, 400)
-    if client_token and secrets.compare_digest(client_token, current_token):
+    if client_token and client_token.isascii() and secrets.compare_digest(client_token, current_token):
         if has_request_context():
             g.expected_server_guard_token = client_token
         return None
@@ -1572,7 +1577,7 @@ def scan_route_deps() -> scan_api_routes.ScanRouteDeps:
 
 
 def set_app_secret_key(secret_key: str) -> None:
-    app.secret_key = secret_key
+    app.secret_key = APP_CONFIG.secret_key if APP_CONFIG.secret_key_configured else secret_key
 
 
 def auth_page_deps() -> auth_page_routes.AuthPageDeps:
@@ -1864,6 +1869,7 @@ def runtime_route_deps() -> runtime_api_routes.RuntimeRouteDeps:
         distribution_snapshot=distribution_snapshot,
         auth_enabled=auth_enabled,
         is_authenticated=_is_authenticated,
+        wide_reachable=_wide_reachable,
         require_world_db_access_allowed=require_world_db_access_allowed,
         note_heartbeat=note_heartbeat_received,
     )

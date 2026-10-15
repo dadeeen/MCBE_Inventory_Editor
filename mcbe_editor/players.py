@@ -16,6 +16,7 @@ from pathlib import PurePosixPath
 
 from mcbe_editor import nbt
 
+from .archive_errors import ZIP_READ_ERRORS
 from .bedrock_nbt import load_player_nbt
 from .i18n import t
 from .inventory import extract_player_stats, nbt_to_json, protected_player_nbt_flags
@@ -742,7 +743,7 @@ def read_player_export(export_zip):
 
     try:
         zipf_ctx = zipfile.ZipFile(export_zip, "r")
-    except zipfile.BadZipFile as exc:
+    except (UnicodeDecodeError, *ZIP_READ_ERRORS) as exc:
         raise ValueError("Spieler-Export ist keine gültige ZIP-Datei oder ist beschädigt.") from exc
     except OSError as exc:
         raise _unreadable_player_export(exc, context="player_export.open") from exc
@@ -771,8 +772,10 @@ def read_player_export(export_zip):
             manifest = json.loads(zipf.read("manifest.json").decode("utf-8"))
             preview = json.loads(zipf.read("preview.json").decode("utf-8"))
             raw_bytes = zipf.read("player.nbt")
-        except (KeyError, UnicodeDecodeError, json.JSONDecodeError, RecursionError, zipfile.BadZipFile) as exc:
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError, RecursionError, *ZIP_READ_ERRORS) as exc:
             raise ValueError("Spieler-Export enthält ungültige oder beschädigte Daten.") from exc
+        except OSError as exc:
+            raise _unreadable_player_export(exc, context="player_export.read") from exc
 
     if not isinstance(manifest, dict) or not isinstance(preview, dict):
         raise ValueError("Spieler-Export enthält ungültige JSON-Metadaten.")

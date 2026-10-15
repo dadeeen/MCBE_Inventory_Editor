@@ -43,7 +43,7 @@ class ServerGuardStore:
         except (OSError, ValueError, TypeError, RecursionError):
             return ""
         token = payload.get("token") if isinstance(payload, dict) else ""
-        return token.strip() if isinstance(token, str) else ""
+        return token.strip() if isinstance(token, str) and token.isascii() else ""
 
     def _write_unlocked(self, token: str) -> None:
         payload = json.dumps({"version": 1, "token": token}, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

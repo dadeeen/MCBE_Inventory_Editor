@@ -67,6 +67,7 @@ def run_update_db(
 
     env = os.environ.copy()
     persistent_paths = {
+        "MCBE_DATA_ROOT": getattr(app_config, "data_root", None),
         "MCBE_ITEM_DB_PATH": app_config.item_db_path,
         "MCBE_UPDATE_CACHE_DIR": app_config.update_cache_dir,
         "MCBE_SOURCE_VERSION_PATH": app_config.source_version_path,
@@ -74,8 +75,10 @@ def run_update_db(
     }
     for name, value in persistent_paths.items():
         if value:
-            env[name] = value
+            # Resolve before subprocess.run changes the working directory.
+            env[name] = str(Path(value).expanduser().resolve())
     env["NO_COLOR"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     env[UPDATE_LOCALE_ENV] = _normalized_locale(locale)
     env.pop(PROGRESS_ENV, None)
     if progress_path is not None:
@@ -95,6 +98,7 @@ def run_update_db(
         cwd=str(app_root),
         env=env,
         text=True,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         timeout=180,
@@ -122,7 +126,7 @@ def run_update_icons(
         cmd.append("--cache")
 
     env = os.environ.copy()
-    data_root = Path(app_config.data_root or "data").expanduser()
+    data_root = Path(app_config.data_root or "data").expanduser().resolve()
     icon_root = data_root / "icons" / "vanilla"
     persistent_paths = {
         "MCBE_DATA_ROOT": str(data_root),
@@ -132,8 +136,9 @@ def run_update_icons(
     }
     for name, value in persistent_paths.items():
         if value:
-            env[name] = str(value)
+            env[name] = str(Path(value).expanduser().resolve())
     env["NO_COLOR"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     env[UPDATE_LOCALE_ENV] = _normalized_locale(locale)
     env.pop(PROGRESS_ENV, None)
     if progress_path is not None:
@@ -152,6 +157,7 @@ def run_update_icons(
         cwd=str(app_root),
         env=env,
         text=True,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         timeout=300,
