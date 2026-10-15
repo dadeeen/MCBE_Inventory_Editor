@@ -16,6 +16,8 @@ Dies ist ein inoffizielles Community-Projekt. Es ist weder mit Mojang Studios od
 
 Der Editor ist für die lokale Nutzung und vertrauenswürdige Heimnetze gedacht. Stelle ihn nicht direkt ins öffentliche Internet.
 
+Studio-Layout mit Beispieldaten, englischer Oberfläche und integrierten Ersatzsymbolen:
+
 [![Weltauswahl und Sicherheitsstatus](docs/assets/editor-overview.png)](docs/assets/editor-overview.png)
 
 [![Beispielinventar](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)

@@ -16,6 +16,8 @@ This is an unofficial community project. It is not affiliated with, endorsed by,
 
 The editor is intended for local use and trusted home networks. Do not expose it directly to the public internet.
 
+Studio layout with example data, an English interface, and built-in placeholder icons:
+
 [![World selection and safety status](docs/assets/editor-overview.png)](docs/assets/editor-overview.png)
 
 [![Example inventory](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
