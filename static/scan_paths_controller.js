@@ -25,6 +25,7 @@
             manualInput,
             status,
         } = elements;
+        let scanPathsRequestId = 0;
 
         // A backend message names its own context; only a technical reason
         // needs "Fehler:" in front of it.
@@ -57,10 +58,11 @@
         }
 
         async function loadScanPaths() {
+            const requestId = ++scanPathsRequestId;
             try {
                 const res = await fetchImpl("/api/scan_paths");
                 const data = await parseJsonResponse(res);
-                if (!data.success) return false;
+                if (requestId !== scanPathsRequestId || !data.success) return false;
                 renderScanPaths(data);
                 if (data.default_path) {
                     updateAutoPathHint(t("Standardordner erkannt: {path}", { path: data.default_path }), "success");

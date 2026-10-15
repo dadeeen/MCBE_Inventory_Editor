@@ -294,7 +294,7 @@ def run_layout_checks(browser, root):
                 page.locator("#btnMountCreate").click()
                 pending = page.evaluate("window.mountTestController.getPendingMounts()")
                 assert len(pending) == 1 and pending[0]["horseProfile"]["color"] == 4 and pending[0]["horseProfile"]["mark_variant"] == 3
-                assert page.evaluate("window.mountTestState.logs.at(-1).status") == "success", (context, "safe staging reported as a warning")
+                assert page.evaluate("window.mountTestState.logs.at(-1).status") == "info", (context, "staging is informative, not a committed write")
                 assert not page.locator("#mountCreateStatus").inner_text(), (context, "staging repeats the queue and toast")
                 assert page.locator(".pending-mount-safety.warning").count() == 0, (context, "safe queue has an unnecessary warning")
                 assert pending[0]["preferredOffset"] == {"x": 4, "y": 0, "z": 0}

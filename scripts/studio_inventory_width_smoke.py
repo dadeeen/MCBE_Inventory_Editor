@@ -122,7 +122,12 @@ def main():
             assert page.locator("#selectedWorldBar").is_hidden(), width
             if width >= 1920:
                 assert 99 <= baseline["slot"]["width"] <= 105, (width, baseline)
-                assert baseline["inspector"]["width"] >= 530, (width, baseline)
+                # The wider navigation rail leaves less than 530px for the
+                # inspector. Bound the actual inventory track instead of
+                # coupling this check to an obsolete sidebar proportion.
+                assert baseline["inventory"]["width"] <= 1018, (width, baseline)
+                assert baseline["inspector"]["width"] >= 400, (width, baseline)
+                assert baseline["gap"] <= 36, (width, baseline)
             print(f"Studio {width}px: slot={baseline['slot']['width']:.1f}px, gap={baseline['gap']:.1f}px, inspector stable")
 
         # Below the desktop breakpoint, preserve the original stacked responsive

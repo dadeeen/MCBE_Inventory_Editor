@@ -81,6 +81,7 @@
             beginServerStatusRequest = () => null,
             renderWriteGate = () => {},
             refreshAfterStateTransfer = async () => {},
+            markReloadRequired = () => {},
             setDirty = () => {},
             recordAction = () => {},
             showToast = () => {},
@@ -743,6 +744,7 @@
             setStateTransferBusy(true);
             let requestId = null;
             let loadingVisible = false;
+            let transferRequestUncertain = false;
             try {
                 const confirmed = await showConfirmDialog(
                     t("Spielerzustand von {source} nach {target} in der ausgewählten Welt übertragen? Vorher wird automatisch ein Backup erstellt; Zielidentität und Quelldatensatz bleiben erhalten.", {
@@ -771,21 +773,31 @@
                 requestId = ++stateTransferRequestId;
                 showLoading(t("Spielermigration läuft: Backup erstellen, Ziel schreiben und Ergebnis prüfen..."));
                 loadingVisible = true;
-                const request = confirmConflict => getPlayerApi().applyStateTransfer({
-                    worldPath,
-                    sourcePlayerKey,
-                    targetPlayerKey,
-                    transferToken: preview.transfer_token,
-                    serverGuardEpoch: preview.server_guard_epoch ?? getServerGuardEpoch(),
-                    serverGuardToken: preview.server_guard_token || getServerGuardToken(),
-                    sessionId: getWorldPresenceSessionId(),
-                    confirmPresenceConflict: confirmConflict,
-                });
+                const request = async confirmConflict => {
+                    transferRequestUncertain = true;
+                    const data = await getPlayerApi().applyStateTransfer({
+                        worldPath,
+                        sourcePlayerKey,
+                        targetPlayerKey,
+                        transferToken: preview.transfer_token,
+                        serverGuardEpoch: preview.server_guard_epoch ?? getServerGuardEpoch(),
+                        serverGuardToken: preview.server_guard_token || getServerGuardToken(),
+                        sessionId: getWorldPresenceSessionId(),
+                        confirmPresenceConflict: confirmConflict,
+                    });
+                    if (data?.response_unreadable || typeof data?.success !== "boolean" || data.write_outcome_unknown === true) {
+                        const error = new Error(data?.error || t("Unbekannter Fehler"));
+                        if (typeof data?.success === "boolean" && !data.response_unreadable) Object.assign(error, data);
+                        throw error;
+                    }
+                    transferRequestUncertain = false;
+                    return data;
+                };
                 let statusRequestOrder = beginServerStatusRequest();
                 let data = await request(false);
                 if (data?.write_gate) renderWriteGate(data.write_gate, { requestOrder: statusRequestOrder });
                 if (requestId !== stateTransferRequestId || getWorldPath() !== worldPath) return false;
-                if (!data.success && data.presence_conflict) {
+                if (!data.success && data.presence_conflict && data.write_committed !== true && data.reload_required !== true) {
                     const proceed = await confirmPresenceConflict(data);
                     if (!proceed) {
                         const message = t("Migration wegen Bearbeitungskonflikt abgebrochen.");
@@ -822,33 +834,44 @@
                     throw error;
                 }
                 showLoading(t("Migration geschrieben. Spieleransicht wird aktualisiert..."));
+                let refreshWarning = "";
                 try {
-                    await refreshAfterStateTransfer();
+                    if (await refreshAfterStateTransfer(worldPath) === false) {
+                        throw new Error(t("Spieleransicht konnte nicht neu geladen werden."));
+                    }
                 } catch (refreshError) {
-                    showToast(
-                        refreshError?.message || t("Migration wurde gespeichert, aber die Spieleransicht konnte nicht aktualisiert werden. Lade die Spieler erneut."),
-                        "warning",
-                        6500,
-                    );
+                    refreshWarning = refreshError?.message || t("Migration wurde gespeichert, aber die Spieleransicht konnte nicht aktualisiert werden. Lade die Spieler erneut.");
                 }
+                if (requestId !== stateTransferRequestId || getWorldPath() !== worldPath) return false;
+                if (refreshWarning) markReloadRequired(refreshWarning);
                 currentStateTransferPreview = null;
                 updateStateTransferWriteControl();
                 renderStateTransferSuccess(data);
                 recordAction(t("Spielermigration gespeichert"), "player-transfer");
                 showToast(t("Migration gespeichert und nachvalidiert."), "success", 5000);
+                if (refreshWarning) showToast(refreshWarning, "warning", 6500);
                 if (data.cleanup_warning) showToast(data.cleanup_warning, "warning", 6500);
                 return true;
             } catch (error) {
                 if (requestId !== null && (requestId !== stateTransferRequestId || getWorldPath() !== worldPath)) return false;
-                const message = error?.message || t("Migration fehlgeschlagen.");
-                const targetStateMayHaveChanged = error?.write_committed === true;
+                const outcomeDetails = transferRequestUncertain && error?.write_outcome_unknown === true
+                    ? ` ${buildErrorMessage(error, t("Migration fehlgeschlagen."))}`
+                    : "";
+                const message = transferRequestUncertain
+                    ? t("Der Ausgang der Migration ist unklar. Nicht erneut migrieren; Welt neu laden und Backups prüfen.") + outcomeDetails
+                    : error?.message || t("Migration fehlgeschlagen.");
+                const reloadRequired = transferRequestUncertain || error?.reload_required === true;
+                if (reloadRequired) markReloadRequired(message);
+                const targetStateMayHaveChanged = !reloadRequired && error?.write_committed === true;
                 renderStateTransferError(message);
-                if (error?.preview_stale || targetStateMayHaveChanged) invalidateStateTransferPreview({ keepMessage: true });
+                if (error?.preview_stale || targetStateMayHaveChanged || reloadRequired) invalidateStateTransferPreview({ keepMessage: true });
                 else updateStateTransferWriteControl();
                 if (targetStateMayHaveChanged) {
                     let refreshWarning = "";
                     try {
-                        await refreshAfterStateTransfer();
+                        if (await refreshAfterStateTransfer(worldPath) === false) {
+                            throw new Error(t("Spieleransicht konnte nicht neu geladen werden."));
+                        }
                     } catch (refreshError) {
                         refreshWarning = refreshError?.message
                             ? t("Der Zielzustand ist nach dem fehlgeschlagenen Migrations-Rollback unsicher und konnte nicht neu geladen werden: {error}", { error: refreshError.message })
@@ -858,7 +881,10 @@
                     // Reloading player data can re-render the tools panel. Keep
                     // the backend's rollback error visible afterwards.
                     renderStateTransferError(message);
-                    if (refreshWarning) showToast(refreshWarning, "warning", 8000);
+                    if (refreshWarning) {
+                        markReloadRequired(refreshWarning);
+                        showToast(refreshWarning, "warning", 8000);
+                    }
                 }
                 showToast(message, "error", 6000);
                 if (error?.cleanup_warning) showToast(error.cleanup_warning, "warning", 8000);

@@ -453,6 +453,7 @@
         showToast = () => {},
         recordAction = () => {},
         refreshImportedPlayer = async () => {},
+        markReloadRequired = () => {},
     } = {}) {
         const {
             exportButton = null,
@@ -633,6 +634,7 @@
 
             showLoading(plan.loadingText);
             logTransferStatus(PLAYER_IMPORT_STATUS_KEY, plan.statusMessage, plan.statusType);
+            let importRequestUncertain = false;
             try {
                 const request = (confirmPresenceConflict = false) => importRequestBody({
                     exportPath: plan.exportPath,
@@ -644,18 +646,31 @@
                     baseRevision: plan.baseRevision,
                     confirmPresenceConflict,
                 });
+                const postImportRequest = async (confirmed = false) => {
+                    // A retry has its own outcome; an earlier rejection cannot
+                    // prove that this request did not write before disconnecting.
+                    importRequestUncertain = true;
+                    const res = await fetch("/api/player/import", {
+                        method: "POST",
+                        headers: withCsrf(),
+                        body: JSON.stringify(request(confirmed)),
+                    });
+                    const data = await parseJsonResponse(res);
+                    if (data?.response_unreadable || typeof data?.success !== "boolean" || data.write_outcome_unknown === true) {
+                        const error = new Error(data?.error || t("Unbekannter Fehler"));
+                        if (typeof data?.success === "boolean" && !data.response_unreadable) Object.assign(error, data);
+                        throw error;
+                    }
+                    importRequestUncertain = false;
+                    return data;
+                };
                 let statusRequestOrder = beginServerStatusRequest();
-                const res = await fetch("/api/player/import", {
-                    method: "POST",
-                    headers: withCsrf(),
-                    body: JSON.stringify(request()),
-                });
-                let data = await parseJsonResponse(res);
+                let data = await postImportRequest();
                 if (!importContextIsCurrent()) {
                     reportContextChange(data);
                     return false;
                 }
-                if (!data.success && data.presence_conflict) {
+                if (!data.success && data.presence_conflict && data.write_committed !== true && data.reload_required !== true) {
                     hideLoading();
                     const retryPlan = presenceConflictRetryPlan();
                     const proceed = await confirmPresenceConflict(data);
@@ -674,12 +689,7 @@
                     if (guardWorldWriteAction()) return false;
                     showLoading(retryPlan.retryLoadingText);
                     statusRequestOrder = beginServerStatusRequest();
-                    const retry = await fetch("/api/player/import", {
-                        method: "POST",
-                        headers: withCsrf(),
-                        body: JSON.stringify(request(true)),
-                    });
-                    data = await parseJsonResponse(retry);
+                    data = await postImportRequest(true);
                     if (!importContextIsCurrent()) {
                         reportContextChange(data);
                         return false;
@@ -710,12 +720,17 @@
                     logTransferStatus(PLAYER_IMPORT_STATUS_KEY, outcome.statusMessage, outcome.statusType);
                     recordAction(outcome.actionMessage, outcome.actionType);
                     if (refreshWarning) {
+                        markReloadRequired(refreshWarning);
                         showToast(refreshWarning, "warning", 6500);
                         logTransferStatus(PLAYER_IMPORT_STATUS_KEY, refreshWarning, "warning");
                     }
                 } else {
                     logTransferStatus(PLAYER_IMPORT_STATUS_KEY, outcome.statusMessage, outcome.statusType);
                     if (outcome.toast) showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
+                    if (data.reload_required === true) {
+                        markReloadRequired(outcome.statusMessage);
+                        return false;
+                    }
                     if (data.write_committed === true) {
                         let refreshWarning = "";
                         try {
@@ -730,6 +745,7 @@
                             return false;
                         }
                         if (refreshWarning) {
+                            markReloadRequired(refreshWarning);
                             showToast(refreshWarning, "warning", 8000);
                             logTransferStatus(PLAYER_IMPORT_STATUS_KEY, refreshWarning, "warning");
                         }
@@ -748,6 +764,7 @@
                             return false;
                         }
                         if (refreshWarning) {
+                            markReloadRequired(refreshWarning);
                             showToast(refreshWarning, "warning", 6500);
                             logTransferStatus(PLAYER_IMPORT_STATUS_KEY, refreshWarning, "warning");
                         }
@@ -762,8 +779,15 @@
                     reportContextChange({});
                     return false;
                 }
-                logTransferStatus(PLAYER_IMPORT_STATUS_KEY, t("Verbindungsfehler beim Import."), "error");
-                showToast(t("Verbindungsfehler beim Import."), "error", 5000);
+                const outcomeDetails = importRequestUncertain && e?.write_outcome_unknown === true
+                    ? ` ${importOutcome({ ...e, success: false }).statusMessage}`
+                    : "";
+                const message = importRequestUncertain
+                    ? t("Der Ausgang des Imports ist unklar. Nicht erneut importieren; Welt neu laden und Backups prüfen.") + outcomeDetails
+                    : t("Verbindungsfehler beim Import.");
+                if (importRequestUncertain) markReloadRequired(message);
+                logTransferStatus(PLAYER_IMPORT_STATUS_KEY, message, "error");
+                showToast(message, "error", importRequestUncertain ? 8000 : 5000);
             } finally {
                 hideLoading();
             }
@@ -873,6 +897,7 @@
             showToast: helpers.showToast,
             recordAction: helpers.recordAction,
             refreshImportedPlayer: helpers.refreshImportedPlayer,
+            markReloadRequired: helpers.markReloadRequired,
         });
     }
 

@@ -438,7 +438,7 @@ def check_folder(browser, root):
         page.locator("#btnOpenSelectedWorld").click()
         page.wait_for_function("revisionState.toasts.length>0")
         observed = page.evaluate("revisionState.toasts.at(-1)")
-        assert observed["type"] == ("success" if mode == "success" else "error"), (mode, observed)
+        assert observed["type"] == ("info" if mode == "success" else "error"), (mode, observed)
         assert observed["message"], (mode, observed)
         assert page.locator(".toast").last.is_visible()
         assert page.locator(".toast").last.get_attribute("role") == ("status" if mode == "success" else "alert")

@@ -1031,6 +1031,7 @@
   "Lade Restore-Vorschau...": "Loading restore preview...",
   "Restore-Vorschau konnte nicht geladen werden: {error}": "The restore preview could not be loaded: {error}",
   "Fehler bei der Verbindung zur Wiederherstellung.": "Connection error during restore.",
+  "Der Ausgang der Wiederherstellung ist unklar. Nicht erneut wiederherstellen; Welt neu laden und Backups prüfen.": "The restore outcome is unclear. Do not restore again; reload the world and check the backups.",
   "Backup enthält db/": "Backup contains db/",
   "ZIP enthält Dateien": "ZIP contains files",
   "Entpackte Größe wirkt plausibel": "Unpacked size looks plausible",
@@ -3028,5 +3029,7 @@
   "Kollidierende Einträge im numerischen Katalog.": "Conflicting entries in the numeric catalog.",
   "Numerische IDs sind im geprüften Katalog doppelt vergeben.": "Duplicate numeric IDs in the reviewed catalog.",
   "Katalogbereich gesperrt": "Catalog section locked",
-  "{section}: {reason} Betroffene IDs: {ids}. Bearbeitung gesperrt; vorhandene Daten bleiben erhalten.": "{section}: {reason} Affected IDs: {ids}. Editing is locked; existing data is preserved."
+  "{section}: {reason} Betroffene IDs: {ids}. Bearbeitung gesperrt; vorhandene Daten bleiben erhalten.": "{section}: {reason} Affected IDs: {ids}. Editing is locked; existing data is preserved.",
+  "Der Ausgang des Imports ist unklar. Nicht erneut importieren; Welt neu laden und Backups prüfen.": "The import outcome is unclear. Do not import again; reload the world and check the backups.",
+  "Der Ausgang der Migration ist unklar. Nicht erneut migrieren; Welt neu laden und Backups prüfen.": "The migration outcome is unclear. Do not migrate again; reload the world and check the backups."
 }

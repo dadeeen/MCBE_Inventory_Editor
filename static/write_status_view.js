@@ -376,6 +376,9 @@
                 reason: stale,
                 blocked_operation: "server_guard",
                 stale_loaded_player: true,
+                // A server-status confirmation cannot validate a stale player
+                // or establish the outcome of an earlier write.
+                requires_unknown_server_confirmation: false,
                 server_guard_epoch: getCurrentServerGuardEpoch(),
                 server_guard_token: getCurrentServerGuardToken(),
                 server_status_revision: getCurrentServerStatusRevision(),

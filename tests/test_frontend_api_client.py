@@ -175,3 +175,36 @@ def test_frontend_api_client_marks_unreadable_and_messageless_error_answers() ->
             """
         )
     )
+
+
+def test_frontend_api_client_requires_consistent_boolean_success() -> None:
+    run_node(r"""
+        const fs = require('fs');
+        const vm = require('vm');
+        const assert = require('node:assert/strict');
+        const context = {window: {}};
+        vm.runInNewContext(fs.readFileSync('static/api_client.js', 'utf8'), context);
+        const client = context.window.MCBEApiClient.createApiClient();
+        const answer = (status, body) => client.parseJsonResponse({
+            ok: status >= 200 && status < 300, status,
+            headers: {get: () => 'application/json'},
+            text: async () => JSON.stringify(body),
+        });
+        (async () => {
+            for (const status of [200, 201, 400, 403, 409, 500, 502]) {
+                for (const success of ['true', 'false', 1, 0, null, [], {}]) {
+                    const data = await answer(status, {success});
+                    assert.equal(data.success, false, `${status}/${JSON.stringify(success)}`);
+                    assert.equal(data.response_unreadable, true);
+                }
+                for (const success of [false, true]) {
+                    const data = await answer(status, {success, player_revision: 'rev-2'});
+                    const contradictory = status >= 400 && success;
+                    assert.equal(data.success, status < 400 && success);
+                    assert.equal(data.response_unreadable === true, contradictory);
+                    assert.equal(data.player_revision, 'rev-2');
+                    if (status >= 400) assert.equal(data.http_status, status);
+                }
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)

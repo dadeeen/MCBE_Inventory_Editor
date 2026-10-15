@@ -89,6 +89,20 @@
     }
 
     function restoreOutcome(data = {}) {
+        if (data?.response_unreadable === true || typeof data?.success !== "boolean" || data.write_outcome_unknown === true) {
+            const details = data?.success === false && data.response_unreadable !== true
+                ? errorInContext(data, reason => reason)
+                : "";
+            const cleanupWarning = data?.cleanup_warning ? ` ${t("Hinweis: {warning}", { warning: data.cleanup_warning })}` : "";
+            const message = `${t("Der Ausgang der Wiederherstellung ist unklar. Nicht erneut wiederherstellen; Welt neu laden und Backups prüfen.")}${details ? ` ${details}` : ""}${cleanupWarning}`;
+            return {
+                ok: false,
+                reloadRequired: true,
+                statusMessage: message,
+                statusType: "error",
+                toast: { message, type: "error", ms: 8000 },
+            };
+        }
         if (data.success) {
             const preRestore = data.pre_restore_backup ? ` ${t("Vorheriges Backup: {file}", { file: data.pre_restore_backup })}` : "";
             const cleanupWarning = data.cleanup_warning ? ` ${t("Hinweis: {warning}", { warning: data.cleanup_warning })}` : "";
@@ -219,6 +233,7 @@
         confirmPresenceConflict = async () => false,
         clearLoadError = () => {},
         resetLoadedPlayerState = () => {},
+        markReloadRequired = () => {},
         loadPlayersList = async () => false,
         loadBackupsList = async () => {},
         beginServerStatusRequest = () => null,
@@ -246,6 +261,15 @@
 
         function logRestoreStatus(message, type = "") {
             logStatus(message, type, { key: BACKUP_RESTORE_STATUS_KEY });
+        }
+
+        function invalidateRestoreState(reason) {
+            resetLoadedPlayerState();
+            setPlayers([]);
+            markReloadRequired(reason);
+            renderPlayersList();
+            renderPlayerToolOptions();
+            renderWorldAnalysis();
         }
 
         function renderRestoreReview(data, filename, targetWorld = {}) {
@@ -325,6 +349,7 @@
 
             if (!playersLoaded) {
                 const outcome = restorePlayersLoadFailureOutcome(cleanupWarning);
+                markReloadRequired(outcome.statusMessage);
                 logRestoreStatus(outcome.statusMessage, outcome.statusType);
                 showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
                 return false;
@@ -355,6 +380,7 @@
                 usedFallbackPlayer: reloadPlan.usedFallbackPlayer,
             });
             if (!reloadOutcome.ok) {
+                markReloadRequired(reloadOutcome.statusMessage);
                 logRestoreStatus(`${reloadOutcome.statusMessage}${cleanupInfo}`, reloadOutcome.statusType);
                 showToast(
                     `${reloadOutcome.toast.message}${cleanupInfo}`,
@@ -377,10 +403,18 @@
             const previewWorldName = getWorldName();
             const previewPlayerKey = getCurrentPlayerKey();
             const restoreContextIsCurrent = () => getWorldPath() === previewWorldPath && getCurrentPlayerKey() === previewPlayerKey;
-            const reportContextChange = (data) => {
+            const reportContextChange = (data, requestUncertain = false) => {
                 const message = data?.success === true
                     ? t("Backup wurde in der ursprünglichen Welt wiederhergestellt. Die inzwischen gewechselte Ansicht bleibt unverändert. Lade die wiederhergestellte Welt vor weiteren Änderungen neu.")
                     : t("Restore-Kontext wurde gewechselt. Die aktuelle Ansicht bleibt unverändert. Prüfe die ursprüngliche Welt erneut.");
+                // A restore replaces the entire world, not just the player
+                // selected when it started. Preserve a newer view, but block
+                // writes there too when it still belongs to the affected world.
+                if (getWorldPath() === previewWorldPath && (requestUncertain || data?.success === true
+                    || data?.write_committed === true || data?.write_outcome_unknown === true
+                    || data?.reload_required === true || data?.response_unreadable === true)) {
+                    markReloadRequired(message);
+                }
                 logRestoreStatus(message, "warning");
                 showToast(message, "warning", 8000);
             };
@@ -462,7 +496,9 @@
                     reportContextChange(data);
                     return false;
                 }
-                if (!data.success && data.presence_conflict) {
+                if (data?.success === false && data.presence_conflict
+                    && data.response_unreadable !== true && data.write_outcome_unknown !== true
+                    && data.reload_required !== true && data.write_committed !== true) {
                     hideLoading();
                     const retryPlan = restorePresenceConflictRetryPlan();
                     const proceed = await confirmPresenceConflict(data);
@@ -493,14 +529,10 @@
                     renderWriteGate(outcome.writeGate, { requestOrder: statusRequestOrder });
                 }
                 if (!outcome.ok) {
-                    if (data.reload_required === true || data.write_outcome_unknown === true) {
+                    if (outcome.reloadRequired || data.reload_required === true || data.write_committed === true) {
                         // The directory swap may have completed. Do not keep the
                         // old player editable or report an automatic reload as success.
-                        resetLoadedPlayerState();
-                        setPlayers([]);
-                        renderPlayersList();
-                        renderPlayerToolOptions();
-                        renderWorldAnalysis();
+                        invalidateRestoreState(outcome.statusMessage);
                     }
                     logRestoreStatus(outcome.statusMessage, outcome.statusType);
                     if (outcome.toast) showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
@@ -522,17 +554,20 @@
                         return false;
                     }
                     const reloadFailure = restorePlayersLoadFailureOutcome(data.cleanup_warning || "");
+                    markReloadRequired(reloadFailure.statusMessage);
                     logRestoreStatus(reloadFailure.statusMessage, reloadFailure.statusType);
                     showToast(reloadFailure.toast.message, reloadFailure.toast.type, reloadFailure.toast.ms);
                 }
             } catch (e) {
                 console.error("restoreBackup:", e);
                 if (!restoreContextIsCurrent()) {
-                    reportContextChange();
+                    reportContextChange(null, true);
                     return false;
                 }
-                logRestoreStatus(t("Fehler bei der Verbindung zur Wiederherstellung."), "error");
-                showToast(t("Fehler bei der Verbindung zur Wiederherstellung."), "error", 5000);
+                const outcome = restoreOutcome({ response_unreadable: true });
+                invalidateRestoreState(outcome.statusMessage);
+                logRestoreStatus(outcome.statusMessage, outcome.statusType);
+                showToast(outcome.toast.message, outcome.toast.type, outcome.toast.ms);
             } finally {
                 hideLoading();
             }
@@ -575,6 +610,7 @@
             confirmPresenceConflict: flow.confirmPresenceConflict,
             clearLoadError: flow.clearLoadError,
             resetLoadedPlayerState: flow.resetLoadedPlayerState,
+            markReloadRequired: flow.markReloadRequired,
             loadPlayersList: flow.loadPlayersList,
             loadBackupsList: flow.loadBackupsList,
             beginServerStatusRequest: flow.beginServerStatusRequest,

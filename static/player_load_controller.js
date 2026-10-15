@@ -199,7 +199,8 @@
                 lastPlayerExportDir: "",
                 isDirty: false,
             });
-            clearLoadedPlayerStaleState();
+            // Clearing the view is not a successful reload. Keep write
+            // protection through failed refreshes and export-only selections.
             clearSelection();
             resetUndoRedoForUnloadedPlayer();
             if (btnExportPlayer) btnExportPlayer.disabled = true;
@@ -586,6 +587,9 @@
                 // new world, including when the following player read fails.
                 resetLoadedPlayerState({ showEmptyState: false });
                 setState({ worldPath: nextWorldPath, players: nextPlayers });
+                // This explicit world read succeeded, including empty worlds.
+                // A reset or a list refresh alone cannot establish that fact.
+                clearLoadedPlayerStaleState();
                 if (worldNameElement) worldNameElement.innerText = data.world_name;
                 if (worldBanner) worldBanner.style.display = "flex";
                 if (playerManager) playerManager.style.display = "flex";

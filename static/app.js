@@ -566,12 +566,18 @@ function getPlayerToolsController() {
                 { server_status: writeGate.server_status, write_gate: writeGate },
                 { ...options, authoritativeBlock: true },
             ),
-            refreshAfterStateTransfer: async () => {
+            markReloadRequired: markPlayerReloadRequired,
+            refreshAfterStateTransfer: async (expectedWorldPath = worldPath) => {
+                if (worldPath !== expectedWorldPath) return false;
                 const playerToReload = currentPlayerKey;
                 const refreshed = await loadPlayersList(false);
-                if (refreshed && playerToReload) {
-                    await loadPlayer(playerToReload, true, { showLoadingOverlay: false });
+                // The list refresh clears the old player. Never load that key
+                // into a different world or over an independently loaded player.
+                if (!refreshed || worldPath !== expectedWorldPath || currentPlayerKey) return false;
+                if (playerToReload) {
+                    return await loadPlayer(playerToReload, true, { showLoadingOverlay: false });
                 }
+                return true;
             },
             setDirty,
             recordAction,
@@ -994,6 +1000,11 @@ function getPlayerLoadApp() {
     return playerLoadApp;
 }
 function resetLoadedPlayerState(options = {}) { return getPlayerLoadApp().resetLoadedPlayerState(options); }
+
+function markPlayerReloadRequired(reason) {
+    currentPlayerStaleReason = reason;
+    updateWriteControls();
+}
 function renderPlayersList() { return getPlayerLoadApp().renderPlayersList(); }
 function loadPlayersList(selectFirst = true) { return getPlayerLoadApp().loadPlayersList(selectFirst); }
 function loadPlayer(playerKey, skipDirtyCheck = false, options = {}) { return getPlayerLoadApp().loadPlayer(playerKey, skipDirtyCheck, options); }
@@ -1552,6 +1563,7 @@ const playerTransferController = window.MCBEPlayerTransferLogic.createInventoryP
         showToast,
         recordAction,
         guardWorldWriteAction,
+        markReloadRequired: markPlayerReloadRequired,
         refreshImportedPlayer: async (playerKey, contextIsCurrent = () => true) => {
             if (!contextIsCurrent()) return false;
             const playersLoaded = await loadPlayersList(false);
@@ -1578,6 +1590,7 @@ const backupRestoreController = window.MCBEBackupRestoreLogic.createConfiguredBa
         confirmPresenceConflict,
         clearLoadError,
         resetLoadedPlayerState,
+        markReloadRequired: markPlayerReloadRequired,
         loadPlayersList,
         loadBackupsList,
         beginServerStatusRequest,

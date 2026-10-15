@@ -18,7 +18,7 @@ def test_unreadable_mount_save_response_blocks_retries_including_confirmation_re
         }
         const api = context.window.MCBEApiClient.createApiClient();
         async function check(bodyMode, confirmation, status = 200) {
-            let posts = 0, reloadRequired = false, disabled = false;
+            let posts = 0, reloadRequired = false, disabled = false, cleaned = false, finalized = 0, revision = "";
             const pendingMounts = [{mountType: 'minecraft:horse', worldPath: 'world', playerKey: 'target'}];
             const noop = () => {};
             const controller = context.window.MCBESaveController.createSaveController({
@@ -28,6 +28,11 @@ def test_unreadable_mount_save_response_blocks_retries_including_confirmation_re
                 buildSavePayload: () => ({stats: {}, base_revision: 'same-player-revision'}),
                 payloadContainsUserChanges: () => false, buildChangeSummary: () => ({}),
                 validateInventoryState: () => ({errors: 0}),
+                finalizePendingMounts: () => { finalized += 1; return {complete: true}; },
+                markCleanState: () => { cleaned = true; },
+                updateCurrentPlayerRevision: value => { revision = value; },
+                updateWorldPresence: async () => {}, loadBackupsList: noop,
+                recordAction: noop, flashSaveButton: noop,
                 setPrimarySaveDisabled: value => { disabled = value; },
                 setReviewConfirmDisabled: noop, showLoading: noop, hideLoading: noop,
                 logStatus: noop, showToast: noop, updateWriteControls: noop,
@@ -56,15 +61,27 @@ def test_unreadable_mount_save_response_blocks_retries_including_confirmation_re
             assert.equal(reloadRequired, !confirmedRejection, `${bodyMode}/${confirmation}/${status}`);
             assert.equal(disabled, !confirmedRejection);
             assert.equal(pendingMounts.length, 1);
+            assert.equal(cleaned, false);
+            assert.equal(finalized, 0);
+            assert.equal(revision, "");
             await controller.saveCurrentPlayer({skipReview: true});
             assert.equal(posts, confirmedRejection ? 2 : (confirmation ? 2 : 1));
         }
         (async () => {
             for (const status of [200, 500]) {
-                for (const body of ['read-error', '{"success":true,"mounts":[', '', '<html>Error</html>', '{}', '[]', 'null']) {
+                const unreadableBodies = [
+                    'read-error', '{"success":true,"mounts":[', '', '<html>Error</html>', '{}', '[]', 'null',
+                    '{"success":"true"}', '{"success":"false"}', '{"success":1}',
+                ];
+                for (const body of unreadableBodies) {
                     for (const confirmation of ['', 'server', 'presence']) await check(body, confirmation, status);
                 }
                 await check('{"success":false,"error":"Backup failed"}', '', status);
+                if (status >= 400) {
+                    for (const confirmation of ['', 'server', 'presence']) {
+                        await check('{"success":true,"player_revision":"rev-2","mounts":[{"actor_id":"synthetic"}]}', confirmation, status);
+                    }
+                }
             }
         })().catch(error => {console.error(error); process.exitCode = 1;});
     """)

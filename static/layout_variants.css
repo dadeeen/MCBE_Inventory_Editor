@@ -246,11 +246,12 @@
 :root[data-layout="studio"] .inventory-section { gap: 16px; }
 :root[data-layout="studio"] .inventory-section .grid-title { margin-top: 10px; }
 
-/* Keep the wide Studio inspector close to Classic sizing; spare space
-   belongs to the inventory and the readable navigation rail. */
+/* The inventory track needs at most the 980px grid plus 38px of card
+   padding/borders. Give spare width to the inspector, not an empty strip
+   between the grid and its editor; selection never changes either track. */
 @media (min-width: 1601px) {
     :root[data-layout="studio"] body.app-world-loaded[data-workflow-view="inventory"] .workspace {
-        grid-template-columns: minmax(0,1fr) clamp(355px, 25vw, 400px);
+        grid-template-columns: minmax(0, 1018px) minmax(400px, 1fr);
     }
 }
 

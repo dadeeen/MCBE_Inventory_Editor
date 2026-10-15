@@ -87,7 +87,7 @@
                 }
             }
 
-            if (!data || typeof data !== "object") {
+            if (!data || typeof data !== "object" || Array.isArray(data)) {
                 data = {
                     success: false,
                     response_unreadable: true,
@@ -95,9 +95,15 @@
                 };
             }
 
-            if (typeof data.success !== "boolean") data.response_unreadable = true;
+            // A success flag must be boolean and agree with the HTTP result.
+            // Treat contradictions as an unknown outcome, not a confirmed
+            // rejection: a write may already have reached storage.
+            if (typeof data.success !== "boolean" || (!res.ok && data.success === true)) {
+                data.response_unreadable = true;
+                data.success = false;
+            }
 
-            if (!res.ok && data.success !== true) {
+            if (!res.ok) {
                 data.success = false;
                 data.http_status = res.status;
                 const message = localizedErrorMessage(data, "");

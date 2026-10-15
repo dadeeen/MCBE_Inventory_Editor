@@ -922,3 +922,46 @@ def test_frontend_write_status_view_renders_the_status_overview_with_each_applie
             """
         )
     )
+
+
+def test_stale_player_cannot_use_unknown_server_confirmation_to_write() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {} };
+            vm.runInNewContext(fs.readFileSync("static/write_status_view.js", "utf8"), context);
+            let stale = "Vorherigen Schreibausgang erst durch Neuladen prüfen.";
+            const save = { disabled: false };
+            const restore = { disabled: false, title: "" };
+            const controller = context.window.MCBEWriteStatusView.createWriteGateController({
+                getCurrentWriteGate: () => ({
+                    allowed: false,
+                    requires_unknown_server_confirmation: true,
+                    server_status: { status: "unknown" },
+                }),
+                getCurrentPlayerKey: () => "player",
+                getCurrentPlayerStaleReason: () => stale,
+                getIsDirty: () => true,
+                elements: { saveButtons: [save], restoreButtons: [restore] },
+            });
+            assert.strictEqual(controller.writeBlocked(), true);
+            assert.strictEqual(controller.editingBlocked(), true);
+            assert.strictEqual(controller.permissions().canWriteWorld, false);
+            assert.strictEqual(controller.effectiveWriteGate().requires_unknown_server_confirmation, false);
+            controller.updateWriteControls();
+            assert.strictEqual(save.disabled, true);
+            assert.strictEqual(restore.disabled, true);
+
+            // Reloading clears the stale state; the normal confirmation path stays usable.
+            stale = "";
+            assert.strictEqual(controller.writeBlocked(), false);
+            assert.strictEqual(controller.permissions().canWriteWorld, true);
+            controller.updateWriteControls();
+            assert.strictEqual(save.disabled, false);
+            assert.strictEqual(restore.disabled, false);
+            """
+        )
+    )

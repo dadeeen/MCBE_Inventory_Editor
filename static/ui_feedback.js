@@ -17,9 +17,8 @@
         "/api/backup/create",
     ]);
     const inFlightWriteRequests = new Set();
-    // Bestätigungen gelten nur für kurzlebige Retry-Ketten derselben Aktion,
-    // nicht für identische Requests Stunden später: Ablauf per TTL und
-    // Löschen nach erfolgreichem Abschluss.
+    // Eine Bestätigung gilt nur für den einmaligen Presence-Konflikt-Retry
+    // derselben Aktion, nie für einen späteren unabhängigen Schreibversuch.
     const UNKNOWN_SERVER_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
     const confirmedUnknownServerWriteRequests = new Map();
 
@@ -249,8 +248,12 @@
     function applyStoredUnknownServerConfirmation(path, init = {}) {
         if (!UNKNOWN_SERVER_WRITE_PATHS.has(path)) return init;
         const requestBody = jsonBodyFromInit(init);
-        if (!requestBody || requestBody.confirm_unknown_server_status === true) return init;
-        if (!hasUnknownServerConfirmation(unknownConfirmationKey(path, requestBody))) return init;
+        if (!requestBody) return init;
+        const key = unknownConfirmationKey(path, requestBody);
+        const confirmed = hasUnknownServerConfirmation(key);
+        clearUnknownServerConfirmation(key);
+        if (requestBody.confirm_unknown_server_status === true
+            || requestBody.confirm_presence_conflict !== true || !confirmed) return init;
         return {
             ...init,
             body: JSON.stringify({
@@ -307,20 +310,18 @@
                 const requestBody = jsonBodyFromInit(effectiveInit);
                 if (!requestBody) return response;
                 const confirmationKey = unknownConfirmationKey(path, requestBody);
-                if (requestBody.confirm_unknown_server_status === true) {
-                    // Abgeschlossene Aktion: gespeicherte Bestätigung ist verbraucht.
-                    const confirmedData = await responseJson(response);
-                    if (confirmedData?.success === true) clearUnknownServerConfirmation(confirmationKey);
-                    return response;
-                }
+                if (requestBody.confirm_unknown_server_status === true) return response;
                 const data = await responseJson(response);
                 const writeGate = data?.write_gate;
-                if (!data || data.success !== false || writeGate?.requires_unknown_server_confirmation !== true) {
+                // This wrapper runs before the action controller sees the
+                // response. Never turn an uncertain/completed write into a retry.
+                if (!data || data.success !== false || writeGate?.requires_unknown_server_confirmation !== true
+                    || data.write_committed === true || data.write_outcome_unknown === true
+                    || data.reload_required === true || data.response_unreadable === true) {
                     return response;
                 }
                 const proceed = await confirmUnknownServerWrite(writeGate);
                 if (!proceed) return response;
-                storeUnknownServerConfirmation(confirmationKey);
                 const retryInit = {
                     ...effectiveInit,
                     body: JSON.stringify({
@@ -330,7 +331,14 @@
                 };
                 const retryResponse = await originalFetch.call(this, input, retryInit);
                 const retryData = await responseJson(retryResponse);
-                if (retryData?.success === true) clearUnknownServerConfirmation(confirmationKey);
+                // Nur eine eindeutige Ablehnung vor dem Schreiben darf die
+                // Bestätigung an die anschließende Konfliktbestätigung weitergeben.
+                if (requestBody.confirm_presence_conflict !== true
+                    && retryData?.success === false && retryData.presence_conflict?.conflict === true
+                    && retryData.write_committed !== true && retryData.write_outcome_unknown !== true
+                    && retryData.response_unreadable !== true && retryData.reload_required !== true) {
+                    storeUnknownServerConfirmation(confirmationKey);
+                }
                 return retryResponse;
             } finally {
                 if (shouldDedupe) inFlightWriteRequests.delete(dedupeKey);
