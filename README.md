@@ -24,7 +24,17 @@ Studio layout with example data, an English interface, and built-in placeholder 
 
 ## Download → backup → start
 
-Windows also has a [portable desktop edition](#portable-windows-app). The following steps apply to the browser-based runtime ZIP.
+Choose the edition that fits your setup:
+
+| Edition | Start with | Requirements |
+| --- | --- | --- |
+| [Portable Windows app](#portable-windows-app) | `_windows_x64.zip` → `MCBEInventoryEditor.exe` | Windows x64 and WebView2; Python is included |
+| [Browser on Windows](#local-windows-setup) | `_runtime.zip` → `setup.bat`, then `start.bat` | Python 3.12–3.14 |
+| [Docker / LAN](#docker-and-trusted-lans) | Published GHCR image and Compose | Docker with access to the stopped worlds |
+
+All editions use the same editor. Download ZIPs and their matching `.sha256` files from [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
+
+### Browser edition on Windows
 
 1. Open [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
 2. Download the asset ending in `_runtime.zip` and its `.sha256` file. The automatically generated **Source code** archives are repository snapshots, not ready-to-run packages.
@@ -37,7 +47,7 @@ Windows also has a [portable desktop edition](#portable-windows-app). The follow
 7. On first start, follow the setup dialog and load **Item DB** and **Vanilla icons**. You can postpone this and return through the setup notice or **Tools** later. The editor ships with a bundled item snapshot and no icons, so without this step items from newer Minecraft versions are missing and every slot shows a placeholder symbol.
 8. Keep the command-line window opened by `start.bat` open while using the editor. Closing it stops the local editor process; an open browser tab then loses its connection and cannot load or save data.
 
-During updates, the progress display shows downloaded MB and a percentage when the total size is known. It then switches to archive checks, data processing or icon creation, and finishing. A completed download is not yet a completed update; matching cached downloads are shown separately.
+An item or icon update also checks and processes the downloaded files. Wait for the completion message before closing the editor.
 
 ## Why this exists
 
@@ -62,16 +72,7 @@ That origin explains the scope: a reviewed set of player fields, edited with the
 
 The app is not a public hosting service, server administration panel, or unrestricted raw NBT editor.
 
-Icons follow the world's active resource and behavior packs, their versions and
-priority, including declared static item textures. Only active world packs are
-selected automatically; explicitly added editor sources apply globally. Worlds
-using the same sources share one index. Vanilla icons use a common local cache.
-
-Missing packs and unsupported variants produce diagnostics and standard icons
-or placeholders. Custom block models, dynamic rendering and the Minecraft
-client's global pack settings are outside this support. Read-only mode uses
-previously prepared indexes. See [icon resolution](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md) for
-the supported formats, priorities and cache behavior.
+Icons follow active world packs, their versions and priority. Explicitly added editor sources apply globally; Vanilla icons share a local cache. Missing packs or unsupported textures use standard icons or placeholders. Custom block models, dynamic rendering and the Minecraft client's global pack settings are outside this support. See [icon resolution](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md) for supported formats and cache behavior.
 
 ## Three layouts
 
@@ -91,18 +92,16 @@ The initial item-database/icon download and the requirements to stop and back up
 
 ## Local Windows setup
 
-Local Mode supports **Python 3.12–3.14**. The project handles NBT and Bedrock LevelDB using the Python standard library. Amulet-LevelDB, Amulet-NBT and NumPy are not runtime dependencies. Setup retains an existing supported `.venv` and selects the newest installed supported Python for new environments. Dependencies are installed exclusively from hash-checked prebuilt wheels. The Docker image uses Python 3.12.
-
-From the source tree or an extracted runtime package:
+This setup is for the browser edition. It supports **Python 3.12–3.14** and uses the same commands in a source checkout or extracted runtime ZIP:
 
 ```bat
 setup.bat
 start.bat
 ```
 
-`setup.bat` creates `.venv` inside the project folder, installs no global Python packages, verifies the dependency hashes, and accepts only prebuilt wheels. The editor listens on `127.0.0.1:5000`; app data is stored under `data/`.
+`setup.bat` keeps a supported existing `.venv` or creates one using the newest installed supported Python. It installs hash-checked wheels inside that environment, with no compiler or global Python packages. The editor opens at `http://127.0.0.1:5000`; app data lives under `data/`.
 
-The local HTTP server uses Waitress with four worker threads and persistent HTTP connections. Closing the browser shuts the editor down automatically once active operations have finished. Blocked response transfers are disconnected after a grace period. Docker uses Gunicorn, with its unused control socket disabled to support the read-only container filesystem.
+Keep the console open while editing. Closing all editor tabs ends the local service after active operations finish.
 
 Administrator rights should not normally be needed. If a safely stopped world cannot be saved because of Windows permissions, running `start.bat` as administrator can be used as a diagnostic test. It does not make editing a running world safe.
 
@@ -115,14 +114,6 @@ docker pull ghcr.io/dadeeen/mcbe-inventory-editor:latest
 ```
 
 Stable releases update `latest`; pre-releases do not. To keep a specific version, replace `latest` with the version shown on the [Releases page](https://github.com/dadeeen/MCBE_Inventory_Editor/releases), without the leading `v`. This lets you choose each version change explicitly.
-
-To build the current checkout locally instead:
-
-```bash
-docker build -t mcbe-inventory-editor:local .
-```
-
-To use this local build in Compose, set `image: mcbe-inventory-editor:local` in your Compose file.
 
 Save this example as `compose.yaml` or use it as a stack. Replace `/PATH/TO/BEDROCK/WORLDS` with the existing host directory containing your worlds. Set `MCBE_SERVER_HOST` to your Bedrock server's address as reachable from the container, and adjust its port if needed:
 
@@ -153,7 +144,7 @@ docker compose up -d
 
 Use the same commands to update after finishing your edits. `latest` does not update a running container automatically; pulling and recreating it applies the downloaded image while keeping the named data volume. In a stack manager, pull the image and redeploy the stack.
 
-The included [`docker-compose.example.yml`](docker-compose.example.yml) uses the same published image and adds comments, log rotation and container restrictions. Copy it to `compose.yaml`, adjust the world path and server address, and use the commands above.
+The [Compose example on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docker-compose.example.yml) uses the same published image and adds comments, log rotation and container restrictions. Copy it to `compose.yaml`, adjust the world path and server address, and use the commands above.
 
 On first open, set a password or explicitly confirm passwordless use on a trusted network. Protect the port with host firewall rules and never add public ingress or a public tunnel.
 
@@ -168,6 +159,11 @@ Important Docker behavior:
 - A successful full Item DB update stores a verification receipt beside the database under `/data`. It is bound to the exact database file and its source metadata: changing browsers keeps the verified state, while deleting or replacing `/data` intentionally requires one new full Item DB update.
 
 ### Write permissions for Docker worlds
+
+The host filesystem must grant UID/GID `10001` access before the first save. Expand the instructions if permissions need adjusting.
+
+<details>
+<summary>Configure and diagnose Docker world permissions</summary>
 
 A `:rw` mount alone does not give the process inside the container write permission. The editor deliberately runs as non-root UID/GID `10001`. An error such as
 
@@ -264,7 +260,9 @@ Unsupported shortcuts:
 
 Those measures do not fix the ownership and permission cause, or they remove important isolation and concurrent-access safeguards.
 
-The included `docker-compose.viewer.example.yml` shows a hardened viewer configuration. Local helper scripts live under `scripts/docker/`.
+</details>
+
+The [viewer example](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docker-compose.viewer.example.yml) configures read-only access. Local build helpers are in `scripts/docker/` in the source checkout or runtime ZIP. To build an image, run `docker build -t mcbe-inventory-editor:local .` from the checkout or runtime package root and set `image: mcbe-inventory-editor:local` in Compose.
 
 ## Safe workflow
 
@@ -286,14 +284,7 @@ A complete `.mcbe-player.zip` import is different: it writes the exported player
 
 Player exports contain raw, non-anonymized NBT data. Treat them as private and do not attach them to public issues or commit them to a repository.
 
-For private CLI diagnostics. The commands call the interpreter from `.venv`, where the runtime dependencies are installed locally for this project:
-
-```bash
-.venv/Scripts/python scripts/export_player_raws.py list --world "/PATH/TO/WORLD"
-.venv/Scripts/python scripts/export_player_raws.py export --world "/PATH/TO/WORLD" --all --bundle-zip
-```
-
-On Linux and macOS the interpreter is `.venv/bin/python`.
+For command-line raw exports, see [private player diagnostics](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#private-player-diagnostics). These tools require the browser runtime or a source checkout; the desktop EXE does not provide a general Python CLI.
 
 ## Experimental mounts
 
@@ -309,43 +300,24 @@ Staging does not write to the world. The confirmed workspace save creates one ba
 
 The editor deliberately leaves unsupported Bedrock and add-on data untouched instead of behaving like a full raw NBT editor. Unknown formats can still invalidate assumptions, and no backup or validation can guarantee semantic correctness for every world or future Minecraft version.
 
-Security essentials:
+Practical safeguards and limits:
 
-- Local Mode binds only to `127.0.0.1` by default.
-- Editing worlds works fully offline. Outbound HTTPS is used only for **Item DB** and **Vanilla icons** updates you trigger yourself, using a fixed host allowlist for GitHub and `learn.microsoft.com`. These updates automatically check the latest Mojang release and reuse a cached download only when it matches. After an Item DB dry run, apply is bound to the reviewed scope, source snapshots, and starting database state. Optionally, `MCBE_STARTUP_NETWORK_CHECK=true` checks whether those hosts are reachable at startup. The application does not contact `minecraft.wiki` at runtime.
-- Docker/LAN setup requires a password decision on first use.
-- Mutating requests use CSRF/Origin checks and loaded-player revisions.
-- World writes are serialized and re-check the server status immediately before writing.
-- No-op saves write nothing and create no backup.
-- Restore creates a pre-restore backup and verifies the archive before replacement.
-- Interrupted restores remain deferred at startup while server status is unknown or online. Stop Minecraft and the server, then run `.venv\Scripts\python.exe -m mcbe_editor.restore_recovery "PATH_TO_WORLD_OR_SCAN_ROOT"` from the application directory to inspect pending journals (Linux/macOS: `.venv/bin/python`; Docker: `docker exec mcbe-editor python -m mcbe_editor.restore_recovery`). The startup warning names the interpreter of the running installation. Repeat with `--confirm-server-stopped` to recover; a detected online server or read-only mode still blocks changes. Without a path, the command uses configured scan roots. Ambiguous world/rollback copies remain untouched and are reported for manual recovery.
-- Automatic, manual, and pre-restore backups always include the complete world. All three compare source-tree metadata before and after the backup; a detected change discards the new archive and blocks the dependent write before opening the mutating database.
-- World folders and their contents must be ordinary files/directories. Symlinks, Windows junctions and other reparse points are unsupported: backups abort on these entries instead of silently omitting them. Restores on Windows also reject archives with device names, alternate data streams or other filenames that are unsafe there; on Linux and in Docker these remain ordinary names.
-- Completed backup ZIPs are explicitly synchronized to storage before publication. Directory changes are synchronized where supported; actual synchronization errors block the write. Windows and filesystems without directory synchronization retain that platform limitation. Metadata checks and synchronization do not replace stopping Minecraft or the server, or keeping an independent world copy.
-- Backups and restores default to 1 GiB uncompressed per archive and allow at most 50,000 entries, including directories. Change the size limit under **Tools & Settings → Backup Manager**; it applies to all worlds and persists in `data/backup_settings.json`. The allowed range is 1 MiB–1024 GiB. An explicit `MCBE_BACKUP_MAX_UNCOMPRESSED_MIB` value (for example `3072` for 3 GiB) overrides the saved setting and makes the field read-only. Backup retention is independent of this size limit.
-- Backup/restore checks sizes and available disk space before creating its temporary copies. Space estimates include ZIP overhead and a reserve of at least 64 MiB or 5% of the estimated additional space, whichever is larger. Restore accounts for the extracted world, archive snapshot and pre-restore backup on their respective filesystems. Space can still change during the operation; an I/O failure aborts before replacing the world if extraction has not completed.
-- Audit logs, diagnostic reports, backups, worlds, and player exports may contain private or identifying information. Do not publish them without careful sanitization.
+- Editing works offline. **Item DB** and **Vanilla icons** updates need outbound HTTPS; the optional startup network check also contacts their allowlisted hosts.
+- Writes check the loaded player revision, world lock and server status. Each actual write requires a verified full-world backup; an unchanged save writes nothing and creates no backup.
+- Restore checks the archive and creates a pre-restore backup. If a restore is interrupted or its outcome is uncertain, keep the backup and recovery files and follow [recovery instructions](SECURITY.md#interrupted-restores) before editing further.
+- World folders must contain ordinary files and directories. Symlinks, Windows junctions and other reparse points are unsupported.
+- Backups and restores default to **1 GiB uncompressed** and at most **50,000 entries** per archive. Adjust the size under **Tools → Backup Manager**. An explicit `MCBE_BACKUP_MAX_UNCOMPRESSED_MIB` setting overrides the saved value. Keep enough free disk space for backup and restore copies.
+- Worlds, backups, exports, diagnostics and audit logs can contain identifying information. Keep them private and outside repositories and release archives. Local app data lives in `data/`; Docker uses `/data`, including `/data/backups`.
 
-See [SECURITY.md](SECURITY.md) for vulnerability reporting and the supported security boundary.
-
-Runtime data does not belong in the repository or release archives. Typical locations are:
-
-```text
-data/                  # Local Mode
-/data/                 # Docker Mode
-/data/backups/         # Docker backups
-/data/audit/events.jsonl
-```
+The [security policy](SECURITY.md) covers deployment, recovery and vulnerability reports. The [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md#backups-and-restore) describes backup limits and validation in detail.
 
 ## Compatibility and limitations
 
-- The application is for local or trusted-LAN use, not public deployment.
-- Real world edits must happen while Minecraft or the server is stopped.
 - Linux Bedrock servers can keep a world open without taking LevelDB's `LOCK`; file locks alone do not prove that the server is stopped. Keep the server-status guard configured and stop the actual server before editing.
-- Database reads are limited to 256 MiB of combined MANIFEST/WAL data and 64 MiB per stored/decompressed table block. The 256 MiB limit is not a limit on total world size. The editor adds write-ahead logs; Minecraft integrates them when it next opens the world. Missing tables, inconsistent file counters or an exceeded input limit block writes; the editor does not repair the database.
+- Missing or inconsistent database files and exceeded [reader limits](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/leveldb-writer.md) block writes. The editor does not repair damaged databases.
 - Bedrock updates, add-ons, opaque NBT, and unusual LevelDB structures can fall outside what the editor is designed to handle.
 - Experimental mount placement is not full Minecraft collision physics.
-- Runtime ZIPs have a SHA-256 checksum and an internal file manifest, but no independent cryptographic signature.
+- Release ZIPs have a SHA-256 checksum and an internal file manifest, but no independent cryptographic signature.
 
 ## Development and license
 
@@ -353,7 +325,7 @@ Bug reports and contributions are welcome. Use synthetic data and sanitized logs
 
 Contributor instructions, tests, fixtures, and release hygiene are in [docs/development.md on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md). Internal save invariants are documented in [docs/save_contract.md](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md).
 
-The source repository also includes optional [checks against the real Bedrock engine](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md). These developer tools check item limits, enchantments, variants, stack merging, selected gameplay operations, the player save service and a controlled add-on against an explicitly chosen server build. A separate local client test covers actual Inventory/Ender Chest persistence using the experimental API. Results state their tested scope and remaining gaps. Mojang's server binaries and generated test worlds are not distributed; the tools are excluded from application runtime bundles.
+Optional [Bedrock engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md) document tested versions, scope and remaining gaps. Their developer tools, Mojang server binaries and generated test worlds are excluded from runtime packages.
 
 The project's own code is licensed under the [MIT license](LICENSE). Runtime dependencies are subject to their respective upstream licenses. Amulet-LevelDB, Amulet-NBT and their dependencies are used only in the separately installed Python 3.12 reference-test environment and are not shipped with the runtime; their upstream license terms apply to that test environment.
 

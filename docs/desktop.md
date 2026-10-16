@@ -1,7 +1,7 @@
 # Portable Windows desktop
 
 The Windows x64 edition hosts the existing Flask application in a pywebview
-window using the system WebView2 Runtime. PyInstaller bundles standard CPython
+window using the installed WebView2 Runtime. PyInstaller bundles standard CPython
 3.12, dependencies and the shared frontend in an onedir package. There is one
 editor implementation across desktop, browser and Docker.
 
@@ -68,7 +68,7 @@ Use Windows x64 with standard CPython 3.12. A clean environment prevents optiona
 GUI frameworks from being collected accidentally. From the repository root:
 
 ```powershell
-python -m venv .tmp/desktop-build
+py -3.12 -m venv .tmp/desktop-build
 .tmp/desktop-build/Scripts/python.exe -m pip install --require-hashes -r requirements/bootstrap.lock
 .tmp/desktop-build/Scripts/python.exe -m pip install --require-hashes --only-binary=:all: -r requirements/dev.lock
 .tmp/desktop-build/Scripts/python.exe -m pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools --no-build-isolation -r requirements/desktop-build.lock
@@ -100,17 +100,33 @@ WebView checks can additionally set `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` to
 Playwright through CDP. Use an isolated data directory and synthetic worlds;
 normal startup enables neither developer tools nor a debugging port.
 
-Release validation includes the normal Python/browser checks plus practical
-WebView tests: first start, Unicode folder selection, import/export, item/icon
-updates, unsaved-close cancellation, closing after a save, restart preferences
-and update by replacing application files. Use synthetic worlds or disposable
-copies. A clean Windows VM without Python validates external runtime assumptions.
+Before publishing, supplement the automated Python/browser and packaged startup
+checks with practical WebView tests: first start, Unicode folder selection,
+import/export, item/icon updates, unsaved-close cancellation, closing after a save,
+restart preferences and update by replacing application files. Use synthetic
+worlds or disposable copies. Verify startup in a clean Windows VM without Python
+to check external runtime assumptions. The CI startup probe does not perform
+these native-window and clean-machine checks.
 
-WebView2 Evergreen is a system prerequisite and updates independently. The app
+WebView2 Evergreen is an external prerequisite and updates independently. The app
 does not install it silently. Offline machines need Microsoft's offline Runtime
 installer prepared separately. The ZIP does not include a fixed WebView2
 distribution. Builds are unsigned unless a release signing process is configured;
 checksums establish file integrity, not publisher identity.
+
+## Command-line limits
+
+The EXE accepts `--data-dir`, `--port`, `--diagnose` and `--debug`. Its internal
+worker mode dispatches only the item and icon updaters; it is not a general
+Python interpreter. Commands using `.venv`, `python -m ...` or `scripts/*.py`
+require the browser runtime or a source checkout with Python installed.
+
+Interrupted-restore recovery has no desktop CLI entry point. Python-style
+recovery commands generated in desktop error messages cannot be run through the
+EXE. Follow the [recovery instructions](../SECURITY.md#interrupted-restores) using
+a separate matching runtime installation while the desktop app is closed.
+
+## Maintenance
 
 Maintenance consists of the Windows build, bundled CPython security updates,
 deliberate pywebview/PyInstaller lock updates and native window checks.

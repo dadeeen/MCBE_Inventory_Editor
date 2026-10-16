@@ -56,7 +56,7 @@ Jedes vom Editor erstellte Welt-Backup vergleicht die Quellmetadaten vor und nac
 - Behandle `MCBE_REQUIRE_SERVER_OFFLINE=false` als ausdrückliche unsichere Ausnahme ausschließlich für beendete Kopien oder Archive.
 - Verwende für Viewer sowohl `MCBE_READ_ONLY=true` als auch ein `/worlds:ro`-Volume. Docker `read_only: true` schützt nur das Root-Dateisystem des Containers.
 - Binde nur den erforderlichen übergeordneten Weltordner ein, niemals `/`, `/home` oder ein gesamtes NAS.
-- Gewähre dem nicht privilegierten Containerprozess gezielte Rechte als UID `10001` oder über eine dedizierte gemeinsame Gruppe. Die konkreten ACL- und Gruppenvarianten stehen in `README.de.md` unter „Schreibrechte für Docker-Welten“.
+- Gewähre dem nicht privilegierten Containerprozess gezielte Rechte als UID `10001` oder über eine dedizierte gemeinsame Gruppe. Die konkreten ACL- und Gruppenvarianten stehen unter [Schreibrechte für Docker-Welten](README.de.md#schreibrechte-für-docker-welten).
 - Verwende weder `chmod 777` noch `privileged: true`, Root-Betrieb oder das Löschen beziehungsweise Umgehen von LevelDB-Sperren als Berechtigungslösung.
 - Halte `/data` privat und persistent. Es enthält Einrichtungszustand, Backups und möglicherweise Audit-Daten.
 - Verwende `MCBE_FAIL_ON_INSECURE_CONFIG=true`, wenn ein nicht authentifizierter breiter Bind den Start abbrechen soll.
@@ -92,17 +92,9 @@ Lokale und Release-Umgebungen verwenden hashgebundene Abhängigkeiten für Pytho
 
 Runtime-ZIPs enthalten den Python-Code für NBT und Bedrock-LevelDB ohne Amulet-Bibliotheken oder gebündelte LevelDB-Wheels. Windows-Setup und Docker installieren ausschließlich hashgeprüfte vorgefertigte Abhängigkeiten. CI prüft frische Umgebungen ohne native Referenzbibliotheken sowie separat die unabhängigen Amulet-Vergleichstests. Prüfe zusätzlich die veröffentlichte Prüfsumme des Release-ZIPs.
 
-Das portable Windows-ZIP enthält CPython und seine Abhängigkeiten. Das Fenster verwendet die systemweite WebView2 Evergreen Runtime sowie dieselbe lokale HTTP-API und dieselben Schreibsperren. Browser und Docker benötigen keine Desktop-Abhängigkeiten. Die Desktop-Build-Abhängigkeiten besitzen ein separates, auditiertes Hash-Lockfile; der Build erlaubt ausdrücklich das kleine reine Python-Quellarchiv `proxy-tools` in einer gebundenen Build-Umgebung. Die Anwendung installiert keine Abhängigkeiten auf dem Rechner des Nutzers. Halte `data` einschließlich WebView-Profil und Desktop-Log privat und außerhalb von Release-Archiven.
+Das portable Windows-ZIP enthält CPython und seine Abhängigkeiten. Das Fenster verwendet die installierte WebView2 Evergreen Runtime sowie dieselbe lokale HTTP-API und dieselben Schreibsperren. Browser und Docker benötigen keine Desktop-Abhängigkeiten. Die Desktop-Build-Abhängigkeiten besitzen ein separates, auditiertes Hash-Lockfile; der Build erlaubt ausdrücklich das kleine reine Python-Quellarchiv `proxy-tools` in einer gebundenen Build-Umgebung. Die Anwendung installiert keine Abhängigkeiten auf dem Rechner des Nutzers. Halte `data` einschließlich WebView-Profil und Desktop-Log privat und außerhalb von Release-Archiven.
 
-Vollständige lokale Sicherheitsprüfung. Führe zuerst einmal `setup.bat` aus, falls `.venv` noch nicht existiert; das erstellt die Umgebung mit Python 3.12–3.14. Die Befehle rufen diesen Interpreter direkt auf, da ein globaler die Entwicklungsabhängigkeiten systemweit installieren würde:
-
-```bash
-.venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
-.venv/Scripts/python scripts/security_check.py --require-pip-audit
-```
-
-Unter Linux und macOS lautet der Interpreter `.venv/bin/python`.
+Mitwirkende führen die [lokale Prüfrunde und Abhängigkeitsprüfung](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#local-check-round) in einem Quellcode-Checkout mit Entwicklungsumgebung aus. Diese Python-Befehle lassen sich nicht über die portable EXE starten. Verwende den Interpreter aus der Projekt-`.venv`, statt Entwicklungspakete global zu installieren.
 
 Es gibt keinen automatischen Quellbau als Ersatz für fehlende Wheels. Docker lädt Abhängigkeiten in einer separaten Stufe mit Hashprüfung herunter und installiert sie im Runtime-Image ohne Netzwerkzugriff. Die zusätzlichen Referenz-Lockfiles sind nicht Teil der Runtime; ihr verpflichtender CI-Lauf prüft die tatsächlichen Imports und auditiert beide Lockfiles.
 
@@ -112,8 +104,28 @@ Normales Bearbeiten benötigt keinen ausgehenden Internetzugriff. Der optionale 
 
 ## Releases und Wiederherstellung
 
-Offizielle Runtime-Pakete werden ausschließlich über die [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases) des ursprünglichen Repositorys veröffentlicht. Versionierte Runtime-ZIPs enthalten eine SHA-256-Prüfsumme und ein Dateimanifest. Diese erkennen Übertragungsfehler oder Änderungen, sind aber keine unabhängige kryptografische Signatur.
+Offizielle Browser- und Desktop-ZIPs werden über die [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases) des ursprünglichen Repositorys veröffentlicht; Docker-Images verwenden `ghcr.io/dadeeen/mcbe-inventory-editor`. Jedes Release-ZIP besitzt eine separate SHA-256-Prüfsummendatei und enthält ein Dateimanifest. Diese erkennen Übertragungsfehler oder Änderungen, sind aber keine unabhängige kryptografische Signatur.
 
 App-Backups werden vor einem Restore auf technische Lesbarkeit geprüft. Diese Prüfung kann nicht bestätigen, dass eine Welt semantisch korrekt oder mit einer bestimmten Minecraft-Version kompatibel ist. Die unabhängige Weltkopie bleibt die letzte Wiederherstellungsgrenze.
 
 Gewährleistung und Haftung richten sich für den eigenen Projektcode nach dem genauen Text der [MIT-Lizenz](LICENSE). Abhängigkeiten, einschließlich der optionalen Amulet-Testreferenzen, besitzen eigene Lizenzbedingungen.
+
+### Unterbrochene Wiederherstellungen
+
+Beim Start bleibt die Wiederherstellung zurückgestellt, solange der Serverstatus unbekannt oder online ist. Beende Minecraft und den Bedrock-Server. Behalte Welt, Backup, Restore-Journal und vorhandene Staging-/Rollback-Verzeichnisse; lösche sie nicht, um die Warnung zu beseitigen.
+
+Verwende die **Browser-Runtime oder einen Quellcode-Checkout** mit eingerichteter Python-Umgebung. Prüfe aus deren Anwendungsverzeichnis den übergeordneten Weltordner:
+
+```powershell
+.venv/Scripts/python.exe -m mcbe_editor.restore_recovery "C:/PFAD/ZU/WELTEN"
+```
+
+Unter Linux/macOS verwendest du `.venv/bin/python`. Für einen laufenden Docker-Editor gelten dessen Containername und Containerpfade:
+
+```bash
+docker exec mcbe-editor python -m mcbe_editor.restore_recovery /worlds
+```
+
+Die Prüfung lässt ausstehende Wiederherstellungen zurückgestellt. Prüfe die gemeldeten Pfade und bestätige, dass der Server beendet ist; wiederhole den Befehl dann mit `--confirm-server-stopped`. Read-only-Modus oder ein erkannt laufender Server blockieren Änderungen weiterhin. Mehrdeutige Welt-/Rollback-Kopien bleiben unverändert und müssen manuell beurteilt werden. Ohne Pfadangabe verwendet der Befehl die konfigurierten Suchorte dieser Installation.
+
+**Desktop-EXE:** Diese Recovery-CLI ist nicht als ausführbarer Befehl enthalten. Schließe die Desktop-App und verwende für die Wiederherstellung ein separat entpacktes Browser-Runtime-ZIP derselben Version mit Python und `setup.bat`. Gib den übergeordneten Ordner der betroffenen Welt an und übernimm die Umgebungsvariablen für Server und Read-only-Modus (`MCBE_SERVER_HOST`, `MCBE_SERVER_PORT`, `MCBE_READ_ONLY`). Ein Python-Befehl mit `-m` aus einer Desktop-Warnung lässt sich nicht über `MCBEInventoryEditor.exe` ausführen.

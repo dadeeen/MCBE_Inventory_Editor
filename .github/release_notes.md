@@ -1,4 +1,4 @@
-Runtime package for the Minecraft Bedrock Inventory Editor.
+Release packages for the Minecraft Bedrock Inventory Editor.
 
 ## What changed in v0.7.2
 
@@ -16,7 +16,7 @@ Desktop-only dependencies are pinned separately; browser/Docker runtime dependen
 
 ## Validation
 
-Release preparation checks the full Python suite, backend branch coverage, browser flows, JavaScript regressions, seven layout and mount smoke scripts, dependency audits, runtime-package contents and integrity, and Docker startup and graceful shutdown with a read-only root filesystem. Visual checks cover desktop and emulated narrow screens, including the light theme.
+Release preparation checks the full Python suite, backend branch coverage, browser flows, JavaScript regressions, seven layout and mount smoke scripts, dependency audits, runtime-package contents and integrity, and Docker startup and graceful shutdown with a read-only root filesystem. Browser visual checks cover wide and emulated narrow screens, including the light theme. The desktop builder checks the packaged EXE's HTTP assets and updater entry points without opening a window; native-window and clean-machine checks are separate requirements in the [desktop validation guide](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.2/docs/desktop.md#validation-and-maintenance).
 
 These checks use synthetic fixtures and do not establish compatibility with every Minecraft version, gameplay action or add-on. Version-specific engine evidence and its limitations are documented in the [engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.2/docs/engine-checks.md) and [save contract](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.7.2/docs/save_contract.md). Mount creation remains experimental; verify edited world copies in Minecraft.
 

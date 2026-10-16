@@ -56,7 +56,7 @@ Every editor-created world backup compares source metadata before and after crea
 - Treat `MCBE_REQUIRE_SERVER_OFFLINE=false` as an explicit unsafe override for stopped copies or archives only.
 - For viewer deployments, use both `MCBE_READ_ONLY=true` and a `/worlds:ro` volume. Docker's `read_only: true` protects only the container root filesystem.
 - Mount only the required worlds parent folder, never `/`, `/home`, or an entire NAS.
-- Grant the unprivileged container process targeted access as UID `10001` or through a dedicated shared group. See “Write permissions for Docker worlds” in `README.md` for the concrete ACL and group variants.
+- Grant the unprivileged container process targeted access as UID `10001` or through a dedicated shared group. See [Write permissions for Docker worlds](README.md#write-permissions-for-docker-worlds) for the concrete ACL and group variants.
 - Do not use `chmod 777`, `privileged: true`, root execution, or deletion/bypassing of LevelDB locks as a permission workaround.
 - Keep `/data` private and persistent. It contains setup state, backups, and potentially audit data.
 - Use `MCBE_FAIL_ON_INSECURE_CONFIG=true` when an unauthenticated wide bind must abort startup.
@@ -92,17 +92,9 @@ Local and release environments use hash-pinned dependencies for Python 3.12–3.
 
 Runtime ZIPs contain the Python NBT and Bedrock LevelDB implementations without Amulet libraries or bundled LevelDB wheels. Windows setup and Docker install only hash-checked prebuilt dependencies. CI checks fresh environments without native reference libraries and separately runs the independent Amulet comparisons. Also verify the published release ZIP checksum.
 
-The portable Windows ZIP bundles CPython and its dependencies. Its window uses the system WebView2 Evergreen Runtime and the same loopback HTTP API and write guards. Browser/Docker dependencies exclude the desktop host. Desktop build dependencies have a separate audited hash lock; the build explicitly permits the small pure-Python `proxy-tools` source archive in a locked build environment. The application installs no dependencies on the user's machine. Keep `data`, including the WebView profile and desktop log, private and outside release archives.
+The portable Windows ZIP bundles CPython and its dependencies. Its window uses the installed WebView2 Evergreen Runtime and the same loopback HTTP API and write guards. Browser/Docker dependencies exclude the desktop host. Desktop build dependencies have a separate audited hash lock; the build explicitly permits the small pure-Python `proxy-tools` source archive in a locked build environment. The application installs no dependencies on the user's machine. Keep `data`, including the WebView profile and desktop log, private and outside release archives.
 
-For a full local security check. Run `setup.bat` once first if `.venv` does not exist yet; it creates the environment on Python 3.12–3.14. The commands call that interpreter directly, because a global one would install the development dependencies system-wide:
-
-```bash
-.venv/Scripts/python -m pip install --require-hashes -r requirements/bootstrap.lock
-.venv/Scripts/python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
-.venv/Scripts/python scripts/security_check.py --require-pip-audit
-```
-
-On Linux and macOS the interpreter is `.venv/bin/python`.
+Maintainers run the [local check round and dependency audit](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#local-check-round) in a source checkout with its development environment. These Python commands do not run through the portable EXE. Use the project's `.venv` interpreter rather than installing development packages globally.
 
 Missing wheels never trigger an automatic source-build fallback. Docker downloads dependencies with hash verification in a separate stage and installs them in the runtime image without network access. The additional reference locks are excluded from the runtime; their mandatory CI job checks actual imports and audits both locks.
 
@@ -112,8 +104,28 @@ Normal editing requires no outbound internet access. The optional item-data upda
 
 ## Releases and recovery
 
-Official runtime packages are published only through the original repository's [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases). Versioned runtime ZIPs include a SHA-256 checksum and a file manifest. These detect transfer errors or modifications but are not an independent cryptographic signature.
+Official browser and desktop ZIPs are published through the original repository's [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases); Docker images use `ghcr.io/dadeeen/mcbe-inventory-editor`. Each release ZIP has a separate SHA-256 checksum file and contains a file manifest. These detect transfer errors or modifications but are not an independent cryptographic signature.
 
 App-created backups are checked for archive readability before restore. That check cannot prove that a world is semantically valid or compatible with a particular Minecraft version. The independent world copy remains the final recovery boundary.
 
 Warranty and liability are governed by the exact text of the [MIT license](LICENSE) for this project's own code. Dependencies, including the optional Amulet test references, have their own license terms.
+
+### Interrupted restores
+
+Startup defers recovery while server status is unknown or online. Stop Minecraft and the Bedrock server. Keep the world, backup, restore journal and any staging/rollback directories; do not remove them to clear the warning.
+
+Use the **browser runtime or source checkout** with its Python environment. From that installation's directory, inspect the world's parent folder:
+
+```powershell
+.venv/Scripts/python.exe -m mcbe_editor.restore_recovery "C:/PATH/TO/WORLDS"
+```
+
+On Linux/macOS, use `.venv/bin/python`. For a running Docker editor, use its container name and container paths:
+
+```bash
+docker exec mcbe-editor python -m mcbe_editor.restore_recovery /worlds
+```
+
+Inspection leaves pending recovery deferred. After checking the reported paths and confirming the server is stopped, repeat the command with `--confirm-server-stopped`. Read-only mode or a detected online server still blocks changes. Ambiguous world/rollback copies remain untouched and require manual assessment. Without a path, the command uses the installation's configured scan roots.
+
+**Desktop EXE:** this recovery CLI is not bundled as an executable command. Close the desktop app and use a separately extracted browser runtime ZIP of the same version, with Python and `setup.bat`, for recovery. Point it at the affected world's parent folder and carry over the server and read-only environment settings (`MCBE_SERVER_HOST`, `MCBE_SERVER_PORT`, `MCBE_READ_ONLY`). A Python-style `-m` command in a desktop warning cannot be run through `MCBEInventoryEditor.exe`.

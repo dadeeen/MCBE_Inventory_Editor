@@ -1,9 +1,8 @@
 # Architecture
 
 MCBE Inventory Editor is a modular monolith. The application deliberately keeps
-one deployable Python process and a shared web frontend without a frontend build step. The
-goal is explicit ownership and testable boundaries, not a framework-heavy
-layer model.
+one shared Python application and web frontend without a frontend build step.
+The goal is explicit ownership and testable boundaries.
 
 The optional [Windows desktop host](desktop.md) wraps the same application in a
 WebView2 window. Its isolated PyInstaller build bundles Python; browser and
@@ -38,6 +37,10 @@ Dependencies point downward. Domain and adapter modules must not import
 `main.py`, and domain helpers must not depend on Flask request or response
 objects. Cross-cutting policy enters route and service code through explicit
 dependencies or small shared modules.
+
+`desktop.py` and `mcbe_editor/desktop_app.py` are entry-point composition code
+above this dependency graph: they start the application from `main.py` and own
+the native window lifecycle. They do not add a second editing service.
 
 ## Write boundary
 

@@ -1,6 +1,15 @@
 # Development, Tests, and Release Hygiene
 
-This repository-only document is aimed at contributors and maintainers working in the full Git source tree. The public getting-started documentation is in the [README](../README.md). The project shape and dependency direction are summarized in the [architecture overview](architecture.md). Durable engineering contracts are documented in the [save contract](save_contract.md) and the [experimental mount specification](experimental_mount_creation_status.md).
+This document is for contributors and maintainers working in the full Git source tree. User installation and operation are in the [README](../README.md).
+
+| Topic | Detailed documentation |
+| --- | --- |
+| Structure and dependencies | [Architecture](architecture.md), [dependency portability](dependency-portability-assessment.md), [lockfiles](../requirements/README.md) |
+| Windows EXE | [Desktop architecture, build and validation](desktop.md) |
+| Saving and storage | [Save contract](save_contract.md), [LevelDB writer](leveldb-writer.md) |
+| Item catalog | [Names and source comparisons](item-localization.md), [stack limits](item-stack-limits.md), [icons](icon-resolution.md) |
+| Experimental mounts | [Creation contract](experimental_mount_creation_status.md), [in-game validation](mount-game-validation.md) |
+| Compatibility evidence | [Bedrock engine checks](engine-checks.md), [NBT source comparison](nbt-source-comparison.md), [NBT performance](nbt-performance.md) |
 
 ## HTTP servers
 
@@ -202,7 +211,7 @@ The UI is bilingual (German/English). German is the source language: user-facing
 - Templates: visible text and translatable attributes use Jinja `t()` explicitly. CSS-generated labels receive their localized values through translated `data-*` attributes; styles must not hard-code user-facing text.
 - Backend messages: `mcbe_editor/i18n.py` provides a request-aware `t(text, **params)` that resolves the locale of the active Flask request (outside a request it falls back to German, the source language). API failures use `mcbe_editor/api_errors.py` and return stable `code`, `params`, `message_key`, and localized `message`; the legacy `error` alias remains during migration. The frontend localizes `message_key` again at the display boundary, so a stale or separately negotiated API locale cannot leak into the active page language. A specific backend message already names the failed action and is shown as it is; the page puts its own context (for example `Fehler beim Speichern: {error}`) only in front of a technical reason: an unreadable answer, an error answer without a message, a bare `error`, or a generic handler message such as `Interner Serverfehler` (`errorMessageInContext` in `static/api_client.js`). Because a refusal is such a specific message, the save routes put `Speichern abgelehnt:` in front of one that names only its reason, such as `Welt-Ordner existiert nicht.` (`save_refusal_payload` in `mcbe_editor/api_errors.py`). Localized responses include `Vary: Accept-Language, Cookie`.
 - Tests: the pytest suite pins the Flask test client to German via `tests/conftest.py` (`Accept-Language: de` in `environ_base`), because assertions use the German source strings. Translation itself is covered by `tests/test_backend_i18n.py`; tests that exercise English send their own `Accept-Language` header, which overrides the pin. `tests/test_i18n_catalog.py` checks unique keys, placeholders, referenced literals, and rejects raw translatable template text; `tests/test_frontend_i18n.py` prevents feature modules from reintroducing raw locale checks or a DOM-translation fallback.
-- Deliberately not translated: operator-facing console output (startup errors, CLI help, batch scripts) is English only; log messages and internal data-validation errors for the bundled item DB (`mcbe_editor/item_data.py`) stay in the source language.
+- Operator-facing console output, CLI help, batch scripts and internal logs are outside the request-locale translation contract. Their language varies by tool; do not assume that all console output is English.
 
 Documentation languages: `README.md` and `SECURITY.md` are English with maintained German counterparts (`README.de.md`, `SECURITY.de.md`). Developer documentation under `docs/` is English only and is deliberately not translated, to avoid drift in security-relevant contracts.
 
@@ -221,7 +230,7 @@ A `wiki_*` stamp in `source_version.json` records a comparison made by that upda
 
 Regression tests cover missing local values, table completeness, and wiki-only entries.
 
-Item display names come from Mojang's `de_DE`/`en_US` language files. The updater keeps existing names so reviewed corrections survive an update, with one exception: a legacy ID that covers several variants (`sandstone`, `wool`, `log`, …) must not carry the name of one of its variants. When Mojang ships the base key `tile.<id>.name`, the updater replaces such a variant name with it; `bed` keeps its reviewed data-value-0 name. Persistent copies are corrected at load time only for the exact previous labels listed in `SUPERSEDED_ITEM_LABELS` (`mcbe_editor/item_data.py`), so user-edited names stay. `tests/test_item_db.py` rejects two addable items with the same display name unless Mojang itself ships that homonym. Because existing names are kept, a later rename by Mojang (such as "Redstone Comparator" to "Comparator" in bedrock-samples v1.26.50) does not reach the catalog on its own; when the bundled snapshot moves to a new release, compare its names with that release's `de_DE`/`en_US` files and list replaced names in `SUPERSEDED_ITEM_LABELS`. Some keys of these files name tooltip lines rather than items, such as `item.canBreak=Can break:` or `item.unbreakable=Unbreakable`. `NON_ITEM_LANG_KEY_IDS` in `mcbe_editor/item_registry_policy.py` lists the IDs that catalogs derived from them; the updater skips them, and loading drops them from persistent copies, because an update never removes an entry.
+Item names use Mojang's `de_DE`/`en_US` files plus reviewed distinctions for legacy IDs and variants. Both runtime loading and the updater apply the exact-match migration policy in `mcbe_editor/item_name_policy.py`, preserving custom names. When refreshing the bundled snapshot, compare it with the chosen release and review obsolete label pairs; see [Item names and source comparisons](item-localization.md). Tooltip-only language keys are excluded through `NON_ITEM_LANG_KEY_IDS` in `mcbe_editor/item_registry_policy.py`.
 
 Inventory icon binding, preview limitations, and before/after verification are
 documented in [Inventory icon resolution](icon-resolution.md).
@@ -247,6 +256,17 @@ docker build --target dependency-audit .
 
 These checks do not change dependencies automatically. Security updates are applied deliberately, after which lockfiles are regenerated and the tests are run again.
 
+## Private player diagnostics
+
+The browser runtime ZIP and source checkout include `scripts/export_player_raws.py`. The portable EXE does not expose this Python CLI. Stop Minecraft or the server before inspecting a world, and run from the installation directory using its virtual environment:
+
+```powershell
+.venv/Scripts/python.exe scripts/export_player_raws.py list --world "C:/PATH/TO/WORLD"
+.venv/Scripts/python.exe scripts/export_player_raws.py export --world "C:/PATH/TO/WORLD" --all --bundle-zip
+```
+
+On Linux/macOS, use `.venv/bin/python`. Exports contain raw, non-anonymized NBT; keep them private and out of commits, releases and public issues. For interrupted world restores, use the separate [recovery instructions](../SECURITY.md#interrupted-restores).
+
 ## Test fixtures and private worlds
 
 Real Bedrock worlds and player data are private data. Place them only under `fixtures/private/`; that folder is ignored, excluded from Docker builds, and protected by release checks.
@@ -261,15 +281,15 @@ A private example world can be inspected without printing private values with:
 python scripts/fixture_world.py inspect --world-zip /path/to/Sample-World.zip
 ```
 
-Public test fixtures under `tests/fixtures/` may only contain non-playable scanner fixtures. They are created from a world copy and remove the original LevelDB files as well as binary world metadata:
+Public fixtures must be synthetic or individually reviewed, anonymized and non-playable. The scanner-fixture generator removes original LevelDB files and binary world metadata from a world copy:
 
 ```bash
 python scripts/fixture_world.py make-scanner-fixture --world-zip /path/to/Sample-World.zip --output tests/fixtures/public_scanner_world.zip
 ```
 
-These public fixtures are intended only for scanner, ZIP hygiene, and restore preview tests. A real world only counts as publishable once it has been anonymized with a LevelDB/NBT-aware procedure and manually reviewed afterwards.
+These generated scanner fixtures serve scanner, ZIP hygiene and restore preview tests. Anonymization and manual review remain required before any world-derived fixture is committed. Isolated entity NBT records belong under `tests/data/` only after individual review under its [fixture contract](../tests/data/README.md).
 
-`tests/fixtures/mount_reference.json` is the second kind of public fixture: distilled evidence rather than world data. The mount writer's per-type constants are claims about what Minecraft itself writes, and `tests/test_mount_writer_matches_game_reference.py` checks those claims on every run without needing a private world. Regenerate it from a reference world after a relevant Bedrock update:
+`tests/fixtures/mount_reference.json` is a separate kind of public fixture: distilled evidence rather than world data. The mount writer's per-type constants are claims about what Minecraft itself writes, and `tests/test_mount_writer_matches_game_reference.py` checks those claims on every run without needing a private world. Regenerate it from a reference world after a relevant Bedrock update:
 
 ```bash
 python scripts/export_mount_reference.py --world "fixtures/private/<reference world>" --output tests/fixtures/mount_reference.json
@@ -299,7 +319,7 @@ $env:MCBE_PRIVATE_WORLD_MAX_PLAYERS = "2"
 
 Normal work in the source tree does not require a constantly rebuilt runtime package. Only before a state is handed over or published must it be committed, unambiguously versioned, verified, and packaged.
 
-On Windows, a single double-click workflow bundles the full check round, browser smoke tests, dependency audit, package build, and final archive verification:
+For the browser runtime ZIP on Windows, a double-click workflow bundles the full check round, browser smoke tests, dependency audit, package build, and final archive verification:
 
 ```bat
 scripts\release_windows.bat
@@ -313,7 +333,9 @@ scripts\release_windows.bat --replace-existing --no-pause
 
 The replacement is built under a temporary name and validated completely before it atomically replaces the old ZIP. The option refuses replacement when the matching local version tag already exists. Never replace an artifact for a published version; bump the version instead. Playwright is not shipped; if `node_modules/` is missing, `npm.cmd ci --ignore-scripts` must be run once.
 
-The corresponding individual steps remain available for Linux and CI:
+The portable EXE has a separate Windows x64/Python 3.12 build described in [Desktop build](desktop.md#build). `release_windows.bat` does not build it. CI's `desktop` job creates its ZIP and checksum and runs the packaged startup probe.
+
+The corresponding individual browser-runtime packaging steps remain available for Linux and CI:
 
 ```bash
 python scripts/release_check.py --path .
@@ -329,7 +351,12 @@ Pushing a tag named `v<project-version>` is the official release path. CI compar
 | Stable tag `vX.Y.Z` | `X.Y.Z`, `X.Y`, `sha-...`, and `latest` | Stable release |
 | Pre-release tag | Full version and `sha-...`; no minor tag or `latest` | Pre-release |
 
-The runtime ZIP receives a version-specific file name and a separate SHA-256 checksum file. A failed check or Docker step prevents the release.
+A tagged GitHub Release attaches four build assets:
+
+- `mcbe_inventory_editor_v<version>_runtime.zip` and its `.sha256` file;
+- `mcbe_inventory_editor_<version>_windows_x64.zip` and its `.sha256` file.
+
+GitHub also supplies its own source snapshots. The two README screenshots are inside both application ZIPs, not separate release assets. The GitHub Release job waits for `package`, `docker-publish` and `desktop`; failure in any required job prevents that release. GHCR publication depends on `package` and its own Docker checks, not on `desktop`, so it can finish before a later desktop failure.
 
 Among the things that do not belong in a release:
 
@@ -355,8 +382,10 @@ RELEASE_MANIFEST.json as a local source artifact
 real Bedrock worlds
 ```
 
-`RELEASE_MANIFEST.json` is generated during the package build and belongs in the runtime archive. A copy lying in the local working tree is only an ignored build/check artifact and should not be committed.
+`RELEASE_MANIFEST.json` is generated during each package build and belongs in both application archives. A copy lying in the local working tree is only an ignored build/check artifact and should not be committed.
 
 The runtime archive uses an explicit allowlist. It contains the readable application code, static files, templates, required lockfiles, user-facing README and security policy, screenshots, and supported operational tools. Internal contracts, contributor documentation, tests, CI configuration, npm/Playwright, fixtures, the release builder, and remaining maintainer tools stay exclusively in the Git source tree. This keeps the package auditable without becoming a second development checkout.
+
+The desktop archive follows its own build allowlist: EXE, `_internal`, manifest, licenses and user documentation. It contains no BAT setup, Compose files or general Python CLI; developer instructions must not imply that it is a source checkout.
 
 The project root deliberately contains only tool-conventional configuration and direct entry points such as `pyproject.toml`, `Dockerfile`, Compose examples, `setup.bat`, and `start.bat`. Development, diagnostic, and release helpers live under `scripts/`; generated caches, runtime data, and build outputs remain ignored and are hard-excluded by release and Docker rules.
