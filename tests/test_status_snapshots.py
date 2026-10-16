@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from mcbe_editor import item_db_verification, status_snapshots
 
 
@@ -46,8 +48,9 @@ def test_source_version_history_entries_filters_non_dict_entries(tmp_path):
     assert result == [{"id": 1}, {"id": 2}]
 
 
-def test_public_app_config_uses_null_username_when_auth_disabled(tmp_path):
-    config = _config(tmp_path)
+@pytest.mark.parametrize("mode,opt_in,expected", [("local", False, False), ("local", True, True), ("docker", True, False)])
+def test_public_app_config_uses_null_username_when_auth_disabled(tmp_path, mode, opt_in, expected):
+    config = _config(tmp_path, mode=mode, local_heartbeat_shutdown=opt_in)
 
     result = status_snapshots.public_app_config(
         config,
@@ -61,6 +64,7 @@ def test_public_app_config_uses_null_username_when_auth_disabled(tmp_path):
     )
 
     assert result["auth_enabled"] is False
+    assert result["heartbeat_enabled"] is expected
     assert result["auth_username"] is None
     assert result["allowed_origins"] == ["http://localhost:5000"]
     assert result["setup"] == {"required": False}

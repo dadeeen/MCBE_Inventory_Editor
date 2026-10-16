@@ -473,3 +473,50 @@ class RemoteAddrSpoofingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]"])
+def test_loopback_health_accepts_local_hosts(monkeypatch, host):
+    import main
+    from mcbe_editor.config import trusted_hosts_for_bind
+
+    monkeypatch.setitem(main.app.config, "MCBE_TRUSTED_HOSTS", trusted_hosts_for_bind("127.0.0.1"))
+    response = main.app.test_client().get("/healthz", base_url=f"http://{host}:5001")
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "ok"
+
+
+@pytest.mark.parametrize("path", ["/healthz", "/", "/setup", "/login", "/api/app_config", "/static/app.js"])
+@pytest.mark.parametrize("host", ["untrusted.invalid", "127.0.0.1.external.invalid", "[2001:db8::1]", "[::ffff:7f00:1]"])
+def test_untrusted_host_rejected_before_setup_and_auth(monkeypatch, path, host):
+    from unittest.mock import Mock
+
+    import main
+    from mcbe_editor.config import trusted_hosts_for_bind
+
+    monkeypatch.setitem(main.app.config, "MCBE_TRUSTED_HOSTS", trusted_hosts_for_bind("127.0.0.1"))
+    setup = Mock(return_value=True)
+    monkeypatch.setattr(main, "first_run_setup_required", setup)
+    monkeypatch.setattr(main, "auth_enabled", lambda: True)
+    response = main.app.test_client().get(path, base_url=f"http://{host}:5001", headers={"Origin": f"http://{host}:5001"})
+    assert response.status_code == 400
+    assert "Location" not in response.headers
+    assert "Set-Cookie" not in response.headers
+    setup.assert_not_called()
+
+
+@pytest.mark.parametrize("trust_proxy", [False, True])
+def test_forwarded_host_only_applies_for_explicit_proxy_policy(monkeypatch, trust_proxy):
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    import main
+    from mcbe_editor.config import trusted_hosts_for_bind
+
+    trusted = ["editor.home.arpa"] if trust_proxy else trusted_hosts_for_bind("127.0.0.1")
+    monkeypatch.setitem(main.app.config, "MCBE_TRUSTED_HOSTS", trusted)
+    if trust_proxy:
+        monkeypatch.setattr(main.app, "wsgi_app", ProxyFix(main.app.wsgi_app, x_host=1, x_proto=1))
+    client = main.app.test_client()
+    for forwarded, status in (("editor.home.arpa", 200), ("untrusted.invalid", 400 if trust_proxy else 200)):
+        response = client.get("/healthz", base_url="http://localhost", headers={"X-Forwarded-Host": forwarded, "X-Forwarded-Proto": "https"})
+        assert response.status_code == status

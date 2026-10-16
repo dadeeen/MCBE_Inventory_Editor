@@ -86,6 +86,8 @@ The window uses the same interface and storage services as the browser and Docke
 
 Settings, icons, backups and the window profile live in the `data` directory created beside the EXE on first start. The local service binds exclusively to `127.0.0.1`, using port `5001` by default; browser startup keeps port `5000`. One desktop window runs per data directory. Closing checks for unsaved edits and finishes active writes. Startup errors are recorded in `data/desktop.log`.
 
+The window stays on the local editor; clicked external HTTP(S) links open in the default browser. If the editing state cannot be checked, closing requires confirmation. Recovery after an interrupted restore is available through `--recover`, without installing Python; see [recovery instructions](SECURITY.md#interrupted-restores).
+
 To update, close the editor. You can keep the installation directory: replace the EXE, the **entire** `_internal` directory and the remaining package files, including `RELEASE_MANIFEST.json`, with the matching new version while retaining `data`. Replacing only the EXE is insufficient; remove the old `_internal` directory before copying the new one. Alternatively, extract into a new directory and copy `data` into it to keep the old installation available until the new one is verified.
 
 The initial item-database/icon download and the requirements to stop and back up the world also apply here. Browser installation and Docker do not require desktop dependencies. The [desktop build](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/desktop.md) describes architecture, validation and maintenance.
@@ -101,7 +103,7 @@ start.bat
 
 `setup.bat` keeps a supported existing `.venv` or creates one using the newest installed supported Python. It installs hash-checked wheels inside that environment, with no compiler or global Python packages. The editor opens at `http://127.0.0.1:5000`; app data lives under `data/`.
 
-Keep the console open while editing. Closing all editor tabs ends the local service after active operations finish.
+Keep the console open while editing. Closing a browser tab leaves the local service running; save your edits, then stop it with **Ctrl+C** in the console. The portable EXE shuts down through its own window.
 
 Administrator rights should not normally be needed. If a safely stopped world cannot be saved because of Windows permissions, running `start.bat` as administrator can be used as a diagnostic test. It does not make editing a running world safe.
 

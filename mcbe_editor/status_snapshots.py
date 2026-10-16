@@ -24,6 +24,7 @@ def public_app_config(
 ) -> dict:
     return {
         "mode": app_config.mode,
+        "heartbeat_enabled": app_config.mode == "local" and bool(getattr(app_config, "local_heartbeat_shutdown", False)),
         "host": bind_host,
         "port": bind_port,
         "worlds_root": app_config.worlds_root,

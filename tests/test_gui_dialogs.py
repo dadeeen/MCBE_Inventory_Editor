@@ -78,3 +78,14 @@ def test_select_icon_dialogs_use_resource_pack_titles(monkeypatch):
 
     assert gui_dialogs.select_icon_folder() == "C:/pack.mcpack"
     assert "Resource-Pack- oder Icon-Ordner" in run_gui_script.call_args.args[0]
+
+
+@pytest.mark.parametrize("picker", ["select_folder", "select_player_export", "select_icon_pack", "select_icon_folder"])
+def test_frozen_dialog_without_provider_fails_without_relaunch(monkeypatch, picker):
+    monkeypatch.setattr(gui_dialogs.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(gui_dialogs, "_desktop_dialog", None)
+    run = Mock(side_effect=AssertionError("must not invoke the EXE with -c"))
+    monkeypatch.setattr(gui_dialogs.subprocess, "run", run)
+    with pytest.raises(gui_dialogs.UserFacingRuntimeError, match="Dateidialog|file dialog"):
+        getattr(gui_dialogs, picker)()
+    run.assert_not_called()

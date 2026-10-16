@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from flask import Flask, Response, g, has_request_context, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.exceptions import SecurityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 
@@ -43,7 +44,7 @@ from mcbe_editor import (
     update_script_runner,
 )
 from mcbe_editor.audit import AuditLogger
-from mcbe_editor.config import _host_for_origin, host_reaches_beyond_loopback
+from mcbe_editor.config import _host_for_origin, host_reaches_beyond_loopback, request_host_is_trusted, trusted_hosts_for_bind
 from mcbe_editor.db import register_runtime_leveldb_write_guard
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
 from mcbe_editor.distribution import data_root_snapshot, distribution_snapshot
@@ -341,6 +342,17 @@ from mcbe_editor.world import (  # noqa: E402
 )
 
 app = Flask(__name__)
+app.config["MCBE_TRUSTED_HOSTS"] = trusted_hosts_for_bind(APP_CONFIG.host, APP_CONFIG.trusted_hosts)
+
+
+@app.before_request
+def reject_untrusted_host():
+    # Flask validates during routing, but still runs before_request handlers.
+    # Do not let an auth/setup redirect short-circuit that routing error.
+    if isinstance(request.routing_exception, SecurityError):
+        raise request.routing_exception
+    if not request_host_is_trusted(request.host, app.config["MCBE_TRUSTED_HOSTS"]):
+        raise SecurityError("Untrusted Host header")
 
 
 @app.context_processor
@@ -351,6 +363,7 @@ def _inject_i18n() -> dict:
     )
     return {
         "app_locale": locale,
+        "heartbeat_enabled": APP_CONFIG.is_local and APP_CONFIG.local_heartbeat_shutdown,
         "i18n_catalog": i18n.catalog_for(locale),
         "t": lambda text, **params: i18n.translate(text, locale, params),
     }
@@ -913,6 +926,12 @@ def require_csrf(f):
     return wrapper
 
 
+def has_pending_operations() -> bool:
+    """Report active protected operations without exposing counter internals."""
+    with _SAVING_LOCK:
+        return _SAVING_COUNTER > 0
+
+
 def save_in_progress(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -959,6 +978,9 @@ def item_db_update_guard(f):
 
 def check_heartbeat():
     global LAST_HEARTBEAT
+    if not (APP_CONFIG.is_local and APP_CONFIG.local_heartbeat_shutdown):
+        return
+    LOGGER.warning("Legacy heartbeat shutdown enabled; suspended browser tabs may lose their server")
     while True:
         time.sleep(2)
         if _heartbeat_now() - LAST_HEARTBEAT > HEARTBEAT_TIMEOUT:
@@ -2262,6 +2284,9 @@ def create_local_server(host: str, port: int, *, debug: bool = False):
     app.debug = debug
     if debug:
         LOGGER.warning("Flask debug mode enabled; Waitress does not run an interactive debugger or reloader")
+    # CLI --host can override the configured bind address. Apply its policy
+    # before the listener can serve requests (including port-zero diagnostics).
+    app.config["MCBE_TRUSTED_HOSTS"] = trusted_hosts_for_bind(host, APP_CONFIG.trusted_hosts)
     server = LocalServer(app, host, port)
     RUNTIME_BIND_HOST = host
     RUNTIME_BIND_PORT = server.port

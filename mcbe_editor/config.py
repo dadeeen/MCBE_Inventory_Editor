@@ -41,6 +41,44 @@ def _host_for_origin(host: str) -> str:
     return normalized
 
 
+def trusted_hosts_for_bind(host: str, configured: tuple[str, ...] = ()) -> list[str] | None:
+    """Restrict direct loopback requests without guessing LAN/proxy hostnames.
+
+    An explicit list uses Flask's TRUSTED_HOSTS syntax. Desktop startup clears
+    inherited proxy/deployment policy before configuration is imported.
+    """
+    if configured:
+        return list(configured)
+    if host_reaches_beyond_loopback(host):
+        return None
+    return sorted({"localhost", "127.0.0.1", "[::1]", _host_for_origin(host).lower()})
+
+
+def request_host_is_trusted(host: str, trusted: list[str] | None) -> bool:
+    from werkzeug.sansio.utils import host_is_trusted
+
+    if not host_is_trusted(host):
+        return False
+    if not trusted:
+        return True
+    if host.startswith("["):
+        # Werkzeug 3.1.9 validates IPv6 Host headers, but splits allowlist entries
+        # at their first colon. Compare IPv6 literals explicitly; retain its
+        # hostname/suffix policy for DNS names and IPv4. Ports are not identities.
+        try:
+            address = ipaddress.IPv6Address(host[1 : host.index("]")])
+        except ValueError:
+            return False
+        for candidate in trusted:
+            try:
+                if ipaddress.IPv6Address(candidate.strip("[]")) == address:
+                    return True
+            except ValueError:
+                continue
+        return False
+    return host_is_trusted(host, trusted)
+
+
 def _env_bool(name: str, default: bool, *, strict: bool = False) -> bool:
     value = os.environ.get(name)
     if value is None or value == "":
@@ -145,6 +183,7 @@ class AppConfig:
     audit_log_enabled: bool
     audit_log_path: str | None
     audit_log_max_bytes: int
+    trusted_hosts: tuple[str, ...] = ()
 
     @property
     def is_docker(self) -> bool:
@@ -162,7 +201,9 @@ def load_config() -> AppConfig:
     host = os.environ.get("MCBE_EDITOR_HOST", default_host).strip() or default_host
     port = _env_int("MCBE_EDITOR_PORT", default_port)
     open_browser = _env_bool("MCBE_OPEN_BROWSER", mode == "local")
-    local_heartbeat_shutdown = _env_bool("MCBE_LOCAL_HEARTBEAT_SHUTDOWN", True, strict=True)
+    # Background tabs may throttle or suspend timers; silence is not proof that
+    # their unsaved editor state has been discarded. Retain the legacy opt-in.
+    local_heartbeat_shutdown = _env_bool("MCBE_LOCAL_HEARTBEAT_SHUTDOWN", False, strict=True)
 
     worlds_root = os.environ.get("MCBE_WORLDS_ROOT")
     if worlds_root:
@@ -339,4 +380,5 @@ def load_config() -> AppConfig:
         audit_log_enabled=audit_log_enabled,
         audit_log_path=audit_log_path,
         audit_log_max_bytes=audit_log_max_bytes,
+        trusted_hosts=tuple(_env_list("MCBE_TRUSTED_HOSTS")),
     )

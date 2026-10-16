@@ -76,8 +76,7 @@ def test_public_docs_use_evergreen_release_links_and_an_unofficial_disclaimer():
         assert ".sha256" in source
         assert "docs/assets/editor-overview.png" in source
         assert "docs/assets/editor-inventory.png" in source
-        # Quick-start images use the stable channel so the commands work without
-        # a version placeholder and do not need edits for each release.
+        # Quick-start commands work without editing a version placeholder.
         assert "docker pull ghcr.io/dadeeen/mcbe-inventory-editor:latest" in source
         assert "image: ghcr.io/dadeeen/mcbe-inventory-editor:latest" in source
         assert "docker-compose.example.yml" in source
@@ -301,6 +300,16 @@ def test_ci_release_artifacts_are_revision_specific_and_tags_match_project_versi
     assert "mcbe_inventory_editor_${GITHUB_SHA}_runtime.zip" in workflow
     assert "mcbe_inventory_editor_${{ github.sha }}_runtime.zip" in workflow
     assert "needs: [package, docker-publish, desktop]" in workflow
+    release_job = workflow.split("  release:", 1)[1]
+    assert "name: mcbe-inventory-editor-desktop-${{ github.sha }}" in release_job
+    assert "desktop/*_windows_x64.zip \\" in release_job
+    assert "desktop/*_windows_x64.zip.sha256 \\" in release_job
+    desktop_job = workflow.split("  desktop:", 1)[1].split("  docker-build:", 1)[0]
+    assert "python -m venv .tmp/desktop-build" in desktop_job
+    assert "shell: bash" in desktop_job
+    assert "          python -m pip" not in desktop_job
+    assert ".tmp/desktop-build/Scripts/python.exe scripts/build_desktop.py" in desktop_job
+    assert ".tmp/desktop-build/Scripts/python.exe -m tests.test_desktop_navigation --native" in desktop_job
     assert 'gh release create "$GITHUB_REF_NAME"' in workflow
     assert 'sha256sum "$release_name"' in workflow
     assert "release_flags+=(--prerelease)" in workflow
@@ -493,7 +502,8 @@ def test_runtime_dependencies_are_hash_locked_wheels_and_offline_at_runtime():
     # exception must not weaken the ordinary browser/Docker wheel-only setup.
     source_build_lines = [line.strip() for line in workflow.splitlines() if "--no-build-isolation" in line]
     assert source_build_lines == [
-        "python -m pip install --require-hashes --only-binary=:all: --no-binary=proxy-tools --no-build-isolation -r requirements/desktop-build.lock"
+        ".tmp/desktop-build/Scripts/python.exe -m pip install --require-hashes --only-binary=:all: "
+        "--no-binary=proxy-tools --no-build-isolation -r requirements/desktop-build.lock"
     ]
     assert "pip download --no-cache-dir --only-binary=:all: --require-hashes --dest /wheelhouse/runtime" in dockerfile
     assert "pip install --no-cache-dir --no-index --only-binary=:all: --no-deps /wheelhouse/runtime/*.whl" in dockerfile

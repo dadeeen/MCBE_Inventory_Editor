@@ -3041,5 +3041,10 @@
   "Details stehen in {path}.": "See {path} for details.",
   "Spieler-Export (*.mcbe-player.zip;*.zip)": "Player export (*.mcbe-player.zip;*.zip)",
   "Bedrock-Ressourcenpaket (*.mcpack;*.zip)": "Bedrock resource pack (*.mcpack;*.zip)",
-  "Microsoft Edge WebView2 Runtime fehlt. Installiere die Runtime von https://go.microsoft.com/fwlink/p/?LinkId=2124703.": "Microsoft Edge WebView2 Runtime is missing. Install the Runtime from https://go.microsoft.com/fwlink/p/?LinkId=2124703."
+  "Microsoft Edge WebView2 Runtime fehlt. Installiere die Runtime von https://go.microsoft.com/fwlink/p/?LinkId=2124703.": "Microsoft Edge WebView2 Runtime is missing. Install the Runtime from https://go.microsoft.com/fwlink/p/?LinkId=2124703.",
+  "Recovery beendet (Exitcode {code}). Details stehen in {path}.": "Recovery finished (exit code {code}). See {path} for details.",
+  "Die Navigationssperre des Desktop-Fensters konnte nicht eingerichtet werden.": "The desktop window navigation protection could not be initialized.",
+  "Der native Dateidialog ist nicht verfügbar. Bitte den Desktop-Editor neu starten.": "The native file dialog is unavailable. Please restart the desktop editor.",
+  "Lokaler Server nicht verfügbar": "Local server unavailable",
+  "Der lokale Server wurde unerwartet beendet. Speichern ist nicht mehr möglich. Nicht gespeicherte Änderungen bleiben nur im geöffneten Fenster. Abbrechen lässt das Fenster zum Notieren der Änderungen offen. Editor jetzt schließen?": "The local server stopped unexpectedly. Saving is no longer possible. Unsaved changes remain only in the open window. Cancel to keep the window open and take notes of your changes. Close the editor now?"
 }

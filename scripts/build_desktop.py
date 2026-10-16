@@ -22,12 +22,17 @@ if str(ROOT) not in sys.path:
 
 def verify_bundle(directory: Path) -> None:
     """Reject application state and unrelated source material before packaging."""
+    from mcbe_editor.path_safety import is_linklike
+
     forbidden = {"data", "tests", "fixtures", ".git", ".venv", "node_modules", ".env", "desktop.log", "desktop.lock"}
     for path in directory.rglob("*"):
         relative = path.relative_to(directory)
-        if path.is_symlink() or any(part.casefold() in forbidden or part.startswith(".env.") for part in relative.parts):
+        if is_linklike(path) or any(part.casefold() in forbidden or part.casefold().startswith(".env.") for part in relative.parts):
             raise ValueError(f"Unexpected file in desktop bundle: {relative}")
-        if path.is_file() and (path.suffix.lower() in {".bat", ".cmd", ".mcworld", ".mcpack", ".mcaddon"} or path.name.endswith(".mcbe-player.zip")):
+        if path.is_file() and (
+            path.suffix.lower() in {".bat", ".cmd", ".mcworld", ".mcpack", ".mcaddon"}
+            or path.name.casefold().endswith((".mcbe-player.zip", ".mcbe-player-bundle.zip"))
+        ):
             raise ValueError(f"Unexpected file in desktop bundle: {relative}")
     for name in ("MCBEInventoryEditor.exe", "_internal/python312.dll", "_internal/templates/index.html", "_internal/static/app.js"):
         if not (directory / name).is_file():
@@ -37,7 +42,7 @@ def verify_bundle(directory: Path) -> None:
 def smoke_bundle(directory: Path, temporary: Path) -> None:
     env = dict(os.environ)
     for key in tuple(env):
-        if key.startswith(("MCBE_", "PYTHON")) or key == "VIRTUAL_ENV":
+        if key.startswith(("MCBE_", "PYTHON", "WEBVIEW2_")) or key == "VIRTUAL_ENV":
             env.pop(key)
     profile = temporary / "profile"
     profile.mkdir()
@@ -55,18 +60,75 @@ def smoke_bundle(directory: Path, temporary: Path) -> None:
     )
     report = temporary / "report.json"
     proc = subprocess.run(
-        [str(directory / "MCBEInventoryEditor.exe"), "--data-dir", str(temporary / "data"), "--port", "0", "--diagnose", str(report)],
+        [
+            str(directory / "MCBEInventoryEditor.exe"),
+            "--data-dir",
+            str(temporary / "data"),
+            "--port",
+            "0",
+            "--diagnose",
+            str(report),
+            "--with-window",
+        ],
         cwd=temporary,
         env=env,
         timeout=120,
         check=False,
     )
     result = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else {}
-    if proc.returncode or result.get("ok") is not True:
+    if proc.returncode or result.get("ok") is not True or result.get("checks", {}).get("native_close") is not True:
         log = temporary / "data" / "desktop.log"
         details = log.read_text(encoding="utf-8")[-8000:] if log.is_file() else "No desktop log was written."
         raise RuntimeError(f"Packaged application check failed: {result}\n{details}")
-    print("Packaged startup, assets and both updater workers passed with no Python in PATH.")
+    smoke_recovery(directory / "MCBEInventoryEditor.exe", temporary, env)
+    print("Packaged assets, updater entry points, native window/close and guarded recovery passed with no Python in PATH.")
+
+
+def smoke_recovery(executable: Path, temporary: Path, env: dict[str, str]) -> None:
+    """Exercise the packaged recovery CLI only against a newly created journal."""
+    from mcbe_editor.backup import _write_restore_transaction
+
+    root = temporary / "recovery-worlds"
+    root.mkdir()
+    world = root / "Welt ü"
+    transaction_id = "0123456789abcdef"
+    rollback = root / f".{world.name}_rollback_interrupted_{transaction_id}"
+    staging = root / f".{world.name}_restoring_interrupted"
+    for path, contents in ((rollback, b"original world"), (staging, b"selected backup")):
+        (path / "db").mkdir(parents=True)
+        (path / "db" / "state.dat").write_bytes(contents)
+    journal = Path(_write_restore_transaction(str(root), world.name, str(rollback), str(staging), transaction_id))
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    output = temporary / "recovery-report.txt"
+    for confirmed, read_only in ((False, False), (True, True), (True, False)):
+        command = [
+            str(executable),
+            "--data-dir",
+            str(temporary / "data"),
+            "--recovery-report",
+            str(output),
+            "--recover",
+            str(world),
+        ]
+        if confirmed:
+            command.append("--confirm-server-stopped")
+        output.unlink(missing_ok=True)
+        proc = subprocess.run(command, cwd=temporary, env={**env, "MCBE_READ_ONLY": str(read_only).lower()}, timeout=60, check=False)
+        text = output.read_text(encoding="utf-8") if output.is_file() else "No recovery report was written."
+        try:
+            results = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Packaged recovery exited with {proc.returncode}: {text}") from exc
+        blocked = not confirmed or read_only
+        expected = "deferred-write-gate" if blocked else "original-restored"
+        if proc.returncode != int(blocked) or len(results) != 1 or results[0].get("status") != expected:
+            raise RuntimeError(f"Packaged recovery check failed: {results}")
+        if blocked:
+            after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            if before != after:
+                raise RuntimeError("Blocked packaged recovery changed the synthetic world")
+        elif (world / "db" / "state.dat").read_bytes() != b"original world" or journal.exists() or rollback.exists() or staging.exists():
+            raise RuntimeError("Packaged recovery did not restore the original synthetic world")
 
 
 def build(output: Path) -> Path:

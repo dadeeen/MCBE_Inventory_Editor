@@ -20,6 +20,10 @@ def set_desktop_dialog(provider: Callable[..., str] | None) -> None:
 
 
 def run_gui_script(script: str, timeout: int = 60) -> str:
+    if getattr(sys, "frozen", False):
+        # The EXE is not an arbitrary Python interpreter. A missing native
+        # provider must fail visibly, never relaunch the editor with -c.
+        raise UserFacingRuntimeError(t("Der native Dateidialog ist nicht verfügbar. Bitte den Desktop-Editor neu starten."))
     # File paths must survive both legacy Windows code pages and inherited
     # PYTHONIOENCODING overrides. Set the same encoding on both pipe ends.
     env = os.environ.copy()

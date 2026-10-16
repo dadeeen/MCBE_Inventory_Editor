@@ -86,6 +86,8 @@ Das eigene Fenster verwendet dieselbe Oberfläche und dieselben Speicherdienste 
 
 Einstellungen, Icons, Backups und Fensterprofil liegen im beim Start angelegten Ordner `data` neben der EXE. Der lokale Dienst bindet ausschließlich an `127.0.0.1`, standardmäßig Port `5001`; der Browserstart verwendet weiterhin Port `5000`. Pro Datenordner läuft ein Desktop-Fenster. Beim Schließen werden ungespeicherte Änderungen abgefragt und laufende Schreibvorgänge abgeschlossen. Startfehler stehen in `data/desktop.log`.
 
+Das Fenster bleibt beim lokalen Editor; angeklickte externe HTTP(S)-Links öffnen sich im Standardbrowser. Ist der Bearbeitungsstand nicht prüfbar, erfordert das Schließen eine Bestätigung. Für unterbrochene Wiederherstellungen steht `--recover` ohne Python-Installation bereit; siehe [Recovery-Anleitung](SECURITY.de.md#unterbrochene-wiederherstellungen).
+
 Für ein Update den Editor schließen. Das Installationsverzeichnis kann bleiben: Ersetze die EXE, den **gesamten** Ordner `_internal` und die übrigen Paketdateien einschließlich `RELEASE_MANIFEST.json` durch die zusammengehörige neue Version; behalte dabei `data`. Nur die EXE auszutauschen reicht nicht; entferne den alten Ordner `_internal`, bevor du den neuen hineinkopierst. Alternativ kannst du das Archiv in einen neuen Ordner entpacken und `data` hineinkopieren, damit die alte Installation erhalten bleibt, bis die neue geprüft ist.
 
 Der erste Item-DB-/Icon-Download und die Regeln zum Beenden und Sichern der Welt gelten auch hier. Browserinstallation und Docker benötigen keine Desktop-Abhängigkeiten. Der [Desktop-Build](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/desktop.md) beschreibt Architektur, Prüfungen und Pflege.
@@ -101,7 +103,7 @@ start.bat
 
 `setup.bat` behält eine unterstützte vorhandene `.venv` bei oder erstellt sie mit der neuesten installierten unterstützten Python-Version. Es installiert hashgeprüfte Wheels innerhalb dieser Umgebung, ohne Compiler oder globale Python-Pakete. Der Editor öffnet sich unter `http://127.0.0.1:5000`; App-Daten liegen unter `data/`.
 
-Lass die Konsole während der Bearbeitung offen. Nach dem Schließen aller Editor-Tabs endet der lokale Dienst, sobald laufende Arbeiten abgeschlossen sind.
+Lass die Konsole während der Bearbeitung offen. Das Schließen eines Browser-Tabs lässt den lokalen Dienst weiterlaufen; speichere deine Änderungen und beende ihn danach mit **Strg+C** in der Konsole. Die portable EXE wird über ihr eigenes Fenster geschlossen.
 
 Administratorrechte sollten normalerweise nicht erforderlich sein. Falls eine sicher beendete Welt wegen Windows-Dateirechten nicht gespeichert werden kann, kann der Start als Administrator als Diagnosetest dienen. Eine laufende Welt wird dadurch nicht sicher bearbeitbar.
 

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -271,3 +274,72 @@ def test_recovery_help_quotes_an_interpreter_outside_the_application(tmp_path, m
 
     assert command.startswith(('"', "'")) and str(interpreter) in command
     assert command.endswith(" -m mcbe_editor.restore_recovery --help")
+
+
+@pytest.mark.parametrize("confirmed,read_only", [(False, False), (True, True), (True, False)])
+def test_frozen_recovery_command_dispatches_to_real_guarded_recovery(interrupted_restore, monkeypatch, confirmed, read_only):
+    from mcbe_editor import desktop_app
+
+    state = interrupted_restore
+    monkeypatch.setattr(os, "environ", dict(os.environ))
+    data = state.root.parent / "app-data"
+    monkeypatch.setenv("MCBE_READ_ONLY", str(read_only).lower())
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(state.root.parent / "Editor ü" / "MCBEInventoryEditor.exe"))
+    monkeypatch.setattr(sys, "platform", "win32")
+    # The real Windows file lock has its own native test; this one tests CLI,
+    # environment and real restore transactions on all application platforms.
+    monkeypatch.setattr(desktop_app, "desktop_instance", lambda _data: contextlib.nullcontext())
+
+    def unexpected_gui(*_args, **_kwargs):
+        pytest.fail("Recovery must not start Flask or require WebView2")
+
+    monkeypatch.setattr(desktop_app, "webview2_available", unexpected_gui)
+    monkeypatch.setattr(desktop_app, "run_desktop", unexpected_gui)
+    _mock_server_probe(monkeypatch, "unknown")
+    before = _tree_contents(state.root)
+    recovery_args = [str(state.world)]
+    if confirmed:
+        recovery_args.append("--confirm-server-stopped")
+    command = restore_recovery.recovery_arguments(*recovery_args)
+    assert command[1:3] == ["--data-dir", str(data)]
+    assert "-m" not in command
+    blocked = not confirmed or read_only
+    assert desktop_app.main(command[1:]) == int(blocked)
+    (result,) = json.loads((data / "restore-recovery.txt").read_text(encoding="utf-8"))
+    if blocked:
+        assert result["status"] == "deferred-write-gate"
+        assert _tree_contents(state.root) == before
+    else:
+        assert result["status"] == "original-restored"
+        assert (state.world / "db" / "state.dat").read_bytes() == b"original world"
+        assert not state.journal.exists()
+
+
+def test_frozen_recovery_help_is_reported_without_starting_the_editor(tmp_path):
+    from mcbe_editor.desktop_app import run_recovery
+
+    report = tmp_path / "recovery.txt"
+    assert run_recovery(["--help"], report) == 0
+    assert "--confirm-server-stopped" in report.read_text(encoding="utf-8")
+    assert run_recovery(["--invalid"], report) == 2
+    assert "unrecognized arguments" in report.read_text(encoding="utf-8")
+
+
+def test_frozen_recovery_uses_absolute_paths_and_literal_powershell_quoting(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    executable = tmp_path / "D'Artagnan $tools" / "MCBEInventoryEditor.exe"
+    monkeypatch.setattr(sys, "executable", str(executable))
+    monkeypatch.setenv("MCBE_DATA_ROOT", str(tmp_path / "Data ü"))
+    args = restore_recovery.recovery_arguments("--help")
+    assert args == [str(executable), "--data-dir", str(tmp_path / "Data ü"), "--recover", "--help"]
+    command = restore_recovery.recovery_help_command()
+    if os.name == "nt":
+        assert command.startswith("& '")
+        assert "D''Artagnan $tools" in command
+        assert "'--recover' '--help'" in command
+    else:
+        import shlex
+
+        assert shlex.split(command) == args

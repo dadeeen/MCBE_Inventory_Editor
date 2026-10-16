@@ -40,7 +40,8 @@ dependencies or small shared modules.
 
 `desktop.py` and `mcbe_editor/desktop_app.py` are entry-point composition code
 above this dependency graph: they start the application from `main.py` and own
-the native window lifecycle. They do not add a second editing service.
+the native window lifecycle. `desktop_navigation.py` contains the Windows-only
+document-origin policy and external-link adapter. They do not add a second editing service.
 
 ## Write boundary
 

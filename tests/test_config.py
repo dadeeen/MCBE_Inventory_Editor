@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import os
 
+import pytest
+
 
 def _fresh_config_module(monkeypatch):
     import mcbe_editor.config as config
@@ -219,3 +221,32 @@ def test_bracketed_ipv6_loopback_origin_is_not_double_bracketed(monkeypatch):
 
     assert "http://[::1]:5051" in loaded.allowed_origins
     assert "http://[[::1]]:5051" not in loaded.allowed_origins
+
+
+@pytest.mark.parametrize("bind", ["127.0.0.1", "127.42.0.7", "localhost", "::1", "[::1]"])
+def test_loopback_host_policy_is_explicit(monkeypatch, bind):
+    config = _fresh_config_module(monkeypatch)
+    hosts = config.trusted_hosts_for_bind(bind)
+    assert {"127.0.0.1", "localhost", "[::1]"}.issubset(hosts)
+    assert config._host_for_origin(bind) in hosts
+    assert "untrusted.invalid" not in hosts
+
+
+@pytest.mark.parametrize("bind", ["0.0.0.0", "::", "192.168.1.5", "mcbe-host", "127.0.0.1"])
+def test_lan_and_proxy_host_policy_is_configurable(monkeypatch, bind):
+    config = _fresh_config_module(monkeypatch)
+    monkeypatch.setenv("MCBE_TRUSTED_HOSTS", "editor.home.arpa, 192.168.1.5")
+    loaded = config.load_config()
+    assert config.trusted_hosts_for_bind(bind, loaded.trusted_hosts) == ["editor.home.arpa", "192.168.1.5"]
+    if config.host_reaches_beyond_loopback(bind):
+        assert config.trusted_hosts_for_bind(bind) is None
+
+
+def test_heartbeat_shutdown_requires_explicit_opt_in(monkeypatch):
+    config = _fresh_config_module(monkeypatch)
+    assert config.load_config().local_heartbeat_shutdown is False
+    monkeypatch.setenv("MCBE_LOCAL_HEARTBEAT_SHUTDOWN", "true")
+    assert config.load_config().local_heartbeat_shutdown is True
+    monkeypatch.setenv("MCBE_LOCAL_HEARTBEAT_SHUTDOWN", "ture")
+    with pytest.raises(RuntimeError, match="MCBE_LOCAL_HEARTBEAT_SHUTDOWN"):
+        config.load_config()

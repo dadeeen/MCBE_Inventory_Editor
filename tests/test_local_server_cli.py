@@ -3,6 +3,7 @@ from __future__ import annotations
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
+from dataclasses import replace
 from http.client import HTTPConnection
 from threading import Barrier, Event, Thread, enumerate as enumerate_threads
 
@@ -294,6 +295,7 @@ def test_heartbeat_timeout_uses_monotonic_clock(monkeypatch) -> None:
         if sleep_calls > 1:
             raise AssertionError("heartbeat loop did not terminate after shutdown")
 
+    monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, mode="local", local_heartbeat_shutdown=True))
     server = ServerStub()
     monkeypatch.setattr(main, "LAST_HEARTBEAT", 100.0)
     monkeypatch.setattr(main, "HEARTBEAT_TIMEOUT", 15.0)
@@ -317,3 +319,43 @@ def test_note_heartbeat_records_monotonic_clock(monkeypatch) -> None:
     main.note_heartbeat_received()
 
     assert main.LAST_HEARTBEAT == 42.5
+
+
+@pytest.mark.parametrize("mode,opt_in", [("local", False), ("docker", True)])
+def test_heartbeat_cannot_stop_server_without_local_opt_in(monkeypatch, mode, opt_in):
+    from unittest.mock import Mock
+
+    import main
+
+    monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, mode=mode, local_heartbeat_shutdown=opt_in))
+    server = Mock()
+    monkeypatch.setattr(main, "_SERVER", server)
+    monkeypatch.setattr(main, "LAST_HEARTBEAT", 0.0)
+    monkeypatch.setattr(main, "_heartbeat_now", lambda: 600.0)
+    sleep = Mock(side_effect=AssertionError("inactive heartbeat must not start a loop"))
+    monkeypatch.setattr(main.time, "sleep", sleep)
+    main.check_heartbeat()
+    server.shutdown.assert_not_called()
+    sleep.assert_not_called()
+
+
+@pytest.mark.parametrize("bind", ["127.0.0.1", "0.0.0.0"])
+def test_cli_bind_override_updates_host_policy(monkeypatch, bind):
+    from unittest.mock import Mock
+
+    import main
+    from mcbe_editor.config import trusted_hosts_for_bind
+
+    monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, trusted_hosts=()))
+    # Restore mutable startup state after the test, including the Flask config.
+    for name in ("RUNTIME_BIND_HOST", "RUNTIME_BIND_PORT", "_SERVER", "LAST_HEARTBEAT"):
+        monkeypatch.setattr(main, name, getattr(main, name))
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", set(main.ALLOWED_ORIGINS))
+    monkeypatch.setitem(main.app.config, "MCBE_TRUSTED_HOSTS", main.app.config["MCBE_TRUSTED_HOSTS"])
+    monkeypatch.setattr(main.app, "debug", False)
+    monkeypatch.setattr(main, "start_background_tasks", Mock())
+    monkeypatch.setattr(main, "log_startup_security_report", Mock())
+    monkeypatch.setattr(main, "validate_startup_security", Mock())
+    monkeypatch.setattr("mcbe_editor.local_server.LocalServer", Mock(return_value=Mock(port=12345)))
+    main.create_local_server(bind, 0)
+    assert main.app.config["MCBE_TRUSTED_HOSTS"] == trusted_hosts_for_bind(bind)

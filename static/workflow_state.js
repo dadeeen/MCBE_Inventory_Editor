@@ -543,7 +543,7 @@
         }
 
         function startHeartbeat() {
-            if (appConfig?.mode !== "local") return;
+            if (appConfig?.mode !== "local" || appConfig.heartbeat_enabled !== true) return;
             win.setInterval(async () => {
                 try {
                     await fetch("/api/heartbeat", { method: "POST", headers: withCsrf() });

@@ -23,12 +23,29 @@ from .server_status import write_gate
 from .world import get_configured_scan_roots
 
 
-def recovery_command(*args: str) -> str:
+def recovery_arguments(*args: str) -> list[str]:
+    # A frozen executable is not a Python interpreter. Keep its data directory
+    # explicit so the command also works from another working directory.
+    if getattr(sys, "frozen", False):
+        command = [str(Path(sys.executable).resolve())]
+        data_root = os.environ.get("MCBE_DATA_ROOT")
+        if data_root:
+            command.extend(["--data-dir", str(Path(data_root).expanduser().resolve())])
+        command.extend(["--recover", *args])
+        return command
     # A bare "python" may be missing or older than the runtime on Windows.
     interpreter = Path(sys.executable)
     with contextlib.suppress(ValueError):
         interpreter = interpreter.relative_to(Path.cwd())
-    command = [str(interpreter), "-m", "mcbe_editor.restore_recovery", *args]
+    return [str(interpreter), "-m", "mcbe_editor.restore_recovery", *args]
+
+
+def recovery_command(*args: str) -> str:
+    command = recovery_arguments(*args)
+    if getattr(sys, "frozen", False) and os.name == "nt":
+        # PowerShell needs the call operator for a quoted executable. Literal
+        # single quotes also preserve $, backticks and apostrophes in paths.
+        return "& " + " ".join("'" + arg.replace("'", "''") + "'" for arg in command)
     return subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
 
 

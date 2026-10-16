@@ -52,6 +52,7 @@ Every editor-created world backup compares source metadata before and after crea
 
 - Enable password protection for LAN use.
 - Leave `MCBE_TRUST_PROXY_HEADERS=false` unless a trusted reverse proxy is the only route to the app.
+- Loopback requests are restricted to local hostnames by default. For LAN/Docker or an explicitly trusted reverse proxy, set `MCBE_TRUSTED_HOSTS` to the expected hostnames (comma-separated, without URL scheme, path or port), or enforce them at the proxy. This is separate from `MCBE_ALLOWED_ORIGINS` and CSRF protection. The integrated desktop always disables proxy-header trust and forces its own loopback host list.
 - Leave `MCBE_REQUIRE_SERVER_OFFLINE=true` for real server worlds and configure `MCBE_SERVER_HOST`. For a NetherNet server, the editor also needs TCP access to the server port.
 - Treat `MCBE_REQUIRE_SERVER_OFFLINE=false` as an explicit unsafe override for stopped copies or archives only.
 - For viewer deployments, use both `MCBE_READ_ONLY=true` and a `/worlds:ro` volume. Docker's `read_only: true` protects only the container root filesystem.
@@ -128,4 +129,10 @@ docker exec mcbe-editor python -m mcbe_editor.restore_recovery /worlds
 
 Inspection leaves pending recovery deferred. After checking the reported paths and confirming the server is stopped, repeat the command with `--confirm-server-stopped`. Read-only mode or a detected online server still blocks changes. Ambiguous world/rollback copies remain untouched and require manual assessment. Without a path, the command uses the installation's configured scan roots.
 
-**Desktop EXE:** this recovery CLI is not bundled as an executable command. Close the desktop app and use a separately extracted browser runtime ZIP of the same version, with Python and `setup.bat`, for recovery. Point it at the affected world's parent folder and carry over the server and read-only environment settings (`MCBE_SERVER_HOST`, `MCBE_SERVER_PORT`, `MCBE_READ_ONLY`). A Python-style `-m` command in a desktop warning cannot be run through `MCBEInventoryEditor.exe`.
+**Desktop EXE:** close the editor and use its bundled recovery command from PowerShell:
+
+```powershell
+.\MCBEInventoryEditor.exe --recover "C:/PATH/TO/WORLDS"
+```
+
+The same inspection and write guards apply. Only after stopping the server and reviewing the paths, add `--confirm-server-stopped`. Keep the server and read-only environment settings (`MCBE_SERVER_HOST`, `MCBE_SERVER_PORT`, `MCBE_READ_ONLY`). The command offered in a desktop warning includes the active `--data-dir`; preserve it. Results and help are written to `restore-recovery.txt` in that data directory (normally `data/restore-recovery.txt`). For automation, place `--recovery-report "C:/PATH/TO/report.txt"` before `--recover` to select a report path and suppress the result dialog. No separate Python installation or WebView2 Runtime is required for recovery. Keep recovery reports private.

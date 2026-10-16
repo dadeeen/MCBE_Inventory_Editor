@@ -16,7 +16,12 @@ This document is for contributors and maintainers working in the full Git source
 `python main.py` uses Waitress (four worker threads), including `--debug`; debug
 mode does not enable an interactive debugger or reloader. The local server binds
 to loopback by default. `mcbe_editor.local_server` integrates the pinned Waitress
-dispatcher and socket loop with heartbeat shutdown. It stops accepting new work,
+dispatcher and socket loop with graceful shutdown. Browser startup leaves the
+server running until the console is stopped. `MCBE_LOCAL_HEARTBEAT_SHUTDOWN=true`
+explicitly enables the legacy timeout; suspended background tabs can trigger it.
+The frontend sends heartbeats only with this local opt-in, including setup/login.
+Desktop forces the option off and follows its native window lifecycle. During
+shutdown, the local server stops accepting new work,
 keeps I/O running until active handlers finish, then allows up to five seconds to
 flush buffered response bytes. During shutdown, a response whose full buffer
 blocks a worker is disconnected after five seconds; application work such as a

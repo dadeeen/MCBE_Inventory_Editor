@@ -3,6 +3,37 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_lifecycle_heartbeat_only_runs_with_explicit_local_shutdown():
+    run_node(r"""
+        const assert = require("assert"), fs = require("fs"), vm = require("vm");
+        const requests = [], timers = [];
+        const context = { window: {}, fetch: async (...args) => requests.push(args) };
+        vm.runInNewContext(fs.readFileSync("static/workflow_state.js", "utf8"), context);
+        for (const appConfig of [
+            {}, {mode: "local"}, {mode: "local", heartbeat_enabled: false},
+            {mode: "docker", heartbeat_enabled: true}, {mode: "local", heartbeat_enabled: "true"},
+        ]) {
+            context.window.MCBEWorkflowState.createAppLifecycleController({
+                appConfig, win: {setInterval: (...args) => timers.push(args)},
+            }).startHeartbeat();
+        }
+        assert.equal(timers.length, 0);
+        assert.equal(requests.length, 0);
+        context.window.MCBEWorkflowState.createAppLifecycleController({
+            appConfig: {mode: "local", heartbeat_enabled: true},
+            win: {setInterval: (...args) => timers.push(args)},
+            withCsrf: () => ({"X-CSRF-Token": "test-token"}),
+        }).startHeartbeat();
+        assert.equal(timers.length, 1);
+        const [tick, delay] = timers[0];
+        assert.equal(delay, 2000);
+        tick();
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0][0], "/api/heartbeat");
+        assert.equal(requests[0][1].headers["X-CSRF-Token"], "test-token");
+    """)
+
+
 def test_frontend_workflow_state_resolves_views_and_button_models() -> None:
     run_node(
         textwrap.dedent(

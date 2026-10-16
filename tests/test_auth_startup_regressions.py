@@ -77,6 +77,7 @@ def test_cli_rejects_empty_bind_host_before_listening(tmp_path, host):
 @pytest.mark.parametrize("page,password,config_status", [("setup", None, 428), ("login", "secret", 401)])
 def test_auth_pages_keep_alive_with_csrf_without_unlocking_api(monkeypatch, tmp_path, page, password, config_status):
     main = _configure(monkeypatch, tmp_path, password=password)
+    monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, local_heartbeat_shutdown=True))
     monkeypatch.setattr(main, "LAST_HEARTBEAT", 0.0)
     monkeypatch.setattr(main, "_heartbeat_now", lambda: 42.0)
     with main.app.test_client() as client:
@@ -171,6 +172,17 @@ def test_auto_browser_uses_public_health_endpoint_and_ipv6_brackets(monkeypatch,
     main.open_browser_when_ready(host, 5010)
     ready.assert_called_once_with(f"http://{browser_host}:5010/healthz", timeout=2)
     opened.assert_called_once_with(f"http://{browser_host}:5010/", new=2)
+
+
+@pytest.mark.parametrize("page,password", [("setup", None), ("login", "secret")])
+@pytest.mark.parametrize("mode,opt_in,expected", [("local", False, False), ("local", True, True), ("docker", True, False)])
+def test_auth_pages_only_load_heartbeat_for_active_shutdown(monkeypatch, tmp_path, page, password, mode, opt_in, expected):
+    main = _configure(monkeypatch, tmp_path, password=password)
+    monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, mode=mode, local_heartbeat_shutdown=opt_in))
+    with main.app.test_client() as client:
+        response = client.get(f"/{page}")
+    assert response.status_code == 200
+    assert (b"auth_heartbeat.js" in response.data) is expected
 
 
 def test_auth_heartbeat_script_sends_token_immediately_and_every_five_seconds():
