@@ -22,14 +22,6 @@ Studio-Layout mit Beispieldaten, englischer Oberfläche und integrierten Ersatzs
 
 [![Beispielinventar](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
 
-## Drei Layouts
-
-Wähle zwischen **Klassisch**, **Studio** und **Fokus**, unabhängig vom hellen oder dunklen Farbtheme. Beim Layoutwechsel bleiben laufende Bearbeitungen erhalten.
-
-## Mounts konfigurieren
-
-Konfiguriere Pferde, Esel, Maultiere, Kamele und Skelettpferde mit einer drehbaren **3D-Vorschau**. Prüfe den Standplatz und kontrolliere vorgemerkte Mounts vor dem Speichern.
-
 ## Download → Backup → Start
 
 Für Windows gibt es außerdem die [portable Desktop-Ausgabe](#portable-windows-app). Die folgenden Schritte gelten für das Runtime-ZIP mit Browserstart.
@@ -43,10 +35,9 @@ Für Windows gibt es außerdem die [portable Desktop-Ausgabe](#portable-windows-
 5. Installiere bei Bedarf [Python für Windows](https://www.python.org/downloads/windows/). Für Windows x64 empfehlen wir **Python 3.14**; 3.12 und 3.13 werden ebenfalls unterstützt. Aktiviere den Python Launcher oder **Add Python to PATH**. Runtime-ZIP und Quellcode-Checkout verwenden dieselbe Installation ohne Compiler. Python 3.15 ist noch nicht freigegeben.
 6. Entpacke das Runtime-ZIP, führe einmal `setup.bat` aus und starte den Editor danach mit `start.bat`.
 7. Folge beim ersten Start dem Einrichtungsdialog und lade **Item-DB** und **Vanilla-Icons**. Du kannst den Schritt aufschieben und später über den Einrichtungshinweis oder unter **Werkzeuge** nachholen. Der Editor bringt nur einen mitgelieferten Item-Stand und keine Icons mit — ohne diesen Schritt fehlen Items neuerer Minecraft-Versionen und jeder Slot zeigt ein Ersatzsymbol.
+8. Lass das von `start.bat` geöffnete Kommandozeilenfenster während der Nutzung offen. Schließt du es, endet der lokale Editor-Prozess; ein noch offener Browser-Tab verliert dann die Verbindung und kann keine Daten mehr laden oder speichern.
 
 Während eines Updates zeigt die Fortschrittsanzeige die geladenen MB und bei bekannter Gesamtgröße einen Prozentwert. Danach wechselt sie zu Archivprüfung, Datenverarbeitung bzw. Icon-Erstellung und Abschluss. Ein beendeter Download bedeutet noch kein abgeschlossenes Update; passende Downloads aus dem Cache werden gesondert angezeigt.
-
-Stapelgrößen stammen aus ausdrücklichen Mojang-Komponenten und geprüften Bedrock-Werten. Fehlt für ein aktualisiertes Item eine bestätigte Grenze, sind neue Stapel zunächst auf **1** begrenzt und **Max-Stack** ist deaktiviert. Vorhandene Mengen bleiben unverändert erhalten; der Editor leitet aus Namen oder Registry-Einträgen keine 64er-Grenze ab. Das Update-Protokoll nennt die Anzahl noch ungeprüfter Grenzen.
 
 ## Warum es dieses Projekt gibt
 
@@ -83,6 +74,10 @@ globale Pack-Einstellungen des Minecraft-Clients sind nicht abgedeckt. Der Read-
 verwendet zuvor vorbereitete Indizes. Die [Icon-Auflösung](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md)
 beschreibt unterstützte Formate, Prioritäten und Cache-Verhalten.
 
+## Drei Layouts
+
+Wähle zwischen **Klassisch**, **Studio** und **Fokus**, unabhängig vom hellen oder dunklen Farbtheme. Beim Layoutwechsel bleiben laufende Bearbeitungen erhalten.
+
 ## Portable Windows-App
 
 Entpacke das **gesamte** Release-Archiv mit der Endung `_windows_x64.zip` in einen beschreibbaren Ordner und starte `MCBEInventoryEditor.exe` per Doppelklick. Python, Node.js, BAT-Dateien und Administratorrechte sind dafür nicht erforderlich. Die EXE und der mitgelieferte Ordner `_internal` gehören zusammen.
@@ -114,13 +109,13 @@ Administratorrechte sollten normalerweise nicht erforderlich sein. Falls eine si
 
 ## Docker und vertrauenswürdiges LAN
 
-Ziehe für ein veröffentlichtes Release den passenden versionsspezifischen Tag. Ersetze `X.Y.Z` durch die Version auf der [Releases-Seite](https://github.com/dadeeen/MCBE_Inventory_Editor/releases); der Docker-Tag lässt das führende `v` des Git-Tags weg:
+Für einen einfachen Einstieg verwendest du `latest`, um das aktuelle stabile Image zu laden:
 
 ```bash
-docker pull ghcr.io/dadeeen/mcbe-inventory-editor:X.Y.Z
+docker pull ghcr.io/dadeeen/mcbe-inventory-editor:latest
 ```
 
-Stabile Versionstags aktualisieren zusätzlich den passenden Minor-Tag (zum Beispiel `0.5`) und `latest`. Vorabversionen veröffentlichen nur ihre vollständigen Versions- und Revisionstags und bewegen `latest` nie. Bevorzuge für Instanzen den exakten Versionstag, da `latest` und Minor-Tags bewusst veränderlich sind.
+Stabile Releases aktualisieren `latest`, Vorabversionen nicht. Wenn du eine bestimmte Version beibehalten möchtest, ersetze `latest` durch die Version auf der [Releases-Seite](https://github.com/dadeeen/MCBE_Inventory_Editor/releases), ohne das führende `v`. So entscheidest du ausdrücklich über jeden Versionswechsel.
 
 Alternativ den aktuellen Stand selbst bauen:
 
@@ -128,12 +123,14 @@ Alternativ den aktuellen Stand selbst bauen:
 docker build -t mcbe-inventory-editor:local .
 ```
 
-Minimales Compose-Beispiel mit dem veröffentlichten Image:
+Um diesen lokalen Build mit Compose zu verwenden, setze in deiner Compose-Datei `image: mcbe-inventory-editor:local`.
+
+Speichere dieses Beispiel als `compose.yaml` oder verwende es als Stack. Ersetze `/PFAD/ZU/BEDROCK/WORLDS` durch den vorhandenen Hostordner mit deinen Welten. Trage bei `MCBE_SERVER_HOST` die aus dem Container erreichbare Adresse deines Bedrock-Servers ein und passe bei Bedarf dessen Port an:
 
 ```yaml
 services:
   mcbe-editor:
-    image: ghcr.io/dadeeen/mcbe-inventory-editor:X.Y.Z
+    image: ghcr.io/dadeeen/mcbe-inventory-editor:latest
     restart: unless-stopped
     ports:
       - "8088:8080"
@@ -148,7 +145,16 @@ volumes:
   mcbe-editor-data:
 ```
 
-Das mitgelieferte [`docker-compose.example.yml`](docker-compose.example.yml) ist das entsprechende Beispiel für den Selbstbau und baut den aktuellen Stand, statt von GHCR zu ziehen.
+Lade im Verzeichnis mit der `compose.yaml` das Image und starte den Editor im Hintergrund:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Für ein Update verwendest du dieselben Befehle, nachdem du deine Bearbeitungen abgeschlossen hast. `latest` aktualisiert einen laufenden Container nicht automatisch; durch erneutes Laden und Erstellen wird das heruntergeladene Image verwendet, während das benannte Datenvolume erhalten bleibt. In einer Stack-Verwaltung lädst du das Image neu und stellst den Stack erneut bereit.
+
+Das mitgelieferte [`docker-compose.example.yml`](docker-compose.example.yml) verwendet dasselbe veröffentlichte Image und ergänzt Kommentare, Log-Rotation und Container-Beschränkungen. Kopiere es nach `compose.yaml`, passe Weltpfad und Serveradresse an und verwende die obigen Befehle.
 
 Lege beim ersten Öffnen ein Passwort fest oder bestätige ausdrücklich den passwortlosen Betrieb in einem vertrauenswürdigen Netz. Schütze den Port mit Firewallregeln und richte weder öffentlichen Ingress noch öffentliche Tunnel ein.
 

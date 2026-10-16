@@ -38,5 +38,6 @@ docker image ls "${IMAGE_NAME}"
 echo
 echo "Nächster Schritt:"
 echo "- docker-compose.example.yml nach docker-compose.yml kopieren,"
+echo "  dort image: ${IMAGE_NAME} setzen,"
 echo "  Weltordner und Serveradresse anpassen und dann starten mit:"
 echo "  docker compose up -d"

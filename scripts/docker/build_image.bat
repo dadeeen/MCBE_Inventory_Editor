@@ -53,6 +53,7 @@ docker image ls "%IMAGE_NAME%"
 echo.
 echo Next step:
 echo - For LAN/Docker operation, copy docker-compose.example.yml to docker-compose.yml,
+echo   set image: %IMAGE_NAME% in that file,
 echo   adjust the worlds folder and server address, then start with:
 echo   docker compose up -d
 echo.

@@ -76,9 +76,10 @@ def test_public_docs_use_evergreen_release_links_and_an_unofficial_disclaimer():
         assert ".sha256" in source
         assert "docs/assets/editor-overview.png" in source
         assert "docs/assets/editor-inventory.png" in source
-        # Image references stay on the X.Y.Z placeholder so a release never
-        # requires a documentation edit and can never leave a stale tag behind.
-        assert "docker pull ghcr.io/dadeeen/mcbe-inventory-editor:X.Y.Z" in source
+        # Quick-start images use the stable channel so the commands work without
+        # a version placeholder and do not need edits for each release.
+        assert "docker pull ghcr.io/dadeeen/mcbe-inventory-editor:latest" in source
+        assert "image: ghcr.io/dadeeen/mcbe-inventory-editor:latest" in source
         assert "docker-compose.example.yml" in source
         assert re.search(r"mcbe-inventory-editor:\d", source) is None
     for asset in ("docs/assets/editor-overview.png", "docs/assets/editor-inventory.png"):

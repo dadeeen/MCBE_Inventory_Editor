@@ -22,14 +22,6 @@ Studio layout with example data, an English interface, and built-in placeholder 
 
 [![Example inventory](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
 
-## Three layouts
-
-Choose between **Classic**, **Studio** and **Focus**, independently of the light or dark theme. Switch layouts without losing in-progress edits.
-
-## Configure mounts
-
-Configure horses, donkeys, mules, camels and skeleton horses with a rotatable **3D preview**. Check a placement location and review staged mounts before saving.
-
 ## Download → backup → start
 
 Windows also has a [portable desktop edition](#portable-windows-app). The following steps apply to the browser-based runtime ZIP.
@@ -43,10 +35,9 @@ Windows also has a [portable desktop edition](#portable-windows-app). The follow
 5. Install [Python for Windows](https://www.python.org/downloads/windows/) if needed. For Windows x64 we recommend **Python 3.14**; 3.12 and 3.13 are also supported. Enable the Python launcher or **Add Python to PATH**. Runtime ZIPs and source checkouts use the same installation without a compiler. Python 3.15 is not approved yet.
 6. Extract the runtime ZIP, run `setup.bat` once, then start the editor with `start.bat`.
 7. On first start, follow the setup dialog and load **Item DB** and **Vanilla icons**. You can postpone this and return through the setup notice or **Tools** later. The editor ships with a bundled item snapshot and no icons, so without this step items from newer Minecraft versions are missing and every slot shows a placeholder symbol.
+8. Keep the command-line window opened by `start.bat` open while using the editor. Closing it stops the local editor process; an open browser tab then loses its connection and cannot load or save data.
 
 During updates, the progress display shows downloaded MB and a percentage when the total size is known. It then switches to archive checks, data processing or icon creation, and finishing. A completed download is not yet a completed update; matching cached downloads are shown separately.
-
-Stack sizes use explicit Mojang components and reviewed Bedrock values. If an updated item has no confirmed limit, new stacks are limited to **1** and **Max-Stack** is disabled. Existing amounts are preserved unchanged; the editor does not assume 64 from an item's name or registry entry. The update log reports how many limits are still unverified.
 
 ## Why this exists
 
@@ -82,6 +73,10 @@ client's global pack settings are outside this support. Read-only mode uses
 previously prepared indexes. See [icon resolution](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/icon-resolution.md) for
 the supported formats, priorities and cache behavior.
 
+## Three layouts
+
+Choose between **Classic**, **Studio** and **Focus**, independently of the light or dark theme. Switch layouts without losing in-progress edits.
+
 ## Portable Windows app
 
 Extract the **entire** release archive ending in `_windows_x64.zip` into a writable directory and double-click `MCBEInventoryEditor.exe`. Python, Node.js, BAT files and administrator privileges are not required. Keep the EXE and its accompanying `_internal` folder together.
@@ -113,13 +108,13 @@ Administrator rights should not normally be needed. If a safely stopped world ca
 
 ## Docker and trusted LANs
 
-For a published release, pull the matching version-specific tag. Replace `X.Y.Z` with the version shown on the [Releases page](https://github.com/dadeeen/MCBE_Inventory_Editor/releases); the Docker tag omits the leading `v` from the Git tag:
+For a straightforward setup, use `latest` to pull the current stable image:
 
 ```bash
-docker pull ghcr.io/dadeeen/mcbe-inventory-editor:X.Y.Z
+docker pull ghcr.io/dadeeen/mcbe-inventory-editor:latest
 ```
 
-Stable version tags also update the matching minor tag (for example `0.5`) and `latest`. Pre-release tags publish only their full version and revision tags; they never move `latest`. Prefer the exact version tag for deployments because `latest` and minor tags are intentionally mutable.
+Stable releases update `latest`; pre-releases do not. To keep a specific version, replace `latest` with the version shown on the [Releases page](https://github.com/dadeeen/MCBE_Inventory_Editor/releases), without the leading `v`. This lets you choose each version change explicitly.
 
 To build the current checkout locally instead:
 
@@ -127,12 +122,14 @@ To build the current checkout locally instead:
 docker build -t mcbe-inventory-editor:local .
 ```
 
-Minimal Compose example using the published image:
+To use this local build in Compose, set `image: mcbe-inventory-editor:local` in your Compose file.
+
+Save this example as `compose.yaml` or use it as a stack. Replace `/PATH/TO/BEDROCK/WORLDS` with the existing host directory containing your worlds. Set `MCBE_SERVER_HOST` to your Bedrock server's address as reachable from the container, and adjust its port if needed:
 
 ```yaml
 services:
   mcbe-editor:
-    image: ghcr.io/dadeeen/mcbe-inventory-editor:X.Y.Z
+    image: ghcr.io/dadeeen/mcbe-inventory-editor:latest
     restart: unless-stopped
     ports:
       - "8088:8080"
@@ -147,7 +144,16 @@ volumes:
   mcbe-editor-data:
 ```
 
-The checked-in [`docker-compose.example.yml`](docker-compose.example.yml) is the corresponding source-build example and builds the current checkout instead of pulling GHCR.
+From the directory containing `compose.yaml`, pull the image and start the editor in the background:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Use the same commands to update after finishing your edits. `latest` does not update a running container automatically; pulling and recreating it applies the downloaded image while keeping the named data volume. In a stack manager, pull the image and redeploy the stack.
+
+The included [`docker-compose.example.yml`](docker-compose.example.yml) uses the same published image and adds comments, log rotation and container restrictions. Copy it to `compose.yaml`, adjust the world path and server address, and use the commands above.
 
 On first open, set a password or explicitly confirm passwordless use on a trusted network. Protect the port with host firewall rules and never add public ingress or a public tunnel.
 

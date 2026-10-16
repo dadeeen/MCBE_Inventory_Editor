@@ -1,6 +1,8 @@
 services:
   mcbe-editor-viewer:
-    build: .
+    # Published stable image; no source checkout or local build required.
+    # Replace latest with a release version to keep that version selected.
+    image: ghcr.io/dadeeen/mcbe-inventory-editor:latest
     container_name: mcbe-editor-viewer
     restart: unless-stopped
     logging:
