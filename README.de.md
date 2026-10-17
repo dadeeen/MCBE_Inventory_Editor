@@ -57,6 +57,10 @@ Alle Ausgaben verwenden denselben Editor. ZIPs und passende `.sha256`-Dateien fi
 
 Ein Item- oder Icon-Update prüft und verarbeitet auch die heruntergeladenen Dateien. Warte auf die Abschlussmeldung, bevor du den Editor schließt.
 
+Release-ZIPs enthalten keinen persönlichen `data`-Ordner. Beim ersten Start wird die mitgelieferte Item-Datenbank nach `data/item_db.json` kopiert; vorhandene Laufzeitdaten bleiben bei einem Programmupdate erhalten. Bewahre beim Wechsel in einen anderen Programmordner deinen bisherigen `data`-Ordner auf. Ohne ihn beginnt die Anwendung mit dem Datenstand des neuen Pakets und ohne deine bisherigen Einstellungen, Backups und heruntergeladenen Icons. Docker verwendet dafür das persistente `/data`-Volume.
+
+Unter **Werkzeuge → Item-DB → Änderungen prüfen** siehst du den gespeicherten Quellenstand, die geprüfte Quelle und eine Vorschau der Unterschiede. Der Abgleich enthält auch mitgelieferte Katalogkorrekturen, etwa ergänzte Stapellimits und Effektbeschreibungen. **Update anwenden** übernimmt das Ergebnis; eine erneute Prüfung allein übernimmt nichts. Änderungsdetails und technisches Protokoll lassen sich getrennt öffnen. Fehlen gespeicherte Quelleninformationen, zeigt die Vorschau „Nicht dokumentiert“.
+
 ## Warum es dieses Projekt gibt
 
 Der Editor ist für einen privaten Bedrock-Server entstanden. Kleine Korrekturen an Inventar oder Spielerwerten bedeuteten jedes Mal, die Weltdateien an einen Windows-Rechner zu kopieren — für eine Routinekorrektur unverhältnismäßig viel Aufwand.

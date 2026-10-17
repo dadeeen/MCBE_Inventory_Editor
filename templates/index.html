@@ -956,11 +956,11 @@
                                 </div></details>
 
                                 <div class="update-db-actions">
-                                    <button id="btnUpdateDbDryRun" class="btn btn-secondary">{{ t("Dry-Run ausführen") }}</button>
-                                    <button id="btnUpdateDbApply" class="btn btn-primary">{{ t("Update anwenden") }}</button>
+                                    <button id="btnUpdateDbDryRun" class="btn btn-secondary">{{ t("Änderungen prüfen") }}</button>
+                                    <button id="btnUpdateDbApply" class="btn btn-primary" aria-describedby="updateDbActionHint">{{ t("Update anwenden") }}</button>
                                 </div>
                             </div>
-                            <p class="hint-text">{{ t("Der Dry-Run zeigt geplante Änderungen, ohne sie anzuwenden.") }}</p>
+                            <p id="updateDbActionHint" class="hint-text">{{ t("Prüfe zuerst die Vorschau. Erst „Update anwenden“ übernimmt Änderungen an der Item-Datenbank.") }}</p>
 
                             <div class="update-db-output-wrapper" hidden>
                                 <div class="update-db-output-header">
@@ -968,9 +968,12 @@
                                     <button id="btnClearUpdateOutput" class="btn-text">{{ t("Leeren") }}</button>
                                 </div>
                                 <div id="updateDbResult" role="status" aria-live="polite"></div>
-                                <details id="updateDbDetails" class="tool-details"><summary>{{ t("Details anzeigen") }}</summary>
+                                <details id="updateDbDetails" class="tool-details" hidden><summary>{{ t("Änderungsdetails") }}</summary>
                                 <div id="updateDbAudit"></div>
-                                <pre id="updateDbOutput" class="update-db-output">{{ t("Noch kein Update ausgeführt.") }}</pre>
+                                </details>
+                                <details id="updateDbLogDetails" class="tool-details"><summary>{{ t("Technisches Protokoll") }}</summary>
+                                <div id="updateDbTechnicalNotes"></div>
+                                <pre id="updateDbOutput" class="update-db-output" tabindex="0" aria-label="{{ t('Technisches Protokoll des Item-DB-Updates') }}">{{ t("Noch keine Prüfung ausgeführt.") }}</pre>
                                 </details>
                             </div>
                         </div>

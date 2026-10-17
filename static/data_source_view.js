@@ -127,14 +127,14 @@
             <table class="version-table">
                 <thead>
                     <tr>
-                        <th>${t("Datum")}</th>
-                        <th>Resource Pack</th>
+                        <th scope="col">${t("Datum")}</th>
+                        <th scope="col">Resource Pack</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${entries.map(entry => `
                     <tr>
-                        <td>${versionEntryCell(entry, "generated_at")}</td>
+                        <td>${escapeHtml(formatItemDbTime(entry?.generated_at))}</td>
                         <td>${versionEntryCell(entry, "resource_pack_release")}</td>
                     </tr>`).join("")}
                 </tbody>
@@ -143,7 +143,7 @@
         } else {
             body = `<div class="no-backups">${t("Noch keine Versionseinträge vorhanden. Führe ein DB-Update aus.")}</div>`;
         }
-        return `<div class="item-db-version-history"${hidden}>${body}</div>`;
+        return `<div id="itemDbVersionHistory" class="item-db-version-history" role="region" aria-label="${t("Versionsverlauf")}" tabindex="0"${hidden}>${body}</div>`;
     }
 
     function assetDataStatusHtml({
@@ -199,7 +199,7 @@
                 <div><dt>${t("Pfad")}</dt><dd>${escapeHtml(pathText)}</dd></div>
             </dl>
             <p class="hint-text">${t("Updates laden offizielle Identifier und Namen aus Mojang/bedrock-samples. Verzauberungs-Maximalstufen stammen aus einer mitgelieferten, geprüften Vanilla-Tabelle.")}</p>
-            <button class="btn-text" type="button" data-toggle-db-versions aria-expanded="${historyVisible ? "true" : "false"}">${historyVisible ? t("Versionen ausblenden") : t("Versionen ansehen")}</button>
+            <button class="btn-text" type="button" data-toggle-db-versions aria-controls="itemDbVersionHistory" aria-expanded="${historyVisible ? "true" : "false"}">${t("Versionsverlauf ({count})", { count: formatDeNumber(Array.isArray(historyEntries) ? historyEntries.length : itemDbStatus?.history_count) })}</button>
             ${itemDbVersionHistoryHtml({
                 visible: historyVisible,
                 loading: historyLoading,
@@ -232,6 +232,7 @@
         let historyEntries = null;
         let historyLoading = false;
         let historyError = "";
+        let historyRequestId = 0;
 
         function render() {
             const itemDbStatus = getItemDbStatus();
@@ -249,6 +250,11 @@
             }
 
             if (itemDbStatusPanel) {
+                const activeElement = itemDbStatusPanel.ownerDocument?.activeElement;
+                const restoreToggleFocus = activeElement === itemDbStatusPanel.querySelector("[data-toggle-db-versions]");
+                const previousHistory = itemDbStatusPanel.querySelector(".item-db-version-history");
+                const restoreHistoryFocus = Boolean(previousHistory && activeElement === previousHistory);
+                const historyScrollTop = previousHistory?.scrollTop || 0;
                 const detailsOpen = itemDbStatusPanel.querySelector("[data-db-details]")?.open || false;
                 itemDbStatusPanel.innerHTML = itemDbStatusHtml({
                     itemDbStatus,
@@ -261,6 +267,12 @@
                 const details = itemDbStatusPanel.querySelector("[data-db-details]");
                 if (details) details.open = detailsOpen;
                 itemDbStatusPanel.querySelector("[data-toggle-db-versions]")?.addEventListener("click", toggleVersionHistory);
+                if (restoreToggleFocus) itemDbStatusPanel.querySelector("[data-toggle-db-versions]")?.focus();
+                const history = itemDbStatusPanel.querySelector(".item-db-version-history");
+                if (history && historyVisible) {
+                    history.scrollTop = historyScrollTop;
+                    if (restoreHistoryFocus) history.focus({ preventScroll: true });
+                }
             }
         }
 
@@ -278,24 +290,35 @@
 
             historyLoading = true;
             historyError = "";
+            const requestId = ++historyRequestId;
             render();
             try {
                 const res = await fetch("/api/item-db/versions");
                 const data = await parseJsonResponse(res);
+                if (requestId !== historyRequestId) return;
                 if (!data.success) throw new Error(data.error || t("Unbekannter Fehler"));
                 historyEntries = Array.isArray(data.entries) ? data.entries : [];
             } catch (err) {
-                historyEntries = [];
+                if (requestId !== historyRequestId) return;
+                historyEntries = null;
                 historyError = err.message || String(err);
                 logStatus(t("Versionshistorie konnte nicht geladen werden."), "warning");
             } finally {
-                historyLoading = false;
-                render();
+                if (requestId === historyRequestId) {
+                    historyLoading = false;
+                    render();
+                }
             }
         }
 
         function applyItemDbStatus(status) {
             const normalizedStatus = status || null;
+            // A status refresh can follow an update of the database and history.
+            historyRequestId++;
+            historyVisible = false;
+            historyEntries = null;
+            historyLoading = false;
+            historyError = "";
             setItemDbStatus(normalizedStatus);
             render();
             renderStatusCenter();

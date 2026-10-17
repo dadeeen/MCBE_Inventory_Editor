@@ -3,6 +3,62 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_version_history_retries_failures_caches_success_and_refreshes_after_db_update() -> None:
+    run_node(r"""
+const assert = require('node:assert/strict');
+global.window = global;
+require('./static/data_source_view.js');
+(async () => {
+    const panel = { innerHTML: '', querySelector: () => null };
+    let requests = 0;
+    global.fetch = async () => {
+        requests++;
+        if (requests === 1) throw new Error('temporary history failure');
+        return { json: async () => ({ success: true,
+            entries: requests === 2 ? [] : [{ resource_pack_release: 'updated-release' }],
+        }) };
+    };
+    const controller = MCBEDataSourceView.createDataSourceController({
+        elements: { itemDbStatusPanel: panel },
+    });
+    await controller.toggleVersionHistory();
+    assert.match(panel.innerHTML, /temporary history failure/);
+    await controller.toggleVersionHistory();
+    await controller.toggleVersionHistory();
+    assert.equal(requests, 2);
+    assert.ok(!panel.innerHTML.includes('temporary history failure'));
+    await controller.toggleVersionHistory();
+    await controller.toggleVersionHistory();
+    assert.equal(requests, 2);
+    await controller.toggleVersionHistory();
+    controller.applyItemDbStatus({ history_count: 1 });
+    await controller.toggleVersionHistory();
+    assert.equal(requests, 3);
+    assert.match(panel.innerHTML, /updated-release/);
+    await controller.toggleVersionHistory();
+    await controller.toggleVersionHistory();
+    assert.equal(requests, 3);
+
+    // A response started before the database update must not repopulate its cache.
+    let resolveOld;
+    controller.applyItemDbStatus({ history_count: 2 });
+    global.fetch = () => new Promise(resolve => { resolveOld = resolve; });
+    const oldLoad = controller.toggleVersionHistory();
+    controller.applyItemDbStatus({ history_count: 3 });
+    global.fetch = async () => ({ json: async () => ({ success: true,
+        entries: [{ resource_pack_release: 'current-release' }],
+    }) });
+    await controller.toggleVersionHistory();
+    resolveOld({ json: async () => ({ success: true,
+        entries: [{ resource_pack_release: 'outdated-release' }],
+    }) });
+    await oldLoad;
+    assert.match(panel.innerHTML, /current-release/);
+    assert.ok(!panel.innerHTML.includes('outdated-release'));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
+
+
 def test_catalog_conflicts_override_verified_status_and_escape_diagnostics():
     run_node(r"""
 const assert = require('node:assert/strict');
@@ -117,7 +173,7 @@ def test_frontend_data_source_view_item_db_status_html_formats_history_state() -
             assert.ok(html.includes("item-db-status-hero warning"));
             assert.ok(html.includes("Herkunft fehlt"));
             assert.ok(html.includes('aria-expanded="true"'));
-            assert.ok(html.includes("Versionen ausblenden"));
+            assert.ok(html.includes("Versionsverlauf (1)"));
             assert.ok(html.includes("2 Versionseinträge"));
             assert.ok(html.includes("data-db-details"));
             assert.ok(html.includes("C:\\Data\\item_db.json"));
@@ -126,6 +182,10 @@ def test_frontend_data_source_view_item_db_status_html_formats_history_state() -
             assert.ok(!html.includes("abcdef123456"));
             assert.ok(!html.includes("fedcba987654"));
             assert.ok(!html.includes("Wiki"));
+            const timestamp = "2026-10-17T14:16:23+00:00";
+            const datedHistory = view.itemDbVersionHistoryHtml({visible: true, entries: [{generated_at: timestamp}]});
+            assert.ok(datedHistory.includes(context.window.MCBEI18n.formatDate(new Date(timestamp))));
+            assert.ok(!datedHistory.includes(timestamp));
             """
         )
     )

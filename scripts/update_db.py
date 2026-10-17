@@ -1305,6 +1305,7 @@ def fetch_microsoft_item_listing_snapshot(url: str = MICROSOFT_ITEM_LISTINGS_URL
                 "microsoft_item_listing_url": url,
                 "microsoft_item_listing_fetched_at": utc_now(),
                 "microsoft_item_listing_content_hash": sha256_text(content),
+                "microsoft_item_listing_items_hash": item_db_verification.item_listing_sha256(items),
                 "microsoft_item_listing_count": len(items),
             }
             return items, snapshot
@@ -2158,6 +2159,7 @@ _SOURCE_STRING_FIELDS = {
     "resource_pack_fetched_at",
     "microsoft_item_listing_url",
     "microsoft_item_listing_content_hash",
+    "microsoft_item_listing_items_hash",
     "microsoft_item_listing_fetched_at",
     "wiki_url",
     "wiki_content_hash",
@@ -2185,23 +2187,11 @@ def _valid_source_metadata(data: object) -> bool:
         revision = data["wiki_revision_id"]
         if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 0):
             return False
-    return True
+    return "microsoft_item_listing_items_hash" not in data or bool(re.fullmatch(r"[0-9a-f]{64}", data["microsoft_item_listing_items_hash"]))
 
 
 def build_source_identity(release_info: dict, wiki_snapshot: dict, item_listing_snapshot: dict | None = None) -> dict:
-    item_listing_snapshot = item_listing_snapshot or {}
-    return {
-        "resource_pack_release": release_info.get("resource_pack_release", ""),
-        "resource_pack_asset": release_info.get("resource_pack_asset", ""),
-        "resource_pack_asset_size": release_info.get("resource_pack_asset_size", 0),
-        "resource_pack_url": release_info.get("resource_pack_url", ""),
-        "microsoft_item_listing_url": item_listing_snapshot.get("microsoft_item_listing_url", ""),
-        "microsoft_item_listing_content_hash": item_listing_snapshot.get("microsoft_item_listing_content_hash", ""),
-        "microsoft_item_listing_count": item_listing_snapshot.get("microsoft_item_listing_count", 0),
-        "wiki_url": wiki_snapshot.get("wiki_url", ""),
-        "wiki_revision_id": wiki_snapshot.get("wiki_revision_id"),
-        "wiki_content_hash": wiki_snapshot.get("wiki_content_hash", ""),
-    }
+    return source_identity_from_metadata({**release_info, **wiki_snapshot, **(item_listing_snapshot or {})})
 
 
 def merge_source_metadata(
@@ -2222,6 +2212,10 @@ def merge_source_metadata(
         for field in _SOURCE_ITEM_LISTING_FIELDS:
             metadata[field] = item_listing_snapshot.get(field, _SOURCE_IDENTITY_DEFAULTS[field])
         metadata["microsoft_item_listing_fetched_at"] = item_listing_snapshot.get("microsoft_item_listing_fetched_at", "")
+        if "microsoft_item_listing_items_hash" in item_listing_snapshot:
+            metadata["microsoft_item_listing_items_hash"] = item_listing_snapshot["microsoft_item_listing_items_hash"]
+        else:
+            metadata.pop("microsoft_item_listing_items_hash", None)
     if wiki_snapshot is not None:
         for field in _SOURCE_WIKI_FIELDS:
             metadata[field] = wiki_snapshot.get(field, _SOURCE_IDENTITY_DEFAULTS[field])
@@ -2798,6 +2792,7 @@ def main() -> int:
     report = build_report(
         scope=args.only,
         release=release_info.get("resource_pack_release"),
+        previous_release=old_version.get("resource_pack_release"),
         sections=sections,
         metadata_changed=source_identity_changed or old_behavior_item_source != final_behavior_item_source,
         audit=audit,
@@ -2816,7 +2811,7 @@ def main() -> int:
         if not verification_eligible:
             pending_source_version.pop(item_db_verification.VERIFICATION_FIELD, None)
 
-    step(tr("4/4  Änderungen schreiben"))
+    step(tr("4/4  Prüfung abschließen") if args.dry_run else tr("4/4  Änderungen schreiben"))
     report_progress("finalizing")
     if not changes and not source_identity_changed:
         log(f"  {Colors.GREEN}{tr('Alles aktuell, keine Änderungen.')}{Colors.END}")
@@ -2852,6 +2847,11 @@ def main() -> int:
         item_components=final_item_components,
         behavior_item_source=final_behavior_item_source,
     )
+    # Publish the confirmed outcome after the atomic write, including partial
+    # updates whose skipped sections still produce a nonzero exit code.
+    report["applied"] = True
+    if args.json_summary:
+        print(REPORT_PREFIX + json.dumps(report, ensure_ascii=True))
     for block_name in changes:
         log(f"  {Colors.GREEN}{tr('{block_name} aktualisiert', block_name=block_name)}{Colors.END}")
     if source_identity_changed:

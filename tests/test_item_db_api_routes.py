@@ -3,6 +3,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from mcbe_editor import item_db_api_routes, item_db_verification
 from tests.node_runner import run_node
 
@@ -70,6 +72,26 @@ def test_failed_update_keeps_partial_report_without_a_success_receipt():
     assert result["summary"] == report
     assert "update_review_token" not in result
     deps.reload_item_db_after_update.assert_not_called()
+
+
+@pytest.mark.parametrize("reload_fails", [False, True])
+def test_partial_update_preserves_confirmed_writes_and_reloads_them(reload_fails):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    preview = {"schema": 1, "status": "incomplete", "applied": False}
+    committed = {**preview, "applied": True}
+    output = "\n".join(REPORT_PREFIX + json.dumps(report) for report in (preview, committed))
+    reload = Mock(side_effect=RuntimeError("reload failed")) if reload_fails else Mock(return_value={"reloaded": True})
+    deps = _deps(run_update_db=Mock(return_value=(1, output)), reload_item_db_after_update=reload)
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
+    assert result["success"] is False
+    assert result["summary"] == committed
+    assert result["update_committed"] is True
+    assert result["reloaded"] is not reload_fails
+    assert ("reload_warning" in result) is reload_fails
+    assert "update_review_token" not in result
+    reload.assert_called_once()
+    assert deps.audit_event.call_args.kwargs["details"]["update_committed"] is True
 
 
 def test_update_db_rejects_invalid_scope_without_running_update():
@@ -244,7 +266,7 @@ def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
             const dryRunButton = { disabled: false, addEventListener() {} };
             const applyButton = { disabled: false, addEventListener() {} };
             const onlySelect = { disabled: false, value: "items", options: [{ text: "Items" }], selectedIndex: 0 };
-            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const controller = view.createUpdateDbController({
                 outputEl,
                 dryRunButton,
@@ -533,7 +555,7 @@ def test_update_db_frontend_reports_post_commit_reload_warning():
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/update_db_view.js" });
             const view = context.window.MCBEUpdateDbView;
-            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const toasts = [];
             const statuses = [];
             const controller = view.createUpdateDbController({
@@ -559,7 +581,7 @@ def test_update_db_frontend_reports_post_commit_reload_warning():
                 assert.match(outputEl.textContent, /Gespeichert, Neustart nötig/);
                 assert.strictEqual(toasts.at(-1)[1], "warning");
                 assert.strictEqual(statuses.at(-1)[1], "warning");
-                assert.doesNotMatch(outputEl.textContent, /Dry-Run abgeschlossen/);
+                assert.doesNotMatch(outputEl.textContent, /Prüfung abgeschlossen/);
             })().catch(error => { console.error(error); process.exit(1); });
             """
         ),

@@ -6,6 +6,7 @@ import json
 import re
 
 from .item_name_policy import is_expected_item_name_difference
+from .item_registry_policy import is_non_item_lang_key_id
 
 REPORT_PREFIX = "MCBE_UPDATE_REPORT_V1:"
 
@@ -54,16 +55,45 @@ def audit_items(items, addable, stack_limits, durability, source_names, componen
     return {"checked_items": len(items), "issues": issues, "expected_name_differences": expected_differences}
 
 
-def build_report(*, scope, release, sections, metadata_changed, audit, blocked):
+def describe_changes(sections):
+    """Explain actual field changes without interpreting localized log output."""
+    details = {}
+    old_items, new_items = sections.get("items", ({}, {}))
+    if "items" in sections:
+        details["items"] = {"removed_non_items": sorted(key for key in old_items.keys() - new_items.keys() if is_non_item_lang_key_id(key))}
+    if "stack_limits" in sections:
+        old, new = sections["stack_limits"]
+        details["stack_limits"] = {
+            "before_count": len(old),
+            "after_count": len(new),
+            "added_existing_items": len((new.keys() - old.keys()) & old_items.keys()),
+        }
+    if "effects" in sections:
+        old, new = sections["effects"]
+        changed = [key for key in old.keys() & new.keys() if old[key] != new[key]]
+        descriptions_only = sum(len(old[key]) == len(new[key]) == 4 and old[key][:2] == new[key][:2] for key in changed)
+        details["effects"] = {"descriptions_only": descriptions_only, "other_changes": len(changed) - descriptions_only}
+    if "durability" in sections:
+        old, new = sections["durability"]
+        details["durability"] = {
+            "changes": [{"id": key, "before": old[key], "after": new[key]} for key in sorted(old.keys() & new.keys()) if old[key] != new[key]]
+        }
+    return details
+
+
+def build_report(*, scope, release, sections, metadata_changed, audit, blocked, previous_release=None):
     counts = {name: diff_counts(old, new) for name, (old, new) in sections.items()}
     changed = any(any(values.values()) for values in counts.values())
     incomplete = bool(blocked) or any(issue["severity"] == "error" for issue in (audit or {}).get("issues", []))
     return {
         "schema": 1,
+        "applied": False,
         "scope": scope or "all",
         "release": release,
+        "previous_release": previous_release,
         "status": "incomplete" if incomplete else "available" if changed else "metadata_only" if metadata_changed else "current",
         "sections": counts,
+        "change_details": describe_changes(sections),
         "audit": audit,
         "blocked": [{"section": section, "reason": reason} for section, reason in blocked],
     }

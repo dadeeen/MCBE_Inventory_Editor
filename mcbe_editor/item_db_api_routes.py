@@ -166,6 +166,7 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                     "Die App läuft weiter; nur das Item-DB-Update braucht Internet."
                 )
 
+        update_committed = bool(not dry_run and (returncode == 0 or (report and report.get("applied") is True)))
         deps.audit_event(
             "item_db.update",
             "success" if result["success"] else "failure",
@@ -177,10 +178,11 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                 "resource_pack_release": resolved_review.get("resource_pack_release"),
                 "returncode": result["returncode"],
                 "category": category,
+                "update_committed": update_committed,
             },
         )
 
-        if returncode == 0 and not dry_run:
+        if update_committed:
             result["update_committed"] = True
             try:
                 result.update(deps.reload_item_db_after_update())

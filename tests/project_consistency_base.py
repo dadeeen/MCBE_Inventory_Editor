@@ -196,7 +196,9 @@ def test_in_app_help_uses_existing_actions_and_layout_neutral_guidance():
     assert "Wähle links eine gefundene Welt aus" not in template
     assert "Details stehen rechts" not in template
     assert "btnApplySingleInline" not in template
-    assert "Dry-Run" in template
+    assert 'id="btnUpdateDbDryRun"' in template
+    assert 't("Änderungen prüfen")' in template
+    assert "Prüfe zuerst die Vorschau." in template
 
 
 def test_ci_uses_full_test_runner_so_core_dependency_skips_do_not_pass_release_tests():

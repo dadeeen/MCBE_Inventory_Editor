@@ -72,6 +72,12 @@ def _canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def item_listing_sha256(items: Mapping[str, str]) -> str:
+    """Fingerprint the item data consumed by the updater, independent of page HTML."""
+
+    return _canonical_sha256(dict(items))
+
+
 def _validated_item_listing(items: object) -> dict[str, str]:
     if not isinstance(items, dict) or not 1_000 <= len(items) <= 10_000:
         raise UpdateReviewError("Der Microsoft-Itemlisten-Snapshot hat eine unerwartete Anzahl Einträge.")
@@ -101,13 +107,16 @@ def build_item_listing_cache_payload(items: Mapping[str, str], metadata: Mapping
         raise UpdateReviewError("Der Inhalts-Hash des Microsoft-Itemlisten-Snapshots ist ungültig.")
     if type(count) is not int or count != len(normalized):
         raise UpdateReviewError("Die Eintragszahl des Microsoft-Itemlisten-Snapshots ist inkonsistent.")
+    items_hash = item_listing_sha256(normalized)
+    if "microsoft_item_listing_items_hash" in metadata and metadata["microsoft_item_listing_items_hash"] != items_hash:
+        raise UpdateReviewError("Der Microsoft-Itemlisten-Snapshot wurde verändert.")
     return {
         "schema_version": ITEM_LISTING_CACHE_SCHEMA_VERSION,
         "microsoft_item_listing_url": url,
         "microsoft_item_listing_fetched_at": fetched_at,
         "microsoft_item_listing_content_hash": content_hash,
         "microsoft_item_listing_count": count,
-        "microsoft_item_listing_items_hash": _canonical_sha256(normalized),
+        "microsoft_item_listing_items_hash": items_hash,
         "items": normalized,
     }
 
@@ -121,12 +130,13 @@ def parse_item_listing_cache_payload(payload: object) -> tuple[dict[str, str], d
     expected_items_hash = payload.get("microsoft_item_listing_items_hash")
     if not isinstance(expected_items_hash, str) or not _SHA256_PATTERN.fullmatch(expected_items_hash):
         raise UpdateReviewError("Der Item-Hash des Microsoft-Itemlisten-Snapshots ist ungültig.")
-    if not hmac.compare_digest(expected_items_hash, _canonical_sha256(items)):
+    if not hmac.compare_digest(expected_items_hash, item_listing_sha256(items)):
         raise UpdateReviewError("Der Microsoft-Itemlisten-Snapshot wurde verändert.")
     metadata = {
         "microsoft_item_listing_url": payload.get("microsoft_item_listing_url"),
         "microsoft_item_listing_fetched_at": payload.get("microsoft_item_listing_fetched_at"),
         "microsoft_item_listing_content_hash": payload.get("microsoft_item_listing_content_hash"),
+        "microsoft_item_listing_items_hash": expected_items_hash,
         "microsoft_item_listing_count": payload.get("microsoft_item_listing_count"),
     }
     # Reuse the same metadata validation as the writer and ensure the count is
@@ -253,7 +263,15 @@ def update_review_snapshot(
 def source_identity_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     """Return stable source identifiers without fetch timestamps."""
 
-    return {field: metadata.get(field, SOURCE_IDENTITY_DEFAULTS[field]) for field in SOURCE_IDENTITY_FIELDS}
+    identity = {field: metadata.get(field, SOURCE_IDENTITY_DEFAULTS[field]) for field in SOURCE_IDENTITY_FIELDS}
+    items_hash = metadata.get("microsoft_item_listing_items_hash")
+    if isinstance(items_hash, str) and _SHA256_PATTERN.fullmatch(items_hash):
+        # Old receipts keep their original identity shape until an update
+        # records the normalized fingerprint. The HTML hash remains provenance,
+        # but site chrome must not create a new item-source identity.
+        identity.pop("microsoft_item_listing_content_hash")
+        identity["microsoft_item_listing_items_hash"] = items_hash
+    return identity
 
 
 def source_identity_sha256(metadata: Mapping[str, Any]) -> str:

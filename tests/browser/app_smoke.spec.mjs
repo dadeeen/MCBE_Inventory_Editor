@@ -5116,6 +5116,129 @@ test('Focus header status labels share a font size at desktop and mobile widths'
   }
 });
 
+for (const width of [390, 1440]) {
+  test.describe(`database update interaction at ${width}px`, () => {
+    test.use({viewport: {width, height: 900}, hasTouch: width < 500, isMobile: width < 500});
+    test('reviews, cancels, applies the reviewed sources and checks again', async ({page}) => {
+      const errors = collectBrowserErrors(page);
+      const activate = locator => width < 500 ? locator.tap() : locator.click();
+      let applied = false;
+      let releasePreview;
+      const pendingPreview = new Promise(resolve => { releasePreview = resolve; });
+      const requests = [];
+      await page.route('**/api/item-db/status', route => route.fulfill({json: {success: true, item_db: {
+        status: 'ok', verification: {verified: true}, counts: {items: 8},
+        source_version: {resource_pack_release: applied ? 'v1.26.50.4' : 'v1.26.40.05'},
+      }}}));
+      await page.route('**/api/update_db', async route => {
+        const request = route.request().postDataJSON();
+        requests.push(request);
+        if (requests.length === 1) await pendingPreview;
+        const wasApplied = applied;
+        if (!request.dry_run) applied = true;
+        await route.fulfill({json: {
+          success: true, reloaded: !request.dry_run, update_committed: !request.dry_run,
+          update_review_token: request.dry_run ? 'a'.repeat(64) : undefined, resource_pack_release: 'v1.26.50.4',
+          output: 'Synthetic local update check',
+          summary: {schema: 1, status: wasApplied ? 'current' : 'available', scope: 'all',
+            previous_release: wasApplied ? 'v1.26.50.4' : 'v1.26.40.05', release: 'v1.26.50.4', blocked: [],
+            sections: {effects: {added: 0, removed: 0, changed: wasApplied ? 0 : 37}},
+            change_details: {effects: {descriptions_only: wasApplied ? 0 : 37, other_changes: 0}},
+            audit: {checked_items: 2164, issues: [], expected_name_differences: [
+              {id: 'minecraft:bed', locale: 'de', catalog: 'Weißes Bett', source: 'Bett'},
+              {id: 'minecraft:bed', locale: 'en', catalog: 'White Bed', source: 'Bed'},
+            ]},
+          },
+        }});
+      });
+      await openAppWithEmptyWorldScan(page);
+      await activate(page.locator('.app-workflow-nav [data-workflow-view="tools"]'));
+      await activate(page.locator('[data-tab-dash="dashUpdate"]'));
+      await activate(page.locator('#btnUpdateDbDryRun'));
+      await expect(page.locator('#btnClearUpdateOutput')).toBeDisabled();
+      await expect(page.locator('#btnUpdateDbApply')).toBeDisabled();
+      releasePreview();
+      const result = page.locator('#updateDbResult');
+      await expect(result).toContainText('37 Effektbeschreibungen aktualisiert');
+      await activate(page.locator('#btnUpdateDbApply'));
+      await expect(page.locator('#confirmOverlay')).toContainText('zuvor geprüften Quellen (Mojang v1.26.50.4)');
+      await activate(page.locator('#confirmCancel'));
+      expect(requests).toHaveLength(1);
+      await expect(result).toContainText('Vorschau – noch nicht übernommen');
+      await activate(page.locator('#btnUpdateDbApply'));
+      await activate(page.locator('#confirmOk'));
+      await expect(result).toContainText('Änderungen an der Item-Datenbank übernommen.');
+      await expect(result).not.toContainText('Vorschau');
+      expect(requests[1]).toMatchObject({dry_run: false, force: true, only: null, expected_update_review_token: 'a'.repeat(64)});
+      await expect(page.locator('.item-db-version-line')).toContainText('v1.26.50.4');
+      await activate(page.locator('#btnUpdateDbDryRun'));
+      await expect(result).toContainText('Keine inhaltlichen Änderungen');
+      await expect(result).toContainText('Kein Update erforderlich.');
+      await expect(result).not.toContainText('Vorschau');
+      await expect(result).not.toContainText('37');
+      await expect(result.locator('.update-db-source-comparison')).not.toContainText('v1.26.40.05');
+      await expect(page.locator('#updateDbDetails')).toBeHidden();
+      await expect(page.locator('.update-db-name-list')).toBeHidden();
+      await activate(page.locator('#updateDbLogDetails > summary'));
+      await expect(page.locator('.update-db-name-list')).toBeVisible();
+      await expect(page.locator('#updateDbLogDetails details')).toHaveCount(0);
+      await expect(page.locator('.update-db-name-list')).toContainText('Weißes Bett');
+      await expect(page.locator('.update-db-name-list')).not.toContainText('White Bed');
+      await expect(page.locator('#btnUpdateDbApply')).toBeDisabled();
+      await expect(page.locator('#updateDbActionHint')).toContainText('Keine Änderungen bei der letzten Prüfung');
+      expect(requests).toHaveLength(3);
+      await activate(page.locator('#btnUpdateDbDryRun'));
+      await expect(result).toContainText('Kein Update erforderlich.');
+      await expect(page.locator('#btnUpdateDbApply')).toBeDisabled();
+      await expect(page.locator('#updateDbDetails')).not.toHaveAttribute('open', '');
+      await page.locator('#btnUpdateDbDryRun').focus();
+      await page.keyboard.press('Tab');
+      await expect(page.locator('#btnClearUpdateOutput')).toBeFocused();
+      await captureBrowserEvidence(page, `db-current-controls-${width}`, '#dashUpdate');
+      await activate(page.locator('#btnClearUpdateOutput'));
+      await expect(page.locator('.update-db-output-wrapper')).toBeHidden();
+      await expect(page.locator('#btnUpdateDbDryRun')).toBeFocused();
+      await expect(page.locator('#btnUpdateDbApply')).toBeDisabled();
+      await activate(page.locator('.update-db-options > summary'));
+      await page.locator('#updateOnlySelect').selectOption('items');
+      await expect(page.locator('#btnUpdateDbApply')).toBeEnabled();
+      await expect(page.locator('#updateDbActionHint')).toContainText('Prüfe zuerst die Vorschau');
+      await page.locator('#updateOnlySelect').selectOption('');
+      await expect(page.locator('#btnUpdateDbApply')).toBeEnabled();
+      await captureBrowserEvidence(page, `db-scope-width-${width}`, '#dashUpdate');
+      expect(errors).toEqual([]);
+    });
+    test('shows a partial write and refreshes the active database after a section fails', async ({page}) => {
+      const errors = collectBrowserErrors(page);
+      const activate = locator => width < 500 ? locator.tap() : locator.click();
+      let applied = false;
+      await page.route('**/api/item-db/status', route => route.fulfill({json: {success: true, item_db: {
+        status: 'ok', verification: {verified: false}, counts: {items: 8},
+        source_version: {resource_pack_release: applied ? 'v1.26.50.4' : 'v1.26.40.05'},
+      }}}));
+      await page.route('**/api/update_db', route => {
+        applied = true;
+        return route.fulfill({json: {
+          success: false, returncode: 1, update_committed: true, reloaded: true, error: 'Synthetic missing effect ID',
+          summary: {schema: 1, status: 'incomplete', applied: true, previous_release: 'v1.26.40.05', release: 'v1.26.50.4',
+            sections: {items: {added: 1, removed: 0, changed: 0}}, blocked: [{section: 'EFFECTS', reason: 'Synthetic missing effect ID'}]},
+        }});
+      });
+      await openAppWithEmptyWorldScan(page);
+      await activate(page.locator('.app-workflow-nav [data-workflow-view="tools"]'));
+      await activate(page.locator('[data-tab-dash="dashUpdate"]'));
+      await activate(page.locator('#btnUpdateDbApply'));
+      await activate(page.locator('#confirmOk'));
+      await expect(page.locator('#updateDbResult')).toContainText('Aktualisierung teilweise übernommen');
+      await expect(page.locator('#updateDbResult')).toContainText('bereits gespeichert');
+      await expect(page.locator('#updateDbResult')).toContainText('Effekte: Synthetic missing effect ID');
+      await expect(page.locator('.item-db-version-line')).toContainText('v1.26.50.4');
+      await expect(page.locator('#btnUpdateDbApply')).toBeEnabled();
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
 for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark', 'light']) for (const language of ['de', 'en']) {
   test(`database result summary (${layout}/${theme}/${language})`, async ({page}) => {
     test.setTimeout(60_000);
@@ -5128,20 +5251,30 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
     }}}));
     let state = 'available';
     let issues = [];
+    let includeNames = true;
     await page.route('**/api/update_db', route => route.fulfill({json: {
       success: state !== 'incomplete', returncode: state === 'incomplete' ? 1 : 0,
       error: state === 'incomplete' ? 'Synthetic source failure' : undefined,
       output: 'Synthetic detailed log', update_review_token: 'a'.repeat(64), resource_pack_release: 'v1.26.50.4',
-      summary: {schema: 1, status: state, scope: 'all', release: 'v1.26.50.4', blocked: [],
-        sections: {items: {added: state === 'available' ? 124 : 0, removed: 0, changed: 0}},
-        audit: {checked_items: 2164, issues, expected_name_differences: [
+      summary: {schema: 1, status: state, scope: 'all', previous_release: state === 'current' ? 'v1.26.50.4' : 'v1.26.40.05', release: 'v1.26.50.4', blocked: [],
+        sections: state === 'available' ? {
+          items: {added: 124, removed: 8, changed: 87}, stack_limits: {added: 1505, removed: 0, changed: 0},
+          effects: {added: 0, removed: 0, changed: 37}, durability: {added: 0, removed: 0, changed: 3},
+          addable_items: {added: 32, removed: 0, changed: 0},
+        } : {},
+        change_details: state === 'available' ? {
+          stack_limits: {before_count: 123, after_count: 1628, added_existing_items: 1414},
+          effects: {descriptions_only: 37, other_changes: 0}, items: {removed_non_items: ['minecraft:canbreak']},
+          durability: {changes: [{id: 'minecraft:fishing_rod', before: 64, after: 384}]},
+        } : {},
+        audit: {checked_items: 2164, issues, expected_name_differences: includeNames ? [
           ['bed', 'Weißes Bett', 'White Bed', 'Bett', 'Bed'],
           ['yellow_flower', 'Löwenzahn', 'Dandelion', 'Blume', 'Flower'],
           ['stonecutter', 'Steinsäge (alt, ohne Funktion)', 'Stonecutter (Legacy, No Function)', 'Steinsäge', 'Stonecutter'],
         ].flatMap(([id, de, en, sourceDe, sourceEn]) => [
           {id: `minecraft:${id}`, locale: 'de', catalog: de, source: sourceDe},
           {id: `minecraft:${id}`, locale: 'en', catalog: en, source: sourceEn},
-        ])}},
+        ]) : []}},
     }}));
     await openAppWithEmptyWorldScan(page);
     await selectLayout(page, layout);
@@ -5151,42 +5284,101 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
     await expect(page.locator('.item-db-version-line')).toContainText('Mojang v1.26.40.05');
     await expect(page.locator('.item-db-status-hero')).not.toContainText(language === 'en' ? 'checked' : 'geprüft');
     const result = page.locator('#updateDbResult');
-    for (const width of [390, 1440]) {
+    for (const width of [320, 390, 1440]) {
       await page.setViewportSize({width, height: 1000});
       await page.locator('#btnUpdateDbDryRun').click();
-      await expect(result).toContainText(language === 'en' ? 'Update to Mojang v1.26.50.4 available' : 'Update auf Mojang v1.26.50.4 verfügbar');
+      await expect(result).toContainText(language === 'en' ? 'Database update available' : 'Datenbank-Aktualisierung verfügbar');
+      await expect(result).toContainText(language === 'en' ? 'Preview – not applied yet' : 'Vorschau – noch nicht übernommen');
+      await expect(result.locator('.update-db-source-comparison')).toContainText('v1.26.40.05');
+      await expect(result.locator('.update-db-source-comparison')).toContainText('v1.26.50.4');
       await expect(result).toContainText(language === 'en' ? '124 added' : '124 ergänzt');
+      await expect(result).toContainText(language === 'en' ? '37 effect descriptions updated' : '37 Effektbeschreibungen aktualisiert');
+      await expect(result).toContainText(language === 'en' ? '123 → 1,628' : '123 → 1.628');
+      await expect(result).toContainText(language === 'en' ? '1,414' : '1.414');
       await expect(result).toContainText(language === 'en' ? 'No issues found' : 'Keine Auffälligkeiten');
-      await expect(result).not.toContainText(language === 'en' ? 'Expected name differences' : 'Erwartete Namensabweichungen');
+      await expect(result).not.toContainText('minecraft:bed');
       await expect(page.locator('#updateDbOutput')).toBeHidden();
-      await page.locator('#updateDbDetails summary').click();
-      await expect(page.locator('#updateDbAudit')).toContainText(language === 'en' ? 'Expected name differences (3)' : 'Erwartete Namensabweichungen (3)');
-      await expect(page.locator('#updateDbAudit')).toContainText('DE · minecraft:bed');
-      await expect(page.locator('#updateDbAudit')).toContainText('EN · minecraft:bed');
+      await captureBrowserEvidence(page, `db-result-${layout}-${theme}-${language}-${width}`, ".update-db-output-wrapper");
+      await page.locator('#updateDbDetails > summary').click();
+      await expect(page.locator('.update-db-name-list')).toBeHidden();
+      await expect(page.locator('#updateDbAudit')).toContainText('minecraft:fishing_rod: 64 → 384');
+      await expect(page.locator('#updateDbAudit')).not.toContainText('minecraft:bed');
+      await expect(page.locator('#updateDbOutput')).toBeHidden();
+      await page.locator('#updateDbLogDetails summary').focus();
+      await page.keyboard.press('Enter');
       await expect(page.locator('#updateDbOutput')).toBeVisible();
-      await page.locator('#updateDbDetails summary').click();
+      await expect(page.locator('#updateDbTechnicalNotes > strong')).toHaveText(language === 'en' ? 'Preserved display names (3)' : 'Beibehaltene Anzeigenamen (3)');
+      await expect(page.locator('.update-db-name-list')).toBeVisible();
+      await expect(page.locator('.update-db-name-list > li')).toHaveCount(3);
+      await expect(page.locator('.update-db-name-list > li').first()).toContainText(language === 'en' ? 'White Bed' : 'Weißes Bett');
+      await expect(page.locator('.update-db-name-list')).not.toContainText(language === 'en' ? 'Weißes Bett' : 'White Bed');
+      await expect(page.locator('#updateDbTechnicalNotes')).toContainText(language === 'en' ? 'not pending changes' : 'keine ausstehenden Änderungen');
+      await expect(page.locator('#updateDbLogDetails details')).toHaveCount(0);
+      await expect(page.locator('#updateDbDetails')).toHaveAttribute('open', '');
+      await page.locator('#updateDbLogDetails summary').click();
+      await captureBrowserEvidence(page, `db-details-${layout}-${theme}-${language}-${width}`, ".update-db-output-wrapper");
+      await page.locator('#updateDbDetails > summary').click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-      await capturePlayerLoadEvidence(page, `db-result-${layout}-${theme}-${language}-${width}`);
+      for (const id of ['btnUpdateDbDryRun', 'btnUpdateDbApply', 'btnClearUpdateOutput']) {
+        expect((await page.locator(`#${id}`).boundingBox()).height).toBeGreaterThanOrEqual(44);
+      }
     }
     state = 'current';
-    await page.locator('#btnUpdateDbDryRun').click();
-    await expect(result).toContainText(language === 'en' ? 'No content changes' : 'Keine inhaltlichen Änderungen');
-    await expect(result).not.toContainText('124');
+    for (const width of [320, 1440]) {
+      await page.setViewportSize({width, height: 1000});
+      await page.locator('#btnUpdateDbDryRun').click();
+      await expect(result).toContainText(language === 'en' ? 'No content changes' : 'Keine inhaltlichen Änderungen');
+      await expect(result).toContainText(language === 'en' ? 'No update required.' : 'Kein Update erforderlich.');
+      await expect(result).not.toContainText(language === 'en' ? 'not applied yet' : 'noch nicht übernommen');
+      await expect(result).not.toContainText('124');
+      await expect(page.locator('#btnUpdateDbApply')).toBeDisabled();
+      await expect(page.locator('#btnUpdateDbDryRun')).toBeEnabled();
+      await expect(page.locator('#btnUpdateDbApply')).toHaveAttribute('aria-describedby', 'updateDbActionHint');
+      await expect(page.locator('#updateDbActionHint')).toContainText(language === 'en' ? 'No changes in the last check.' : 'Keine Änderungen bei der letzten Prüfung.');
+      await captureBrowserEvidence(page, `db-current-controls-${layout}-${theme}-${language}-${width}`, '#dashUpdate');
+      await expect(page.locator('#updateDbDetails')).toBeHidden();
+      await expect(page.locator('.update-db-name-list')).toBeHidden();
+      await captureBrowserEvidence(page, `db-current-${layout}-${theme}-${language}-${width}`, '.update-db-output-wrapper');
+      await page.locator('#updateDbLogDetails > summary').click();
+      await expect(page.locator('.update-db-name-list')).toBeVisible();
+      await expect(page.locator('#updateDbOutput')).toBeVisible();
+      await expect(page.locator('#updateDbLogDetails details')).toHaveCount(0);
+      await captureBrowserEvidence(page, `db-current-names-${layout}-${theme}-${language}-${width}`, '.update-db-output-wrapper');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await page.locator('#updateDbLogDetails > summary').focus();
+      await page.keyboard.press('Space');
+      await expect(page.locator('.update-db-name-list')).toBeHidden();
+    }
     state = 'metadata_only';
     await page.locator('#btnUpdateDbDryRun').click();
     await expect(result).toContainText(language === 'en' ? 'Only source metadata changed' : 'Nur Quelleninformationen geändert');
+    await expect(page.locator('#btnUpdateDbApply')).toBeEnabled();
+    await expect(result).toContainText(language === 'en' ? 'Preview – not applied yet' : 'Vorschau – noch nicht übernommen');
+    await expect(result).not.toContainText(language === 'en' ? 'No update required.' : 'Kein Update erforderlich.');
     state = 'available';
     issues = [{code: 'name_differences_de', severity: 'info', count: 1, items: ['<img src=x onerror=alert(1)>']}];
     await page.locator('#btnUpdateDbDryRun').click();
     await expect(result).toContainText(language === 'en' ? 'Differing German names: 1' : 'Abweichende deutsche Namen: 1');
-    await page.locator('#updateDbDetails summary').click();
+    await page.locator('#updateDbDetails > summary').click();
     await expect(page.locator('#updateDbAudit')).toContainText('<img src=x');
     await expect(page.locator('#updateDbAudit img')).toHaveCount(0);
     state = 'incomplete';
     await page.locator('#btnUpdateDbDryRun').click();
     await expect(result).toContainText(language === 'en' ? 'Check incomplete or failed' : 'Prüfung unvollständig oder fehlgeschlagen');
     await expect(result).toContainText('Synthetic source failure');
+    await expect(page.locator('#btnUpdateDbApply')).toBeEnabled();
+    await expect(result).not.toContainText(language === 'en' ? 'not applied yet' : 'noch nicht übernommen');
+    await expect(result).not.toContainText(language === 'en' ? 'No update required.' : 'Kein Update erforderlich.');
     await expect(page.locator('#updateDbOutput')).toBeHidden();
+    state = 'current';
+    issues = [];
+    includeNames = false;
+    await page.locator('#btnUpdateDbDryRun').click();
+    await expect(result).toContainText(language === 'en' ? 'No update required.' : 'Kein Update erforderlich.');
+    await expect(page.locator('#updateDbDetails')).toBeHidden();
+    await page.locator('#updateDbLogDetails > summary').click();
+    await expect(page.locator('#updateDbTechnicalNotes')).toBeEmpty();
+    await expect(page.locator('#updateDbOutput')).toBeVisible();
     await page.locator('#btnClearUpdateOutput').click();
     await expect(page.locator('.update-db-output-wrapper')).toBeHidden();
     await expect(page.locator('#btnUpdateDbDryRun')).toBeFocused();
@@ -5249,7 +5441,7 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
         sample: ['diamond_sword', 'apple', 'stone', 'bow'].map(id => ({item_id: `minecraft:${id}`, found: true}))},
       cache: {state: 'hit', path: 'synthetic/cache.json'}, settings_path: 'synthetic/icon_sources.json'};
     await page.route('**/api/item-db/status', route => route.fulfill({json: {success: true, item_db: itemDb}}));
-    await page.route('**/api/item-db/versions', route => route.fulfill({json: {success: true, entries: [{resource_pack_release: 'v1.26.40.05'}]}}));
+    await page.route('**/api/item-db/versions', route => route.fulfill({json: {success: true, entries: Array.from({length: 40}, (_, index) => ({resource_pack_release: index === 39 ? 'oldest-release' : 'v1.26.40.05', generated_at: '2026-10-17T14:16:23+00:00'}))}}));
     await page.route('**/api/icons/status*', route => route.fulfill({json: iconData}));
     await page.route('**/api/icons/scan', route => route.fulfill({json: iconData}));
     let updateRequest;
@@ -5312,6 +5504,27 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
     await page.locator('[data-toggle-db-versions]').click();
     await expect(page.locator('.item-db-version-history')).toContainText('v1.26.40.05');
     await expect(page.locator('[data-db-details]')).toHaveAttribute('open', '');
+    const history = page.locator('.item-db-version-history');
+    await expect(page.locator('[data-toggle-db-versions]')).toHaveText('Versionsverlauf (40)');
+    for (const width of [320, 390, 1440]) {
+      await page.setViewportSize({width, height: 900});
+      await history.scrollIntoViewIfNeeded();
+      await history.focus();
+      await expect(history).toBeFocused();
+      await page.keyboard.press('Control+End');
+      await expect.poll(() => history.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+      await expect(history.locator('tr').last()).toBeInViewport();
+      await expect(history.locator('th').first()).toBeInViewport();
+      expect(await history.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      expect(await history.evaluate(el => el.clientHeight)).toBeLessThanOrEqual(300);
+      await captureBrowserEvidence(page, `version-history-${layout}-${theme}-${width}`, '[data-db-details]');
+      await page.keyboard.press('Control+Home');
+      await expect.poll(() => history.evaluate(el => el.scrollTop)).toBe(0);
+    }
+    await page.locator('[data-toggle-db-versions]').click();
+    await expect(history).toBeHidden();
+    await page.locator('[data-toggle-db-versions]').press('Enter');
+    await expect(history).toBeVisible();
     await page.locator('.update-db-options summary').click();
     await page.locator('#updateOnlySelect').selectOption('items');
     await page.locator('.update-db-options summary').click();

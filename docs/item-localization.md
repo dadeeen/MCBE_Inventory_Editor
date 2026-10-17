@@ -23,7 +23,7 @@ These inherited pairs describe a tooltip, status message, color or individual pa
 | `minecraft:yellow_flower` | Löwenzahn / Dandelion | This legacy ID has one flower variant. The specific name is more useful than the source's generic Blume / Flower. |
 | `minecraft:stonecutter` | Steinsäge (alt, ohne Funktion) / Stonecutter (Legacy, No Function) | The suffix distinguishes the nonfunctional legacy block from `minecraft:stonecutter_block`. |
 
-These pairs appear as expected name differences in the expandable comparison details, outside the list of unresolved findings. Classification requires the exact reviewed ID, both catalog names and both source names. Changed or missing labels return to the ordinary comparison; the IDs are not exempt from validation.
+These pairs appear only in the technical log as a flat list of expected name differences in the active UI language. They are absent from the change details and the list of unresolved findings. Classification requires the exact reviewed ID, both catalog names and both source names. Changed or missing labels return to the ordinary comparison; the IDs are not exempt from validation.
 
 ## Terminology alignment
 

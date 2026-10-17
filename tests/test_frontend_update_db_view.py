@@ -22,7 +22,7 @@ def test_database_update_replaces_running_status_with_success() -> None:
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const store = context.window.MCBEStatusStore.createStatusStore();
-            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             let reloadFinished = false;
             const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
                 outputEl,
@@ -72,7 +72,7 @@ def test_database_update_can_force_full_scope_without_mutating_tools_selection()
                     { value: "items", text: "Nur Items" },
                 ],
             };
-            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
                 outputEl,
                 onlySelect,
@@ -112,7 +112,7 @@ def test_database_update_surfaces_loaded_player_refresh_warning() -> None:
             const toasts = [];
             let finalizing = false;
             let stopped = false;
-            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
                 outputEl,
                 fetchImpl: async (_url, options) => {
@@ -272,7 +272,7 @@ def test_apply_uses_source_receipt_from_matching_successful_dry_run() -> None:
                 options: [{ value: "items", text: "Nur Items" }],
                 addEventListener() {},
             };
-            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
                 outputEl,
                 onlySelect,
@@ -290,7 +290,7 @@ def test_apply_uses_source_receipt_from_matching_successful_dry_run() -> None:
                 assert.strictEqual(requests.length, 2);
                 assert.strictEqual(Object.hasOwn(requests[0], "expected_update_review_token"), false);
                 assert.strictEqual(requests[1].expected_update_review_token, "a".repeat(64));
-                assert.match(outputEl.textContent, /im Dry-Run geprüfte Quellen \(Mojang v1\.26\.40\.5\)/);
+                assert.match(outputEl.textContent, /zuvor geprüfte Quellen \(Mojang v1\.26\.40\.5\)/);
             })().catch(error => { console.error(error); process.exit(1); });
             """
         )
@@ -314,7 +314,7 @@ def test_dry_run_does_not_resolve_apply_reload_warning() -> None:
                 { success: true, update_committed: true, reload_warning: "Neustart erforderlich." },
                 { success: true, reloaded: false },
             ];
-            const outputEl = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
                 outputEl,
                 fetchImpl: async () => ({ payload: responses.shift() }),
@@ -352,7 +352,7 @@ def test_update_output_normalizes_spacing_and_classifies_web_formatting() -> Non
             vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 
             const view = context.window.MCBEUpdateDbView;
-            const output = { textContent: "Noch kein Update ausgeführt.", scrollTop: 0, scrollHeight: 0 };
+            const output = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             view.appendOutput(output, "--- 1/4 · Resource Pack herunterladen ---\n\n");
             view.appendOutput(output, "  Alles aktuell, keine Änderungen.\n");
 
@@ -384,6 +384,193 @@ def test_update_output_normalizes_spacing_and_classifies_web_formatting() -> Non
             assert.strictEqual(rendered.children[0].textContent, "<script>alert(1)</script>");
             assert.strictEqual(rendered.children[0].className, "");
             assert.strictEqual(rendered.children[2].className, "update-log-step");
+            """
+        )
+    )
+
+
+def test_apply_keeps_confirmed_scope_and_prevents_duplicate_confirmation() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
+            const apply = {addEventListener(_type, callback) { this.click = callback; }};
+            const select = {value: "items", options: [{value: "items", text: "Nur Items"}], addEventListener() {}};
+            let resolveConfirmation;
+            let confirmations = 0;
+            const confirmation = new Promise(resolve => { resolveConfirmation = resolve; });
+            const requests = [];
+            const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                outputEl: {textContent: "", scrollHeight: 0}, applyButton: apply, onlySelect: select,
+                withCsrf: () => ({}), parseJsonResponse: async response => response,
+                fetchImpl: async (_url, options) => {
+                    requests.push(JSON.parse(options.body));
+                    return {success: true, reloaded: requests.length > 1, update_review_token: "a".repeat(64), resource_pack_release: "v1"};
+                },
+                showConfirmDialog: message => {
+                    confirmations += 1;
+                    assert.match(message, /Bereich: Nur Items/);
+                    return confirmation;
+                },
+            });
+            (async () => {
+                await controller.run(true);
+                const applying = apply.click();
+                await apply.click();
+                assert.strictEqual(confirmations, 1);
+                select.value = "effects";
+                resolveConfirmation(true);
+                await applying;
+                assert.strictEqual(requests.length, 2);
+                assert.strictEqual(requests[1].only, "items");
+                assert.strictEqual(requests[1].expected_update_review_token, "a".repeat(64));
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        )
+    )
+
+
+def test_current_check_disables_only_matching_apply_and_can_be_checked_again() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console: {error() {}} };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/status_store.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
+            const element = () => ({disabled: false, addEventListener(type, callback) { this[type] = callback; }});
+            const apply = element(), check = element(), clear = element(), select = element();
+            select.value = "";
+            select.options = [{value: "", text: "Alles"}, {value: "items", text: "Nur Items"}];
+            const hint = {textContent: ""};
+            const wrapper = {hidden: true};
+            const output = {textContent: "", scrollHeight: 0, closest: () => wrapper};
+            const store = context.window.MCBEStatusStore.createStatusStore();
+            let confirmations = 0;
+            let fail = false;
+            let failFeedback = false;
+            let next = {success: true, summary: {status: "current"}};
+            const requests = [];
+            const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                outputEl: output, applyButton: apply, dryRunButton: check, clearButton: clear,
+                onlySelect: select, actionHint: hint,
+                withCsrf: () => ({}), parseJsonResponse: async response => response,
+                fetchImpl: async (_url, options) => {
+                    requests.push(JSON.parse(options.body));
+                    assert.equal(apply.disabled, true);
+                    assert.equal(check.disabled, true);
+                    if (fail) throw new Error("Synthetic network failure");
+                    return {...next, output: `Run ${requests.length}`};
+                },
+                showConfirmDialog: async () => { confirmations++; return true; },
+                showToast: () => {
+                    if (failFeedback) {
+                        failFeedback = false;
+                        throw new Error("Synthetic feedback failure");
+                    }
+                },
+                logStatus: (message, type, options) => store.addNotice({message, type, ...options}),
+            });
+            (async () => {
+                for (let i = 0; i < 25; i++) {
+                    await check.click();
+                    assert.equal(apply.disabled, true);
+                    assert.equal(check.disabled, false);
+                    assert.match(hint.textContent, /Keine Änderungen bei der letzten Prüfung/);
+                    assert.equal((output.textContent.match(/Run \d+/g) || []).length, 1);
+                    assert.equal(store.allNotices().length, 1);
+                }
+                await apply.click(); // Synthetic dispatch must respect the same guard as native disabled buttons.
+                assert.equal(confirmations, 0);
+                assert.equal(requests.length, 25);
+                clear.click();
+                assert.equal(wrapper.hidden, true);
+                assert.equal(apply.disabled, true);
+                assert.match(hint.textContent, /Keine Änderungen/);
+
+                select.value = "items";
+                select.change();
+                assert.equal(apply.disabled, false);
+                assert.match(hint.textContent, /Prüfe zuerst die Vorschau/);
+                await check.click();
+                assert.equal(apply.disabled, true);
+                await controller.run(true, false, {only: null});
+                assert.equal(apply.disabled, false, "A full-scope background run must not gate a different selected scope");
+
+                for (const response of [
+                    {success: true, summary: {status: "available"}},
+                    {success: true, summary: {status: "metadata_only"}},
+                    {success: false, summary: {status: "current"}, error: "Incomplete"},
+                    {success: true, summary: {status: "incomplete"}},
+                    {success: true},
+                    {success: true, summary: {status: "current"}, reload_warning: "Restart required"},
+                ]) {
+                    next = {success: true, summary: {status: "current"}};
+                    await check.click();
+                    assert.equal(apply.disabled, true);
+                    next = response;
+                    await check.click();
+                    assert.equal(apply.disabled, false);
+                    assert.equal(check.disabled, false);
+                }
+                next = {success: true, summary: {status: "current"}};
+                await check.click();
+                fail = true;
+                await check.click();
+                assert.equal(apply.disabled, false);
+                fail = false;
+                await check.click();
+                assert.equal(apply.disabled, true);
+                failFeedback = true;
+                await check.click();
+                assert.equal(apply.disabled, false, "A failed completion must clear the current-result state");
+                await check.click();
+                assert.equal(apply.disabled, true);
+                // Existing explicit repair workflows can still persist a verification receipt.
+                const beforeRepair = requests.length;
+                await controller.run(false, true);
+                assert.equal(requests.length, beforeRepair + 1);
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        )
+    )
+
+
+def test_failed_apply_discards_previous_review_receipt() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = {window: {}, console: {error() {}}};
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
+            const requests = [];
+            const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                outputEl: {textContent: "", scrollHeight: 0}, withCsrf: () => ({}),
+                parseJsonResponse: async response => response,
+                fetchImpl: async (_url, options) => {
+                    requests.push(JSON.parse(options.body));
+                    if (requests.length === 2) throw new Error("Response lost");
+                    return {success: true, update_review_token: "a".repeat(64), resource_pack_release: "v1"};
+                },
+            });
+            (async () => {
+                await controller.run(true);
+                await controller.run(false, true);
+                assert.equal(requests[1].expected_update_review_token, "a".repeat(64));
+                await controller.run(false, true);
+                assert.equal(Object.hasOwn(requests[2], "expected_update_review_token"), false);
+            })().catch(error => { console.error(error); process.exit(1); });
             """
         )
     )

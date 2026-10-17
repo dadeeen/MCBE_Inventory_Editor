@@ -36,6 +36,53 @@ def test_report_classifies_content_metadata_and_partial_failures(changed, metada
     assert report["sections"]["items"] == {"added": 0, "removed": 0, "changed": int(changed)}
 
 
+def test_report_explains_content_changes_and_compares_source_versions():
+    report = build_report(
+        scope=None,
+        previous_release="v1.26.40.05",
+        release="v1.26.50.4",
+        metadata_changed=True,
+        audit=None,
+        blocked=[],
+        sections={
+            "items": (
+                {"minecraft:stone": ("Stein", "Stone"), "minecraft:canbreak": ("Zerstörbar", "Can break"), "minecraft:removed": ("Alt", "Old")},
+                {"minecraft:stone": ("Stein", "Stone"), "minecraft:new": ("Neu", "New")},
+            ),
+            "stack_limits": ({}, {"minecraft:stone": 64, "minecraft:new": 16}),
+            "effects": (
+                {1: ("Tempo", "Speed", "Alt", "Old"), 2: ("Alt", "Old", "Text", "Text")},
+                {1: ("Tempo", "Speed", "Neu", "New"), 2: ("Neu", "New", "Text", "Text"), 3: ("Extra", "Extra", "", "")},
+            ),
+            "durability": ({"minecraft:rod": 64, "minecraft:unchanged": 10}, {"minecraft:rod": 384, "minecraft:unchanged": 10}),
+        },
+    )
+    assert report["previous_release"] == "v1.26.40.05"
+    assert report["release"] == "v1.26.50.4"
+    assert report["change_details"] == {
+        "items": {"removed_non_items": ["minecraft:canbreak"]},
+        "stack_limits": {"before_count": 0, "after_count": 2, "added_existing_items": 1},
+        "effects": {"descriptions_only": 1, "other_changes": 1},
+        "durability": {"changes": [{"id": "minecraft:rod", "before": 64, "after": 384}]},
+    }
+    assert report["sections"]["effects"] == {"added": 1, "removed": 0, "changed": 2}
+
+
+def test_description_only_update_is_available_even_with_the_same_source_release():
+    report = build_report(
+        scope="effects",
+        previous_release="v1",
+        release="v1",
+        sections={"effects": ({1: ("Tempo", "Speed", "", "")}, {1: ("Tempo", "Speed", "Beschreibung", "Description")})},
+        metadata_changed=False,
+        audit=None,
+        blocked=[],
+    )
+    assert report["status"] == "available"
+    assert report["change_details"]["effects"] == {"descriptions_only": 1, "other_changes": 0}
+    assert "items" not in report["change_details"]
+
+
 def test_audit_does_not_confuse_same_language_names_with_missing_translations():
     audit = audit_items(
         {"minecraft:test": ("Test", "Test")},

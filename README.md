@@ -57,6 +57,10 @@ All editions use the same editor. Download ZIPs and their matching `.sha256` fil
 
 An item or icon update also checks and processes the downloaded files. Wait for the completion message before closing the editor.
 
+Release ZIPs do not include a personal `data` directory. On first launch, the bundled item database is copied to `data/item_db.json`; existing runtime data is preserved when the application is updated. Keep your existing `data` directory when moving to another application folder. Without it, the application starts with the new package's database snapshot and without your previous settings, backups and downloaded icons. Docker uses the persistent `/data` volume for this state.
+
+Under **Tools → Item DB → Check changes**, the preview compares the saved source version with the checked source and explains their differences. The comparison also includes bundled catalog corrections, such as additional stack limits and effect descriptions. **Apply update** applies the result; checking again alone does not apply anything. Change details and the technical log open independently. If saved source information is missing, the preview shows “Not recorded”.
+
 ## Why this exists
 
 The editor was written for a private Bedrock server. Small corrections to a player's inventory or values meant copying world files to a Windows machine every time — far more effort than a routine fix deserves.

@@ -2807,15 +2807,108 @@ body.item-browser-open {
 
 .update-db-controls {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 26rem) auto;
+    justify-content: start;
     gap: 12px;
     align-items: end;
+}
+
+.update-db-options {
+    min-width: 0;
 }
 
 .update-db-actions {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+#btnUpdateDbApply:disabled {
+    background: var(--control-disabled-bg);
+    color: var(--text-secondary);
+    border-color: var(--control-border);
+    box-shadow: none;
+    transform: none;
+    opacity: 1;
+    filter: none;
+    cursor: not-allowed;
+}
+
+.update-db-actions button,
+.update-db-output-header button,
+#dashUpdate > .update-db-section > .update-db-output-wrapper > details > summary {
+    min-height: 44px;
+}
+
+.update-db-source-comparison {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 24px;
+    margin: 16px 0;
+    padding: 12px 0;
+    border-block: 1px solid var(--border-color);
+}
+
+.update-db-source-comparison dt {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+}
+
+.update-db-source-comparison dd {
+    margin: 0;
+    font-weight: 600;
+}
+
+.update-db-mode {
+    color: var(--info-text);
+    font-weight: 600;
+}
+
+.update-db-change-list {
+    list-style: none;
+    padding: 0;
+    margin: 16px 0;
+    display: grid;
+    gap: 12px;
+}
+
+.update-db-change-list small {
+    display: block;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-top: 3px;
+}
+
+#updateDbTechnicalNotes:not(:empty) {
+    margin: 8px 0 16px;
+}
+
+.update-db-name-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+}
+
+.update-db-name-list > li {
+    padding: 6px 0;
+    overflow-wrap: anywhere;
+}
+
+.update-db-name-list small {
+    display: block;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.update-db-value-list {
+    padding-left: 20px;
+    margin: 12px 0;
+}
+
+#updateDbAudit > strong {
+    display: block;
+    margin-top: 16px;
 }
 
 .update-db-output-wrapper {
@@ -2875,6 +2968,12 @@ body.item-browser-open {
 @media (max-width: 700px) {
     .update-db-controls {
         grid-template-columns: 1fr;
+    }
+    .update-db-source-comparison {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .update-db-actions button {
+        flex: 1 1 180px;
     }
 }
 
@@ -5557,7 +5656,30 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 }
 
 .item-db-version-history {
-    overflow-x: auto;
+    max-height: min(18rem, 50vh);
+    overflow: auto;
+    scrollbar-gutter: stable;
+}
+
+.item-db-version-history .version-table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.item-db-version-history th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-main);
+    z-index: 1;
+}
+
+.item-db-version-history td {
+    overflow-wrap: anywhere;
+}
+
+.item-db-version-history:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 
 .item-db-status-hero {

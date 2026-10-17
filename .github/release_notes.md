@@ -15,7 +15,9 @@ Release packages for the Minecraft Bedrock Inventory Editor.
 - **Local startup:** The Windows source launcher retains an explicit server-offline requirement. Internal browser readiness, Docker health and smoke checks bypass HTTP proxies for their local requests.
 - **Mount placement:** Wither roses are excluded from safe placement candidates, including the surrounding footprint.
 - **Session feedback:** Each document gets a distinct presence ID even when the browser copies tab storage. Responses from a previously selected world or player cannot replace the current presence warning.
-- **Appearance:** The System theme follows live operating-system preferences. Player-stat fields and hints stay within narrow screens in all three layouts.
+- **Appearance and update history:** The System theme follows live operating-system preferences. Player-stat fields and hints stay within narrow screens in all three layouts. Item-DB history retries after request failures and refreshes after status updates without accepting an older in-flight response.
+
+- **Item database updates:** The preview compares saved and checked source versions and explains description-only changes and stack-limit additions. Current results state that no update is required and disable the apply button for the checked scope while another check remains available. Scope changes, failures and subsequent results update the button state. Preserved names appear only in the technical log as a compact list in the selected language, without nested disclosures. Empty change-detail sections are hidden. Content details and the technical log open independently. Preview, applied and partially applied results have distinct status messages, with touch-sized controls and keyboard navigation. Confirmed partial writes refresh the active catalog while preserving the warning about skipped sections. Microsoft Learn comparisons use the parsed item data, so unrelated page-HTML changes do not trigger recurring metadata updates.
 
 ## What changed in v0.7.2
 

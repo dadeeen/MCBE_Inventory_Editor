@@ -168,7 +168,7 @@ class TestMicrosoftItemListings(unittest.TestCase):
                 cached_items, cached_snapshot = update_db.read_microsoft_item_listing_cache()
 
         self.assertEqual(cached_items, items)
-        self.assertEqual(cached_snapshot, snapshot)
+        self.assertEqual(cached_snapshot, {**snapshot, "microsoft_item_listing_items_hash": update_db.item_db_verification.item_listing_sha256(items)})
 
     def test_cached_listing_replay_does_not_contact_microsoft(self):
         items = {f"test_item_{index}": f"Test Item {index}" for index in range(1_000)}
@@ -1290,7 +1290,9 @@ def test_runtime_network_probe_excludes_the_maintainer_only_wiki_host():
     assert not (set(main.OUTBOUND_UPDATE_HOSTS) & update_db.ALLOWED_WIKI_HOSTS)
 
 
-def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, tmp_path):
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("blocked", [False, True])
+def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, tmp_path, capsys, dry_run, blocked):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     archive = cache_dir / "bedrock_resource_pack.zip"
@@ -1318,6 +1320,7 @@ def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, 
         "resource_pack_fetched_at": "now",
     }
     committed = mock.Mock()
+    step = mock.Mock()
     validate_cached_archive = mock.Mock(wraps=update_db._validate_downloaded_zip)
 
     monkeypatch.setattr(update_db, "CACHE_DIR", cache_dir)
@@ -1326,17 +1329,28 @@ def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, 
     monkeypatch.setattr(update_db, "read_release_metadata", lambda: release)
     monkeypatch.setattr(update_db, "read_all_dicts", lambda: ({}, old_effects, {}))
     monkeypatch.setattr(update_db, "parse_json_effects", lambda _zf: [])
-    monkeypatch.setattr(update_db, "merge_effects", lambda *_args: old_effects)
+    monkeypatch.setattr(update_db, "merge_effects", mock.Mock(side_effect=RuntimeError("Missing reviewed ID")) if blocked else lambda *_args: old_effects)
     monkeypatch.setattr(update_db, "read_source_version", lambda: old_version)
     monkeypatch.setattr(update_db, "commit_update_files", committed)
     monkeypatch.setattr(update_db, "log", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(update_db, "step", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(update_db, "step", step)
     monkeypatch.setattr(update_db, "show_diff", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(sys, "argv", ["update_db.py", "--only", "effects", "--cache", "--force"])
+    monkeypatch.setattr(sys, "argv", ["update_db.py", "--only", "effects", "--cache", "--json-summary", "--dry-run" if dry_run else "--force"])
 
-    update_db.main()
+    assert update_db.main() == (1 if blocked else 0)
 
     validate_cached_archive.assert_called_once_with(archive)
+    from mcbe_editor.update_db_report import extract_report
+
+    _, report = extract_report(capsys.readouterr().out)
+    assert report["previous_release"] == "old"
+    assert report["release"] == "new"
+    assert report["status"] == ("incomplete" if blocked else "metadata_only")
+    assert report["applied"] is not dry_run
+    if dry_run:
+        committed.assert_not_called()
+        assert step.call_args.args == ("4/4  Prüfung abschließen",)
+        return
     assert committed.call_count == 1
     kwargs = committed.call_args.kwargs
     assert kwargs["write_item_db"] is False
