@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from io import BytesIO
 from pathlib import Path
-import shlex
 import urllib.request
+from types import SimpleNamespace
+
+import pytest
 
 from mcbe_editor.config import load_config
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
+from mcbe_editor import healthcheck
 
 
 def test_docker_worlds_root_empty_warns(tmp_path, monkeypatch):
@@ -80,26 +82,91 @@ def test_local_write_gate_disabled_reports_world_access_warning(monkeypatch):
     assert "Lokalmodus" in status["message"]
 
 
-def test_dockerfile_uses_configured_internal_port_for_runtime_and_direct_healthcheck(monkeypatch):
+@pytest.mark.parametrize(
+    ("configured", "expected_host"),
+    [
+        ("", "127.0.0.1:8091"),
+        ("editor.home.arpa", "editor.home.arpa:8091"),
+        ("editor.home.arpa:8443", "editor.home.arpa:8091"),
+        ("127.0.0.1:8443", "127.0.0.1:8091"),
+        (".home.arpa", "home.arpa:8091"),
+        (".home.arpa:8443", "home.arpa:8091"),
+        ("[::1]", "[::1]:8091"),
+        ("::1", "[::1]:8091"),
+        ("invalid/path, editor.home.arpa", "editor.home.arpa:8091"),
+        ("invalid:65536, editor.home.arpa:8443", "editor.home.arpa:8091"),
+        ("münchen.example", "xn--mnchen-3ya.example:8091"),
+        ("münchen.example:8443", "xn--mnchen-3ya.example:8091"),
+    ],
+)
+def test_dockerfile_uses_configured_internal_port_for_runtime_and_direct_healthcheck(monkeypatch, configured, expected_host):
+    import main
+
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
     assert "${MCBE_EDITOR_PORT:-8080}" in dockerfile
+    assert 'CMD ["python", "-m", "mcbe_editor.healthcheck"]' in dockerfile
     requests = []
 
-    def http_open(_handler, request):
-        requests.append((request.host, request.full_url, request.timeout))
-        response = urllib.response.addinfourl(BytesIO(b"ok"), {}, request.full_url, 200)
-        response.msg = "OK"
-        return response
+    class LocalConnection:
+        def __init__(self, host, port, *, timeout):
+            assert (host, port, timeout) == ("127.0.0.1", 8091, 2)
+
+        def request(self, method, path, *, headers):
+            requests.append((method, path, headers))
+            # Exercise the actual app's host/auth/setup boundary with the
+            # check's header while the connection destination stays loopback.
+            self.response = main.app.test_client().open(path, method=method, headers=headers)
+
+        def getresponse(self):
+            return SimpleNamespace(status=self.response.status_code, read=lambda size: self.response.data[:size])
+
+        def close(self):
+            pass
 
     monkeypatch.setenv("MCBE_EDITOR_PORT", "8091")
-    monkeypatch.setattr(urllib.request, "_opener", None)
+    monkeypatch.setenv("MCBE_TRUSTED_HOSTS", configured)
+    monkeypatch.setitem(main.app.config, "MCBE_TRUSTED_HOSTS", list(load_config().trusted_hosts) or None)
     monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.invalid:3128"})
     monkeypatch.setattr(urllib.request, "proxy_bypass", lambda _host: False)
-    monkeypatch.setattr(urllib.request.HTTPHandler, "http_open", http_open)
-    command = next(line.strip() for line in dockerfile.splitlines() if line.strip().startswith("CMD python -c "))
-    exec(shlex.split(command)[3], {})
-    assert requests == [("127.0.0.1:8091", "http://127.0.0.1:8091/healthz", 2)]
+    monkeypatch.setattr(healthcheck, "HTTPConnection", LocalConnection)
+    assert healthcheck.main() == 0
+    assert requests == [("GET", "/healthz", {"Host": expected_host})]
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "",
+        " ",
+        "https://editor.home.arpa",
+        "user@editor.home.arpa",
+        "editor.home.arpa/path",
+        "editor\r\nInjected: value",
+        "editor.home.arpa:0",
+        "editor.home.arpa:65536",
+        "editor.home.arpa:invalid",
+        "editor.home.arpa:8443:8091",
+        "editor.home.arpa:",
+    ],
+)
+def test_healthcheck_rejects_invalid_configured_hosts_before_connecting(monkeypatch, host):
+    def unexpected_connection(*args, **kwargs):
+        pytest.fail("An invalid health-check host must not open a connection")
+
+    monkeypatch.setattr(healthcheck, "HTTPConnection", unexpected_connection)
+    with pytest.raises(ValueError, match="no valid health-check hostname"):
+        healthcheck.check_health(8080, trusted_hosts=(host,))
+
+
+@pytest.mark.parametrize(("status", "body"), [(302, b""), (200, b"not json"), (200, b'{"status":"unhealthy"}')])
+def test_healthcheck_rejects_redirects_and_unexpected_health_payloads(monkeypatch, status, body, capsys):
+    response = SimpleNamespace(status=status, read=lambda size: body[:size])
+    connection = SimpleNamespace(request=lambda *args, **kwargs: None, getresponse=lambda: response, close=lambda: None)
+    monkeypatch.setattr(healthcheck, "HTTPConnection", lambda *args, **kwargs: connection)
+    monkeypatch.delenv("MCBE_TRUSTED_HOSTS", raising=False)
+    assert healthcheck.main() == 1
+    assert "Local health check failed" in capsys.readouterr().err
 
 
 def test_write_gate_public_payload_does_not_expose_secrets(monkeypatch):
