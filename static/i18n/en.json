@@ -2658,6 +2658,7 @@
   "Modell-Icon-Spezifikation enthält eine unvollständige Block-/Geometrie-Zuordnung.": "The model icon specification contains an incomplete block/geometry mapping.",
   "Modell-Icon-Spezifikation enthält eine unvollständige Entity-Zuordnung.": "The model icon specification contains an incomplete entity mapping.",
   "Mojang-Itemdefinition ist ungültig: {member}: {error}": "The Mojang item definition is invalid: {member}: {error}",
+  "Mojang-Quellen sind unvollständig oder ungültig: {member}.": "Mojang sources are incomplete or invalid: {member}.",
   "Mojang-Itemkomponente {component} ist ungültig: {member}: {detail}": "Mojang item component {component} is invalid: {member}: {detail}",
   "Nicht unterstützte TGA-Farbtiefe: {bits_per_pixel}": "Unsupported TGA color depth: {bits_per_pixel}",
   "Nicht unterstützte TGA-Index-Farbtiefe: {bits_per_pixel}": "Unsupported TGA index color depth: {bits_per_pixel}",

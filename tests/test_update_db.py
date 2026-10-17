@@ -1296,8 +1296,10 @@ def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, 
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     archive = cache_dir / "bedrock_resource_pack.zip"
-    with zipfile.ZipFile(archive, "w"):
-        pass
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("metadata/vanilladata_modules/mojang-effects.json", json.dumps({"data_items": [{"name": "speed"}]}))
+        for locale in ("en_US", "de_DE"):
+            zf.writestr(f"resource_pack/texts/{locale}.lang", "effect.speed=Speed\n")
 
     old_effects = {1: ("Tempo", "Speed", "", "")}
     old_version = {
@@ -1379,13 +1381,45 @@ def test_main_rejects_changed_review_token_before_processing_sources(monkeypatch
         update_db.main()
 
 
-@pytest.mark.parametrize("invalid_limit", [False, True])
-def test_full_update_verifies_no_op_but_never_commits_invalid_limits(monkeypatch, tmp_path, invalid_limit):
+@pytest.mark.parametrize(
+    ("invalid_limit", "invalid_member", "replacement"),
+    [
+        (False, None, None),
+        (True, None, None),
+        (False, "metadata/vanilladata_modules/mojang-items.json", None),
+        (False, "metadata/vanilladata_modules/mojang-blocks.json", '{"data_items": []}'),
+        (False, "metadata/vanilladata_modules/mojang-effects.json", '{"data_items": []}'),
+        (False, "metadata/vanilladata_modules/mojang-enchantments.json", '{"data_items": [{}]}'),
+        (False, "metadata/vanilladata_modules/mojang-effects.json", '{"data_items": [{"value": "speed"}]}'),
+        (False, "metadata/vanilladata_modules/mojang-enchantments.json", '{"data_items": [{"command_name": "unbreaking"}]}'),
+        (False, "metadata/vanilladata_modules/mojang-items.json", '{"data_items": [{"value": "stone"}]}'),
+        (False, "resource_pack/texts/de_DE.lang", None),
+        (False, "resource_pack/texts/en_US.lang", "# no translations\n"),
+        (False, "resource_pack/texts/de_DE.lang", "menu.unrelated=Unrelated translation\n"),
+        (False, "metadata/vanilladata_modules/mojang-effects.json", '{"data_items": [{"name": "speed"}, {"name": "weakness"}]}'),
+        (False, "metadata/vanilladata_modules/mojang-enchantments.json", '{"data_items": [{"name": "unbreaking"}, {"name": "sharpness"}]}'),
+        (False, "resource_pack/texts/en_US.lang", "item.stone.name=Stone\neffect.weakness=Weakness\nenchant.unbreaking=Unbreaking\n"),
+        (False, "resource_pack/texts/de_DE.lang", "item.stone.name=Stein\neffect.speed=Geschwindigkeit\nenchant.sharpness=Schärfe\n"),
+    ],
+)
+def test_full_update_verifies_only_complete_sources_and_valid_limits(monkeypatch, tmp_path, invalid_limit, invalid_member, replacement):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     archive = cache_dir / "bedrock_resource_pack.zip"
-    with zipfile.ZipFile(archive, "w"):
-        pass
+    members = {
+        f"metadata/vanilladata_modules/mojang-{module}.json": json.dumps({"data_items": [{"name": name}]})
+        for module, name in (("items", "stone"), ("blocks", "stone"), ("effects", "speed"), ("enchantments", "unbreaking"))
+    }
+    members.update(
+        {f"resource_pack/texts/{locale}.lang": "item.stone.name=Stone\neffect.speed=Speed\nenchant.unbreaking=Unbreaking\n" for locale in ("en_US", "de_DE")}
+    )
+    if invalid_member:
+        members.pop(invalid_member)
+        if replacement is not None:
+            members[invalid_member] = replacement
+    with zipfile.ZipFile(archive, "w") as zf:
+        for name, content in members.items():
+            zf.writestr(name, content)
     release = {
         "resource_pack_release": "current",
         "resource_pack_asset": "current.zip",
@@ -1441,6 +1475,12 @@ def test_full_update_verifies_no_op_but_never_commits_invalid_limits(monkeypatch
     monkeypatch.setattr(update_db, "show_diff", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(sys, "argv", ["update_db.py", "--cache", "--force"])
 
+    if invalid_member:
+        with pytest.raises(RuntimeError, match="unvollständig oder ungültig"):
+            update_db.main()
+        committed.assert_not_called()
+        return
+
     assert update_db.main() == (1 if invalid_limit else 0)
     if invalid_limit:
         committed.assert_not_called()
@@ -1452,6 +1492,34 @@ def test_full_update_verifies_no_op_but_never_commits_invalid_limits(monkeypatch
     assert kwargs["append_source_history"] is False
     assert kwargs["verify_item_db"] is True
     assert kwargs["source_metadata"]["resource_pack_release"] == "current"
+
+
+@pytest.mark.parametrize("scope", ["items", "effects", "enchants"])
+def test_source_validation_checks_only_requested_registry_and_locale_domains(scope):
+    registry_members = {
+        "items": {"items": [{"name": "minecraft:stone"}], "blocks": [{"name": "minecraft:stone"}]},
+        "effects": {"effects": [{"name": "minecraft:speed"}, {"name": "minecraft:fatal_poison"}]},
+        "enchants": {"enchantments": [{"value": "minecraft:unbreaking"}]},
+    }
+    labels = {
+        "items": "item.stone.name=Stone\n",
+        # The official v1.26.50.4 locales have no fatal_poison label. This
+        # explicit source exception must not require inventing a translation.
+        "effects": "potion.moveSpeed=Speed\n",
+        "enchants": "enchantment.durability=Unbreaking\n",
+    }
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        for module in ("items", "blocks", "effects", "enchantments"):
+            entries = registry_members[scope].get(module)
+            archive.writestr(
+                f"metadata/vanilladata_modules/mojang-{module}.json",
+                json.dumps({"data_items": entries}) if entries is not None else "not consumed by this scope",
+            )
+        for locale in ("en_US", "de_DE"):
+            archive.writestr(f"resource_pack/texts/{locale}.lang", labels[scope])
+    with zipfile.ZipFile(payload) as archive:
+        update_db.validate_update_sources(archive, scope)
 
 
 def _zip_bytes(filename="file.txt", content=b"ok"):
@@ -1892,3 +1960,88 @@ def test_report_blocked_sections_signals_failure_without_losing_other_sections(c
     output = capsys.readouterr().out
     assert "EFFECTS" in output
     assert "glowing" in output
+
+
+def test_bedrock_enchantment_language_keys_resolve_to_registry_identities():
+    # Representative original keys from Mojang/bedrock-samples v1.26.50.4;
+    # dotted localization keys must resolve before numeric-ID reconciliation.
+    content = """
+enchantment.arrowDamage=Power
+enchantment.curse.binding=Curse of Binding
+enchantment.damage.all=Sharpness
+enchantment.damage.arthropods=Bane of Arthropods
+enchantment.digging=Efficiency
+enchantment.lootBonusFishing=Luck of the Sea
+enchantment.protect.fire=Fire Protection
+enchantment.heavy_weapon.windburst=Wind Burst
+enchantment.waterWorker=Aqua Affinity
+enchantment.tridentChanneling=Channeling
+enchantment.lunge=Lunge
+enchantment.level.1=I
+enchantment.arrowDamage.desc=Description, not a name
+enchantment.prefix=Enchantment
+"""
+
+    assert update_db.parse_lang_enchantments(content) == {
+        "power": "Power",
+        "binding_curse": "Curse of Binding",
+        "sharpness": "Sharpness",
+        "bane_of_arthropods": "Bane of Arthropods",
+        "efficiency": "Efficiency",
+        "luck_of_the_sea": "Luck of the Sea",
+        "fire_protection": "Fire Protection",
+        "wind_burst": "Wind Burst",
+        "aqua_affinity": "Aqua Affinity",
+        "channeling": "Channeling",
+        "lunge": "Lunge",
+    }
+
+
+def test_bedrock_potion_effect_names_exclude_potion_item_names_and_ui_labels():
+    # The base potion.* key is an effect label. Its .name/.splash/.linger
+    # descendants name items, and must never replace the actual effect name.
+    content = """
+potion.moveSpeed=Geschwindigkeit
+potion.moveSpeed.name=Trank der Schnelligkeit
+potion.moveSpeed.splash.name=Wurftrank der Schnelligkeit
+potion.moveSpeed.linger.name=Verweiltrank der Schnelligkeit
+potion.moveSlowdown=Langsamkeit
+potion.confusion=Übelkeit
+potion.damageBoost=Stärke
+potion.digSlowDown=Abbaulähmung
+potion.digSpeed=Eile
+potion.harm=Direktschaden
+potion.heal=Direktheilung
+potion.jump=Sprungverst.
+effect.villageHero=Dorfheld
+effect.customNautilus= Nautilus-Atem
+effect.duration.infinite=∞
+potion.potency.0=I
+potion.empty=Wirkungslos
+potion.turtleMaster=Langsamkeit
+potion.turtleMaster2=Resistenz
+"""
+
+    assert update_db.parse_lang_effects(content) == {
+        "speed": "Geschwindigkeit",
+        "slowness": "Langsamkeit",
+        "nausea": "Übelkeit",
+        "strength": "Stärke",
+        "mining_fatigue": "Abbaulähmung",
+        "haste": "Eile",
+        "instant_damage": "Direktschaden",
+        "instant_health": "Direktheilung",
+        "jump_boost": "Sprungverst.",
+        "hero_of_the_village": "Dorfheld",
+        "breath_of_the_nautilus": "Nautilus-Atem",
+    }
+
+
+def test_language_parsers_keep_supported_legacy_prefixes_and_ignore_empty_labels():
+    assert update_db.parse_lang_enchantments("enchant.aquaAffinity=\nenchant.aquaAffinity=Wasseraffinität\nenchant.aquaAffinity.desc=Beschreibung\n") == {
+        "aqua_affinity": "Wasseraffinität"
+    }
+    assert update_db.parse_lang_effects("effect.instantHealth=\neffect.instantHealth=Direktheilung\neffect.speed=Speed\neffect.speed=Duplicate\n") == {
+        "instant_health": "Direktheilung",
+        "speed": "Speed",
+    }

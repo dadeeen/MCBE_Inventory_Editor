@@ -224,6 +224,18 @@ Documentation languages: `README.md` and `SECURITY.md` are English with maintain
 
 `python -m scripts.update_db` regenerates `mcbe_editor/resources/item_db.json` from the `Mojang/bedrock-samples` release and the Microsoft Learn item listing. Identifiers, effects, and display names update from those sources. Normal runs always query the current release metadata first and reuse the cached ZIP only when release identity, size, and ZIP validation match. Enchantment **maximum levels** come from the reviewed table in `mcbe_editor/resources/enchantment_max_levels.json`.
 
+Before processing, the updater validates the exact registries and the canonical
+English/German language files required by the selected scope. Missing, duplicate,
+empty or malformed required sections stop the update before a write or a new
+verification receipt. Effect and enchantment labels must cover their source
+registry in both languages; `fatal_poison` is the documented exception because
+Mojang supplies no dedicated label. Item localization retains its existing alias,
+preservation and fallback rules. The locale parsers accept Mojang's `potion.*`
+effect labels and `enchantment.*` names, including their source aliases, while
+excluding potion item names, levels, durations and description text. Legacy
+`effect.*` and `enchant.*` names remain supported. These validation semantics use
+updater contract version 3, so older receipts require a fresh check.
+
 That table is maintained by hand, so two situations need a maintainer:
 
 - **Mojang adds an enchantment.** The update stops without writing and reports the missing identifiers. Add the reviewed levels to `enchantment_max_levels.json`, then run the update again.

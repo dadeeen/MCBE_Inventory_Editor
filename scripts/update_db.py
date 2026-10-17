@@ -211,14 +211,23 @@ KNOWN_WEARABLE_SLOTS = {
 # .lang → JSON name mapping for effects (where they differ)
 EFFECT_LANG_TO_JSON = {
     "badOmen": "bad_omen",
+    "confusion": "nausea",
     "customNautilus": "breath_of_the_nautilus",
+    "damageBoost": "strength",
+    "digSlowDown": "mining_fatigue",
+    "digSpeed": "haste",
     "fatalPoison": "fatal_poison",
     "fireResistance": "fire_resistance",
+    "harm": "instant_damage",
+    "heal": "instant_health",
     "healthBoost": "health_boost",
     "instantDamage": "instant_damage",
     "instantHealth": "instant_health",
+    "jump": "jump_boost",
     "jumpBoost": "jump_boost",
     "miningFatigue": "mining_fatigue",
+    "moveSlowdown": "slowness",
+    "moveSpeed": "speed",
     "nightVision": "night_vision",
     "waterBreathing": "water_breathing",
     "slowFalling": "slow_falling",
@@ -232,20 +241,56 @@ EFFECT_LANG_TO_JSON = {
 # .lang → JSON name mapping for enchantments (where they differ)
 ENCH_LANG_TO_JSON = {
     "aquaAffinity": "aqua_affinity",
+    "arrowDamage": "power",
+    "arrowFire": "flame",
+    "arrowInfinite": "infinity",
+    "arrowKnockback": "punch",
     "baneOfArthropods": "bane_of_arthropods",
     "blastProtection": "blast_protection",
+    "crossbowMultishot": "multishot",
+    "crossbowPiercing": "piercing",
+    "crossbowQuickCharge": "quick_charge",
+    "curse.binding": "binding_curse",
+    "curse.vanishing": "vanishing_curse",
+    "damage.all": "sharpness",
+    "damage.arthropods": "bane_of_arthropods",
+    "damage.undead": "smite",
     "depthStrider": "depth_strider",
+    "digging": "efficiency",
+    "durability": "unbreaking",
     "featherFalling": "feather_falling",
+    "fire": "fire_aspect",
     "fireAspect": "fire_aspect",
     "fireProtection": "fire_protection",
+    "fishingSpeed": "lure",
+    "frostwalker": "frost_walker",
     "frostWalker": "frost_walker",
+    "heavy_weapon.breach": "breach",
+    "heavy_weapon.density": "density",
+    "heavy_weapon.windburst": "wind_burst",
+    "lootBonus": "looting",
+    "lootBonusDigger": "fortune",
+    "lootBonusFishing": "luck_of_the_sea",
     "luckOfTheSea": "luck_of_the_sea",
+    "oxygen": "respiration",
     "projectileProtection": "projectile_protection",
+    "protect.all": "protection",
+    "protect.explosion": "blast_protection",
+    "protect.fall": "feather_falling",
+    "protect.fire": "fire_protection",
+    "protect.projectile": "projectile_protection",
     "quickCharge": "quick_charge",
     "respiration": "respiration",
     "silkTouch": "silk_touch",
     "soulSpeed": "soul_speed",
     "swiftSneak": "swift_sneak",
+    "tridentChanneling": "channeling",
+    "tridentImpaling": "impaling",
+    "tridentLoyalty": "loyalty",
+    "tridentRiptide": "riptide",
+    "untouching": "silk_touch",
+    "waterWalker": "depth_strider",
+    "waterWorker": "aqua_affinity",
     "windBurst": "wind_burst",
 }
 
@@ -1371,6 +1416,66 @@ def _serialization_lang_key(value: object) -> str:
     return _normalize_item_key(base)
 
 
+def validate_update_sources(zf: zipfile.ZipFile, scope: str | None) -> None:
+    """Reject missing source sections before an update can claim verification.
+
+    A valid ZIP is not necessarily a usable Mojang snapshot. Empty registries
+    must not look like an intentional removal, and missing language files must
+    not silently turn a source check into a comparison against fallback names.
+    Effect and enchantment labels must cover their consumed registries in both
+    locales. Only registries consumed by the requested scope are required.
+    """
+    modules = {"items": ("items", "blocks"), "effects": ("effects",), "enchants": ("enchantments",)}
+    registry_keys = {
+        "items": ("command_name", "name", "serialization_name"),
+        "blocks": ("command_name", "name", "serialization_name"),
+        "effects": ("name",),
+        "enchantments": ("value", "name"),
+    }
+    locale_parsers = {"items": _parse_lang_item_content, "effects": parse_lang_effects, "enchants": parse_lang_enchantments}
+    required_modules = modules[scope] if scope else tuple(module for group in modules.values() for module in group)
+    required_parsers = {scope: locale_parsers[scope]} if scope else locale_parsers
+    required_labels: dict[str, set[str]] = {}
+    members = zf.namelist()
+    for member in (
+        *(f"metadata/vanilladata_modules/mojang-{module}.json" for module in required_modules),
+        "resource_pack/texts/en_US.lang",
+        "resource_pack/texts/de_DE.lang",
+    ):
+        valid = False
+        try:
+            if members.count(member) == 1:
+                content = read_utf8(zf, member)
+                if member.endswith(".json"):
+                    payload = json.loads(content)
+                    entries = payload.get("data_items") if isinstance(payload, dict) else None
+                    module = Path(member).stem.removeprefix("mojang-")
+                    keys = registry_keys[module]
+                    valid = (
+                        isinstance(entries, list)
+                        and bool(entries)
+                        and all(isinstance(entry, dict) and any(isinstance(entry.get(key), str) and entry[key].strip() for key in keys) for entry in entries)
+                    )
+                    if valid and module == "effects":
+                        required_labels["effects"] = {_canonical_effect_identifier(entry["name"]) for entry in entries}
+                        # Mojang's v1.26.50.4 EN/DE locales omit fatal_poison.
+                        # This registry entry is the only known label exception.
+                        required_labels["effects"].discard("fatal_poison")
+                    elif valid and module == "enchantments":
+                        required_labels["enchants"] = {_canonical_enchantment_identifier(entry.get("value") or entry["name"]) for entry in entries}
+                else:
+                    valid = True
+                    for section, parser in required_parsers.items():
+                        labels = {identifier for identifier, value in parser(content).items() if value.strip()}
+                        if not labels or not required_labels.get(section, set()).issubset(labels):
+                            valid = False
+                            break
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+            pass
+        if not valid:
+            raise RuntimeError(tr("Mojang-Quellen sind unvollständig oder ungültig: {member}.", member=member))
+
+
 def _vanilla_registry_ids(zf: zipfile.ZipFile, module: str) -> set[str]:
     try:
         obj = json.loads(read_utf8(zf, f"metadata/vanilladata_modules/{module}"))
@@ -1474,14 +1579,21 @@ def parse_json_item_serialization_aliases(zf: zipfile.ZipFile) -> dict[str, str]
 
 
 def _parse_lang_item_entries(lang_path: Path | None) -> dict[str, str]:
+    if not lang_path:
+        return {}
+    try:
+        return _parse_lang_item_content(lang_path.read_text(encoding="utf-8-sig"))
+    except OSError:
+        return {}
+
+
+def _parse_lang_item_content(content: str) -> dict[str, str]:
     """Parse safe item/tile name entries while preserving dotted localization keys.
 
     Dotted keys such as ``boat.acacia`` are localization identifiers, not valid
     Bedrock item IDs. Keeping them in a separate catalog lets the updater bridge
     them later without ever adding pseudo item IDs to the writable database.
     """
-    if not lang_path:
-        return {}
     named_pattern = re.compile(
         r"^(?:item|tile)\.(?:minecraft[:. ]\s*)?([a-z0-9_]+(?:[./-][a-z0-9_]+)*)\.name=(.+)$",
         re.IGNORECASE,
@@ -1490,11 +1602,6 @@ def _parse_lang_item_entries(lang_path: Path | None) -> dict[str, str]:
         r"^(?:item|tile)\.(?:minecraft[:. ]\s*)?([a-z0-9_]+(?:[/-][a-z0-9_]+)*)=(.+)$",
         re.IGNORECASE,
     )
-    try:
-        content = lang_path.read_text(encoding="utf-8-sig")
-    except OSError:
-        return {}
-
     seen: dict[str, str] = {}
     for line in content.splitlines():
         line = line.strip()
@@ -1797,16 +1904,21 @@ def parse_json_effects(zf: zipfile.ZipFile) -> list[str]:
 
 
 def parse_lang_effects(content: str) -> dict[str, str]:
+    """Read Bedrock effect labels from effect.* and base potion.* keys."""
     result: dict[str, str] = {}
     for line in content.splitlines():
         line = line.strip()
-        if not line.startswith("effect.") or "=" not in line:
+        if not line.startswith(("effect.", "potion.")) or "=" not in line:
             continue
         key, val = line.split("=", 1)
-        lang_name = key.replace("effect.", "").strip()
+        lang_name = key.partition(".")[2].strip()
+        # Potion item names, durations and potency labels are not effect names.
+        # Turtle Master has two UI labels for its combined effects, not an ID.
+        if "." in lang_name or lang_name in {"empty", "turtleMaster", "turtleMaster2"}:
+            continue
         json_name = EFFECT_LANG_TO_JSON.get(lang_name, lang_name)
         json_name = _canonical_effect_identifier(json_name)
-        if json_name not in result:
+        if re.fullmatch(r"[a-z0-9_]+", json_name) and val.strip() and json_name not in result:
             result[json_name] = val.strip()
     return result
 
@@ -1870,20 +1982,21 @@ def parse_json_enchantments(zf: zipfile.ZipFile) -> list[tuple[str, int]]:
 
 
 def parse_lang_enchantments(content: str) -> dict[str, str]:
-    """Parse enchant.* entries from .lang content (skip .desc, .prefix). Returns JSON_name -> display_name."""
+    """Read Bedrock enchantment.* labels and supported legacy enchant.* keys."""
     result: dict[str, str] = {}
     for line in content.splitlines():
         line = line.strip()
-        if not line.startswith("enchant.") or "=" not in line:
+        if not line.startswith(("enchant.", "enchantment.")) or "=" not in line:
             continue
         key, val = line.split("=", 1)
-        lang_name = key.replace("enchant.", "").strip()
-        # Skip description/prefix entries
-        if ".desc" in lang_name or ".prefix" in lang_name:
+        lang_name = key.partition(".")[2].strip()
+        if lang_name in {"desc", "prefix", "level"}:
             continue
         json_name = ENCH_LANG_TO_JSON.get(lang_name, lang_name)
         json_name = _canonical_enchantment_identifier(json_name)
-        if json_name not in result:
+        # Known dotted name aliases are mapped above; remaining dotted keys
+        # contain levels, descriptions or other UI text, not registry IDs.
+        if re.fullmatch(r"[a-z0-9_]+", json_name) and val.strip() and json_name not in result:
             result[json_name] = val.strip()
     return result
 
@@ -2541,19 +2654,18 @@ def main() -> int:
     wiki_snapshot: dict | None = None
 
     with open_zip(rp_zip) as zf:
+        validate_update_sources(zf, args.only)
         # Extract .lang files to temp
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            for name in zf.namelist():
-                if name.startswith("resource_pack/texts/") and name.endswith(".lang"):
-                    fname = name.replace("\\", "/").split("/")[-1]
-                    dest = tmp_path / fname
-                    with zf.open(name) as src, open(dest, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    if fname == "en_US.lang":
-                        en_lang = dest
-                    elif fname == "de_DE.lang":
-                        de_lang = dest
+            for locale in ("en_US", "de_DE"):
+                dest = tmp_path / f"{locale}.lang"
+                with zf.open(f"resource_pack/texts/{locale}.lang") as src, open(dest, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                if locale == "en_US":
+                    en_lang = dest
+                else:
+                    de_lang = dest
 
             en_content = en_lang.read_text(encoding="utf-8-sig") if en_lang else ""
             de_content = de_lang.read_text(encoding="utf-8-sig") if de_lang else ""
