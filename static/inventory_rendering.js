@@ -259,6 +259,9 @@
             recordAction = () => {},
             setDirty = () => {},
             guardEditingAction = () => false,
+            getSpecialItemModel = () => null,
+            openSpecialEditor = () => {},
+            canOpenSpecialEditor = () => true,
             slotDisplayName = (slotId, containerName) => `${containerName}:${slotId}`,
             itemLabel = item => item?.display_name || item?.name || "",
         } = deps;
@@ -267,6 +270,7 @@
             hotbarGrid = null,
             enderGrid = null,
             gridSearch = null,
+            gridSearchResults = null,
             btnClearSelection = null,
             emptyState = null,
             multiSelectPanel = null,
@@ -608,24 +612,68 @@
             return inventoryRenderer.slotMatchesGridFilter(item, filterLower);
         }
 
+        function renderContainerSearch(matches, incomplete, filterLower) {
+            if (!gridSearchResults) return;
+            const status = gridSearchResults.querySelector('[role="status"]');
+            const list = gridSearchResults.querySelector(".inventory-search-matches");
+            list.replaceChildren();
+            gridSearchResults.hidden = !filterLower;
+            if (!filterLower) { status.textContent = ""; return; }
+            const limit = 100;
+            const notes = [t("Treffer in Behältern: {count}", { count: matches.length })];
+            if (matches.length > limit) notes.push(t("Die ersten {count} Treffer werden angezeigt. Grenze die Suche ein.", { count: limit }));
+            if (incomplete) notes.push(t("Geschützte oder zu umfangreiche Behälter wurden nicht vollständig durchsucht."));
+            status.textContent = notes.join(" ");
+            matches.slice(0, limit).forEach(({ root, slot, container, item, path }) => {
+                const entry = doc.createElement("button");
+                entry.type = "button";
+                entry.className = "inventory-search-match";
+                const label = doc.createElement("strong");
+                label.textContent = `${itemLabel(item)} × ${item.count}`;
+                const location = doc.createElement("span");
+                location.textContent = [slotDisplayName(slot, container), itemLabel(root), ...path.map((child, index) =>
+                    t("Slot {slot}", { slot: child.slot + 1 }) + (index < path.length - 1 ? `: ${itemLabel(child)}` : ""))].join(" → ");
+                entry.append(label, location);
+                entry.disabled = isProtectedKnownSlot(slot, container) || !canOpenSpecialEditor();
+                entry.title = entry.disabled ? t("Bearbeitung ist aktuell gesperrt.") : t("Inhalt im Editor öffnen");
+                entry.addEventListener("click", () => {
+                    if (container === "ender_chest") handleEnderSlotClick(null, slot);
+                    else { applySelectionState({ selectedSlots: [slot], selectedEnderSlot: -1 }); updateSelectionUI(); }
+                    openSpecialEditor(slot, container, null, path.map(child => child.slot));
+                });
+                list.append(entry);
+            });
+        }
+
         function updateGridVisuals() {
             clearDragContext();
             updateUndoButtons();
             getInventoryViewPreferences()?.applyInventoryViewPreferences?.();
             getInventoryViewPreferences()?.applyEnderChestVisibility?.();
             const filterLower = String(getGridFilter() || "").toLowerCase();
+            const model = getSpecialItemModel();
+            const matches = [];
+            let incomplete = false;
+            function matchesFilter(item, slot, container) {
+                if (!filterLower) return true;
+                const found = model?.searchContents(item, child => slotMatchesGridFilter(child, filterLower));
+                found?.hits.forEach(hit => matches.push({ ...hit, root: item, slot, container }));
+                incomplete ||= found?.incomplete || false;
+                return slotMatchesGridFilter(item, filterLower) || Boolean(found?.hits.length);
+            }
             doc.querySelectorAll("[data-slot]").forEach(slotEl => {
                 const slotId = parseInt(slotEl.getAttribute("data-slot"), 10);
                 const item = getInventory()[slotId];
-                slotEl.style.opacity = (!filterLower || slotMatchesGridFilter(item, filterLower)) ? "1" : "0.2";
+                slotEl.style.opacity = matchesFilter(item, slotId, "inventory") ? "1" : "0.2";
                 renderSlots(slotEl, slotId, item);
             });
             doc.querySelectorAll("[data-ender-slot]").forEach(slotEl => {
                 const slotId = parseInt(slotEl.getAttribute("data-ender-slot"), 10);
                 const item = getEnderChestInventory()[slotId];
-                slotEl.style.opacity = (!filterLower || slotMatchesGridFilter(item, filterLower)) ? "1" : "0.2";
+                slotEl.style.opacity = matchesFilter(item, slotId, "ender_chest") ? "1" : "0.2";
                 renderSlots(slotEl, slotId, item);
             });
+            renderContainerSearch(matches, incomplete, filterLower);
             renderPlayerInventorySummary();
         }
 
@@ -732,6 +780,7 @@
             hotbarGrid: doc.querySelector(".hotbar-grid"),
             enderGrid: doc.querySelector(".ender-chest-grid"),
             gridSearch: doc.getElementById("gridSearch"),
+            gridSearchResults: doc.getElementById("gridSearchResults"),
             btnClearSelection: doc.getElementById("btnClearSelection"),
             emptyState: doc.getElementById("emptyState"),
             multiSelectPanel: doc.getElementById("multiSelectPanel"),
@@ -797,6 +846,9 @@
             recordAction: helpers.recordAction,
             setDirty: helpers.setDirty,
             guardEditingAction: helpers.guardEditingAction,
+            getSpecialItemModel: helpers.getSpecialItemModel,
+            openSpecialEditor: helpers.openSpecialEditor,
+            canOpenSpecialEditor: helpers.canOpenSpecialEditor,
             slotDisplayName: renderer.slotDisplayName,
             itemLabel: renderer.itemLabel,
         });

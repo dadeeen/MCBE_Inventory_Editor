@@ -1,4 +1,12 @@
 .special-editor { width: min(920px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--border-color, #3e5058); border-radius: 16px; background: var(--modal-card-bg, #17232c); color: var(--text-primary, #eef5f6); box-shadow: 0 24px 90px #0009; }
+.inventory-search-results[hidden] { display: none !important; }
+.inventory-search-results { margin: 0 0 14px; min-width: 0; }
+.inventory-search-results > p { margin: 0 0 8px; color: var(--text-secondary); font-size: .8rem; }
+.inventory-search-matches { display: grid; gap: 5px; max-height: 220px; overflow-y: auto; }
+.inventory-search-match { display: flex; flex-direction: column; gap: 3px; width: 100%; min-width: 0; padding: 9px 12px; text-align: left; color: var(--text-primary); background: var(--workspace-well-bg, #0c1720); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.inventory-search-match span { color: var(--text-secondary); font-size: .75rem; }
+.inventory-search-match:focus-visible, .inventory-search-match:hover { border-color: var(--primary); outline: 2px solid var(--primary); outline-offset: -2px; }
+.inventory-search-match:disabled { cursor: default; }
 #btnSpecialItem[hidden], #slotContextMenu [hidden], .special-editor [hidden] { display: none !important; }
 #btnSpecialItem { width: 100%; min-height: 44px; }
 .special-editor::backdrop { background: #070e17b8; backdrop-filter: blur(3px); }

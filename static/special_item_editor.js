@@ -88,16 +88,38 @@
             if (result.ok) close();
             else { frames.push(frame); message(result.error); }
         }
-        function close() { frames = []; refreshPreview = () => {}; dialog.close(); returnFocus?.focus?.(); }
+        function close() { frames = []; refreshPreview = () => {}; dialog.close(); }
         function cancel() {
             if (frames.length > 1) { frames.pop(); render(); }
             else close();
         }
         function specialDepth() { return frames.filter(frame => frame.type === "special").length - 1; }
-        function specialFrame(item, done) {
-            if (specialDepth() + 1 >= model.schema.limits.depth) { message(t("Die maximale Verschachtelungstiefe ist erreicht.")); return; }
-            frames.push({ type: "special", item: clone(item), data: model.data(item), done });
-            render();
+        function specialFrame(item, done, renderNow = true) {
+            if (specialDepth() + 1 >= model.schema.limits.depth) { message(t("Die maximale Verschachtelungstiefe ist erreicht.")); return null; }
+            const frame = { type: "special", item: clone(item), data: model.data(item), done };
+            frames.push(frame);
+            if (renderNow) render();
+            return frame;
+        }
+        function childFrame(container, slot, renderNow = true) {
+            const original = container.data.items.find(item => item.slot === slot);
+            const frame = { type: "item", originSlot: slot, item: clone(original || { slot, name: "", count: 1, damage: 0, enchantments: [], lore: [] }), container,
+                done: item => { container.data = model.withChild(container.data, slot, item); } };
+            frames.push(frame);
+            if (renderNow) render();
+            return frame;
+        }
+        function openPath(slots) {
+            // Use the ordinary editor frames, including their isolated drafts
+            // and accept/cancel callbacks, for a direct search-result jump.
+            for (let index = 0; index < slots.length; index++) {
+                const parent = frames.at(-1);
+                if (!model.editable(parent.item) || !["shulker", "bundle"].includes(model.kind(parent.item))
+                    || !parent.data.items.some(item => item.slot === slots[index])) return false;
+                const child = childFrame(parent, slots[index], false);
+                if (index < slots.length - 1 && !specialFrame(child.item, item => { child.item = item; }, false)) return false;
+            }
+            return true;
         }
         function render() {
             const frame = frames.at(-1);
@@ -144,12 +166,7 @@
             slots.forEach(slot => {
                 const original = frame.data.items.find(item => item.slot === slot);
                 const label = original ? `${itemLabel(original)} × ${original.count}` : t("Leerer Slot");
-                const slotButton = button(label, () => {
-                    frames.push({ type: "item", originSlot: slot, item: clone(original || { slot, name: "", count: 1, damage: 0, enchantments: [], lore: [] }), container: frame, done: item => {
-                        frame.data = model.withChild(frame.data, slot, item);
-                    } });
-                    render();
-                });
+                const slotButton = button(label, () => childFrame(frame, slot));
                 slotButton.className = "special-slot";
                 slotButton.setAttribute("aria-label", t("Slot {slot}: {item}", { slot: slot + 1, item: label }));
                 slotButton.replaceChildren(el("span", original ? catalog.getItemEmoji(original.name) : "+"), el("small", label));
@@ -417,13 +434,20 @@
         });
         dialog.querySelectorAll('[data-special="cancel"]').forEach(node => node.addEventListener("click", cancel));
         dialog.addEventListener("cancel", event => { event.preventDefault(); cancel(); });
+        dialog.addEventListener("close", () => { if (!dialog.open) returnFocus?.focus?.(); });
         dialog.addEventListener("keydown", event => { event.stopPropagation(); });
         return {
             refreshPreview() { refreshPreview(); },
-            open(item, nextContext) {
+            open(item, nextContext, slots = [], focusAfterClose = null) {
                 if (!item || !model.kind(item) || !canEdit()) return;
-                context = nextContext; frames = []; returnFocus = doc.activeElement;
-                specialFrame(item, null); dialog.showModal(); body.querySelector("button, input, textarea, select")?.focus();
+                context = nextContext; frames = []; returnFocus = focusAfterClose || doc.activeElement;
+                specialFrame(item, null, false);
+                const found = openPath(slots);
+                if (!found) frames = frames.slice(0, 1);
+                render();
+                if (!found) message(t("Der gesuchte Inhalt wurde inzwischen geändert. Suche erneut."));
+                if (!dialog.open) dialog.showModal();
+                body.querySelector("button, input, textarea, select")?.focus();
             },
         };
     }

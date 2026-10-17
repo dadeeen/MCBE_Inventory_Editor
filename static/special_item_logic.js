@@ -37,6 +37,27 @@
         function editable(item) {
             return Boolean(kind(item)) && item.special_item?.editable !== false && !item.item_tag_opaque;
         }
+        function searchContents(item, matches) {
+            const hits = [];
+            let remaining = schema.limits.nodes;
+            let incomplete = false;
+            function visit(parent, path) {
+                if (!["bundle", "shulker"].includes(kind(parent))) return;
+                if (!editable(parent) || path.length >= schema.limits.depth) { incomplete = true; return; }
+                // Search the current draft without cloning each nested subtree.
+                const value = parent.special_edit?.kind === kind(parent) ? parent.special_edit.data
+                    : parent.special_item?.data;
+                for (const child of value?.items || []) {
+                    if (--remaining < 0) { incomplete = true; return; }
+                    const nextPath = [...path, child];
+                    if (matches(child)) hits.push({ item: child, path: nextPath });
+                    visit(child, nextPath);
+                    if (remaining < 0) return;
+                }
+            }
+            visit(item, []);
+            return { hits, incomplete };
+        }
         function weight(item, depth = 0) {
             if (depth >= schema.limits.depth || kind(item) === "shulker") return null;
             if (kind(item) === "bundle") {
@@ -105,7 +126,7 @@
             else items.splice(index, 1);
             return { ...value, items };
         }
-        return { kind, label, data, editable, weight, contentWeight, validate, apply, cleanChild, withChild, schema };
+        return { kind, label, data, editable, searchContents, weight, contentWeight, validate, apply, cleanChild, withChild, schema };
     }
     window.MCBESpecialItemLogic = { createModel, clone, sameUserFields, changeLabel };
 }());

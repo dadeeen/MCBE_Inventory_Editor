@@ -219,6 +219,50 @@ persistence, not actual singleplayer `~local_player` saves, online authenticatio
 or UI editing flows. A Windows client may require its documented local-loopback
 access; the runner does not change system networking permissions.
 
+## Specialized item editors and manual gameplay checks
+
+The current engine suites cover general item construction, metadata and
+save/reload behavior. They do **not** submit `special_edit` payloads or
+independently check filled shulkers/bundles, book pages, banner patterns or
+firework effects. A passing roundtrip for one of these item IDs does not verify
+its specialized contents. The historical results below do not extend that scope.
+
+`tests/test_special_items.py` checks the production writer's typed NBT,
+preservation, bounds and nested edits with synthetic data. The frontend and
+browser tests check isolated drafts, direct container-search entry, cancel,
+Undo/Redo and editing gates. These checks can run without Minecraft; they cannot
+prove that a client opens or uses the resulting items correctly. Even an engine
+save/reload check alone would not establish those gameplay behaviors.
+
+Use a **separate disposable world** for the following manual checks. Do not
+modify an automated or real-client profile's world during its run: those
+profiles require their exact fixture contents. Record the Bedrock client/server
+version, editor revision and expected changes with the result.
+
+1. In Minecraft, prepare a shulker and a bundle with known item counts, including
+   a named or enchanted item, and keep an untouched comparison item. Include a
+   bundle inside the shulker and an item in the Ender Chest. Save and fully stop
+   Minecraft/the server before opening the world in the editor.
+2. Find a contained item through the inventory search and edit it. Cancel once
+   and confirm that no change or Undo entry remains. Repeat, accept through the
+   containing editors, and check Undo/Redo before saving the intended edit.
+   Record the expected counts, locations and metadata.
+3. Close the editor, start the same world in Minecraft and open each container.
+   Check the nested contents, take items out and put them back, and compare
+   counts, names, enchantments and the untouched control. For the shulker, also
+   place, open and recover it. Check that nothing unexpectedly disappears or
+   duplicates.
+4. Save and fully stop the game/server, reload the world in the editor, then
+   repeat the client inspection after another clean save/reload. The expected
+   contents must survive both game interaction and persistence.
+
+For the other specialized editors, read all changed book pages and check the
+title/author; place and recover a banner to inspect its base color and pattern
+order; launch a separate test copy of an edited firework to inspect its flight
+and effects, and inspect the edited star's color. Keep these observations
+separate from automated pass counts. A missing real client or unperformed step
+must remain an explicit coverage gap.
+
 ## Verified builds
 
 The results below use **BDS 1.26.52.3**, editor runtime **v0.6.2** at source

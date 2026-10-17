@@ -26,6 +26,8 @@ Studio layout with example data, an English interface, and built-in placeholder 
 
 Right-click an item and choose **Edit contents**, or use its visible action in the slot inspector. Shulker boxes have a 27-slot editor; bundles show their capacity and support nested bundles. Contained items use the same item and enchantment rules as the main inventory.
 
+The inventory search also searches inside these containers, including changes already applied to the current player draft. Matches show their container and slot path; choose a match to open that contained item in the existing editor. Search results appear only while a query is entered. The list shows up to 100 matches and tells you when results are limited or some protected contents could not be searched.
+
 Dedicated editors cover book pages, written-book titles and authors, firework rockets and stars, and ordered banner patterns with a textured Vanilla preview, including complex motifs, dye colors and transparent gradients. The preview uses locally cached Minecraft textures; **Load banner patterns** prepares missing assets through the Vanilla icon updater and keeps them available offline. Each dialog keeps a local draft: **Apply** creates one undo step; **Cancel** discards it. Save the player to write the changes to the world. Keyboard users can open the item menu with **Shift+F10** and navigate it with the arrow keys.
 
 Unknown metadata is preserved. Unsupported special-data formats remain read-only. The supported formats, bounds and source references are documented in the [save contract on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md#special-item-edits).

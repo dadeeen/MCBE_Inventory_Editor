@@ -176,7 +176,6 @@
   "Keine ungespeicherten Änderungen.": "No unsaved changes.",
   "Speichern prüfen": "Review save",
   "Inventaransicht steuern": "Control inventory view",
-  "Item in allen Slots suchen...": "Search item in all slots...",
   "Ansicht": "View",
   "Zeigt technische Slotnummern klein im Slot an": "Shows technical slot numbers in the slot",
   "Slotnummern": "Slot numbers",
@@ -3262,5 +3261,12 @@
   "{count} geändert": "{count} changed",
   "{section}: {changes}.": "{section}: {changes}.",
   "Aktualisierung teilweise übernommen": "Update partially applied",
-  "Einige Bereiche konnten nicht aktualisiert werden. Die übernommenen Bereiche sind bereits gespeichert.": "Some sections could not be updated. The applied sections have already been saved."
+  "Einige Bereiche konnten nicht aktualisiert werden. Die übernommenen Bereiche sind bereits gespeichert.": "Some sections could not be updated. The applied sections have already been saved.",
+  "Items suchen, auch in Behältern...": "Search items, including containers...",
+  "Treffer in Behältern: {count}": "Matches inside containers: {count}",
+  "Die ersten {count} Treffer werden angezeigt. Grenze die Suche ein.": "Showing the first {count} matches. Refine your search.",
+  "Geschützte oder zu umfangreiche Behälter wurden nicht vollständig durchsucht.": "Protected or overly complex containers were not fully searched.",
+  "Inhalt im Editor öffnen": "Open contents in the editor",
+  "Der gesuchte Inhalt wurde inzwischen geändert. Suche erneut.": "The contents have changed since the search. Search again.",
+  "Slot {slot}": "Slot {slot}"
 }

@@ -360,6 +360,9 @@ function getInventoryGridController() {
                 recordAction,
                 setDirty,
                 guardEditingAction,
+                getSpecialItemModel: () => specialItemModel,
+                openSpecialEditor,
+                canOpenSpecialEditor: () => !writeGateController.editingBlocked(),
             },
         });
     }
@@ -1150,10 +1153,10 @@ const specialItemEditor = window.MCBESpecialItemEditor.createEditor({
         return { ok: true };
     },
 });
-function openSpecialEditor(slot, container = "inventory", draft = null) {
+function openSpecialEditor(slot, container = "inventory", draft = null, childSlots = []) {
     if (guardEditingAction() || isProtectedKnownSlot(slot, container)) return;
     const source = container === "ender_chest" ? enderChestInventory : inventory;
-    specialItemEditor.open(draft || source[slot], { slot, container, player: currentPlayerKey, world: worldPath, before: JSON.stringify(source[slot] || null) });
+    specialItemEditor.open(draft || source[slot], { slot, container, player: currentPlayerKey, world: worldPath, before: JSON.stringify(source[slot] || null) }, childSlots, childSlots.length ? gridSearch : null);
 }
 
 const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createConfiguredInventoryClipboardController({

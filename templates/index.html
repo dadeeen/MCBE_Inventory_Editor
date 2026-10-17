@@ -344,7 +344,7 @@
                     <div class="inventory-section">
                         <div class="inventory-toolbar" aria-label="{{ t('Inventaransicht steuern') }}">
                             <div class="inventory-search">
-                                <input type="text" id="gridSearch" placeholder="{{ t('Item in allen Slots suchen...') }}" aria-label="{{ t('Item in allen Slots suchen...') }}" />
+                                <input type="text" id="gridSearch" placeholder="{{ t('Items suchen, auch in Behältern...') }}" aria-label="{{ t('Items suchen, auch in Behältern...') }}" aria-controls="gridSearchResults" />
                             </div>
                             <div class="inventory-view-controls" role="group" aria-label="{{ t('Ansicht') }}">
                                 <label class="slot-number-toggle" title="{{ t('Zeigt technische Slotnummern klein im Slot an') }}">
@@ -352,6 +352,10 @@
                                     {{ t("Slotnummern") }}
                                 </label>
                             </div>
+                        </div>
+                        <div id="gridSearchResults" class="inventory-search-results" hidden>
+                            <p role="status" aria-live="polite"></p>
+                            <div class="inventory-search-matches"></div>
                         </div>
                         <!-- Armor and Offhand -->
                         <div class="grid-title equipment-title"><span>{{ t("Ausrüstung & Schildhand") }}</span></div>

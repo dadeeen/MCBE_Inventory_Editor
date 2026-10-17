@@ -4,6 +4,51 @@ from mcbe_editor.special_items import editor_schema
 from tests.node_runner import run_node
 
 
+def test_container_search_uses_current_drafts_paths_and_reports_unsearched_contents():
+    run_node(
+        "const schema = "
+        + json.dumps(editor_schema())
+        + ";\n"
+        + r"""
+        const assert = require('assert');
+        const fs = require('fs');
+        global.window = {};
+        eval(fs.readFileSync('static/special_item_logic.js', 'utf8'));
+        const model = window.MCBESpecialItemLogic.createModel(schema, {});
+        const diamond = {slot:3,name:'minecraft:diamond',count:7};
+        const bundle = {slot:2,name:'minecraft:bundle',count:1,
+            special_item:{kind:'bundle',editable:true,data:{items:[diamond]}}};
+        const root = {name:'minecraft:undyed_shulker_box',count:1,
+            special_item:{kind:'shulker',editable:true,data:{items:[bundle]}}};
+        const before = JSON.stringify(root);
+        const matches = item => item.name.includes('diamond');
+        let found = model.searchContents(root,matches);
+        assert.deepStrictEqual(found.hits.map(hit => hit.path.map(item => item.slot)), [[2,3]]);
+        assert.strictEqual(found.incomplete,false);
+        assert.strictEqual(JSON.stringify(root),before);
+        bundle.special_edit = {kind:'bundle',data:{items:[{...diamond,slot:9,count:2}]}};
+        found = model.searchContents(root,matches);
+        assert.deepStrictEqual(found.hits.map(hit => hit.path.map(item => item.slot)), [[2,9]]);
+        assert.strictEqual(found.hits[0].item.count,2);
+        bundle.special_edit.data.items = [];
+        assert.strictEqual(model.searchContents(root,matches).hits.length,0);
+        root.special_item.data.items.push({name:'minecraft:bundle',slot:5,
+            special_item:{kind:'bundle',editable:false,reason:'opaque'}});
+        assert.strictEqual(model.searchContents(root,matches).incomplete,true);
+        // The bounded walk stops even for an accidentally cyclic browser draft.
+        bundle.special_edit.data.items = [bundle];
+        assert.strictEqual(model.searchContents(root,matches).incomplete,true);
+        const dense = {name:'minecraft:bundle',special_edit:{kind:'bundle',data:{items:
+            Array.from({length:schema.limits.nodes+1},(_,slot)=>({...diamond,slot}))}}};
+        found = model.searchContents(dense,matches);
+        assert.strictEqual(found.hits.length,schema.limits.nodes);
+        assert.strictEqual(found.incomplete,true);
+        const exact = {...dense,special_edit:{kind:'bundle',data:{items:dense.special_edit.data.items.slice(1)}}};
+        assert.strictEqual(model.searchContents(exact,matches).incomplete,false);
+        """
+    )
+
+
 def test_special_item_drafts_weights_noops_and_origin_boundaries():
     run_node(
         "const schema = "
