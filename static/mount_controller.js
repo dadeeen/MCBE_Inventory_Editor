@@ -25,6 +25,7 @@
         onPendingChanged = () => {},
         onReviewRequested = () => {},
         pushUndo = () => {},
+        recordAction = () => {},
         guardEditingAction = () => false,
         syncEditControls = () => {},
         confirmUncheckedCreate = message => window.confirm(message),
@@ -520,7 +521,8 @@
             if (chosenCandidate?.id) rememberSelectedCandidate(chosenCandidate.id);
             const preferredOffset = selectedPreferredOffsetFromDom();
             const selectedPosition = { ...(lastPreview.selected_position || {}) };
-            pushUndo(t("{label} vormerken", { label: mountLabel }));
+            const actionMessage = t("{label} als ungespeicherte Änderung vorgemerkt.", { label: mountLabel });
+            pushUndo(actionMessage);
             pendingMounts.push({
                 id: `mount-${Date.now()}-${Math.random().toString(16).slice(2)}`,
                 worldPath: getWorldPath(),
@@ -539,6 +541,7 @@
                 serverGuardEpoch: lastPreview.server_guard_epoch,
             });
             onPendingChanged(getPendingMounts());
+            recordAction(actionMessage, "edit");
             const status = allowUncheckedPlacement ? "warning" : "info";
             renderIdle();
             showToast(t("{label} als ungespeicherte Änderung vorgemerkt.", { label: mountLabel }), status);
@@ -553,9 +556,11 @@
             const before = pendingMounts.length;
             const next = pendingMounts.filter(mount => mount.id !== id);
             if (next.length === before) return;
-            pushUndo(t("Vorgemerkten Mount entfernen"));
+            const actionMessage = t("Vorgemerkten Mount entfernt.");
+            pushUndo(actionMessage);
             pendingMounts = next;
             onPendingChanged(getPendingMounts());
+            recordAction(actionMessage, "edit");
             renderIdle(t("Vorgemerkten Mount entfernt."), "info");
         }
 
@@ -567,9 +572,11 @@
 
         function clearPendingMounts({ renderPanel = true, recordUndo = false } = {}) {
             if (!pendingMounts.length) return;
-            if (recordUndo) pushUndo(t("Alle vorgemerkten Mounts verwerfen"));
+            const actionMessage = t("Vorgemerkte Mounts verworfen.");
+            if (recordUndo) pushUndo(actionMessage);
             pendingMounts = [];
             onPendingChanged([]);
+            if (recordUndo) recordAction(actionMessage, "edit");
             if (renderPanel) renderIdle(t("Vorgemerkte Mounts verworfen."), "info");
         }
 

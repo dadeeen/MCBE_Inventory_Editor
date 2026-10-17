@@ -100,7 +100,8 @@
                     kind,
                     container: containerName,
                     slot,
-                    label: `${slotDisplayName(slot, containerName)}: ${itemDisplayName(before)} → ${itemDisplayName(after)}`,
+                    label: `${slotDisplayName(slot, containerName)}: ${itemDisplayName(before)} → ${itemDisplayName(after)}`
+                        + (window.MCBESpecialItemLogic?.changeLabel(before, after) ? ` · ${window.MCBESpecialItemLogic.changeLabel(before, after)}` : ""),
                 });
             });
             return changes;

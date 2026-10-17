@@ -18,6 +18,7 @@ def test_frontend_write_status_view_models_and_badge_applier() -> None:
             assert.ok(view.EDIT_CONTROL_SELECTOR.includes("#btnUndo"));
             assert.ok(view.EDIT_CONTROL_SELECTOR.includes("#btnRedo"));
             assert.ok(view.EDIT_CONTROL_SELECTOR.includes("#btnMountCreate"));
+            assert.ok(view.EDIT_CONTROL_SELECTOR.includes("#btnSpecialItem"));
             assert.strictEqual(
                 JSON.stringify(view.writeControlModel({ isDirty: true, blocked: false })),
                 JSON.stringify({

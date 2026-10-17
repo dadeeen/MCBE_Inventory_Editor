@@ -82,6 +82,39 @@ all comparison outputs under ignored `data/`; do not commit or distribute them.
 Public regression fixtures use synthetic textures and minimal synthetic pack
 metadata, with no worlds, player NBT, or copied Minecraft images.
 
+## Banner preview rendering
+
+`mcbe_editor/banner_patterns.py` binds the 42 editable Bedrock pattern codes to
+the official `textures/entity/banner/banner_*` textures. The Vanilla updater
+extracts the 20×40 front face at UV (1, 1) from each 64×64 atlas, including the
+base cloth. Integer HD scales preserve the same region; unsupported layouts
+abort staging and retain the previous cache. RGB shading and fractional alpha
+are preserved. TGA takes priority over PNG when both exist, independent of ZIP
+member order, following [Bedrock texture reference resolution](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/texturesetsreference/texturesetsconcepts/texturesetsintroduction).
+
+The generated `textures/display/banner_<code>.png` files use the existing atomic
+cache publication and guarded image route. Icon responses expose only the
+allowlisted banner faces through `banner_patterns`, including the shared context
+in each image URL. Raw entity display assets remain internal. Existing caches
+remain readable; the dialog's **Load banner patterns** action uses the Vanilla
+icon updater when the required faces are absent. Viewing a prepared preview
+requires no network access or new cache writes.
+
+`static/banner_preview.js` multiplies texture RGB by each Bedrock dye color and
+composites the layers in NBT order with their original alpha. The 1:2 preview
+uses nearest-neighbor scaling. Only a complete result is published to the UI;
+missing or unreadable images display a retry/download state and retain edits.
+Request generations discard stale compositions after changes or navigation.
+Images are cached with a fixed bound; failed loads can be retried.
+
+The preview represents the Vanilla banner cloth, without game lighting, cloth
+animation, or custom resource-pack entity materials. Minecraft artwork is
+downloaded locally and is not part of the application or public test fixtures.
+Synthetic regression tests cover all bindings, cropping, TGA precedence, alpha,
+color, layer order, cache contexts, loading failures and responsive interaction.
+Texture layout reference: [Mojang/bedrock-samples](https://github.com/Mojang/bedrock-samples/tree/main/resource_pack/textures/entity/banner);
+NBT codes: [PocketMine-MP's Bedrock mapping](https://github.com/pmmp/PocketMine-MP/blob/stable/src/data/bedrock/BannerPatternTypeIdMap.php).
+
 ## Additional icon sources
 
 `mcbe_editor/resource_packs.py` reads `world_resource_packs.json` and

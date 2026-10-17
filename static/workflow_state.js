@@ -372,12 +372,13 @@
                 return;
             }
             const isEditableTarget = isEditableTextTarget(event.target);
-            if ((event.ctrlKey || event.metaKey) && event.key === "z" && !event.shiftKey && !isEditableTarget) {
+            const key = event.key.toLowerCase();
+            if ((event.ctrlKey || event.metaKey) && key === "z" && !event.shiftKey && !isEditableTarget) {
                 event.preventDefault();
                 undo();
                 return;
             }
-            if ((event.ctrlKey || event.metaKey) && (event.key === "y" || (event.key === "z" && event.shiftKey)) && !isEditableTarget) {
+            if ((event.ctrlKey || event.metaKey) && (key === "y" || (key === "z" && event.shiftKey)) && !isEditableTarget) {
                 event.preventDefault();
                 redo();
                 return;

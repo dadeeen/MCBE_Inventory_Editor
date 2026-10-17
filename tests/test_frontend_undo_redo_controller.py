@@ -183,7 +183,7 @@ def test_frontend_undo_redo_app_respects_editing_block() -> None:
             vm.runInNewContext(fs.readFileSync("static/undo_redo_view.js", "utf8"), context);
             let blocked = true;
             const button = () => ({dataset: {}, setAttribute(key, value) { this[key] = value; }});
-            const buttons = { undo: button(), redo: button() };
+            const buttons = { undo: button(), redo: button(), historyUndo: button(), historyRedo: button() };
             const snapshot = () => JSON.parse(JSON.stringify(current));
             const controller = context.window.MCBEUndoRedoController.createUndoRedoAppController({
                 buttons,
@@ -203,6 +203,7 @@ def test_frontend_undo_redo_app_respects_editing_block() -> None:
             current.inv = { 0: { name: "minecraft:stone" } };
             controller.updateUndoButtons();
             assert.strictEqual(buttons.undo.disabled, true);
+            assert.strictEqual(buttons.historyUndo.disabled, true);
             assert.strictEqual(buttons.undo.title, "Nur ansehen");
             assert.strictEqual(controller.undo(), false);
             assert.strictEqual(current.inv[0].name, "minecraft:stone");
@@ -210,6 +211,7 @@ def test_frontend_undo_redo_app_respects_editing_block() -> None:
                 blocked = false;
                 controller.updateUndoButtons();
                 assert.strictEqual(buttons.undo.disabled, false);
+                assert.strictEqual(buttons.historyUndo.disabled, false);
                 controller.undo();
                 assert.strictEqual(JSON.stringify(current.inv), "{}");
             """

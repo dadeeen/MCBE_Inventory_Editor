@@ -139,12 +139,15 @@
 
         function sessionId() {
             try {
-                let id = win.sessionStorage.getItem(sessionKey);
+                // A new tab can inherit sessionStorage from its opener. Each
+                // loaded page needs its own presence identity nonetheless.
+                let id = cachedSessionId;
                 if (!id) {
                     const randomPart = (win.crypto && win.crypto.getRandomValues)
                         ? Array.from(win.crypto.getRandomValues(new Uint32Array(4))).map(n => n.toString(36)).join("")
                         : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
                     id = `web-${randomPart}`;
+                    cachedSessionId = id;
                     win.sessionStorage.setItem(sessionKey, id);
                 }
                 return id;
@@ -222,6 +225,7 @@
             playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext());
             renderPlayerChanged();
             const worldPath = getWorldPath?.() || "";
+            const playerKey = getCurrentPlayerKey?.() || "";
             if (!worldPath) {
                 render(null);
                 return null;
@@ -236,15 +240,17 @@
                     body: JSON.stringify({
                         session_id: sessionId(),
                         world_path: worldPath,
-                        player_key: getCurrentPlayerKey?.() || "",
+                        player_key: playerKey,
                         player_label: getCurrentPlayerLabel?.() || t("Spieler"),
                         dirty: getIsDirty?.() === true,
                         ...watchFields,
                     }),
                 });
                 const data = await parseJsonResponse(res);
-                // Polls overlap; one that answers late must not undo a newer answer.
-                if (request < appliedRequest) return null;
+                // A delayed poll belongs to its original world/player selection.
+                // It must not render that selection's conflicts in another one.
+                if (request < appliedRequest || worldPath !== (getWorldPath?.() || "")
+                    || playerKey !== (getCurrentPlayerKey?.() || "")) return null;
                 if (data.success) {
                     appliedRequest = request;
                     leaveSent = false;

@@ -166,6 +166,7 @@
     "use strict";
 
     const logic = window.MCBEEffectsLogic || {};
+    const t = window.t || ((text, params) => String(text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m)));
 
 
     function createStatsFormController({
@@ -541,10 +542,14 @@
 
         function applyLiveEffectRowChange({ index, row, model, captureLiveEffectUndo }) {
             if (isEditingBlocked() || model.isProtectedEffect) return false;
-            captureLiveEffectUndo();
-            syncEffectRow(index, row);
+            const effect = playerEffects()[index];
+            const patch = effectsView.effectPatchFromRowValues(effectsView.readEffectRowValues(row), effect);
+            if (Object.entries(patch).every(([key, value]) => effect[key] === value)) return false;
+            const actionMessage = captureLiveEffectUndo();
+            Object.assign(effect, patch);
             setEffectsTouched?.(true);
             setDirty?.(true);
+            if (actionMessage) recordAction?.(actionMessage, "edit");
             return true;
         }
 
@@ -583,8 +588,10 @@
                         // Group typing only within this focused control. Checkbox
                         // changes are discrete actions, including repeated clicks.
                         if (liveUndoInput !== input || eventName === "change") {
-                            pushUndo?.();
+                            const actionMessage = t("Effekt {name} bearbeitet", { name: model.nameDe });
+                            pushUndo?.(actionMessage);
                             liveUndoInput = input;
+                            return actionMessage;
                         }
                     };
                     input?.addEventListener("blur", () => {
@@ -605,11 +612,13 @@
                         showToast?.(decision.message, "warning", decision.toastMs);
                         return;
                     }
-                    pushUndo?.();
+                    const actionMessage = t("Effekt {name} entfernt", { name: model.nameDe });
+                    pushUndo?.(actionMessage);
                     playerEffects().splice(index, 1);
                     setEffectsTouched?.(true);
                     renderEffectsList();
                     setDirty?.(true);
+                    recordAction?.(actionMessage, "edit");
                 });
 
                 container.appendChild(row);
@@ -620,10 +629,12 @@
             if (isEditingBlocked()) return false;
             const collected = collectAbilitiesFromUI();
             if (collected === null) return false;
-            captureLiveAbilityUndo();
+            if (JSON.stringify(collected) === JSON.stringify(getPlayerAbilities?.() || {})) return false;
+            const actionMessage = captureLiveAbilityUndo();
             setPlayerAbilities?.(collected);
             setAbilitiesTouched?.(true);
             setDirty?.(true);
+            if (actionMessage) recordAction?.(actionMessage, "edit");
             return true;
         }
 
@@ -647,12 +658,14 @@
                     return;
                 }
 
-                pushUndo?.();
+                const actionMessage = t("Spieler-Statistiken und Standort aktualisiert");
+                pushUndo?.(actionMessage);
                 setPlayerStats?.(result.nextStats);
                 getTouchedStatsFields?.()?.clear?.();
                 onStatsApplied();
 
                 setDirty?.(true);
+                recordAction?.(actionMessage, "edit");
                 logStatus?.(t("Spieler-Statistiken aktualisiert (Speichern zum Bestätigen)"), "info");
 
                 doc.querySelectorAll("#dashStats input, #dashStats select").forEach(el => {
@@ -703,7 +716,7 @@
                 Object.assign(decision.effect, effectsView.effectPatchFromRowValues({
                     levelValue: level.value, durationSecondsValue: duration.value, showParticles: true,
                 }));
-                pushUndo?.();
+                pushUndo?.(decision.recordLabel);
                 setEffectsTouched?.(true);
                 playerEffects().push(decision.effect);
                 dialog?.close();
@@ -726,7 +739,8 @@
                     showToast?.(t("Die Geschwindigkeiten entsprechen bereits den Vanilla-Standardwerten."), "info", 2200);
                     return;
                 }
-                pushUndo?.();
+                const actionMessage = t("Bewegungsgeschwindigkeiten zurückgesetzt");
+                pushUndo?.(actionMessage);
                 inputs.forEach(([input, value]) => { input.value = String(value); });
                 const collected = collectAbilitiesFromUI();
                 if (collected === null) return;
@@ -734,7 +748,7 @@
                 setAbilitiesTouched?.(true);
                 setDirty?.(true);
                 showToast?.(t("Bewegungsgeschwindigkeiten auf Vanilla-Standardwerte zurückgesetzt."));
-                recordAction?.(t("Bewegungsgeschwindigkeiten zurückgesetzt"), "edit");
+                recordAction?.(actionMessage, "edit");
             });
         }
 
@@ -758,7 +772,8 @@
                     showToast?.(t("Keine Änderung erkannt."), "warning", 2500);
                     return;
                 }
-                pushUndo?.();
+                const actionMessage = t("Effekte & Fähigkeiten aktualisiert");
+                pushUndo?.(actionMessage);
                 if (outcome.syncEffects) {
                     syncEffectsFromUI();
                     setEffectsTouched?.(true);
@@ -769,7 +784,7 @@
                 }
                 setDirty?.(true);
                 logStatus?.(t("Effekte & Fähigkeiten aktualisiert (Speichern zum Bestätigen)"), "info");
-                recordAction?.(t("Effekte & Fähigkeiten aktualisiert"), "edit");
+                recordAction?.(actionMessage, "edit");
             });
         }
 
@@ -785,9 +800,12 @@
         function wireLiveAbilityInputs() {
             doc.querySelectorAll("#dashEffects .abilities-section input").forEach(input => {
                 const captureLiveAbilityUndo = () => {
-                    if (input.dataset.undoCaptured !== "1") {
-                        pushUndo?.();
+                    if (input.type === "checkbox" || input.dataset.undoCaptured !== "1") {
+                        const label = input.labels?.[0]?.textContent?.trim() || input.ariaLabel || t("Fähigkeiten");
+                        const actionMessage = t("{name} bearbeitet", { name: label });
+                        pushUndo?.(actionMessage);
                         input.dataset.undoCaptured = "1";
+                        return actionMessage;
                     }
                 };
                 input.addEventListener("focus", () => {

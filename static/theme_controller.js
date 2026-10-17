@@ -26,6 +26,7 @@
             storageKey,
             documentElement,
             themeSelect,
+            systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: light)"),
         } = deps;
         let currentTheme = normalizeTheme(readStoredTheme(storage, storageKey));
 
@@ -43,10 +44,22 @@
             } catch (_e) {}
         }
 
+        function applyResolvedTheme() {
+            const root = getDocumentElement();
+            if (root?.dataset) {
+                root.dataset.theme = currentTheme === "system"
+                    ? (systemThemeQuery?.matches ? "light" : "dark")
+                    : currentTheme;
+            }
+        }
+
+        systemThemeQuery?.addEventListener?.("change", () => {
+            if (currentTheme === "system") applyResolvedTheme();
+        });
+
         function applyTheme(theme) {
             currentTheme = normalizeTheme(theme);
-            const root = getDocumentElement();
-            if (root?.dataset) root.dataset.theme = currentTheme;
+            applyResolvedTheme();
             const select = getThemeSelect();
             if (select) select.value = currentTheme;
             persistTheme(currentTheme);

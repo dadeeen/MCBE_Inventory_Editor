@@ -44,7 +44,6 @@ PASSABLE_PLACEMENT_SPACE_BLOCKS = frozenset(
         "minecraft:oxeye_daisy",
         "minecraft:cornflower",
         "minecraft:lily_of_the_valley",
-        "minecraft:wither_rose",
         "minecraft:torchflower",
         "minecraft:seagrass",
         "minecraft:tall_seagrass",

@@ -505,8 +505,21 @@ def test_frontend_slot_detail_logic_preserves_unchanged_values_outside_local_lim
                 maxDisplayName: 512,
             });
 
-            assert.strictEqual(changed.item.damage, 1561);
-            assert.strictEqual(changed.item.display_name.length, 512);
+            assert.strictEqual(changed.ok, false);
+            assert.match(changed.error, /Anzeigename/);
+            const validChange = logic.buildDetailItemFromForm({
+                slotId: 3,
+                previousItem,
+                rawName: previousItem.name,
+                rawCount: "1",
+                rawDamage: "8888",
+                rawCustomName: "Neuer Name",
+                maxStack: 1,
+                maxDamage: 1561,
+                maxDisplayName: 512,
+            });
+            assert.strictEqual(validChange.item.damage, 1561);
+            assert.strictEqual(validChange.item.display_name, "Neuer Name");
             """
         )
     )

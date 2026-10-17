@@ -434,7 +434,8 @@ def test_frontend_item_browser_logic_element_helpers_build_expected_rows() -> No
                 names: ["Diamant & Test"],
                 iconUrl: 'textures/<bad>.png?x="y"',
             }, doc);
-            assert.strictEqual(card.tagName, "div");
+            assert.strictEqual(card.tagName, "button");
+            assert.strictEqual(card.type, "button");
             assert.strictEqual(card.className, "browser-item");
             assert.ok(card.innerHTML.includes("browser-item-icon"));
             assert.ok(card.innerHTML.includes("Diamant &amp; Test"));

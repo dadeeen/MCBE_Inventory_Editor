@@ -59,7 +59,7 @@ def test_frontend_undo_redo_view_panel_html_escapes_labels() -> None:
             vm.runInNewContext(code, context, { filename: "static/undo_redo_view.js" });
 
             const view = context.window.MCBEUndoRedoView;
-            assert.ok(view.undoRedoPanelHtml({}).includes("Noch kein Undo/Redo-Stapel vorhanden."));
+            assert.ok(view.undoRedoPanelHtml({}).includes("Noch keine Bearbeitung zum Rückgängigmachen."));
 
             const html = view.undoRedoPanelHtml({
                 undoLabels: ["Slot <A>"],
@@ -67,10 +67,17 @@ def test_frontend_undo_redo_view_panel_html_escapes_labels() -> None:
                 undoCount: 1,
                 redoCount: 1,
             });
-            assert.ok(html.includes("Rückgängig möglich (1)"));
+            assert.ok(html.includes("Als Nächstes rückgängig:"));
             assert.ok(html.includes("Slot &lt;A&gt;"));
             assert.ok(html.includes("Redo &amp; Test"));
             assert.ok(!html.includes("Slot <A>"));
+            const status = { textContent: "", dataset: {} };
+            view.applyHistorySaveState(status, {});
+            assert.strictEqual(status.dataset.state, "empty");
+            view.applyHistorySaveState(status, {hasPlayer: true, isDirty: true});
+            assert.strictEqual(status.dataset.state, "dirty");
+            view.applyHistorySaveState(status, {hasPlayer: true, isDirty: false});
+            assert.strictEqual(status.dataset.state, "clean");
             """
         )
     )

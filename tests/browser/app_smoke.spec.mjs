@@ -1,6 +1,748 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 
+async function openSpecialFixture(page, inventory, overrides = {}) {
+  await page.route("**/api/server_status", route => route.fulfill({ json: { success: true, status: "offline", write_gate: { allowed: true, read_allowed: true } } }));
+  await page.route("**/api/item-db/status", route => route.fulfill({ json: { item_db: { status: "ok", verification: { verified: true }, counts: { items: 8 } } } }));
+  await page.route("**/api/icons/status*", route => route.fulfill({ json: { success: true, icons: {}, banner_patterns: {}, count: 0, sources: [], warnings: [] } }));
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  const ids = ["bundle", "undyed_shulker_box", "diamond", "diamond_sword", "writable_book", "written_book", "firework_rocket", "firework_star", "banner"];
+  await openDragFixture(page, {
+    inventory,
+    items_db: Object.fromEntries(ids.map(id => [`minecraft:${id}`, [id, id]])),
+    addable_items: ids.map(id => `minecraft:${id}`),
+    stack_limits: { __default__: 64, "minecraft:bundle": 1, "minecraft:undyed_shulker_box": 1, "minecraft:diamond": 64, "minecraft:diamond_sword": 1, "minecraft:writable_book": 1, "minecraft:written_book": 16, "minecraft:firework_rocket": 64, "minecraft:firework_star": 64, "minecraft:banner": 16 },
+    ...overrides,
+  });
+}
+
+test("special contained data values validate registered variants and preserve unknown originals", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [
+      { slot: 0, source_index: 0, name: "minecraft:banner", count: 1, damage: 16 },
+      { slot: 1, source_index: 1, name: "minecraft:banner", count: 1, damage: 0 },
+      { slot: 2, source_index: 2, name: "minecraft:empty_map", count: 1, damage: 0 },
+    ] } } } }, { max_damage: { __default__: 32767 } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("2");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  for (const [slot, invalid, valid] of [[2, "16", "15"], [3, "1", "2"]]) {
+    await dialog.getByRole("button", { name: new RegExp(`Slot ${slot}:`) }).click();
+    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill(invalid);
+    await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Datenwert");
+    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill(valid);
+    await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  }
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items.map(({ count, damage }) => ({ count, damage })))).toEqual([
+    { count: 2, damage: 16 }, { count: 1, damage: 15 }, { count: 1, damage: 2 },
+  ]);
+});
+
+test("special contained text preserves untouched raw strings and rejects silent truncation", async ({ page }) => {
+  const original = { slot: 0, source_index: 0, name: "minecraft:diamond", count: 1, damage: 0,
+    display_name: "Erste\nZweite", lore: ["Erste\r\nZweite", "Dritte\rVierte", "x".repeat(513)] };
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [original,
+      { slot: 1, source_index: 1, name: "minecraft:diamond", count: 1, damage: 0, display_name: "x".repeat(513) },
+    ] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("2");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ ...original, count: 2 });
+  await page.locator("#btnSpecialItem").click();
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  const lore = dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true });
+  for (const text of [Array(51).fill("Zeile").join("\n"), "x".repeat(511) + "🦜"]) {
+    await lore.fill(text);
+    await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Beschreibung");
+    await expect(lore).toHaveValue(text);
+  }
+  await page.keyboard.press("Escape");
+  await dialog.getByRole("button", { name: /Slot 2:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:writable_book");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Anzeigename");
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
+  await dialog.getByLabel("Menge", { exact: true }).fill("2");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[1])).toMatchObject({ count: 2, display_name: "x".repeat(513) });
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0].lore)).toEqual(original.lore);
+});
+
+test("special bundles inside a shulker enforce their absolute nesting depth", async ({ page }) => {
+  let nested = { slot: 0, source_index: 0, name: "minecraft:bundle", count: 1, damage: 0,
+    special_item: { kind: "bundle", editable: true, data: { items: [] } } };
+  for (let depth = 1; depth < 7; depth++) nested = { ...nested,
+    special_item: { kind: "bundle", editable: true, data: { items: [nested] } } };
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [nested] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  for (let depth = 0; depth < 7; depth++) {
+    await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+    await dialog.getByRole("button", { name: "Inhalte bearbeiten", exact: true }).click();
+  }
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Verschachtelungstiefe");
+  await expect(dialog.getByLabel("Item-ID", { exact: true })).toHaveValue("minecraft:diamond");
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
+test("special editor text remains readable in the light theme", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [
+      { slot: 0, source_index: 0, name: "minecraft:diamond", count: 9, damage: 0 },
+    ] } } } });
+  await selectSetting(page, "themeSelect", "light");
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const samples = await dialog.evaluate(element => [element, ...element.querySelectorAll(".special-slot, .special-slot-count")].map(node => ({
+    color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor,
+  })));
+  for (const sample of samples) expect(contrastRatio(sample.color, sample.background)).toBeGreaterThanOrEqual(4.5);
+  const slot = dialog.getByRole("button", { name: /Slot 1:/ });
+  await slot.hover();
+  const hover = await slot.evaluate(node => ({ color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor }));
+  expect(contrastRatio(hover.color, hover.background)).toBeGreaterThanOrEqual(4.5);
+  await slot.click();
+  const fields = await dialog.locator(".special-fields input, .special-fields textarea, .special-fields select").evaluateAll(nodes => nodes.map(node => ({
+    color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor,
+  })));
+  for (const field of fields) expect(contrastRatio(field.color, field.background)).toBeGreaterThanOrEqual(4.5);
+  if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/special-light.png`, animations: "disabled" });
+});
+
+test("keyboard item menu restores grid focus after copy clear paste and cut", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:diamond", count: 9, damage: 0 } });
+  const slot = page.locator('.inventory-slot[data-slot="0"]');
+  const next = page.locator('.inventory-slot[data-slot="1"]');
+  await slot.focus();
+  for (const [action, keys, present] of [["copy", ["Home"], true], ["clear", ["End"], false], ["paste", ["Home", "ArrowDown"], true], ["cut", ["End", "ArrowUp"], false]]) {
+    await page.keyboard.press("Shift+F10");
+    for (const key of keys) await page.keyboard.press(key);
+    await expect(page.locator(`#slotContextMenu [data-action="${action}"]`)).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(slot).toBeFocused();
+    expect(await page.evaluate(() => inventory[0]?.count)).toBe(present ? 9 : undefined);
+    await page.keyboard.press("ArrowRight");
+    await expect(next).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(slot).toBeFocused();
+  }
+});
+
+test("special nested editor cancellation preserves the parent item draft", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0, display_name: "Meine sehr ausführlich beschriftete Shulkerkiste ".repeat(10) } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await page.setViewportSize({ width: 320, height: 568 });
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:written_book");
+  await dialog.getByLabel("Menge", { exact: true }).fill("3");
+  await dialog.getByLabel("Zielslot", { exact: true }).selectOption({ value: "5" });
+  await dialog.getByLabel("Anzeigename", { exact: true }).fill("Mein Entwurf");
+  await dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true }).fill("Unveröffentlicht");
+  await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
+  await dialog.getByLabel("Titel", { exact: true }).fill("Verwerfen");
+  await page.keyboard.press("Escape");
+  await expect(dialog.getByLabel("Item-ID", { exact: true })).toHaveValue("minecraft:written_book");
+  await expect(dialog.getByLabel("Menge", { exact: true })).toHaveValue("3");
+  await expect(dialog.getByLabel("Zielslot", { exact: true })).toHaveValue("5");
+  await expect(dialog.getByLabel("Anzeigename", { exact: true })).toHaveValue("Mein Entwurf");
+  await expect(dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true })).toHaveValue("Unveröffentlicht");
+  await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
+  await expect(dialog.getByLabel("Titel", { exact: true })).toHaveValue("");
+  await page.keyboard.press("Escape");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ slot: 5, name: "minecraft:written_book", count: 3, display_name: "Mein Entwurf", lore: ["Unveröffentlicht"] });
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  expect(errors).toEqual([]);
+});
+
+test("special contained enchantments retain levels and enforce the catalog bounds", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [{ slot: 0, source_index: 0, name: "minecraft:diamond_sword", count: 1, damage: 0, enchantments: [{ id: 9, lvl: 2 }] }] } } } }, {
+    ench_db: { 9: { name_de: "Schärfe", name_en: "Sharpness", max_lvl: 5 }, 17: { name_de: "Haltbarkeit", name_en: "Unbreaking", max_lvl: 3 } },
+    enchantment_compatibility: { item_slots: { "minecraft:diamond_sword": ["sword"] }, compatible_slots: { 9: ["sword"], 17: ["sword"] } },
+  });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  const levels = dialog.getByLabel("Stufe", { exact: true });
+  await expect(levels.first()).toHaveValue("2");
+  await levels.first().fill("6");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Verzauberungsstufe");
+  for (const [name, width, height] of [["desktop", 1440, 1000], ["mobile", 390, 844], ["narrow", 320, 568]]) {
+    await page.setViewportSize({ width, height });
+    await levels.first().scrollIntoViewIfNeeded();
+    expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const header = await dialog.locator("header").evaluate(el => ({ top: el.getBoundingClientRect().top, closeTop: el.querySelector("button").getBoundingClientRect().top }));
+    expect(header.closeTop - header.top).toBeLessThan(30);
+    if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/enchantments-${name}.png`, animations: "disabled" });
+  }
+  await levels.first().fill("5");
+  await dialog.getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("17");
+  await expect(levels.nth(1)).toHaveValue("1");
+  await levels.nth(1).fill("3");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0].enchantments)).toEqual([{ id: 9, lvl: 5 }, { id: 17, lvl: 3 }]);
+  expect(errors).toEqual([]);
+});
+
+test("special unchanged child editing preserves unsorted original container contents", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [
+      { slot: 20, source_index: 0, name: "minecraft:diamond", count: 1, damage: 0 },
+      { slot: 1, source_index: 1, name: "minecraft:diamond", count: 2, damage: 0 },
+    ] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: /Slot 21:/ }).click();
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
+test("special contained type changes detach the original before returning to the old type", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [
+      { slot: 0, source_index: 0, name: "minecraft:writable_book", count: 1, damage: 0,
+        special_item: { kind: "book", editable: true, data: { pages: [{ source_index: 0, text: "Original" }] } } },
+    ] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:writable_book");
+  await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
+  await expect(dialog).toContainText("0 / 50 Seiten");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  const child = await page.evaluate(() => inventory[0].special_edit.data.items[0]);
+  expect(child.name).toBe("minecraft:writable_book");
+  expect(child).not.toHaveProperty("source_index");
+  expect(child).not.toHaveProperty("special_item");
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_item.data.items[0].special_item.data.pages[0].text)).toBe("Original");
+});
+
+for (const clearFirst of [false, true]) {
+  test(`special root replacement starts a fresh item after ${clearFirst ? "clearing" : "type changes"}`, async ({ page }) => {
+    await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:writable_book", count: 1, damage: 0,
+      source_item_digest: "a".repeat(64), special_item: { kind: "book", editable: true, data: { pages: [{ source_index: 0, text: "Original" }] } } } });
+    await page.locator('.inventory-slot[data-slot="0"]').click();
+    if (clearFirst) await page.locator("#btnQuickClearSlot").click();
+    else {
+      await page.locator("#detailItemSearch").fill("minecraft:diamond");
+      await page.locator("#btnApplySingle").click();
+    }
+    await page.locator("#detailItemSearch").fill("minecraft:writable_book");
+    await page.locator("#btnSpecialItem").click();
+    const dialog = page.locator("#specialItemDialog");
+    await expect(dialog).toContainText("0 / 50 Seiten");
+    await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+    const replacement = await page.evaluate(() => inventory[0]);
+    expect(replacement.replace_original_nbt).toBe(true);
+    expect(replacement).not.toHaveProperty("source_item_digest");
+    expect(replacement).not.toHaveProperty("special_item");
+  });
+}
+
+for (const width of [1440, 390]) {
+  test(`special successive saves use authoritative page origins and fresh metadata (${width}px)`, async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    await page.setViewportSize({ width, height: 900 });
+    const original = { slot: 0, name: "minecraft:writable_book", count: 1, damage: 0,
+      special_item: { kind: "book", editable: true, data: { pages: [{ source_index: 0, text: "Erste" }, { source_index: 1, text: "Zweite" }] } } };
+    await openSpecialFixture(page, { 0: original });
+    await page.route("**/api/backups", route => route.fulfill({ json: { success: true, backups: [] } }));
+    const requests = [];
+    let saved = original;
+    await page.route("**/api/player/save", route => {
+      const payload = route.request().postDataJSON();
+      requests.push(payload);
+      const draft = payload.inventory[0];
+      saved = { ...saved, ...draft, source_item_digest: "b".repeat(64), has_preserved_nbt: true,
+        special_item: { kind: "book", editable: true, data: { pages: draft.special_edit.data.pages.map((entry, source_index) => ({ ...entry, source_index })) } } };
+      delete saved.special_edit;
+      return route.fulfill({ json: { success: true, player_revision: `saved-${requests.length}`, backup_file: "synthetic-backup.zip",
+        item_source_digests: { inventory: { 0: saved.source_item_digest }, ender_chest: {} },
+        saved_items: { inventory: { 0: saved }, ender_chest: {} } } });
+    });
+    await page.locator('.inventory-slot[data-slot="0"]').click();
+    if (width < 600) await page.locator('.btn-toggle[data-panel="right"]').click();
+    await page.locator("#btnSpecialItem").click();
+    const dialog = page.locator("#specialItemDialog");
+    await dialog.getByRole("button", { name: "Nach unten", exact: true }).first().click();
+    await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+    await page.evaluate(() => saveCurrentPlayer({ skipReview: true }));
+    expect(requests).toHaveLength(1);
+    expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+    expect(await page.evaluate(() => isDirty)).toBe(false);
+    await page.locator("#btnSpecialItem").click();
+    await expect(dialog.getByLabel("Seite 1", { exact: true })).toHaveValue("Zweite");
+    await dialog.getByLabel("Seite 1", { exact: true }).fill("Zweite, bearbeitet");
+    expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/repeated-book-${width}.png`, animations: "disabled" });
+    await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+    await page.evaluate(() => saveCurrentPlayer({ skipReview: true }));
+    expect(requests).toHaveLength(2);
+    expect(requests[1].inventory[0].special_edit.data.pages).toEqual([
+      { source_index: 0, text: "Zweite, bearbeitet" }, { source_index: 1, text: "Erste" },
+    ]);
+    expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+    expect(await page.evaluate(() => currentPlayerStaleReason)).toBe("");
+    expect(errors).toEqual([]);
+  });
+}
+
+test("special saved draft without authoritative state requires reload before another write", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:writable_book", count: 1, damage: 0 } });
+  let writes = 0;
+  await page.route("**/api/player/save", route => {
+    writes++;
+    return route.fulfill({ json: { success: true, player_revision: "saved-revision", backup_file: "synthetic-backup.zip" } });
+  });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: "Seite hinzufügen" }).click();
+  await dialog.getByLabel("Seite 1", { exact: true }).fill("Entwurf");
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  await page.evaluate(() => saveCurrentPlayer({ skipReview: true }));
+  expect(writes).toBe(1);
+  await expect(page.locator("#btnSave")).toBeDisabled();
+  expect(await page.evaluate(() => currentPlayerStaleReason)).toContain("Nachbearbeitung");
+  await page.evaluate(() => saveCurrentPlayer({ skipReview: true }));
+  expect(writes).toBe(1);
+});
+
+test("special contained numeric edits reject invalid input without silently clamping", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [{ slot: 0, source_index: 0, name: "minecraft:diamond", count: 10, damage: 0 }] } } } },
+    { max_damage: { __default__: 0, "minecraft:diamond_sword": 100 } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond_sword");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Stacklimits");
+  await dialog.getByLabel("Menge", { exact: true }).fill("1");
+  for (const value of ["", "0.5", "101"]) {
+    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill(value);
+    await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Datenwert");
+  }
+  await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill("1e1");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ name: "minecraft:diamond_sword", count: 1, damage: 10 });
+});
+
+test("special editor cannot bypass equipment slot validation", async ({ page }) => {
+  await openSpecialFixture(page, { [-106]: { slot: -106, name: "minecraft:firework_rocket", count: 1, damage: 0 } });
+  await page.locator('.inventory-slot[data-slot="-106"]').click();
+  await page.locator("#detailItemSearch").fill("minecraft:written_book");
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: "Seite hinzufügen" }).click();
+  await dialog.getByLabel("Seite 1", { exact: true }).fill("Falscher Ausrüstungsslot");
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Schildhand");
+  expect(await page.evaluate(() => inventory[-106].name)).toBe("minecraft:firework_rocket");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
+test("special editors isolate nested drafts, cancel, undo and preserve origins", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  const original = { slot: 0, name: "minecraft:bundle", count: 1, damage: 0, special_item: { kind: "bundle", editable: true, data: { items: [{ slot: 2, source_index: 2, name: "minecraft:diamond", count: 7, damage: 0 }] } } };
+  await openSpecialFixture(page, { 0: original });
+  const slot = page.locator('.inventory-slot[data-slot="0"]');
+  await slot.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Inhalte bearbeiten" }).click();
+  const dialog = page.locator("#specialItemDialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("7 / 64 Gewichtseinheiten");
+  await dialog.getByRole("button", { name: /Slot 3:/ }).click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("23");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog).toContainText("23 / 64 Gewichtseinheiten");
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  await dialog.locator('footer [data-special="cancel"]').click();
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  await page.locator("#btnSpecialItem").click();
+  await expect(dialog).toContainText("7 / 64 Gewichtseinheiten");
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  await page.locator("#btnSpecialItem").click();
+  await dialog.getByRole("button", { name: /Slot 3:/ }).click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("23");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const edited = await page.evaluate(() => inventory[0]);
+  expect(edited.special_edit.data.items[0]).toMatchObject({ count: 23, source_index: 2 });
+  expect(edited.special_edit.data.items[0]).not.toHaveProperty("source_slot");
+  expect(await page.evaluate(() => buildChangeSummary().shown[0].label)).toContain("Container-Inhalte geändert");
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  await page.locator("#btnRedo").click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0].count)).toBe(23);
+  expect(errors).toEqual([]);
+});
+
+test("special editors validate bundle capacity and keyboard focus at mobile width", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:bundle", count: 1, damage: 0, special_item: { kind: "bundle", editable: true, data: { items: [{ slot: 0, source_index: 0, name: "minecraft:diamond", count: 64, damage: 0 }] } } } });
+  const slot = page.locator('.inventory-slot[data-slot="0"]');
+  await slot.focus(); await page.keyboard.press("Shift+F10");
+  await expect(page.locator('#slotContextMenu [data-action="special"]')).toBeFocused();
+  await page.keyboard.press("Enter");
+  const dialog = page.locator("#specialItemDialog");
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + "/bundle-mobile.png" });
+  await dialog.getByRole("button", { name: /Slot 2:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("zu voll");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toContainText("64 / 64 Gewichtseinheiten");
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(slot).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test("special book firework banner and shulker forms produce independent edits", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  const names = ["written_book", "firework_rocket", "banner", "undyed_shulker_box", "firework_star"];
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openSpecialFixture(page, Object.fromEntries(names.map((name, slot) => [slot, { slot, name: `minecraft:${name}`, count: 1, damage: 0 }])));
+  const dialog = page.locator("#specialItemDialog");
+  async function open(slot) { await page.locator(`.inventory-slot[data-slot="${slot}"]`).click(); await page.locator("#btnSpecialItem").click(); }
+  async function apply() { await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click(); }
+  async function checkMobile(name) {
+    await page.setViewportSize({width:390,height:844});
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const bounds = await dialog.evaluate(el => ({
+      bottom:el.getBoundingClientRect().bottom, footerTop:el.querySelector('footer').getBoundingClientRect().top,
+      footerBottom:el.querySelector('footer').getBoundingClientRect().bottom, bodyBottom:el.querySelector('.special-body').getBoundingClientRect().bottom,
+    }));
+    expect(bounds.bodyBottom).toBeLessThanOrEqual(bounds.footerTop + 1);
+    expect(bounds.footerBottom).toBeLessThanOrEqual(bounds.bottom + 1);
+    if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + `/${name}-mobile.png`, animations:"disabled" });
+    await page.setViewportSize({width:1440,height:1000});
+  }
+  await open(0);
+  await dialog.getByLabel("Titel", { exact: true }).fill("Reisetagebuch");
+  await dialog.getByLabel("Autor", { exact: true }).fill("Alex");
+  await dialog.getByRole("button", { name: "Seite hinzufügen" }).click();
+  await dialog.getByLabel("Seite 1", { exact: true }).fill("Grüße aus der Oberwelt!\nZweite Zeile.");
+  if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + "/book-desktop.png" });
+  await checkMobile("book");
+  await apply();
+  await open(1); await dialog.getByLabel("Flugdauer", { exact: true }).selectOption("3");
+  await dialog.getByRole("button", { name: "Effekt hinzufügen" }).click();
+  await dialog.getByLabel("Form", { exact: true }).selectOption("2");
+  await dialog.getByRole("group", { name: "Farben", exact: true }).getByLabel("Rot", { exact: true }).check();
+  await dialog.getByLabel("Schweif", { exact: true }).check();
+  if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + "/firework-desktop.png" });
+  await checkMobile("firework");
+  await apply();
+  await open(2); await dialog.getByRole("button", { name: "Muster hinzufügen" }).click();
+  await dialog.getByLabel("Muster", { exact: true }).selectOption("bo");
+  await dialog.getByLabel("Farbe", { exact: true }).selectOption("1"); await checkMobile("banner"); await apply();
+  await open(3); await expect(dialog.locator(".special-slot")).toHaveCount(27);
+  if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + "/shulker-desktop.png" });
+  await checkMobile("shulker");
+  await dialog.getByRole("button", { name: /Slot 27:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:bundle");
+  await dialog.getByRole("button", { name: "Inhalte bearbeiten" }).click();
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
+  await dialog.getByLabel("Menge", { exact: true }).fill("12");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await apply();
+  await open(4); await dialog.getByRole("button", { name: "Effekt hinzufügen" }).click(); await apply();
+  const result = await page.evaluate(() => Object.values(inventory).map(item => item.special_edit));
+  expect(result[0].data.pages[0].text).toContain("Grüße");
+  expect(result[1].data).toMatchObject({ flight: 3, explosions: [{ shape: 2, colors: [1, 15], trail: true }] });
+  expect(result[2].data.patterns).toEqual([{ pattern: "bo", color: 1 }]);
+  expect(result[3].data.items[0].special_edit.data.items[0].count).toBe(12);
+  expect(result[4].data.explosions).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
+
+async function prepareBannerTextures(page, { synthetic = false, publish = true } = {}) {
+  const generated = await page.evaluate(() => {
+    const codes = ["base", ...JSON.parse(document.getElementById("specialItemSchema").textContent).patterns];
+    return Object.fromEntries(codes.map((code, index) => {
+      const canvas = document.createElement("canvas"); canvas.width = 20; canvas.height = 40;
+      const ctx = canvas.getContext("2d");
+      const image = ctx.createImageData(20, 40);
+      for (let y = 0; y < 40; y++) for (let x = 0; x < 20; x++) {
+        const offset = (y * 20 + x) * 4;
+        image.data.set([255, 255, 255, 0], offset);
+        if (code === "base") image.data.set([200, 200, 200, 255], offset);
+        else if (code === "cre") image.data[offset + 3] = x < 10 ? 255 : 0;
+        else if (code === "glb") image.data[offset + 3] = y < 20 ? 128 : 0;
+        else if (code === "gra") image.data[offset + 3] = Math.round(255 * y / 39);
+        else image.data[offset + 3] = (x + y + index) % (index + 2) === 0 ? 255 : 0;
+      }
+      ctx.putImageData(image, 0, 0);
+      return [code, canvas.toDataURL("image/png").split(",")[1]];
+    }));
+  });
+  const assets = Object.fromEntries(Object.keys(generated).map(code => [code, { url: `/api/icons/qa-banner-${code}` }]));
+  await page.route("**/api/icons/qa-banner-*", route => {
+    const code = new URL(route.request().url()).pathname.split("qa-banner-")[1];
+    const path = !synthetic && process.env.MCBE_QA_BANNER_TEXTURES ? `${process.env.MCBE_QA_BANNER_TEXTURES}/banner_${code}.png` : null;
+    return route.fulfill({ contentType: "image/png", body: path ? fs.readFileSync(path) : Buffer.from(generated[code], "base64") });
+  });
+  const response = { success: true, icons: {}, banner_patterns: assets, count: 0, sources: [], warnings: [] };
+  if (publish) {
+    await page.route("**/api/icons/status*", route => route.fulfill({ json: response }));
+    await page.evaluate(() => loadLocalIconIndex());
+  }
+  return { assets, response, generated };
+}
+
+test("banner preview renders all motifs and keeps desktop and mobile layouts usable", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 15 } });
+  const { assets } = await prepareBannerTextures(page);
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const preview = dialog.locator(".special-banner-preview");
+  const canvas = preview.locator("canvas");
+  await dialog.getByRole("button", { name: "Muster hinzufügen" }).click();
+  await dialog.getByLabel("Farbe", { exact: true }).selectOption("4");
+  const images = [];
+  for (const pattern of Object.keys(assets).filter(code => code !== "base")) {
+    await dialog.getByLabel("Muster", { exact: true }).selectOption(pattern);
+    await expect(preview).toHaveAttribute("data-state", "ready");
+    images.push({ pattern, url: await canvas.evaluate(el => el.toDataURL()) });
+  }
+  expect(new Set(images.map(image => image.url)).size).toBe(42);
+  await dialog.getByLabel("Muster", { exact: true }).selectOption("glb");
+  await expect(canvas).toHaveAccessibleName(/Globus, Blau/);
+  await expect(preview).toHaveAttribute("data-state", "ready");
+  for (const [name, width, height] of [["desktop", 1440, 1000], ["mobile", 390, 844], ["narrow", 320, 568], ["landscape", 844, 390]]) {
+    await page.setViewportSize({ width, height });
+    await canvas.scrollIntoViewIfNeeded();
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const bounds = await dialog.evaluate(el => ({
+      bottom: el.getBoundingClientRect().bottom, footerTop: el.querySelector("footer").getBoundingClientRect().top,
+      footerBottom: el.querySelector("footer").getBoundingClientRect().bottom, bodyBottom: el.querySelector(".special-body").getBoundingClientRect().bottom,
+    }));
+    expect(bounds.bodyBottom).toBeLessThanOrEqual(bounds.footerTop + 1);
+    expect(bounds.footerBottom).toBeLessThanOrEqual(bounds.bottom + 1);
+    const size = await canvas.boundingBox(); expect(size.height / size.width).toBe(2);
+    if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/banner-${name}.png`, animations: "disabled" });
+    // The inputs and apply action remain reachable at every viewport size.
+    await dialog.getByLabel("Farbe", { exact: true }).selectOption("1");
+    await expect(preview).toHaveAttribute("data-state", "ready");
+    await dialog.getByLabel("Farbe", { exact: true }).selectOption("4");
+  }
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.patterns)).toEqual([{ pattern: "glb", color: 4 }]);
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  if (process.env.MCBE_QA_SPECIAL_DIR) {
+    await page.setViewportSize({ width: 1200, height: 1200 });
+    await page.evaluate(images => {
+      const gallery = document.createElement("div"); gallery.id = "qa-banner-gallery";
+      gallery.style.cssText = "position:absolute;inset:0;z-index:99999;display:grid;grid-template-columns:repeat(7,1fr);gap:16px;padding:24px;background:#17232c;color:white;";
+      images.forEach(({ pattern, url }) => {
+        const cell = document.createElement("div"); cell.style.cssText = "display:grid;justify-items:center;gap:6px;";
+        const image = document.createElement("img"); image.src = url; image.style.cssText = "width:60px;height:120px;image-rendering:pixelated";
+        cell.append(image, document.createTextNode(pattern)); gallery.append(cell);
+      }); document.body.append(gallery);
+    }, images);
+    await page.locator("#qa-banner-gallery").screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/banner-all-patterns.png` });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("banner preview preserves alpha, dye color and layer order through edits and cancel", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 15, special_item: { kind: "banner", editable: true,
+    data: { patterns: [{ pattern: "cre", color: 1 }, { pattern: "glb", color: 4 }] } } } });
+  await prepareBannerTextures(page, { synthetic: true });
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const preview = dialog.locator(".special-banner-preview");
+  async function pixel(x, y) {
+    await expect(preview).toHaveAttribute("data-state", "ready");
+    return preview.locator("canvas").evaluate((el, [x, y]) => Array.from(el.getContext("2d").getImageData(x, y, 1, 1).data), [x, y]);
+  }
+  // Bottom-right is tinted base cloth; lower-left is opaque red; upper-left
+  // is half-transparent blue over red (rounded source-over blend).
+  expect(await pixel(15, 30)).toEqual([188, 188, 188, 255]);
+  expect(await pixel(5, 30)).toEqual([176, 46, 38, 255]);
+  const blend = await pixel(5, 5);
+  for (const [index, value] of [118, 57, 104, 255].entries()) expect(Math.abs(blend[index] - value)).toBeLessThanOrEqual(1);
+  await dialog.getByRole("button", { name: "Nach oben", exact: true }).nth(1).click();
+  expect(await pixel(5, 5)).toEqual([176, 46, 38, 255]);
+  await dialog.getByRole("button", { name: "Entfernen", exact: true }).nth(1).click();
+  await dialog.getByLabel("Muster", { exact: true }).selectOption("gra");
+  expect(await pixel(5, 0)).toEqual([188, 188, 188, 255]);
+  expect(await pixel(5, 39)).toEqual([60, 68, 170, 255]);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
+test("banner preview recovers missing assets without losing a draft", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 15 } });
+  const { response } = await prepareBannerTextures(page, { synthetic: true, publish: false });
+  let attempts = 0;
+  await page.route("**/api/icons/vanilla/update", route => {
+    attempts++;
+    return route.fulfill({ json: attempts === 1 ? { success: false, error: "Test: Download unterbrochen" } : response });
+  });
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: "Muster hinzufügen" }).click();
+  await dialog.getByLabel("Muster", { exact: true }).selectOption("sku");
+  await expect(dialog.locator(".special-banner-preview")).toHaveAttribute("data-state", "missing");
+  await expect(dialog.locator("canvas")).toBeHidden();
+  await dialog.getByRole("button", { name: "Bannermuster laden" }).click();
+  await expect(dialog.getByRole("status")).toContainText("Download unterbrochen");
+  await dialog.getByRole("button", { name: "Bannermuster laden" }).click();
+  await expect(dialog.locator(".special-banner-preview")).toHaveAttribute("data-state", "ready");
+  await expect(dialog.getByLabel("Muster", { exact: true })).toHaveValue("sku");
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  expect(attempts).toBe(2);
+  await page.keyboard.press("Escape");
+});
+
+test("banner preview rejects broken textures, retries, and discards late renders", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 15 } });
+  const { generated } = await prepareBannerTextures(page, { synthetic: true });
+  await page.route("**/api/icons/qa-banner-base", route => route.fulfill({ contentType: "image/png", body: Buffer.from("invalid") }));
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const preview = dialog.locator(".special-banner-preview");
+  await expect(preview).toHaveAttribute("data-state", "error");
+  await page.unroute("**/api/icons/qa-banner-base");
+  await dialog.getByRole("button", { name: "Erneut versuchen" }).click();
+  await expect(preview).toHaveAttribute("data-state", "ready");
+  let release;
+  const delayed = new Promise(resolve => { release = resolve; });
+  await page.route("**/api/icons/qa-banner-cre", async route => {
+    await delayed; await route.fulfill({ contentType: "image/png", body: Buffer.from(generated.cre, "base64") });
+  });
+  await dialog.getByRole("button", { name: "Muster hinzufügen" }).click();
+  await dialog.getByLabel("Muster", { exact: true }).selectOption("cre");
+  await expect(preview).toHaveAttribute("data-state", "loading");
+  await dialog.getByLabel("Muster", { exact: true }).selectOption("glb");
+  await expect(preview).toHaveAttribute("data-state", "ready");
+  const before = await preview.locator("canvas").evaluate(el => el.toDataURL());
+  const lateResponse = page.waitForResponse("**/api/icons/qa-banner-cre");
+  release();
+  await (await lateResponse).finished();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await preview.locator("canvas").evaluate(el => el.toDataURL())).toBe(before);
+  await expect(preview.locator("canvas")).toHaveAccessibleName(/Globus/);
+  await page.keyboard.press("Escape");
+});
+
+test.describe("banner preview touch interaction", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+  test("six layers remain editable with a sharp preview on a mobile device", async ({ page }) => {
+    await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 15, special_item: { kind: "banner", editable: true,
+      data: { patterns: ["gra", "cre", "bri", "flw", "bo", "sku"].map((pattern, index) => ({ pattern, color: index })) } } } });
+    await prepareBannerTextures(page);
+    await page.locator('.inventory-slot[data-slot="0"]').tap();
+    await page.locator('.btn-toggle[data-panel="right"]').tap();
+    await page.locator("#btnSpecialItem").tap();
+    const dialog = page.locator("#specialItemDialog");
+    const preview = dialog.locator(".special-banner-preview");
+    await expect(preview).toHaveAttribute("data-state", "ready");
+    await expect(dialog.getByRole("button", { name: "Muster hinzufügen" })).toBeDisabled();
+    await dialog.getByLabel("Muster", { exact: true }).nth(5).selectOption("gus");
+    await dialog.getByLabel("Farbe", { exact: true }).nth(5).selectOption("1");
+    await dialog.getByRole("button", { name: "Nach oben", exact: true }).nth(5).tap();
+    await expect(preview).toHaveAttribute("data-state", "ready");
+    await expect(preview.locator("canvas")).toHaveAccessibleName(/Ebene 5: Windstoßer, Rot/);
+    await preview.scrollIntoViewIfNeeded();
+    if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/banner-touch.png`, animations: "disabled" });
+    await dialog.getByRole("button", { name: "Übernehmen", exact: true }).tap();
+    expect(await page.evaluate(() => inventory[0].special_edit.data.patterns[4])).toEqual({ pattern: "gus", color: 1 });
+    await page.locator("#btnUndo").tap();
+    expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  });
+});
+
+test("special editors keep unknown formats read only and ordinary edits retain drafts", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:bundle", count: 1, damage: 0, special_item: { kind: "bundle", editable: false, reason: "Geschützte Spezialdaten" } }, 1: { slot: 1, name: "minecraft:writable_book", count: 1, damage: 0 } });
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await expect(dialog).toContainText("Geschützte Spezialdaten");
+  await expect(dialog.getByRole("button", { name: "Übernehmen", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.locator('.inventory-slot[data-slot="1"]').click();
+  await page.locator("#detailCustomName").fill("Lokaler Entwurf");
+  await page.locator("#btnSpecialItem").click();
+  await dialog.getByRole("button", { name: "Seite hinzufügen" }).click();
+  await dialog.getByLabel("Seite 1", { exact: true }).fill("Text");
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  await page.locator("#detailCustomName").fill("Neuer Name"); await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[1])).toMatchObject({ display_name: "Neuer Name", special_edit: { kind: "book", data: { pages: [{ text: "Text" }] } } });
+});
+
+test("special editor refuses a stale parent and restores focus on cancel", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:writable_book", count: 1, damage: 0 } });
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: "Seite hinzufügen" }).click();
+  await dialog.getByLabel("Seite 1", { exact: true }).fill("Stale edit");
+  await page.evaluate(() => { inventory[0] = { slot:0, name:"minecraft:diamond", count:2, damage:0 }; });
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("inzwischen geändert");
+  expect(await page.evaluate(() => inventory[0])).toEqual({ slot:0, name:"minecraft:diamond", count:2, damage:0 });
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#btnSpecialItem")).toBeFocused();
+});
+
 // Die Assertions prüfen deutsche UI-Texte; der Server wählt die Sprache über
 // Accept-Language (Standard ohne Header ist Englisch).
 test.use({ locale: "de-DE" });
@@ -222,6 +964,222 @@ async function openDragFixture(page, overrides = {}, players = null) {
   await expect(page.locator("#inventoryContainer")).toBeVisible();
 }
 
+async function openChangeHistory(page) {
+  await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+  await page.locator('[data-tab-dash="dashSession"]').click();
+  await expect(page.locator('#dashSession')).toBeVisible();
+}
+
+test("change history records each drag once and retains opposite same-second actions", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await openDragFixture(page);
+  await page.clock.setFixedTime(new Date('2026-01-01T12:00:00Z'));
+  await page.evaluate(() => document.addEventListener('drop', event => {
+    window.historyTestDragPayload = event.dataTransfer?.getData('application/x-mcbe-slot');
+  }, true));
+  const initial = await page.evaluate(() => JSON.stringify(inventory));
+  await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
+  await expect(page.locator('#sessionLogContainer .edit')).toHaveCount(1);
+  const label = await page.locator('#sessionLogContainer .edit strong').textContent();
+  expect(label).toContain('1× Stein');
+  expect(label).toContain('verschoben');
+  await expect(page.locator('#btnUndo')).toHaveAttribute('title', new RegExp('verschoben'));
+  // Replay the consumed payload as a second drop: no active drag remains.
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.setData('application/x-mcbe-slot', window.historyTestDragPayload);
+    return data;
+  });
+  await page.locator('[data-slot="0"]').dispatchEvent('drop', { dataTransfer: transfer });
+  await transfer.dispose();
+  await expect(page.locator('#sessionLogContainer .edit')).toHaveCount(1);
+  await page.locator('[data-slot="1"]').dragTo(page.locator('[data-slot="0"]'));
+  expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(initial);
+  expect(await page.evaluate(() => isDirty)).toBe(false);
+  await expect(page.locator('#sessionLogContainer .edit')).toHaveCount(2);
+  const times = await page.locator('#sessionLogContainer .edit .session-log-time').allTextContents();
+  expect(times[0]).toBe(times[1]);
+  await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="2"]'));
+  await expect(page.locator('#sessionLogContainer .edit').first()).toContainText('getauscht');
+  await expect(page.locator('#sessionLogContainer .edit').first()).toContainText('Karotte');
+  await page.keyboard.down('Control');
+  await page.locator('[data-slot="2"]').dragTo(page.locator('[data-slot="1"]'));
+  await page.keyboard.up('Control');
+  await expect(page.locator('#sessionLogContainer .edit').first()).toContainText('kopiert');
+  await expect(page.locator('#sessionLogContainer .edit')).toHaveCount(4);
+  await openChangeHistory(page);
+  await page.locator('#btnHistoryUndo').focus();
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => inventory[1])).toBeUndefined();
+  await page.locator('#btnHistoryRedo').click();
+  expect(await page.evaluate(() => inventory[1].name)).toBe('minecraft:stone');
+  expect(errors).toEqual([]);
+});
+
+for (const width of [1440, 390, 320]) {
+  test.describe(`change history at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 }, hasTouch: width < 500, isMobile: width < 500 });
+    test('shows status and supports undo, redo, copy and log clearing', async ({ page, context }) => {
+      test.setTimeout(45_000);
+      const errors = collectBrowserErrors(page);
+      const activate = locator => width < 500 ? locator.tap() : locator.click();
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+      await page.route("**/api/server_status", route => route.fulfill({ json: { success: true, server_status: { status: "offline" }, write_gate: { allowed: true, read_allowed: true } } }));
+      await openDragFixture(page, { stack_limits: { 'minecraft:stone': 64 } });
+      await openChangeHistory(page);
+      await expect(page.locator('#historySaveState')).toHaveAttribute('data-state', 'clean');
+      await expect(page.locator('#btnHistoryUndo')).toBeDisabled();
+      await page.locator('.app-workflow-nav [data-workflow-view="inventory"]').click();
+      await activate(page.locator('[data-slot="0"]'));
+      if (width < 500) await activate(page.locator('.btn-toggle[data-panel="right"]'));
+      await page.locator('#detailCount').fill('5');
+      await activate(page.locator('#btnApplySingle'));
+      await openChangeHistory(page);
+      await expect(page.locator('#historySaveState')).toHaveAttribute('data-state', 'dirty');
+      await expect(page.locator('#undoRedoPanel')).toContainText('aktualisiert');
+      await activate(page.locator('#btnHistoryUndo'));
+      expect(await page.evaluate(() => inventory[0].count)).toBe(1);
+      await expect(page.locator('#historySaveState')).toHaveAttribute('data-state', 'clean');
+      await activate(page.locator('#btnHistoryRedo'));
+      expect(await page.evaluate(() => inventory[0].count)).toBe(5);
+      await expect(page.locator('#historySaveState')).toHaveAttribute('data-state', 'dirty');
+      await activate(page.locator('#btnCopySessionLog'));
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('aktualisiert');
+      await expect(page.locator('.toast-container .toast')).toHaveCount(0);
+      for (const layout of ['classic', 'studio', 'focus']) {
+        await selectLayout(page, layout);
+        await openChangeHistory(page);
+        for (const theme of ['dark', 'light']) {
+          await selectSetting(page, 'themeSelect', theme);
+          await page.locator('#dashSession').scrollIntoViewIfNeeded();
+          const bounds = await page.locator('#dashSession').evaluate(panel => ({
+            width: panel.clientWidth, scroll: panel.scrollWidth,
+            controls: [...panel.querySelectorAll('.history-actions button')].map(el => {
+              const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, height: r.height };
+            }), viewport: innerWidth,
+          }));
+          expect(bounds.scroll).toBeLessThanOrEqual(bounds.width + 1);
+          for (const button of bounds.controls) {
+            expect(button.left).toBeGreaterThanOrEqual(0);
+            expect(button.right).toBeLessThanOrEqual(bounds.viewport);
+            expect(button.height).toBeGreaterThanOrEqual(44);
+          }
+          await captureBrowserEvidence(page, `history-${width}-${layout}-${theme}`);
+        }
+      }
+      await activate(page.locator('#btnClearSessionLog'));
+      await expect(page.locator('#sessionLogContainer .session-log-row')).toHaveCount(0);
+      await expect(page.locator('#btnClearSessionLog')).toBeDisabled();
+      await expect(page.locator('#btnHistoryUndo')).toBeEnabled();
+      expect(await page.evaluate(() => inventory[0].count)).toBe(5);
+      await activate(page.locator('#btnHistoryUndo'));
+      expect(await page.evaluate(() => inventory[0].count)).toBe(1);
+      await expect(page.locator('#historySaveState')).toHaveAttribute('data-state', 'clean');
+      if (width === 1440) {
+        await selectLayout(page, 'classic');
+        await page.locator('#btnHistoryRedo').click();
+        let saved;
+        await page.route('**/api/player/save', route => {
+          saved = route.request().postDataJSON();
+          return route.fulfill({ json: { success: true, player_revision: 'history-saved', backup_file: 'synthetic-backup.zip' } });
+        });
+        await page.locator('.app-workflow-nav [data-workflow-view="save"]').click();
+        await page.locator('#btnSaveWorkflowRun').click();
+        await expect.poll(() => saved).toBeTruthy();
+        await openChangeHistory(page);
+        await expect(page.locator('#historySaveState')).toHaveAttribute('data-state', 'clean');
+        await expect(page.locator('#btnHistoryUndo')).toBeDisabled();
+        await expect(page.locator('#btnHistoryRedo')).toBeDisabled();
+        await expect(page.locator('#sessionLogContainer .save')).toHaveCount(1);
+      }
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
+test('change history groups live input and change events without losing separate edits', async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.route('**/api/world/presence', route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await openDragFixture(page, {
+    abilities: { movement_speed: 0.1, walk_speed: 0.1, fly_speed: 0.05, vertical_fly_speed: 1 },
+    effects: [{ id: 1, amplifier: 0, duration: 600, show_particles: true }],
+    effects_db: { 1: ['Tempo', 'Speed'] },
+    protected_nbt: { has_inventory_tag: true, has_ender_chest_tag: true, has_abilities_tag: true, has_active_effects_tag: true },
+  });
+  await page.locator('.app-workflow-nav [data-workflow-view="player"]').click();
+  await page.locator('[data-tab-dash="dashEffects"]').click();
+  const speed = page.locator('#abFlySpeed');
+  await speed.fill('0.2');
+  await speed.press('Tab');
+  await expect(page.locator('#sessionLogContainer .edit')).toHaveCount(1);
+  await expect(page.locator('#btnUndo')).toHaveAttribute('data-history-count', '1');
+  await speed.fill('0.3');
+  await speed.press('Tab');
+  await expect(page.locator('#sessionLogContainer .edit')).toHaveCount(2);
+  await page.locator('#btnUndo').click();
+  expect(await page.evaluate(() => playerAbilities.fly_speed)).toBe(0.2);
+  const particles = page.locator('.eff-particles');
+  await particles.uncheck();
+  await particles.check();
+  await expect(page.locator('#sessionLogContainer .edit')).toHaveCount(4);
+  await page.locator('#btnUndo').click();
+  expect(await page.evaluate(() => playerEffects[0].show_particles)).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('change history translates its controls and wraps long names on a narrow screen', async ({ page }) => {
+  await page.context().addCookies([{ name: 'mcbe_locale', value: 'en', url: NORMAL_BASE_URL }]);
+  await page.route('**/api/world/presence', route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await openDragFixture(page, { inventory: { 0: { slot: 0, name: 'minecraft:stone', count: 32, damage: 0, display_name: 'LongItemName'.repeat(15) } } });
+  await page.locator('[data-slot="0"]').dragTo(page.locator('[data-slot="1"]'));
+  await page.setViewportSize({ width: 320, height: 900 });
+  await openChangeHistory(page);
+  await expect(page.locator('#dashSession h3')).toHaveText('Change history');
+  await expect(page.locator('#btnHistoryUndo')).toContainText('Undo');
+  await expect(page.locator('#btnClearSessionLog')).toHaveText('Clear log');
+  await expect(page.locator('#historySaveState')).toHaveText('Unsaved changes');
+  await expect(page.locator('#sessionLogContainer .edit strong')).toContainText('Moved 32×');
+  const overflow = await page.locator('#dashSession').evaluate(el => el.scrollWidth > el.clientWidth + 1);
+  expect(overflow).toBe(false);
+  await page.locator('#dashSession').scrollIntoViewIfNeeded();
+  await captureBrowserEvidence(page, 'history-320-english-long-name');
+});
+
+test("main item edits preserve untouched raw names and lore in both containers", async ({ page }) => {
+  const original = { slot: 0, name: "minecraft:stone", count: 1, damage: 0,
+    display_name: "Erste\nZweite", lore: ["Erste\r\nZweite", "Dritte\rVierte", "x".repeat(513)] };
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await openDragFixture(page, { inventory: { 0: original }, ender_chest: { 0: original }, stack_limits: { "minecraft:stone": 64 } });
+  for (const container of ["inventory", "ender_chest"]) {
+    await page.locator(container === "inventory" ? '[data-slot="0"]' : '[data-ender-slot="0"]').click();
+    await page.locator("#detailCount").fill("2");
+    await page.locator("#btnApplySingle").click();
+    expect(await page.evaluate(name => (name === "inventory" ? inventory : enderChestInventory)[0], container)).toMatchObject({ ...original, count: 2 });
+  }
+});
+
+test("main item editor rejects oversized text without changing the item or losing input", async ({ page }) => {
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await openDragFixture(page, { stack_limits: { "minecraft:stone": 64 } });
+  await page.locator('[data-slot="0"]').click();
+  const original = await page.evaluate(() => inventory[0]);
+  for (const [id, value, message] of [
+    ["detailCustomName", "x".repeat(511) + "🦜", "Anzeigename"],
+    ["detailLore", Array(51).fill("Zeile").join("\n"), "Beschreibung"],
+    ["detailLore", "x".repeat(511) + "🦜", "Beschreibung"],
+  ]) {
+    await page.locator(`#${id}`).fill(value);
+    await page.locator("#btnApplySingle").click();
+    await expect(page.locator(".toast-warning").last()).toContainText(message);
+    await expect(page.locator(`#${id}`)).toHaveValue(value);
+    expect(await page.evaluate(() => inventory[0])).toEqual(original);
+    await expect(page.locator("#btnUndo")).toBeDisabled();
+    await page.locator(`#${id}`).fill("");
+  }
+});
+
 for (const withMounts of [false, true]) {
   test(`uncertain ${withMounts ? "mount" : "player"} save blocks all retries until reload`, async ({ page }) => {
     const errors = [];
@@ -330,11 +1288,13 @@ async function copyPlayerFixtureItem(page) {
   await page.locator('[data-slot="1"]').click();
 }
 
-async function capturePlayerLoadEvidence(page, name) {
+async function captureBrowserEvidence(page, name, selector = null) {
   const directory = process.env.MCBE_BROWSER_EVIDENCE_DIR;
   if (!directory) return;
   fs.mkdirSync(directory, { recursive: true });
-  await page.screenshot({ path: `${directory}/${name}.png`, animations: "disabled" });
+  const target = selector ? page.locator(selector) : page;
+  await target.screenshot({ path: `${directory}/${name}.png`, animations: "disabled",
+    style: selector ? ".toast-container { visibility: hidden; }" : undefined });
 }
 
 test("diagnostic player selection preserves edits until discard is confirmed", async ({ page }) => {
@@ -346,7 +1306,7 @@ test("diagnostic player selection preserves edits until discard is confirmed", a
   await page.locator(".player-row").filter({ hasText: "Diagnose-Spieler" }).click();
   await expect(page.locator("#confirmOverlay")).toBeVisible();
   await expect(page.locator("#confirmMessage")).toContainText("ungespeicherte Änderungen");
-  await capturePlayerLoadEvidence(page, "diagnostic-discard-confirmation");
+  await captureBrowserEvidence(page, "diagnostic-discard-confirmation");
   await page.locator("#confirmCancel").click();
   expect(await page.evaluate(() => ({ key: currentPlayerKey, dirty: isDirty, item: inventory[1]?.name })))
     .toEqual({ key: "a", dirty: true, item: "minecraft:stone" });
@@ -423,7 +1383,7 @@ for (const success of [true, false]) {
     await page.keyboard.press("Control+z");
     expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
     expect(await page.evaluate(() => isDirty)).toBe(!success);
-    if (success) await capturePlayerLoadEvidence(page, "player-load-editing-locked");
+    if (success) await captureBrowserEvidence(page, "player-load-editing-locked");
     await fixture.finishLoad(success);
     await expect(page.locator("#loadingOverlay")).toBeHidden();
     await expect(page.locator(".app-container")).toHaveJSProperty("inert", false);
@@ -585,6 +1545,10 @@ test("backup size setting persists through reload without selecting a world", as
   const resetResponse = page.waitForResponse(response => response.url().endsWith("/api/backup/settings") && response.request().method() === "POST");
   await page.locator("#btnSaveBackupSettings").click();
   expect((await resetResponse).ok()).toBe(true);
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({width, height: 900});
+    await captureBrowserEvidence(page, `backup-size-setting-${width}`, '#backupSettingsPanel');
+  }
   expect(errors).toEqual([]);
 });
 
@@ -761,6 +1725,12 @@ test("inventory drag supports moving copying equipment and undo redo", async ({ 
   expect(await page.evaluate(() => inventory[0]?.name)).toBe("minecraft:stone");
   await page.keyboard.press("Control+y");
   expect(await page.evaluate(() => inventory[1]?.name)).toBe("minecraft:stone");
+  for (const modifier of ["Control", "Meta"]) {
+    await page.keyboard.press(`${modifier}+z`);
+    expect(await page.evaluate(() => inventory[0]?.name)).toBe("minecraft:stone");
+    await page.keyboard.press(`${modifier}+Shift+KeyZ`);
+    expect(await page.evaluate(() => inventory[1]?.name)).toBe("minecraft:stone");
+  }
   const state = await page.evaluate(() => {
     function drag(source, target, copyMode = false) {
       const transfer = new DataTransfer();
@@ -1776,7 +2746,7 @@ test("narrowing to mobile keeps the active workspace panel visible", async ({ pa
 });
 
 test("item browser closes accessibly and restores keyboard focus", async ({ page }) => {
-  await openAppWithEmptyWorldScan(page);
+  await openDragFixture(page, { addable_items: ["minecraft:stone"] });
   await page.evaluate(() => {
     document.body.classList.add("app-world-loaded", "app-player-loaded");
     document.body.dataset.workflowView = "inventory";
@@ -1799,6 +2769,22 @@ test("item browser closes accessibly and restores keyboard focus", async ({ page
   await expect(overlay).toHaveAttribute("aria-hidden", "true");
   await expect(trigger).toBeFocused();
   await expect(page.locator("body")).not.toHaveClass(/item-browser-open/);
+
+  // Filter down to one real catalog hit, then select it without a pointer.
+  for (const key of ["Enter", "Space"]) {
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await page.locator("#browserSearchInput").fill("minecraft:stone");
+    const card = page.locator("#browserGrid .browser-item");
+    await expect(card).toHaveCount(1);
+    await page.locator("#browserSortSelect").focus();
+    await page.keyboard.press("Tab");
+    await expect(card).toBeFocused();
+    await page.keyboard.press(key);
+    await expect(overlay).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(page.locator("#bulkItemSearch")).toHaveValue("minecraft:stone");
+  }
 });
 
 test("item browser shows restrained availability labels including potion variants", async ({ page }) => {
@@ -2599,6 +3585,11 @@ test("keyboard focus returns to its element after loading and saving", async ({ 
 
 test("dialogs return the keyboard focus to the element that opened them", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async () => { document.activeElement?.blur(); throw new Error("Synthetic clipboard denial"); },
+    } });
+  });
   let loads = 0;
   await openDragFixture(page, () => {
     loads++;
@@ -2613,21 +3604,188 @@ test("dialogs return the keyboard focus to the element that opened them", async 
   await page.keyboard.press("Enter");
   await expect(page.locator("#confirmOverlay")).toBeVisible();
   await expect(page.locator("#confirmOk")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#confirmCancel")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator("#confirmOk")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  await expect(discard).toBeFocused();
+  await page.keyboard.press("Enter");
   await page.locator("#confirmCancel").click();
   await expect(page.locator("#confirmOverlay")).toBeHidden();
   await expect(discard).toBeFocused();
   expect(await page.evaluate(() => isDirty)).toBe(true);
   expect(loads).toBe(1);
 
-  // Closing the help returns to the help button.
+  // A confirmation without a cancel button keeps both Tab directions on OK.
+  await page.evaluate(() => {
+    window.confirmResult = null;
+    void showConfirmDialog("Prüfhinweis", { cancelLabel: "" }).then(value => { window.confirmResult = value; });
+  });
+  await expect(page.locator("#confirmOk")).toBeFocused();
+  for (const key of ["Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    await expect(page.locator("#confirmOk")).toBeFocused();
+  }
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  expect(await page.evaluate(() => window.confirmResult)).toBe(true);
+  await expect(discard).toBeFocused();
+
+  // Help keeps focus on its only action, then returns to the help button.
   const helpButton = page.locator("#btnHelp");
   await helpButton.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#helpOverlay")).toBeVisible();
+  await expect(page.locator("#btnHelpClose")).toBeFocused();
+  for (const key of ["Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    await expect(page.locator("#btnHelpClose")).toBeFocused();
+  }
   await page.keyboard.press("Escape");
   await expect(page.locator("#helpOverlay")).toBeHidden();
   await expect(helpButton).toBeFocused();
+
+  // Clipboard rejection may blur the opener; the fallback retains it anyway.
+  expect(await page.evaluate(() => copyTextToClipboard("Unveränderter Prüftext"))).toBe(false);
+  const fallback = page.locator("#copyFallbackOverlay");
+  const text = page.locator("#copyFallbackText");
+  await expect(fallback).toBeVisible();
+  await expect(text).toBeFocused();
+  await expect(text).toHaveValue("Unveränderter Prüftext");
+  expect(await text.evaluate(el => el.selectionEnd - el.selectionStart)).toBe("Unveränderter Prüftext".length);
+  for (const selector of ["#btnCopyFallbackClose", "#btnCopyFallbackDone", "#btnCopyFallbackSelect", "#copyFallbackText"]) {
+    await page.keyboard.press("Shift+Tab");
+    await expect(page.locator(selector)).toBeFocused();
+  }
+  await page.keyboard.press("Escape");
+  await expect(fallback).toBeHidden();
+  await expect(helpButton).toBeFocused();
+  await page.evaluate(() => copyTextToClipboard("Erneute Prüfung"));
+  await expect(text).toBeFocused();
+  for (const selector of ["#btnCopyFallbackSelect", "#btnCopyFallbackDone"]) {
+    await page.keyboard.press("Tab");
+    await expect(page.locator(selector)).toBeFocused();
+  }
+  await page.keyboard.press("Enter");
+  await expect(fallback).toBeHidden();
+  await expect(helpButton).toBeFocused();
   expect(browserErrors).toEqual([]);
+});
+
+test("restore review traps keyboard focus and requires its confirmation before reloading", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.route("**/api/server_status", route => route.fulfill({ json: {
+    success: true, server_status: { status: "offline" }, write_gate: { allowed: true, read_allowed: true },
+  } }));
+  const filename = "synthetic-restore.zip";
+  const backup = { filename, kind: "manual", size_mb: 1, date: "17.10.2026", file_count: 4,
+    dir_count: 1, uncompressed_mb: 2, has_db: true, top_level_entries: ["db", "level.dat"] };
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await page.route("**/api/backups", route => route.fulfill({ json: { success: true, backups: [backup] } }));
+  await page.route("**/api/backup/restore_preview", route => route.fulfill({ json: {
+    success: true, backup, backup_token: "synthetic-preview", effects: [], target_world: { name: "Drag Test World" },
+  } }));
+  const restores = [];
+  await page.route("**/api/restore_backup", route => {
+    restores.push(route.request().postDataJSON());
+    return route.fulfill({ json: { success: true, pre_restore_backup: "synthetic-before.zip" } });
+  });
+  let loads = 0;
+  await openDragFixture(page, () => { loads++; return {}; });
+  await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+  await page.locator('[data-tab-dash="dashBackups"]').click();
+  const trigger = page.locator('.restore-btn');
+  const overlay = page.locator('#restoreReviewOverlay');
+  const input = page.locator('#restoreConfirmInput');
+  const confirm = page.locator('#btnRestoreReviewConfirm');
+  for (const width of [1280, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    // Resizing updates the responsive panel on the next browser frame.
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toBeEnabled();
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(overlay).toBeVisible();
+    await expect(input).toBeFocused();
+    await expect(confirm).toBeDisabled();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#btnRestoreReviewClose')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#btnRestoreReviewCancel')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#btnRestoreReviewClose')).toBeFocused();
+    await input.fill('WIEDERHERSTELLEN');
+    await expect(confirm).toBeEnabled();
+    await confirm.focus();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#btnRestoreReviewClose')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(confirm).toBeFocused();
+    await captureBrowserEvidence(page, `restore-keyboard-${width}`);
+    await page.keyboard.press('Escape');
+    await expect(overlay).toBeHidden();
+    await expect(trigger).toBeFocused();
+    expect(restores).toHaveLength(0);
+    expect(loads).toBe(1);
+  }
+  await page.keyboard.press('Enter');
+  await expect(input).toHaveValue('');
+  await input.fill('falsch');
+  await expect(confirm).toBeDisabled();
+  await input.fill('WIEDERHERSTELLEN');
+  await confirm.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => restores.length).toBe(1);
+  expect(restores[0].backup_file).toBe(filename);
+  expect(restores[0].backup_token).toBe('synthetic-preview');
+  await expect.poll(() => loads).toBe(2);
+  await expect(overlay).toBeHidden();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  expect(await page.evaluate(() => currentPlayerKey)).toBe('drag-player');
+  expect(errors).toEqual([]);
+});
+
+test("player stats, abilities and hints remain inside every layout on mobile", async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectBrowserErrors(page);
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  for (const locale of ["de", "en"]) {
+    await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openDragFixture(page);
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
+    await selectSetting(page, "themeSelect", "light");
+    for (const layout of ["classic", "studio", "focus"]) {
+      await selectLayout(page, layout);
+      await page.locator(`[data-workflow-view="${layout === "classic" ? "player" : "player-edit"}"]`).first().click();
+      for (const tab of ["dashStats", "dashEffects"]) {
+        await page.locator(`[data-tab-dash="${tab}"]`).click();
+        const panel = page.locator(`#${tab}`);
+        for (const width of [1440, 390, 320]) {
+          await page.setViewportSize({ width, height: 900 });
+          await expect(panel).toBeVisible();
+          expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+          const clipped = await panel.evaluate(el => {
+            const panel = el.getBoundingClientRect();
+            return Array.from(el.querySelectorAll("input, select, label, .field-note")).filter(field => {
+              if (!field.getClientRects().length) return false;
+              const rect = field.getBoundingClientRect();
+              return rect.left < panel.left - 1 || rect.right > panel.right + 1;
+            }).map(field => field.id || field.textContent);
+          });
+          expect(clipped, `${locale}/${layout}/${tab}/${width}`).toEqual([]);
+          if (process.env.MCBE_BROWSER_EVIDENCE_DIR) await panel.screenshot({
+            path: `${process.env.MCBE_BROWSER_EVIDENCE_DIR}/player-values-${locale}-${layout}-${tab}-${width}.png`,
+            animations: "disabled",
+          });
+        }
+      }
+    }
+  }
+  expect(errors).toEqual([]);
 });
 
 test("help and long confirmations remain reachable in narrow and short windows", async ({ page }) => {
@@ -2724,6 +3882,35 @@ test("status entries keep the color of their kind and stay readable in every the
       expect(entry.time, detail).toBeGreaterThanOrEqual(4.5);
     }
   }
+});
+
+test("system theme matches explicit themes and follows preference changes", async ({ page }) => {
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await openDragFixture(page);
+  const colors = () => page.evaluate(() => ["body", "#inventoryContainer", "#detailEditorPanel"].map(selector => {
+    const style = getComputedStyle(document.querySelector(selector));
+    return { color: style.color, background: style.backgroundColor, border: style.borderColor };
+  }));
+  const expected = {};
+  for (const theme of ["light", "dark"]) {
+    await selectSetting(page, "themeSelect", theme);
+    expected[theme] = await colors();
+  }
+  await selectSetting(page, "themeSelect", "system");
+  for (const colorScheme of ["light", "dark", "light"]) {
+    await page.emulateMedia({ colorScheme });
+    await expect.poll(colors).toEqual(expected[colorScheme]);
+    await expect(page.locator("#themeSelect")).toHaveValue("system");
+  }
+  // A fixed choice ignores later operating-system changes.
+  await selectSetting(page, "themeSelect", "dark");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(colors).toEqual(expected.dark);
+  await selectSetting(page, "themeSelect", "system");
+  await page.reload();
+  await expect(page.locator("#themeSelect")).toHaveValue("system");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
 
 test("load errors and notifications stay opaque and readable in every theme and layout", async ({ page }) => {
@@ -4007,6 +5194,47 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
   });
 }
 
+test("icon setup and missing-source previews remain usable on narrow screens", async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectBrowserErrors(page);
+  const iconData = { success: true, count: 0, icons: {}, warnings: [], sources: [{
+    label: "Vanilla Icons aus Mojang/bedrock-samples", path: "", enabled: true, exists: false, count: 0,
+  }], health: { enabled_sources: 1, existing_sources: 0, sample_found: 0, sample_total: 8,
+    sample: ["diamond_sword", "apple", "stone", "bow", "carrot", "chest", "firework_rocket", "banner"]
+      .map(id => ({ item_id: `minecraft:${id}`, found: false })),
+  } };
+  await page.route("**/api/icons/status*", route => route.fulfill({ json: iconData }));
+  await page.route("**/api/icons/scan", route => route.fulfill({ json: iconData }));
+  for (const locale of ["de", "en"]) {
+    await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openAppWithEmptyWorldScan(page);
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
+    await selectSetting(page, "themeSelect", "light");
+    for (const layout of ["classic", "studio", "focus"]) {
+      await selectLayout(page, layout);
+      await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+      await page.locator('[data-tab-dash="dashIcons"]').click();
+      const panel = page.locator("#dashIcons");
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(page.locator("#btnFocusIconSource")).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+        expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth), `${locale}/${layout}/${width}`).toBeLessThanOrEqual(1);
+        if (process.env.MCBE_BROWSER_EVIDENCE_DIR) await panel.screenshot({
+          path: `${process.env.MCBE_BROWSER_EVIDENCE_DIR}/icon-setup-${locale}-${layout}-${width}.png`,
+          animations: "disabled",
+        });
+        await page.locator("#btnFocusIconSource").click();
+        await expect(page.locator("#iconSourceDialog")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.locator("#iconSourceDialog")).toBeHidden();
+      }
+    }
+  }
+  expect(errors).toEqual([]);
+});
+
 for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark', 'light']) {
   test(`compact asset tools keep actions and diagnostics accessible (${layout}/${theme})`, async ({page}) => {
     test.setTimeout(60_000);
@@ -4044,7 +5272,7 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
       for (const tab of ['dashUpdate', 'dashIcons']) {
         await page.locator(`[data-tab-dash="${tab}"]`).click();
         await expect(page.locator(`#${tab}`)).toBeVisible();
-        await capturePlayerLoadEvidence(page, `compact-tools-${layout}-${theme}-${width}-${tab}`);
+        await captureBrowserEvidence(page, `compact-tools-${layout}-${theme}-${width}-${tab}`);
         const overflow = await page.evaluate(() => ({width: document.documentElement.scrollWidth - innerWidth,
           elements: [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && el.getBoundingClientRect().width > 0).slice(-12).map(el => [el.id, el.className, el.getBoundingClientRect().width])}));
         expect(overflow.width, JSON.stringify(overflow.elements)).toBeLessThanOrEqual(1);
@@ -4057,7 +5285,7 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
       await page.locator('#iconSourceDialog summary').click();
       await expect(page.locator('#iconSourcePath')).toBeVisible();
       expect(await page.locator('#iconSourceDialog').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-      await capturePlayerLoadEvidence(page, `compact-tools-${layout}-${theme}-${width}-source-dialog`);
+      await captureBrowserEvidence(page, `compact-tools-${layout}-${theme}-${width}-source-dialog`);
       await page.keyboard.press('Escape');
       await expect(page.locator('#iconSourceDialog')).toBeHidden();
       await expect(page.locator('#btnOpenIconSource')).toBeFocused();
@@ -4158,7 +5386,7 @@ for (const layout of ['classic', 'studio', 'focus']) {
         await testInfo.attach(`${layout}-${theme}-${width}${rail ? '-rail' : ''}`, {
           body: await page.screenshot(), contentType: 'image/png',
         });
-        await capturePlayerLoadEvidence(page, `players-${layout}-${theme}-${width}-${await page.locator('body').getAttribute('data-workflow-view')}${rail ? '-rail' : ''}`);
+        await captureBrowserEvidence(page, `players-${layout}-${theme}-${width}-${await page.locator('body').getAttribute('data-workflow-view')}${rail ? '-rail' : ''}`);
       }
       for (const width of [390, 1024, 1830]) {
         await page.setViewportSize({width, height: width === 390 ? 844 : 1000});

@@ -40,6 +40,8 @@
         return true;
     }
 
+    let copyFallbackFocusTimer = null;
+
     function showCopyFallback({ overlay, textEl, text = "", onMissing = null } = {}) {
         if (!overlay || !textEl) {
             if (typeof onMissing === "function") onMissing();
@@ -47,7 +49,9 @@
         }
         textEl.value = text || "";
         overlay.style.display = "flex";
-        setTimeout(() => {
+        if (copyFallbackFocusTimer != null) clearTimeout(copyFallbackFocusTimer);
+        copyFallbackFocusTimer = setTimeout(() => {
+            copyFallbackFocusTimer = null;
             textEl.focus();
             textEl.select();
         }, 0);
@@ -56,6 +60,8 @@
 
     function closeCopyFallback(overlay) {
         if (overlay) overlay.style.display = "none";
+        if (copyFallbackFocusTimer != null) clearTimeout(copyFallbackFocusTimer);
+        copyFallbackFocusTimer = null;
     }
 
     function renderConfirmMessage(msgEl, message, options = {}) {
@@ -113,6 +119,7 @@
                 cancelBtn.textContent = t("Abbrechen");
                 okBtn.onclick = null;
                 cancelBtn.onclick = null;
+                overlay.onkeydown = null;
                 if (loadingRequested && loadingOverlay) loadingOverlay.style.display = "flex";
                 returnFocus(opener, overlay);
                 resolve(value);
@@ -131,6 +138,22 @@
             okBtn.focus?.();
             okBtn.onclick = () => finish(true);
             cancelBtn.onclick = () => finish(false);
+            overlay.onkeydown = event => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    finish(false);
+                } else if (event.key === "Tab") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const buttons = [cancelBtn, okBtn].filter(button => !button.disabled && button.style.display !== "none");
+                    if (!buttons.length) return;
+                    const index = buttons.indexOf(document.activeElement);
+                    const next = index < 0 ? (event.shiftKey ? buttons.length - 1 : 0)
+                        : (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+                    buttons[next].focus();
+                }
+            };
         });
     }
 
@@ -350,6 +373,7 @@
 
 
     function createClipboardFeedbackController({
+        doc = window.document,
         elements = {},
         clipboard = navigator.clipboard,
         logStatus = () => {},
@@ -364,8 +388,10 @@
             doneButton = null,
             selectButton = null,
         } = elements;
+        let opener = null;
 
-        function showFallback(text) {
+        function showFallback(text, source = doc?.activeElement) {
+            if (overlay?.style.display !== "flex") opener = source || null;
             const shown = showCopyFallback({
                 overlay,
                 textEl,
@@ -388,11 +414,14 @@
 
         function closeFallback() {
             closeCopyFallback(overlay);
+            if (doc) returnFocus(opener, overlay, doc);
+            opener = null;
             clearStatus(fallbackStatusKey);
         }
 
         async function copyTextToClipboard(text, successMessage = t("In die Zwischenablage kopiert.")) {
             if (!text) return false;
+            const copyOpener = doc?.activeElement;
             try {
                 if (!clipboard || typeof clipboard.writeText !== "function") {
                     throw new Error("Clipboard API nicht verfügbar");
@@ -403,7 +432,7 @@
                 showToastFn(successMessage, "success", 2500);
                 return true;
             } catch (_e) {
-                showFallback(text);
+                showFallback(text, copyOpener);
                 return false;
             }
         }
@@ -417,6 +446,23 @@
             });
             overlay?.addEventListener("click", event => {
                 if (event.target === overlay) closeFallback();
+            });
+            overlay?.addEventListener("keydown", event => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeFallback();
+                } else if (event.key === "Tab") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const controls = [closeButton, textEl, selectButton, doneButton]
+                        .filter(control => control && !control.disabled && control.getClientRects().length > 0);
+                    if (!controls.length) return;
+                    const index = controls.indexOf(doc.activeElement);
+                    const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0)
+                        : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+                    controls[next].focus();
+                }
             });
         }
 
@@ -442,6 +488,7 @@
     function createInventoryClipboardFeedbackController({ doc = document, ...deps } = {}) {
         return createClipboardFeedbackController({
             ...deps,
+            doc,
             elements: collectClipboardFeedbackElements(doc),
         });
     }
@@ -458,6 +505,7 @@
         function open() {
             opener = doc.activeElement;
             if (overlay) overlay.style.display = "flex";
+            closeButton?.focus?.({ preventScroll: true });
         }
 
         function close() {
@@ -472,8 +520,16 @@
             overlay?.addEventListener("click", event => {
                 if (event.target === overlay) close();
             });
-            doc.addEventListener("keydown", event => {
-                if (event.key === "Escape" && overlay?.style.display === "flex") close();
+            overlay?.addEventListener("keydown", event => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    close();
+                } else if (event.key === "Tab") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeButton?.focus?.({ preventScroll: true });
+                }
             });
         }
 
@@ -568,6 +624,7 @@
         createHelpOverlayController,
         createFocusKeeper,
         focusLocator,
+        returnFocus,
         installUnknownServerWriteConfirmationFetchGuard,
         showCopyFallback,
         closeCopyFallback,

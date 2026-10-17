@@ -29,7 +29,10 @@ def test_index_renders_csrf_and_public_config():
 
     result = app_info_routes.index(deps)
 
-    assert result == ("template", "index.html", {"csrf_token": "csrf-token", "app_config": {"mode": "local"}})
+    assert result[:2] == ("template", "index.html")
+    assert result[2]["csrf_token"] == "csrf-token"
+    assert result[2]["app_config"] == {"mode": "local"}
+    assert result[2]["special_item_schema"]["item_kinds"]["minecraft:bundle"] == "bundle"
 
 
 def test_runtime_status_wraps_snapshot():

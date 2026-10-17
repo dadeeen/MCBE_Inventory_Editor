@@ -3,6 +3,39 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_saved_item_state_is_applied_atomically_and_requires_authoritative_special_data() -> None:
+    run_node(
+        r"""
+        const assert = require('assert');
+        const fs = require('fs');
+        global.window = {};
+        eval(fs.readFileSync('static/inventory_state.js', 'utf8'));
+        const inventory = {0:{slot:0,name:'minecraft:stone',count:1,replace_original_nbt:true}};
+        const chest = {1:{slot:1,name:'minecraft:bundle',count:1,special_edit:{kind:'bundle',data:{items:[]}}}};
+        const origins = window.MCBEInventoryState.createInventoryOriginController({
+            getInventory:()=>inventory,getEnderChestInventory:()=>chest,getCurrentPlayerKey:()=> 'player',getWorldPath:()=> 'world',
+        });
+        const before = JSON.stringify([inventory,chest]);
+        const digests = {inventory:{0:'a'.repeat(64)},ender_chest:{1:'b'.repeat(64)}};
+        assert.throws(()=>origins.normalizeOriginsToCurrentSavedState(digests), /neu laden/);
+        assert.strictEqual(JSON.stringify([inventory,chest]),before);
+        const saved = {inventory:{0:{slot:0,name:'minecraft:stone',count:1}},ender_chest:{}};
+        assert.throws(()=>origins.normalizeOriginsToCurrentSavedState(digests,saved), /neu laden/);
+        assert.strictEqual(JSON.stringify([inventory,chest]),before);
+        saved.ender_chest[1] = {slot:1,name:'minecraft:bundle',count:1,
+            has_preserved_nbt:true,special_item:{kind:'bundle',editable:true,data:{items:[]}}};
+        origins.normalizeOriginsToCurrentSavedState(digests,saved);
+        assert.strictEqual(inventory[0].replace_original_nbt,undefined);
+        assert.strictEqual(chest[1].special_edit,undefined);
+        assert.strictEqual(chest[1].source_item_digest,'b'.repeat(64));
+        assert.strictEqual(chest[1].source_container,'ender_chest');
+        assert.strictEqual(chest[1].has_preserved_nbt,true);
+        chest[1].special_item.data.items.push({slot:0,name:'minecraft:stone',count:1});
+        assert.strictEqual(saved.ender_chest[1].special_item.data.items.length,0);
+        """
+    )
+
+
 def test_frontend_inventory_state_selected_bulk_targets_skip_protected_slots() -> None:
     run_node(
         textwrap.dedent(

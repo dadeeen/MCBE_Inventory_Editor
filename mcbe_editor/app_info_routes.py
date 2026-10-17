@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from .special_items import editor_schema
+
 
 @dataclass(frozen=True)
 class AppInfoRouteDeps:
@@ -22,7 +24,7 @@ def healthz(deps: AppInfoRouteDeps):
 
 
 def index(deps: AppInfoRouteDeps):
-    return deps.render_template("index.html", csrf_token=deps.get_csrf_token(), app_config=deps.public_app_config())
+    return deps.render_template("index.html", csrf_token=deps.get_csrf_token(), app_config=deps.public_app_config(), special_item_schema=editor_schema())
 
 
 def app_config(deps: AppInfoRouteDeps):

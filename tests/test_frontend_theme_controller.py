@@ -25,12 +25,20 @@ def test_frontend_theme_controller_normalizes_persists_and_applies_theme() -> No
             };
             const documentElement = { dataset: {} };
             const themeSelect = { value: "" };
+            const systemThemeQuery = {
+                matches: true,
+                addEventListener(name, callback) {
+                    assert.strictEqual(name, "change");
+                    this.change = callback;
+                },
+            };
 
             const controller = context.window.MCBEThemeController.createThemeController({
                 storage,
                 storageKey: "theme",
                 documentElement,
                 themeSelect,
+                systemThemeQuery,
             });
 
             assert.strictEqual(controller.getTheme(), "light");
@@ -45,6 +53,18 @@ def test_frontend_theme_controller_normalizes_persists_and_applies_theme() -> No
             assert.strictEqual(themeSelect.value, "dark");
             assert.strictEqual(stored.get("theme"), "dark");
             assert.strictEqual(context.window.MCBEThemeController.normalizeTheme("system"), "system");
+            assert.strictEqual(controller.applyTheme("system"), "system");
+            assert.strictEqual(documentElement.dataset.theme, "light");
+            assert.strictEqual(themeSelect.value, "system");
+            assert.strictEqual(stored.get("theme"), "system");
+            systemThemeQuery.matches = false;
+            systemThemeQuery.change();
+            assert.strictEqual(documentElement.dataset.theme, "dark");
+            assert.strictEqual(controller.getTheme(), "system");
+            controller.applyTheme("minecraft");
+            systemThemeQuery.matches = true;
+            systemThemeQuery.change();
+            assert.strictEqual(documentElement.dataset.theme, "minecraft");
             """
         )
     )

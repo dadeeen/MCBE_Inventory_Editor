@@ -384,6 +384,30 @@ def test_candidate_footprint_allows_edge_overhang_when_center_is_supported() -> 
     assert "Körperraum frei" in probed["warning"]
 
 
+@pytest.mark.parametrize("plant,safe", [("minecraft:poppy", True), ("minecraft:wither_rose", False)])
+@pytest.mark.parametrize("plant_x", [8, 7], ids=["center", "edge"])
+def test_placement_rejects_damaging_plants_in_the_actual_footprint(plant, safe, plant_x) -> None:
+    floor = {(x, 0, z) for x in range(16) for z in range(16)}
+    raw = _single_layer_payload_with_palette_indices(floor, bits_per_block=2)
+    payload = bytearray(raw[: 3 + _word_count(2) * 4])
+    index = _block_index(plant_x, 1, 8)
+    offset = 3 + (index // 16) * 4
+    word = int.from_bytes(payload[offset : offset + 4], "little") | (2 << ((index % 16) * 2))
+    payload[offset : offset + 4] = word.to_bytes(4, "little")
+    payload += _palette_count(3) + _block_palette_entry("minecraft:air") + _block_palette_entry("minecraft:dirt") + _block_palette_entry(plant)
+    base = _chunk_base(0, 0)
+    db = FakeDb({base + bytes([SUBCHUNK_PREFIX_TAG, 4]): bytes(payload), base + bytes([FINALIZED_STATE_TAG]): _finalized(2)})
+
+    column = probe_candidate_chunk(db, {"x": plant_x + 0.5, "y": 65.0, "z": 8.5}, dimension_id=0)
+    assert column["placement_check"]["block_names"] == {"floor": "minecraft:dirt", "feet": plant, "head": "minecraft:air"}
+    assert _reassess_candidate_space({"chunk_probe": column})["safe_to_place"] is safe
+
+    footprint = _candidate_with_footprint_probe(db, {"x": 8.5, "y": 65.0, "z": 8.5}, dimension_id=0)
+    assert footprint["safe_to_place"] is safe
+    if not safe:
+        assert plant in footprint["warning"]
+
+
 def test_candidate_footprint_reads_both_chunks_at_boundary() -> None:
     left_base = _chunk_base(0, 0)
     right_base = _chunk_base(1, 0)

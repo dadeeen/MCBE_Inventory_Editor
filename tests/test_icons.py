@@ -403,9 +403,8 @@ def test_read_only_icon_status_loads_published_cache_without_scan(monkeypatch, t
 def test_public_icon_index_hides_internal_fields():
     """Interne Felder dürfen nicht über die HTTP-Schnittstelle gehen.
 
-    ``_by_token`` ist der Server-Lookup, ``display_icons`` hat seit dem Entfernen
-    des Varianten-Badges keinen Client-Konsumenten mehr. Der interne Index behält
-    beide, damit Icon-Cache und Manifest-Schema unverändert gültig bleiben.
+    ``_by_token`` ist der Server-Lookup. ``display_icons`` bleibt intern;
+    geprüfte Bannerflächen erhalten eine separate, begrenzte Zuordnung.
     """
 
     from mcbe_editor import icon_api_routes

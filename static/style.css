@@ -1265,6 +1265,11 @@ body {
     .player-location-row {
         grid-template-columns: 1fr;
     }
+
+    #dashStats > .row,
+    #dashEffects .abilities-section > .row {
+        flex-direction: column;
+    }
 }
 
 #detailDataVariantGroup {
@@ -1626,6 +1631,23 @@ body {
     color: var(--text-secondary);
     overflow-wrap: anywhere;
     background: rgba(255, 255, 255, 0.03);
+}
+
+.backup-size-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#backupMaxSizeGib {
+    width: 6.5rem;
+    min-height: 44px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.backup-size-controls > button {
+    min-height: 44px;
 }
 
 .backup-row {
@@ -2299,6 +2321,7 @@ body.item-browser-open {
 
 .browser-item {
     min-width: 0;
+    font: inherit;
     background: var(--browser-item-bg, rgba(255, 255, 255, 0.03));
     border: 1px solid var(--browser-item-border, rgba(255, 255, 255, 0.06));
     color: var(--text-primary);
@@ -4881,23 +4904,28 @@ body.item-browser-open {
 .session-log-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 360px;
+    gap: 0;
+    max-height: 480px;
     overflow: auto;
-    padding: 10px;
+    padding: 0 12px;
     border-radius: 12px;
     border: 1px solid var(--slot-border);
-    background: rgba(0,0,0,0.22);
+    background: var(--card-bg);
 }
 .session-log-row {
     display: grid;
     grid-template-columns: 70px 1fr;
     gap: 10px;
     align-items: start;
-    padding: 9px 10px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.07);
-    background: rgba(255,255,255,0.035);
+    padding: 12px 0;
+    border-bottom: 1px solid var(--slot-border);
+    min-width: 0;
+}
+.session-log-row:last-child { border-bottom: 0; }
+.session-log-row > div { min-width: 0; }
+.session-log-row.load strong {
+    color: var(--text-secondary);
+    font-weight: 400;
 }
 .session-log-row strong,
 .session-log-row small {
@@ -4905,7 +4933,9 @@ body.item-browser-open {
 }
 .session-log-row strong {
     color: var(--text-primary);
-    font-size: 0.78rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 .session-log-row small {
     margin-top: 2px;
@@ -5312,7 +5342,7 @@ body.item-browser-open {
 }
 
 /* v0.5.0 icon manager */
-.icon-manager { display: grid; gap: 1rem; }
+.icon-manager { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 .tools-details { min-width: 0; }
 .tools-details .dashboard-tab-headers { max-width: 100%; overflow-x: auto; }
 .tools-details .tab-btn-dash { flex-shrink: 0; white-space: nowrap; }
@@ -5361,7 +5391,7 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 .icon-manager-add label { display: block; font-weight: 700; margin-bottom: .45rem; }
 .path-inline { display: flex; gap: .5rem; align-items: center; }
 .path-inline input { flex: 1; min-width: 12rem; }
-.icon-manager-panel { display: grid; gap: .75rem; }
+.icon-manager-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
 .icon-manager-status, .workspace-current { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }
 .icon-manager-status > div { border: 1px solid var(--border); border-radius: 14px; padding: .85rem; background: var(--surface); }
 .icon-manager-status span, .workspace-current span { display: block; font-size: .78rem; color: var(--text-muted); margin-bottom: .2rem; }
@@ -5435,6 +5465,7 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
     padding: .9rem;
     background: linear-gradient(135deg, var(--surface), var(--surface-muted));
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: .7rem;
 }
 .icon-preview-panel strong { display: block; }
@@ -5942,8 +5973,8 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
     flex-direction: column;
     gap: 12px;
 }
-.analysis-grid,
-.undo-stack-grid {
+.undo-redo-panel { gap: 6px; }
+.analysis-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 10px;
@@ -5952,12 +5983,42 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 .overview-card.good { border-color: rgba(34, 197, 94, 0.35); }
 .overview-card.warn { border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.06); }
 .overview-card.bad { border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.06); }
-.undo-stack-grid ol {
-    margin: 8px 0 0 18px;
-    padding: 0;
-    color: var(--text-muted, #64748b);
+.history-toolbar, .history-log-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
 }
-.undo-stack-grid li { margin: 4px 0; }
+#dashSession { gap: 12px; }
+.history-toolbar { margin: 2px 0; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.history-actions .btn, #btnClearSessionLog { min-height: 44px; }
+.history-save-state { margin: 0; color: var(--text-primary); font-weight: 600; }
+.history-save-state::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+}
+.history-save-state[data-state="clean"]::before { background: #10b981; }
+.history-save-state[data-state="dirty"]::before { background: #f59e0b; }
+.history-next { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.history-next span { color: var(--text-secondary); }
+.history-next strong { font-weight: 500; }
+.history-help { margin: 0 0 4px; line-height: 1.5; }
+.history-log-heading { margin-top: 8px; }
+.history-log-heading h4 { margin: 0; }
+.session-log-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 560px) {
+    .history-actions { width: 100%; }
+    .history-actions .btn { flex: 1 1 auto; }
+    .history-log-heading { gap: 4px; }
+    .session-log-row { gap: 3px; }
+}
 .secondary-bulk-actions {
     margin-top: 8px;
     grid-template-columns: 1fr 1fr;
@@ -6376,7 +6437,6 @@ textarea:disabled,
 .status-tile span,
 .status-tile small,
 .compare-card p,
-.undo-stack-grid ol,
 .icon-manager-status span,
 .icon-manager-status small,
 .icon-source-main span,

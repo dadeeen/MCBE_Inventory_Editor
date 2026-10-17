@@ -13,6 +13,7 @@ from typing import Any
 
 from .api_errors import error_payload
 from .archive_errors import ZIP_READ_ERRORS
+from .banner_patterns import BANNER_TEXTURES
 from .i18n import t
 from .icon_diagnostics import warning_text
 from .icons import (
@@ -64,12 +65,8 @@ class IconRouteDeps:
     select_icon_folder: Callable[[], str | None]
 
 
-# Interne Felder, die nicht über die HTTP-Schnittstelle gehen. ``_by_token`` ist
-# der Server-Lookup für /api/icons/<token>. ``display_icons`` waren die
-# Entity-Varianten-Vorschaubilder: der Slot-Badge dafür wurde entfernt, weil ein
-# 18-px-Ausschnitt einer Entity-Textur praktisch nur als schwarzer Kasten
-# ankommt. Extraktion und Cache laufen unverändert weiter, damit die
-# Manifest-Schemaversion und die Icon-Caches der Nutzer gültig bleiben.
+# Raw display assets and server lookup metadata stay internal. Only reviewed
+# banner front faces are exposed through their own allowlisted mapping.
 _INTERNAL_ICON_INDEX_FIELDS = ("_by_token", "display_icons", "_context_id", "_warning_records", "_legacy_warnings")
 
 
@@ -77,11 +74,14 @@ def _public_icon_index(index: dict) -> dict:
     public = {key: value for key, value in index.items() if key not in _INTERNAL_ICON_INDEX_FIELDS}
     public["warnings"] = [warning_text(record) for record in index.get("_warning_records", index.get("warnings", []))]
     context = index.get("_context_id")
+
+    def with_context(entry):
+        return {**entry, "url": f"{entry['url']}?context={context}"} if context and entry.get("url") else entry
+
+    public["banner_patterns"] = {
+        code: with_context(index["display_icons"][f"mcbe:banner_{code}"]) for code in BANNER_TEXTURES if f"mcbe:banner_{code}" in index.get("display_icons", {})
+    }
     if context:
-
-        def with_context(entry):
-            return {**entry, "url": f"{entry['url']}?context={context}"} if entry.get("url") else entry
-
         public["icons"] = {key: with_context(entry) for key, entry in index.get("icons", {}).items()}
         if "health" in index:
             public["health"] = {**index["health"], "sample": [with_context(entry) for entry in index["health"].get("sample", [])]}

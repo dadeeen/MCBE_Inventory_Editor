@@ -682,7 +682,8 @@
     }
 
     function browserItemCardElement(model = {}, doc = document) {
-        const card = doc.createElement("div");
+        const card = doc.createElement("button");
+        card.type = "button";
         card.className = "browser-item";
         card.innerHTML = browserItemCardHtml(model);
         return card;

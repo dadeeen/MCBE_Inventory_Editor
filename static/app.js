@@ -147,6 +147,7 @@ function getMountController() {
             showToast,
             logStatus,
             onPendingChanged: () => setDirty(buildChangeSummary({ limit: 1, includeSections: true }).total > 0),
+            recordAction,
             onReviewRequested: () => setWorkflowView("save", { user: true }),
             pushUndo,
             guardEditingAction,
@@ -309,13 +310,14 @@ const inventoryOriginController = window.MCBEInventoryState.createInventoryOrigi
     getEnderChestInventory: () => enderChestInventory,
     getProtectedKnownSlots: () => protectedKnownSlots,
     setProtectedKnownSlots: value => { protectedKnownSlots = value; },
+    onSavedItemsApplied: () => { updateGridVisuals(); updateSelectionUI(); },
 });
 function ensureItemOrigin(item, containerName = "inventory") { return inventoryOriginController.ensureItemOrigin(item, containerName); }
 function annotateItemOrigins(items, playerKey, containerName) { return inventoryOriginController.annotateItemOrigins(items, playerKey, containerName); }
 function updateProtectedKnownSlotsFromMeta(meta) { return inventoryOriginController.updateProtectedKnownSlotsFromMeta(meta); }
 function isProtectedKnownSlot(slotId, containerName) { return inventoryOriginController.isProtectedKnownSlot(slotId, containerName); }
-function normalizeOriginsToCurrentSavedState(itemSourceDigests = null) {
-    return inventoryOriginController.normalizeOriginsToCurrentSavedState(itemSourceDigests);
+function normalizeOriginsToCurrentSavedState(itemSourceDigests = null, savedItems = null) {
+    return inventoryOriginController.normalizeOriginsToCurrentSavedState(itemSourceDigests, savedItems);
 }
 function getInventoryGridController() {
     if (!inventoryGridController) {
@@ -335,6 +337,7 @@ function getInventoryGridController() {
                 getCurrentPlayerKey: () => currentPlayerKey,
             },
             renderer: {
+                itemLabel: item => detailItemLabel(item.name, item.display_name, item.damage),
                 buildSlotTooltipLines,
                 buildSlotTooltipEntries,
                 slotAreaLabel,
@@ -787,7 +790,12 @@ const dirtyStateController = window.MCBEWorkflowState.createDirtyStateController
     renderSaveWorkflowPanel,
     updateAppMode,
 });
-function setDirty(dirty) { return dirtyStateController.setDirty(dirty); }
+function setDirty(dirty) {
+    // An edit can return to the loaded state without using Undo (for example,
+    // moving the same item back). Keep all dirty indicators on the same baseline.
+    dirtyStateController.setDirty(Boolean(dirty) && !undoRedoAppController.currentStateIsClean());
+    renderUndoRedoPanel();
+}
 
 // Read-only contract for the desktop close guard; the browser uses beforeunload.
 window.MCBEDesktop = Object.freeze({
@@ -1054,6 +1062,7 @@ const iconSourcesController = window.MCBEIconSourcesController.createInventoryIc
         renderStatusCenter();
         updateGridVisuals();
         updateDetailPreview();
+        specialItemEditor.refreshPreview();
     },
 });
 
@@ -1067,6 +1076,8 @@ function renderIconManager(data = null) {
 // Undo/Redo system
 const undoRedoAppController = window.MCBEUndoRedoController.createInventoryUndoRedoAppController({
     doc: document,
+    hasPlayer: () => Boolean(currentPlayer),
+    getIsDirty: () => isDirty,
     takeSnapshot: stateSnapshot.takeSnapshot,
     snapshotHash: window.MCBEStateSnapshot.snapshotHash,
     cloneJson: window.MCBEStateSnapshot.cloneJson,
@@ -1106,6 +1117,45 @@ function updateUndoButtons() { return undoRedoAppController.updateUndoButtons();
 function renderUndoRedoPanel() { return undoRedoAppController.renderUndoRedoPanel(); }
 undoRedoAppController.wire();
 
+const specialItemModel = window.MCBESpecialItemLogic.createModel(JSON.parse(document.getElementById("specialItemSchema").textContent), itemCatalog);
+const specialItemEditor = window.MCBESpecialItemEditor.createEditor({
+    dialog: document.getElementById("specialItemDialog"),
+    model: specialItemModel,
+    catalog: itemCatalog,
+    getItems: () => itemsDb,
+    getEnchantments: () => enchDb,
+    getBannerPatterns: () => iconSourceSummary?.banner_patterns || {},
+    loadBannerPatterns: () => iconSourcesController.updateVanillaIcons(),
+    canLoadBannerPatterns: () => iconSourcesController.canWriteAppState(),
+    itemLabel: item => detailItemLabel(item.name || "", item.display_name || "", item.damage || 0),
+    canEdit: () => !guardEditingAction(),
+    commit: (context, item) => {
+        const source = context.container === "ender_chest" ? enderChestInventory : inventory;
+        if (guardEditingAction() || isProtectedKnownSlot(context.slot, context.container)) return { ok: false, error: t("Bearbeitung ist aktuell gesperrt.") };
+        if (context.player !== currentPlayerKey || context.world !== worldPath || JSON.stringify(source[context.slot] || null) !== context.before) {
+            return { ok: false, error: t("Der Spieler oder das Item wurde inzwischen geändert. Öffne den Editor erneut.") };
+        }
+        const plan = window.MCBESlotDetailLogic.applySingleSlotPlan({
+            buildResult: { ok: true, item }, previousItem: source[context.slot] || null, containerName: context.container,
+        });
+        if (!plan.ok && plan.reason !== "unchanged") return { ok: false, error: plan.toast.message };
+        if (window.MCBESpecialItemLogic.sameUserFields(source[context.slot] || null, item)) return { ok: true };
+        const actionMessage = t("{slot}: Spezialdaten bearbeitet", { slot: slotDisplayName(context.slot, context.container) });
+        pushUndo(actionMessage);
+        source[context.slot] = item;
+        updateGridVisuals();
+        loadSingleSlotEditor(context.slot, context.container === "ender_chest");
+        setDirty(true);
+        recordAction(actionMessage, "edit");
+        return { ok: true };
+    },
+});
+function openSpecialEditor(slot, container = "inventory", draft = null) {
+    if (guardEditingAction() || isProtectedKnownSlot(slot, container)) return;
+    const source = container === "ender_chest" ? enderChestInventory : inventory;
+    specialItemEditor.open(draft || source[slot], { slot, container, player: currentPlayerKey, world: worldPath, before: JSON.stringify(source[slot] || null) });
+}
+
 const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createConfiguredInventoryClipboardController({
     doc: document,
     win: window,
@@ -1118,7 +1168,7 @@ const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createCo
     },
     selection: { currentSelectionState },
     slotHandlers: { handleSlotClick, handleEnderSlotClick },
-    helpers: { isProtectedKnownSlot, showProtectedSlotMessage, pushUndo, updateGridVisuals, setDirty, showToast, recordAction, guardEditingAction },
+    helpers: { isProtectedKnownSlot, showProtectedSlotMessage, pushUndo, updateGridVisuals, setDirty, showToast, recordAction, guardEditingAction, openSpecialEditor, specialItemModel },
     renderer: { slotDisplayName },
 });
 inventoryClipboardController.bindContextMenu();
@@ -1306,6 +1356,8 @@ const slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetai
         slotDisplayName,
         detailItemLabel,
         getItemAvailability: itemAvailabilityCatalog.badgeFor,
+        openSpecialEditor,
+        specialItemModel,
         pushUndo,
         updateGridVisuals,
         setDirty,

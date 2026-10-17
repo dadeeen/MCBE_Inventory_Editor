@@ -12,12 +12,6 @@
             .replaceAll("'", "&#039;");
     }
 
-    function renderItems(items, empty) {
-        return items.length
-            ? `<ol>${items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ol>`
-            : `<div class="hint-text">${escapeHtml(empty)}</div>`;
-    }
-
     function undoRedoButtonModels({ undoLabels = [], redoLabels = [], undoCount = 0, redoCount = 0 } = {}) {
         return {
             undo: {
@@ -39,6 +33,8 @@
         const pairs = [
             [elements.undoButton, model.undo],
             [elements.redoButton, model.redo],
+            [elements.historyUndoButton, model.undo],
+            [elements.historyRedoButton, model.redo],
         ];
         for (const [button, state] of pairs) {
             if (!button || !state) continue;
@@ -54,32 +50,33 @@
                 button.title = state.blockedTitle || title || "";
             }
             button.setAttribute("aria-label", button.title || title || "");
-            button.textContent = state.text || "";
+            const historyButton = button === elements.historyUndoButton || button === elements.historyRedoButton;
+            const label = button === elements.historyUndoButton ? t("Rückgängig") : t("Wiederholen");
+            button.textContent = historyButton ? `${state.text} ${label}${count ? ` (${count})` : ""}` : state.text || "";
         }
     }
 
     function undoRedoPanelHtml({ undoLabels = [], redoLabels = [], undoCount = 0, redoCount = 0 } = {}) {
-        const undoItems = undoLabels.slice(-8).reverse();
-        const redoItems = redoLabels.slice(-5).reverse();
-        if (!undoItems.length && !redoItems.length) {
-            return `<div class="no-backups">${t("Noch kein Undo/Redo-Stapel vorhanden.")}</div>`;
-        }
-        return `
-        <div class="undo-stack-grid">
-            <section class="diagnostic-details-card">
-                <h4>${t("Rückgängig möglich ({count})", { count: undoCount })}</h4>
-                ${renderItems(undoItems, t("Keine Rückgängig-Schritte."))}
-            </section>
-            <section class="diagnostic-details-card">
-                <h4>${t("Wiederholen möglich ({count})", { count: redoCount })}</h4>
-                ${renderItems(redoItems, t("Keine Wiederholen-Schritte."))}
-            </section>
-        </div>`;
+        const rows = [];
+        if (undoCount) rows.push([t("Als Nächstes rückgängig:"), undoLabels.at(-1)]);
+        if (redoCount) rows.push([t("Als Nächstes wiederholen:"), redoLabels.at(-1)]);
+        return rows.length
+            ? rows.map(([label, action]) => `<p class="history-next"><span>${escapeHtml(label)}</span> <strong>${escapeHtml(action)}</strong></p>`).join("")
+            : `<p class="hint-text">${t("Noch keine Bearbeitung zum Rückgängigmachen.")}</p>`;
+    }
+
+    function applyHistorySaveState(element, { hasPlayer = false, isDirty = false } = {}) {
+        if (!element) return;
+        const text = !hasPlayer ? t("Lade einen Spieler, um Änderungen zu bearbeiten.")
+            : isDirty ? t("Ungespeicherte Änderungen") : t("Keine ungespeicherten Änderungen");
+        if (element.textContent !== text) element.textContent = text;
+        element.dataset.state = !hasPlayer ? "empty" : isDirty ? "dirty" : "clean";
     }
 
     window.MCBEUndoRedoView = {
         applyUndoRedoButtonModels,
         undoRedoButtonModels,
         undoRedoPanelHtml,
+        applyHistorySaveState,
     };
 }());

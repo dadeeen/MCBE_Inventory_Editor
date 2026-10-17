@@ -281,7 +281,7 @@
             summary.innerHTML = window.MCBERestoreReview.restoreReviewHtml(model);
         }
 
-        function openRestoreReview(preview, filename, targetWorld = {}) {
+        function openRestoreReview(preview, filename, targetWorld = {}, opener = null) {
             renderRestoreReview(preview, filename, targetWorld);
             return new Promise(resolve => {
                 if (!overlay) {
@@ -289,6 +289,8 @@
                     return;
                 }
                 const required = t("WIEDERHERSTELLEN");
+                const returnFocusTo = opener || document.activeElement;
+                let focusTimer = null;
                 const cleanup = (value) => {
                     overlay.style.display = "none";
                     confirmButton?.removeEventListener("click", onConfirm);
@@ -297,12 +299,30 @@
                     overlay.removeEventListener("click", onOverlayClick);
                     confirmInput?.removeEventListener("input", onInput);
                     document.removeEventListener("keydown", onKeyDown);
+                    clearTimeout(focusTimer);
+                    window.MCBEUiFeedback?.returnFocus?.(returnFocusTo, overlay);
                     resolve(value);
                 };
                 const onConfirm = () => cleanup(true);
                 const onCancel = () => cleanup(false);
                 const onOverlayClick = (event) => { if (event.target === overlay) cleanup(false); };
-                const onKeyDown = (event) => { if (event.key === "Escape") cleanup(false); };
+                const onKeyDown = (event) => {
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        cleanup(false);
+                    } else if (event.key === "Tab") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const controls = [closeButton, confirmInput, cancelButton, confirmButton]
+                            .filter(control => control && !control.disabled && control.getClientRects().length > 0);
+                        if (!controls.length) return;
+                        const index = controls.indexOf(document.activeElement);
+                        const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0)
+                            : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+                        controls[next].focus();
+                    }
+                };
                 const onInput = () => {
                     if (confirmButton) confirmButton.disabled = String(confirmInput?.value || "").trim().toUpperCase() !== required;
                 };
@@ -315,7 +335,7 @@
                 confirmInput?.addEventListener("input", onInput);
                 document.addEventListener("keydown", onKeyDown);
                 overlay.style.display = "flex";
-                setTimeout(() => confirmInput?.focus(), 40);
+                focusTimer = setTimeout(() => confirmInput?.focus(), 40);
             });
         }
 
@@ -418,6 +438,7 @@
                 logRestoreStatus(message, "warning");
                 showToast(message, "warning", 8000);
             };
+            const restoreOpener = overlay ? document.activeElement : null;
             showLoading(t("Lade Restore-Vorschau..."));
             let preview = null;
             try {
@@ -449,7 +470,7 @@
             const confirmed = await openRestoreReview(preview, filename, {
                 worldName: previewWorldName,
                 worldPath: previewWorldPath,
-            });
+            }, restoreOpener);
             if (!confirmed) {
                 const outcome = restoreCancelledOutcome();
                 logRestoreStatus(outcome.statusMessage, outcome.statusType);

@@ -373,7 +373,8 @@
                     return false;
                 }
                 if (guardEditingAction()) return false;
-                pushUndo();
+                const actionMessage = t("Daten von {player} übernommen", { player: data.player?.label || key });
+                pushUndo(actionMessage);
                 if (useInv) {
                     const copied = stripUntransferableRootEquipment(JSON.parse(JSON.stringify(data.inventory || {})));
                     annotateItemOrigins(copied.inventory, key, "inventory");
@@ -430,7 +431,7 @@
                 updateGridVisuals();
                 renderPlayerInventorySummary();
                 setDirty(true);
-                recordAction(t("Daten von {player} übernommen", { player: data.player?.label || key }), "copy");
+                recordAction(actionMessage, "copy");
                 showToast(t("Daten lokal übernommen. Prüfe die Änderungen vor dem Speichern."), "info");
                 return true;
             } catch (e) {

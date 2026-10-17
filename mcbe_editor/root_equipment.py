@@ -6,9 +6,7 @@ from mcbe_editor import nbt
 
 from .i18n import t
 from .inventory import (
-    _apply_entity_variant_edit,
-    _build_item_compound,
-    _check_item_enchantment_compatibility,
+    _build_validated_item,
     _is_compound_tag,
     _is_list_tag,
     _item_control_field_type_issues,
@@ -17,14 +15,8 @@ from .inventory import (
     _parse_item_slot,
     _read_item_slot,
     _resolve_base_item_tag,
-    apply_editable_item_tags,
     get_tag_value,
-    item_payload_matches_original,
-    reject_non_addable_new_item,
     validate_inventory_item,
-    validate_item_data_value_variant,
-    validate_item_original_bounds,
-    validate_item_stack_count,
 )
 from .item_data import item_component, item_wearable_slot
 
@@ -660,18 +652,7 @@ def apply_root_equipment_writes(
             "inventory",
             used_external_source_checks,
         )
-        _check_item_enchantment_compatibility(name, validated_item, base_item_tag, enchantments_db, "Ausrüstung", slot)
-        reject_non_addable_new_item(name, base_item_tag, "Ausrüstung", slot)
-        validate_item_stack_count(name, validated_item["count"], base_item_tag, "Ausrüstung", slot)
-        validate_item_original_bounds(validated_item, base_item_tag, "Ausrüstung", slot)
-        validate_item_data_value_variant(name, validated_item["damage"], base_item_tag, "Ausrüstung", slot)
-        # Wie im Inventar: unberührte Echo-Items werden nicht neu gebaut, damit
-        # eine fremde Änderung ihre NBT-Struktur nicht umschreibt.
-        unchanged = item_payload_matches_original(base_item_tag, validated_item, enchantments_db)
-        item_compound = _build_item_compound(base_item_tag, validated_item, "Ausrüstung", False, unchanged=unchanged)
-        if not unchanged:
-            apply_editable_item_tags(item_compound, validated_item, enchantments_db)
-            _apply_entity_variant_edit(item_compound, validated_item, base_item_tag, "Ausrüstung")
+        item_compound = _build_validated_item(validated_item, base_item_tag, enchantments_db, "Ausrüstung", False)
         # Root-Listen-Einträge tragen keinen Slot-Key; die Position ist der Index.
         if "Slot" in item_compound:
             del item_compound["Slot"]

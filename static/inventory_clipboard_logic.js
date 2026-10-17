@@ -170,6 +170,8 @@
         showToast = () => {},
         recordAction = () => {},
         guardEditingAction = () => false,
+        openSpecialEditor = () => {},
+        specialItemModel = null,
         slotDisplayName = (slotId, containerName) => `${containerName}:${slotId}`,
         clearTargets = targets => window.MCBEInventoryState?.clearTargets?.(targets),
         cloneSlotItem = (item, containerName, helpers) => window.MCBEInventoryState?.cloneSlotItemForClipboard?.(item, containerName, helpers),
@@ -178,6 +180,7 @@
         let slotClipboard = null;
         let ctxSlotId = null;
         let ctxSlotContainer = "inventory";
+        let ctxElement = null;
 
         function inventoryForContainer(containerName) {
             return containerName === "ender_chest" ? getEnderChestInventory() : getInventory();
@@ -225,6 +228,13 @@
                 ctxSlotContainer = isEnder ? "ender_chest" : "inventory";
                 ctxSlotId = parseInt(slot.getAttribute(isEnder ? "data-ender-slot" : "data-slot"), 10);
                 const protectedKnown = isProtectedKnownSlot(ctxSlotId, ctxSlotContainer);
+                ctxElement = slot;
+                const item = inventoryForContainer(ctxSlotContainer)[ctxSlotId];
+                const special = contextMenu.querySelector('[data-action="special"]');
+                if (special) {
+                    special.hidden = protectedKnown || !specialItemModel?.kind(item);
+                    special.textContent = specialItemModel?.label(item) || "";
+                }
                 contextMenu.style.display = "flex";
                 contextMenu.style.left = `${event.clientX}px`;
                 contextMenu.style.top = `${event.clientY}px`;
@@ -232,6 +242,31 @@
                     hasClipboard: Boolean(slotClipboard),
                     protectedKnown,
                 }));
+                const rect = contextMenu.getBoundingClientRect();
+                contextMenu.style.left = `${Math.max(4, Math.min(event.clientX, win.innerWidth - rect.width - 4))}px`;
+                contextMenu.style.top = `${Math.max(4, Math.min(event.clientY, win.innerHeight - rect.height - 4))}px`;
+                contextMenu.querySelectorAll("button").forEach(button => button.setAttribute("role", "menuitem"));
+                Array.from(contextMenu.querySelectorAll("button")).find(button => !button.hidden && button.style.display !== "none")?.focus();
+            });
+
+            doc.addEventListener("keydown", event => {
+                const slot = event.target.closest?.(".inventory-slot");
+                if (slot && (event.key === "ContextMenu" || event.shiftKey && event.key === "F10")) {
+                    event.preventDefault();
+                    const rect = slot.getBoundingClientRect();
+                    slot.dispatchEvent(new win.MouseEvent("contextmenu", { bubbles: true, clientX: rect.left, clientY: rect.bottom }));
+                }
+            });
+            contextMenu.addEventListener("keydown", event => {
+                event.stopPropagation();
+                const buttons = Array.from(contextMenu.querySelectorAll("button")).filter(button => !button.hidden && button.style.display !== "none" && !button.disabled);
+                if (event.key === "Escape" || event.key === "Tab") { hideContextMenu(); ctxElement?.focus(); if (event.key === "Escape") event.preventDefault(); }
+                if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+                    event.preventDefault();
+                    const index = buttons.indexOf(doc.activeElement);
+                    const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+                    buttons[next]?.focus();
+                }
             });
 
             doc.addEventListener("click", (event) => {
@@ -247,8 +282,15 @@
             const slotId = ctxSlotId;
             hideContextMenu();
             if (slotId === null) return false;
+            ctxElement?.focus();
 
             const source = inventoryForContainer(ctxSlotContainer);
+            if (action === "special") {
+                if (ctxSlotContainer === "ender_chest") handleEnderSlotClick(null, slotId);
+                else handleSlotClick(null, slotId);
+                openSpecialEditor(slotId, ctxSlotContainer);
+                return true;
+            }
             const isEnder = ctxSlotContainer === "ender_chest";
             const plan = contextSlotActionPlan({
                 action,
@@ -277,34 +319,37 @@
             }
             if (guardEditingAction()) return true;
             if (plan.operation === "paste") {
-                pushUndo();
+                const actionMessage = t("{name} in {slot} eingefügt", { name: slotClipboard.name, slot: slotDisplayName(slotId, ctxSlotContainer) });
+                pushUndo(actionMessage);
                 pasteClipboardToTargets([{ map: source, slotId, container: ctxSlotContainer }]);
                 updateGridVisuals();
                 setDirty(true);
                 showToast(t("📄 {name} eingefügt", { name: slotClipboard.name }));
-                recordAction(t("{name} in {slot} eingefügt", { name: slotClipboard.name, slot: slotDisplayName(slotId, ctxSlotContainer) }), "edit");
+                recordAction(actionMessage, "edit");
                 if (plan.selectSlot) isEnder ? handleEnderSlotClick(null, slotId) : handleSlotClick(null, slotId);
                 return true;
             }
             if (plan.operation === "cut") {
                 const clipboardCandidate = cloneItemForClipboard(source[slotId], ctxSlotContainer);
                 if (!clipboardCandidate) return false;
-                pushUndo();
+                const actionMessage = t("{slot} ausgeschnitten", { slot: slotDisplayName(slotId, ctxSlotContainer) });
+                pushUndo(actionMessage);
                 slotClipboard = clipboardCandidate;
                 clearTargets([{ map: source, slotId }]);
                 updateGridVisuals();
                 setDirty(true);
                 showToast(t("✂️ {name} ausgeschnitten", { name: slotClipboard.name }));
-                recordAction(t("{slot} ausgeschnitten", { slot: slotDisplayName(slotId, ctxSlotContainer) }), "edit");
+                recordAction(actionMessage, "edit");
                 return true;
             }
             if (plan.operation === "clear") {
-                pushUndo();
+                const actionMessage = t("{slot} geleert", { slot: slotDisplayName(slotId, ctxSlotContainer) });
+                pushUndo(actionMessage);
                 clearTargets([{ map: source, slotId }]);
                 updateGridVisuals();
                 setDirty(true);
                 showToast(t("🗑️ Slot geleert"));
-                recordAction(t("{slot} geleert", { slot: slotDisplayName(slotId, ctxSlotContainer) }), "edit");
+                recordAction(actionMessage, "edit");
                 return true;
             }
             return false;
@@ -377,16 +422,18 @@
                 showToast(t("Ausrüstungsslots wurden übersprungen: Item dort nicht tragbar."), "warning", 3000);
             }
             if (plan.operation === "paste_ender") {
-                pushUndo();
+                const actionMessage = t("{name} in {slot} eingefügt", { name: slotClipboard.name, slot: slotDisplayName(plan.target.slotId, "ender_chest") });
+                pushUndo(actionMessage);
                 pasteClipboardToTargets([{ map: getEnderChestInventory(), slotId: plan.target.slotId, container: "ender_chest" }]);
                 showToast(t("📄 {name} in Enderchest-Slot eingefügt", { name: slotClipboard.name }));
-                recordAction(t("{name} in Enderchest-Slot {slot} eingefügt", { name: slotClipboard.name, slot: plan.target.slotId }), "edit");
+                recordAction(actionMessage, "edit");
             } else if (plan.operation === "paste_inventory") {
-                pushUndo();
+                const actionMessage = t("{name} in {count} Slot(s) eingefügt", { name: slotClipboard.name, count: plan.writableSlots.length });
+                pushUndo(actionMessage);
                 pasteClipboardToTargets(plan.writableSlots.map(slotId => ({ map: getInventory(), slotId, container: "inventory" })));
                 if (plan.skippedProtected) showToast(t("Geschützte Slots wurden übersprungen."), "warning", 3000);
                 showToast(t("📄 {name} in {count} Slot(s) eingefügt", { name: slotClipboard.name, count: plan.writableSlots.length }));
-                recordAction(t("{name} in {count} Slot(s) eingefügt", { name: slotClipboard.name, count: plan.writableSlots.length }), "edit");
+                recordAction(actionMessage, "edit");
             }
             updateGridVisuals();
             setDirty(true);
@@ -420,15 +467,13 @@
 
             // Commit the single destructive operation only after the clipboard
             // clone has been produced successfully.
-            pushUndo();
+            const actionText = t("{slot} ausgeschnitten", { slot: slotDisplayName(plan.target.slotId, plan.target.containerName) });
+            pushUndo(actionText);
             slotClipboard = clipboardCandidate;
             clearTargets([{ map: sourceMap, slotId: plan.target.slotId }]);
             updateGridVisuals();
             setDirty(true);
             showToast(t("✂️ {name} ausgeschnitten", { name: slotClipboard.name }));
-            const actionText = plan.target.isEnder
-                ? t("Enderchest-Slot {slot} ausgeschnitten", { slot: plan.target.slotId })
-                : t("{slot} ausgeschnitten", { slot: slotDisplayName(plan.target.slotId, plan.target.containerName) });
             recordAction(actionText, "edit");
             return true;
         }
@@ -480,6 +525,8 @@
             showToast: helpers.showToast,
             recordAction: helpers.recordAction,
             guardEditingAction: helpers.guardEditingAction,
+            openSpecialEditor: helpers.openSpecialEditor,
+            specialItemModel: helpers.specialItemModel,
             slotDisplayName: renderer.slotDisplayName,
         });
     }

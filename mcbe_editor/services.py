@@ -257,18 +257,21 @@ class BedrockEditorService:
             item["source_container"] = container_name
         return items_by_slot
 
-    @staticmethod
-    def _item_source_digests(player_tag):
+    def _saved_item_state(self, player_tag, encoded_player_key, world_path):
         inventory_data, _original_items = nbt_to_json(player_tag)
-        merge_root_equipment_fallbacks(inventory_data, player_tag)
+        self._annotate_item_origins(inventory_data, encoded_player_key, "inventory")
+        merge_root_equipment_fallbacks(inventory_data, player_tag, encoded_player_key=encoded_player_key, world_path=world_path)
         ender_chest_data = parse_ender_chest(player_tag)
+        self._annotate_item_origins(ender_chest_data, encoded_player_key, "ender_chest")
 
         def digest_map(items_by_slot):
             return {str(slot): item["source_item_digest"] for slot, item in items_by_slot.items() if isinstance(item.get("source_item_digest"), str)}
 
         return {
-            "inventory": digest_map(inventory_data),
-            "ender_chest": digest_map(ender_chest_data),
+            "item_source_digests": {"inventory": digest_map(inventory_data), "ender_chest": digest_map(ender_chest_data)},
+            # Origins inside lists refer to the serialized record, not the old
+            # browser draft. Return canonical items for subsequent saves/edits.
+            "saved_items": {"inventory": inventory_data, "ender_chest": ender_chest_data},
         }
 
     def _collect_external_source_items(self, db, target_world_path, target_player_key, *item_lists):
@@ -671,7 +674,7 @@ class BedrockEditorService:
                 apply_player_stats(player_tag, stats)
 
                 serialized_bytes = save_player_nbt(player_named_tag)
-                item_source_digests = self._item_source_digests(assert_serialized_player_roundtrip(serialized_bytes).tag)
+                saved_item_state = self._saved_item_state(assert_serialized_player_roundtrip(serialized_bytes).tag, encoded_player_key, world_path)
                 player_changed = serialized_bytes != player_bytes
                 if not player_changed and extra_batch_builder is None:
                     return {
@@ -679,7 +682,7 @@ class BedrockEditorService:
                         "message": "Keine Änderungen erkannt. Es wurde kein Backup erstellt und nichts geschrieben.",
                         "backup_file": None,
                         "player_revision": self._player_revision(player_bytes),
-                        "item_source_digests": item_source_digests,
+                        **saved_item_state,
                         "no_op": True,
                     }
 
@@ -781,7 +784,7 @@ class BedrockEditorService:
                         "message": "Erfolgreich gespeichert!" if not post_write_errors else "; ".join(post_write_errors),
                         "backup_file": os.path.basename(backup_file),
                         "player_revision": self._player_revision(serialized_bytes),
-                        "item_source_digests": item_source_digests,
+                        **saved_item_state,
                         "no_op": False,
                         "workspace": extra_batch.get("result") if extra_batch_builder else None,
                     }
@@ -819,7 +822,7 @@ class BedrockEditorService:
                         "message": post_write_message,
                         "no_op": False,
                         "backup_file": os.path.basename(backup_file) if backup_file else None,
-                        "item_source_digests": item_source_digests,
+                        **saved_item_state,
                     }
             except Exception as exc:
                 if backup_file and not write_state.attempted:

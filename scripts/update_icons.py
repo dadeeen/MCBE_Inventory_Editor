@@ -29,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
+    from mcbe_editor.banner_patterns import BANNER_TEXTURES, crop_banner_texture
     from mcbe_editor.block_icon_renderer import composite_png_overlay, crop_png, render_bedrock_model_icon, render_block_icon, supports_block_preview, tint_png
     from mcbe_editor.icon_cache import publish_icon_cache, recover_icon_cache
     from mcbe_editor.icon_resolution import IconResolution, resolve_icon_definition
@@ -52,6 +53,8 @@ def _load_runtime_dependencies():
         supports_block_preview,
         IconResolution,
         report_progress,
+        BANNER_TEXTURES,
+        crop_banner_texture,
     )
 
 
@@ -70,6 +73,8 @@ def _load_runtime_dependencies():
     supports_block_preview,
     IconResolution,
     report_progress,
+    BANNER_TEXTURES,
+    crop_banner_texture,
 ) = _load_runtime_dependencies()
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DATA_ROOT = Path(os.environ.get("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser()
@@ -1396,7 +1401,9 @@ def bed_variant_texture_keys(item_id: str, texture_data: dict[str, list[str]]) -
 
 def _texture_members(zf: zipfile.ZipFile) -> dict[str, TextureMember]:
     members: dict[str, TextureMember] = {}
-    for info in zf.infolist():
+    # Bedrock resolves extensionless textures as TGA before PNG. ZIP member
+    # order must not choose a different motif when both formats are present.
+    for info in sorted(zf.infolist(), key=lambda entry: (not entry.filename.lower().endswith(".tga"), entry.filename)):
         if info.is_dir() or info.file_size <= 0 or info.file_size > MAX_ICON_BYTES:
             continue
         key = _zip_member_key(info.filename)
@@ -1899,6 +1906,15 @@ def build_icon_cache(
                 _write_texture_as_png(zf, source, extracted_display / f"{asset_name}.png")
                 display_assets[asset_id] = texture_path
                 used_members.add(_zip_member_key(source[1].filename))
+            for code, texture_path in BANNER_TEXTURES.items():
+                source = texture_members.get(texture_path)
+                if source is None:
+                    continue
+                preview_png = crop_banner_texture(_texture_source_png_bytes(zf, source))
+                extracted_display.mkdir(parents=True, exist_ok=True)
+                (extracted_display / f"banner_{code}.png").write_bytes(preview_png)
+                display_assets[f"mcbe:banner_{code}"] = texture_path
+                used_members.add(_zip_member_key(source[1].filename))
             manifest = {
                 "schema_version": 6,
                 "resolutions": resolutions,
@@ -1914,7 +1930,7 @@ def build_icon_cache(
                 "icon_targets": len(icon_targets),
                 "extra_item_icon_targets": len(EXTRA_ITEM_ICON_IDS),
                 "mapped_extra_item_icons": mapped_extra_item_icons,
-                "display_asset_targets": len(AXOLOTL_DISPLAY_ASSETS),
+                "display_asset_targets": len(AXOLOTL_DISPLAY_ASSETS) + len(BANNER_TEXTURES),
                 "mapped_display_assets": len(display_assets),
                 "mapped_items": mapped_item_icons,
                 "mapped_icons": len(mapped),

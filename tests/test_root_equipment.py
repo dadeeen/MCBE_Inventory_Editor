@@ -305,8 +305,7 @@ def test_root_equipment_write_uses_the_shared_entity_variant_hook(monkeypatch):
     player = modern_equipped_player()
     calls = []
     monkeypatch.setattr(
-        root_equipment_module,
-        "_apply_entity_variant_edit",
+        "mcbe_editor._inventory_core._apply_entity_variant_edit",
         lambda item_compound, validated_item, base_item_tag, label: calls.append((item_compound, validated_item, base_item_tag, label)),
     )
 
@@ -328,8 +327,7 @@ def test_root_equipment_write_skips_the_variant_hook_for_an_unchanged_echo(monke
     before = player["Offhand"][0].copy()
     calls = []
     monkeypatch.setattr(
-        root_equipment_module,
-        "_apply_entity_variant_edit",
+        "mcbe_editor._inventory_core._apply_entity_variant_edit",
         lambda *args: calls.append(args),
     )
 

@@ -26,6 +26,7 @@
         "#btnQuickClearSlot",
         "#btnQuickMaxStack",
         "#btnQuickRepairSlot",
+        "#btnSpecialItem",
         "#btnMaxAllEnch",
         "#btnClearAllEnch",
         "#btnApplyStats",
@@ -41,11 +42,14 @@
         "#btnMountCreate",
         "#btnUndo",
         "#btnRedo",
+        "#btnHistoryUndo",
+        "#btnHistoryRedo",
     ].join(", ");
     const GUARDED_DYNAMIC_EDIT_SELECTOR = [
         '.context-item[data-action="paste"]',
         '.context-item[data-action="cut"]',
         '.context-item[data-action="clear"]',
+        '.context-item[data-action="special"]',
         ".browser-item",
         "#btnMountCreate",
     ].join(", ");

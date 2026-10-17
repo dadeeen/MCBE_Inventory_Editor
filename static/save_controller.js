@@ -354,7 +354,7 @@
                     updateCurrentPlayerRevision(data.player_revision);
                     if (hasPlayerChanges) {
                         applyCreatedTagState(payload);
-                        normalizeOriginsToCurrentSavedState(data.item_source_digests);
+                        normalizeOriginsToCurrentSavedState(data.item_source_digests, data.saved_items);
                     }
                     markCleanState();
                     await updateWorldPresence();
@@ -379,7 +379,7 @@
                     if (mountFinalization.reloadRequired === true) {
                         if (hasPlayerChanges) {
                             applyCreatedTagState(payload);
-                            normalizeOriginsToCurrentSavedState(data.item_source_digests);
+                            normalizeOriginsToCurrentSavedState(data.item_source_digests, data.saved_items);
                         }
                         markCleanState();
                         await updateWorldPresence();
@@ -399,7 +399,7 @@
                         if (hasPlayerChanges) {
                             // The save response is authoritative even when bytes match.
                             // Refresh provenance before marking the UI clean.
-                            normalizeOriginsToCurrentSavedState(data.item_source_digests);
+                            normalizeOriginsToCurrentSavedState(data.item_source_digests, data.saved_items);
                         }
                         markCleanState();
                         await updateWorldPresence();
@@ -414,7 +414,7 @@
                     } else {
                         if (hasPlayerChanges) {
                             applyCreatedTagState(payload);
-                            normalizeOriginsToCurrentSavedState(data.item_source_digests);
+                            normalizeOriginsToCurrentSavedState(data.item_source_digests, data.saved_items);
                         }
                         markCleanState();
                         await updateWorldPresence();

@@ -37,6 +37,7 @@
         maxStack = 64,
         stackLimitVerified = true,
         maxDamage = 0,
+        dataValueVariants = [],
         rawCount = 1,
         rawDamage = 0,
         writableCount = 0,
@@ -67,6 +68,16 @@
         }
         const count = clampInteger(rawCount, maxStack, 1, maxStack);
         const damage = clampInteger(rawDamage, 0, 0, maxDamage);
+        if (dataValueVariants.length && !dataValueVariants.some(variant => Number(variant.damage) === damage)) {
+            return {
+                ok: false,
+                toast: {
+                    message: t("Der Abnutzungs- oder Datenwert liegt außerhalb des erlaubten Bereichs."),
+                    type: "warning",
+                    ms: 4000,
+                },
+            };
+        }
         if (!name || name === "minecraft:air" || count <= 0) {
             return {
                 ok: false,
@@ -262,6 +273,7 @@
                     maxStack,
                     stackLimitVerified: itemCatalog.hasVerifiedStackLimit(name),
                     maxDamage: maxDmg,
+                    dataValueVariants: itemCatalog.dataValueVariantsForId(name),
                     rawCount: elements.bulkCount?.value,
                     rawDamage: elements.bulkDamage?.value,
                     writableCount: writableTargets.length,

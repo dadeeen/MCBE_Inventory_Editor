@@ -15,6 +15,7 @@ from mcbe_editor.item_data import (
     is_known_item_id,
 )
 
+from . import special_items
 from .bedrock_nbt import literal_string_tag, load_player_nbt, save_player_nbt
 from .i18n import t
 
@@ -273,6 +274,7 @@ class ParsedItemSlot(TypedDict):
     preserved_nbt_summary: list[str]
     protected_nbt_summary: list[str]
     nbt_view: dict[str, Any]
+    special_item: dict | None
 
 
 class PlayerStats(TypedDict):
@@ -894,6 +896,7 @@ KNOWN_PRESERVED_ITEM_TAG_KEYS = {
     "GroupName",
     "EntityTag",
     "Identifier",
+    "Items",
     "IsBaby",
     "Patterns",
     "RepairCost",
@@ -901,6 +904,7 @@ KNOWN_PRESERVED_ITEM_TAG_KEYS = {
     "Trim",
     "Variant",
     "author",
+    "bundle_weight",
     "chargedItem",
     "customColor",
     "generation",
@@ -913,6 +917,7 @@ KNOWN_PRESERVED_ITEM_TAG_KEYS = {
     "map_uuid",
     "pages",
     "resolved",
+    "storage_item_component_content",
     "title",
     "trackingHandle",
     "wasJustBrewed",
@@ -1970,7 +1975,7 @@ def _tag_item_name_matches(item_tag, normalized_name: str) -> bool:
     return bool(original_name) and original_name.lower() == normalized_name
 
 
-def _parse_item_slot(item) -> ParsedItemSlot:
+def _parse_item_slot(item, *, special_depth=0, special_budget=None) -> ParsedItemSlot:
     if not _item_entry_has_editable_shape(item):
         raise ValueError("Inventar-Eintrag hat keinen sicher editierbaren NBT-Aufbau.")
 
@@ -2027,7 +2032,19 @@ def _parse_item_slot(item) -> ParsedItemSlot:
         "preserved_nbt_summary": preserved_nbt_summary,
         "protected_nbt_summary": protected_nbt_summary,
         "nbt_view": _nbt_view_value(item),
+        "special_item": special_items.describe(item, _parse_contained_item, depth=special_depth, budget=special_budget),
     }
+
+
+def _parse_contained_item(item, depth, budget):
+    if _item_entry_is_empty_placeholder(item):
+        return None
+    parsed = _parse_item_slot(item, special_depth=depth, special_budget=budget)
+    # The parent's source digest binds all descendants. Nested origins are list
+    # indices within that parent, never arbitrary players/worlds or raw JSON NBT.
+    parsed.pop("source_slot", None)
+    parsed.pop("nbt_view", None)
+    return parsed
 
 
 def _read_item_slot(item, default=None):
@@ -2385,7 +2402,7 @@ def _validated_entity_variant_edit(item_data, name: str, slot: int):
     }
 
 
-def validate_inventory_item(item_data, enchantments_db, is_ender_chest=False, *, defer_stack_limit=False, defer_original_bounds=False):
+def validate_inventory_item(item_data, enchantments_db, is_ender_chest=False, *, defer_stack_limit=False, defer_original_bounds=False, allowed_slots=None):
     """Validate browser item fields before resolving preserved source NBT.
 
     Write builders defer the catalog limit only until the exact source item is
@@ -2411,7 +2428,7 @@ def validate_inventory_item(item_data, enchantments_db, is_ender_chest=False, *,
     except (KeyError, TypeError, ValueError):
         raise ValueError("Ungültige Item-Daten empfangen.") from None
 
-    valid_slots = ENDER_CHEST_SLOTS if is_ender_chest else VALID_INVENTORY_SLOTS
+    valid_slots = allowed_slots if allowed_slots is not None else (ENDER_CHEST_SLOTS if is_ender_chest else VALID_INVENTORY_SLOTS)
     if slot not in valid_slots:
         raise ValueError(t("Ungültiger Slot: {slot}", slot=slot))
 
@@ -2514,6 +2531,7 @@ def validate_inventory_item(item_data, enchantments_db, is_ender_chest=False, *,
         "lore": lore,
         "enchantments": enchantments,
         "entity_variant_edit": _validated_entity_variant_edit(item_data, name, slot),
+        "special_edit": item_data.get("special_edit"),
         "claims_protected_nbt": bool(item_data.get("has_protected_nbt")),
         "claims_preserved_nbt": bool(item_data.get("has_preserved_nbt")),
         "claims_unknown_enchantments": bool(item_data.get("has_unknown_enchantments")),
@@ -2548,6 +2566,8 @@ def item_payload_matches_original(base_item_tag, validated_item, enchantments_db
     if base_item_tag is None or not _is_compound_tag(base_item_tag):
         return False
     if validated_item.get("entity_variant_edit") is not None:
+        return False
+    if validated_item.get("special_edit") is not None:
         return False
     name = validated_item["name"]
     if not _tag_item_name_matches(base_item_tag, name):

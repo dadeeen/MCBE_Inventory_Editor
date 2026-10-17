@@ -6,6 +6,7 @@
         "protected_nbt_summary",
         "preserved_nbt_summary",
         "nbt_view",
+        "special_item",
         "protected_nbt_dropped",
         "previous_name",
         "special_nbt_defaulted",
@@ -22,6 +23,14 @@
 
     function cloneJson(value) {
         return JSON.parse(JSON.stringify(value));
+    }
+
+    function stripItemPresentation(item) {
+        const result = Object.fromEntries(Object.entries(item).filter(([key]) => !STRIPPED_ITEM_FIELDS.has(key)));
+        if (Array.isArray(item.special_edit?.data?.items)) {
+            result.special_edit = { ...item.special_edit, data: { ...item.special_edit.data, items: item.special_edit.data.items.map(stripItemPresentation) } };
+        }
+        return result;
     }
 
     function hasMeaningfulObjectKeys(obj) {
@@ -217,7 +226,7 @@
         function itemForSavePayload(item, containerName) {
             if (!item || typeof item !== "object") return item;
             const repaired = repairProtectedItemSourceForPayload(item, containerName);
-            return Object.fromEntries(Object.entries(repaired).filter(([key]) => !STRIPPED_ITEM_FIELDS.has(key)));
+            return stripItemPresentation(repaired);
         }
 
         function buildSavePayload() {

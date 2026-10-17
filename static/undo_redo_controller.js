@@ -6,7 +6,7 @@
     const DEFAULT_LABEL = () => t("Änderung");
 
     function normalizedLabel(label) {
-        return String(label || DEFAULT_LABEL()).slice(0, 120);
+        return String(label || DEFAULT_LABEL()).slice(0, 400);
     }
 
     function createUndoRedoController({
@@ -94,6 +94,9 @@
     function createUndoRedoAppController({
         buttons = {},
         panel = null,
+        saveState = null,
+        hasPlayer = () => false,
+        getIsDirty = () => false,
         takeSnapshot,
         snapshotHash,
         cloneJson = value => JSON.parse(JSON.stringify(value)),
@@ -128,6 +131,7 @@
         }
 
         function renderUndoRedoPanel() {
+            window.MCBEUndoRedoView.applyHistorySaveState?.(saveState, { hasPlayer: hasPlayer(), isDirty: getIsDirty() });
             if (!panel) return;
             panel.innerHTML = window.MCBEUndoRedoView.undoRedoPanelHtml(stack.state());
         }
@@ -144,6 +148,8 @@
             window.MCBEUndoRedoView.applyUndoRedoButtonModels({
                 undoButton: buttons.undo,
                 redoButton: buttons.redo,
+                historyUndoButton: buttons.historyUndo,
+                historyRedoButton: buttons.historyRedo,
             }, model);
             renderUndoRedoPanel();
         }
@@ -207,6 +213,8 @@
         function wire() {
             buttons.undo?.addEventListener("click", undo);
             buttons.redo?.addEventListener("click", redo);
+            buttons.historyUndo?.addEventListener("click", undo);
+            buttons.historyRedo?.addEventListener("click", redo);
             updateUndoButtons();
         }
 
@@ -229,8 +237,11 @@
             buttons: {
                 undo: doc.getElementById("btnUndo"),
                 redo: doc.getElementById("btnRedo"),
+                historyUndo: doc.getElementById("btnHistoryUndo"),
+                historyRedo: doc.getElementById("btnHistoryRedo"),
             },
             panel: doc.getElementById("undoRedoPanel"),
+            saveState: doc.getElementById("historySaveState"),
         };
     }
 

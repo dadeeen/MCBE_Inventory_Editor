@@ -143,26 +143,33 @@
         const damage = preservesExistingDamage
             ? previousDamage
             : clampInteger(rawDamage, 0, 0, maxDamage);
+        if (!name || name === "minecraft:air" || count <= 0) {
+            return { ok: true, item: null };
+        }
         // Kein trim(): Führende/abschließende Leerzeichen sind gültige Bedrock-
         // Namensformatierung, genau wie in der Lore darunter. Ein Trim hier würde
         // den Namen jedes unberührten Items beim Speichern still verändern.
         const requestedCustomName = String(rawCustomName ?? "");
         const previousCustomName = sameItem ? String(previousItem?.display_name ?? "") : null;
-        const customName = previousCustomName !== null && requestedCustomName === previousCustomName
-            ? previousCustomName
-            : requestedCustomName.slice(0, maxDisplayName);
+        // Text inputs strip line breaks; textareas normalize CR/CRLF to LF.
+        // An unchanged browser representation must retain the original NBT text.
+        const preserveCustomName = previousCustomName !== null
+            && (requestedCustomName === previousCustomName || requestedCustomName === previousCustomName.replace(/[\r\n]/g, ""));
+        if (!preserveCustomName && requestedCustomName.length > maxDisplayName) {
+            return { ok: false, error: t("Der Anzeigename darf höchstens {max} Zeichen enthalten.", { max: maxDisplayName }) };
+        }
+        const customName = preserveCustomName ? previousCustomName : requestedCustomName;
         const rawLoreText = String(rawLore ?? "").replace(/\r\n?/g, "\n");
         const previousLore = sameItem && Array.isArray(previousItem.lore)
             ? previousItem.lore.map(line => String(line))
             : null;
-        const lore = previousLore && rawLoreText === previousLore.join("\n")
-            ? cloneJson(previousLore)
-            : loreLinesFromText(rawLoreText, { maxLines: maxLoreLines, maxLineLength: maxLoreLineLength });
-        const currentEnchantments = cloneJson(enchantments || []);
-
-        if (!name || name === "minecraft:air" || count <= 0) {
-            return { ok: true, item: null };
+        const preserveLore = previousLore && rawLoreText === previousLore.join("\n").replace(/\r\n?/g, "\n");
+        const requestedLore = rawLoreText === "" ? [] : rawLoreText.split("\n");
+        if (!preserveLore && (requestedLore.length > maxLoreLines || requestedLore.some(line => line.length > maxLoreLineLength))) {
+            return { ok: false, error: t("Die Beschreibung darf höchstens {lines} Zeilen mit jeweils {length} Zeichen enthalten.", { lines: maxLoreLines, length: maxLoreLineLength }) };
         }
+        const lore = preserveLore ? cloneJson(previousLore) : requestedLore;
+        const currentEnchantments = cloneJson(enchantments || []);
 
         const previousEnchantments = previousItem ? (previousItem.enchantments || []) : [];
         const preservesExistingUnusualEnchantments = sameItem
@@ -207,6 +214,9 @@
             enchantments: currentEnchantments,
         };
 
+        // A new/replacement item must not resolve NBT from the disk's old slot
+        // when the user clears it or changes away from and back to its old ID.
+        if (!sameItem) builtItem.replace_original_nbt = true;
         if (protectedNbtDropped) {
             builtItem.protected_nbt_dropped = true;
             builtItem.previous_name = previousItem.name || "";
@@ -223,6 +233,8 @@
                 "item_tag_opaque",
                 "entity_variant",
                 "entity_variant_state",
+                "special_item",
+                "special_edit",
                 "protected_nbt_summary",
                 "preserved_nbt_summary",
                 "source_item_digest",
@@ -402,6 +414,8 @@
         itemHasRepairableDamage,
         showProtectedSlotMessage,
         showSlotInspector,
+        openSpecialEditor,
+        specialItemModel,
         switchTab,
         slotDisplayName,
         detailItemLabel,
@@ -799,6 +813,15 @@
                 maxStackButton: elements.btnQuickMaxStack,
                 repairButton: elements.btnQuickRepairSlot,
             }, model);
+            if (elements.btnSpecialItem) {
+                elements.btnSpecialItem.hidden = !specialItemModel?.kind({ name });
+                elements.btnSpecialItem.textContent = specialItemModel?.label({ name }) || "";
+                window.MCBEWriteStatusView.applyIntrinsicEditControlState(elements.btnSpecialItem, {
+                    disabled: isProtectedKnownSlot(target.slotId, target.containerName),
+                    blocked: editingBlocked(),
+                    blockedTitle: getEditingBlockedReason(),
+                });
+            }
         }
 
         function countMaxableExistingEnchantments(itemName) {
@@ -969,7 +992,14 @@
                 return;
             }
 
-            pushUndo?.();
+            const slotLabel = slotDisplayName(slotId, containerName);
+            const actionMessage = plan.operation === "clear"
+                ? t("{slot} geleert", { slot: slotLabel })
+                : t("{slot}: {count}× {item} aktualisiert", {
+                    slot: slotLabel, count: plan.item.count,
+                    item: detailItemLabel(plan.item.name, plan.item.display_name, plan.item.damage),
+                });
+            pushUndo?.(actionMessage);
             if (plan.operation === "clear") {
                 window.MCBEInventoryState.clearTargets([{ map: source, slotId }]);
             } else {
@@ -983,7 +1013,7 @@
             updateDetailPreview();
             setDirty?.(true);
             logStatus?.(currentEditingIsEnder ? t("Enderchest-Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }) : t("Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }), "info");
-            recordAction?.(t("{slot} aktualisiert", { slot: slotDisplayName(slotId, containerName) }), "edit");
+            recordAction?.(actionMessage, "edit");
         }
 
         function applyQuickClearSlot() {
@@ -1002,7 +1032,8 @@
                 if (plan.refreshQuickActions) updateDetailQuickActions();
                 return;
             }
-            pushUndo?.();
+            const actionMessage = t("{slot} geleert", { slot: slotDisplayName(target.slotId, target.containerName) });
+            pushUndo?.(actionMessage);
             window.MCBEInventoryState.clearTargets([{ map: target.source, slotId: target.slotId }]);
             if (elements.detailItemSearch) elements.detailItemSearch.value = "";
             if (elements.detailCount) elements.detailCount.value = 1;
@@ -1017,7 +1048,7 @@
             updateGridVisuals?.();
             setDirty?.(true);
             logStatus?.(t("{label} geleert – noch nicht gespeichert", { label: slotDisplayName(target.slotId, target.containerName) }), "info");
-            recordAction?.(`${slotDisplayName(target.slotId, target.containerName)} geleert`, "edit");
+            recordAction?.(actionMessage, "edit");
         }
 
         function applyQuickMaxStack() {
@@ -1115,6 +1146,13 @@
         }
 
         function wireQuickActions() {
+            elements.btnSpecialItem?.addEventListener("click", () => {
+                const target = currentDetailTarget();
+                if (!target || guardEditingAction()) return;
+                const built = buildDetailItemFromForm(target.slotId, target.containerName);
+                if (!built.ok) { showToast?.(built.error, "warning", 4000); return; }
+                openSpecialEditor?.(target.slotId, target.containerName, built.item);
+            });
             elements.btnQuickClearSlot?.addEventListener("click", applyQuickClearSlot);
             elements.btnInspectSlotNbt?.addEventListener("click", () => {
                 const target = currentDetailTarget();
@@ -1185,6 +1223,7 @@
             slotQuickSubtitle: doc.getElementById("slotQuickSubtitle"),
             btnInspectSlotNbt: doc.getElementById("btnInspectSlotNbt"),
             btnQuickClearSlot: doc.getElementById("btnQuickClearSlot"),
+            btnSpecialItem: doc.getElementById("btnSpecialItem"),
             btnQuickMaxStack: doc.getElementById("btnQuickMaxStack"),
             btnQuickRepairSlot: doc.getElementById("btnQuickRepairSlot"),
             enchantsContainer: doc.getElementById("enchantsContainer"),
@@ -1220,6 +1259,8 @@
             itemHasRepairableDamage: helpers.itemHasRepairableDamage,
             showProtectedSlotMessage: helpers.showProtectedSlotMessage,
             showSlotInspector: helpers.showSlotInspector,
+            openSpecialEditor: helpers.openSpecialEditor,
+            specialItemModel: helpers.specialItemModel,
             switchTab: helpers.switchTab,
             slotDisplayName: helpers.slotDisplayName,
             detailItemLabel: helpers.detailItemLabel,
@@ -1238,6 +1279,7 @@
     window.MCBESlotDetailLogic = {
         ...logic,
         applyItemAvailabilityBadge,
+        localizedEnchantmentName,
         collectSlotDetailElements,
         createInventorySlotDetailController,
         createSlotDetailController,

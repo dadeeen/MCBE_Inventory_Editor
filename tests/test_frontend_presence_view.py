@@ -135,6 +135,20 @@ def test_frontend_presence_leave_uses_pagehide_and_deduplicates_signals() -> Non
             assert.strictEqual(fetchCalls[0][1].headers["X-CSRF-Token"], "csrf");
             const payload = JSON.parse(fetchCalls[0][1].body);
             assert.ok(payload.session_id.startsWith("web-"));
+            assert.strictEqual(controller.sessionId(), payload.session_id);
+
+            // A newly opened tab inherits sessionStorage from its opener.
+            // Its presence must still have a separate identity.
+            const copiedStorage = { ...storage };
+            const otherTab = context.window.MCBEPresenceView.createWorldPresenceController({
+                win: { ...win, sessionStorage: {
+                    getItem: key => copiedStorage[key] || "",
+                    setItem: (key, value) => { copiedStorage[key] = value; },
+                } },
+                sessionKey: "presence-test",
+            });
+            assert.notStrictEqual(otherTab.sessionId(), controller.sessionId());
+            assert.strictEqual(controller.sessionId(), payload.session_id);
             """
         )
     )
@@ -330,6 +344,7 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const pending = [];
+            const state = { world: "/w", player: "p" };
             const context = {
                 window: {},
                 fetch: (_url, options) => new Promise(resolve => {
@@ -343,6 +358,7 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
             const toasts = [];
             const notices = new Map();
             const storage = {};
+            const banner = { className: "", textContent: "", style: { display: "none" } };
             const controller = view.createWorldPresenceController({
                 win: {
                     crypto: null,
@@ -351,10 +367,11 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                     setInterval: () => 1,
                 },
                 sessionKey: "presence-test",
+                elements: { banner },
                 withCsrf: () => ({}),
                 parseJsonResponse: async response => response,
-                getWorldPath: () => "/w",
-                getCurrentPlayerKey: () => "p",
+                getWorldPath: () => state.world,
+                getCurrentPlayerKey: () => state.player,
                 getCurrentPlayerLabel: () => "Alex",
                 getCurrentPlayerRevision: () => "R1",
                 getLoadedWorldFingerprint: () => "F0",
@@ -393,6 +410,20 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                 await next;
                 assert.ok(notices.has("player-changed"));
                 assert.strictEqual(toasts.length, 1);
+
+                // A response from the previous selection cannot describe the
+                // other sessions of the newly selected world or player.
+                for (const field of ["world", "player"]) {
+                    const previous = controller.update();
+                    const delayed = pending[pending.length - 1];
+                    state[field] += "-other";
+                    const toastCount = toasts.length;
+                    delayed.answer({ success: true, other_sessions: 1, same_player_sessions: 1,
+                        other_dirty_sessions: 1, same_player_dirty_sessions: 1 });
+                    assert.strictEqual(await previous, null);
+                    assert.strictEqual(banner.style.display, "none");
+                    assert.strictEqual(toasts.length, toastCount);
+                }
             })().catch(error => {
                 console.error(error);
                 process.exit(1);

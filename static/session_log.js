@@ -27,8 +27,11 @@
             save: t("Speichern"),
             backup: t("Backup"),
             export: t("Export"),
-            undo: t("Undo/Redo"),
+            undo: t("Rückgängig / Wiederholen"),
             warning: t("Hinweis"),
+            error: t("Fehler"),
+            copy: t("Übernahme"),
+            compare: t("Vergleich"),
         }[type] || "Info";
     }
 
@@ -37,11 +40,11 @@
             return `<div class="no-backups">${t("Noch keine lokalen Bearbeitungsschritte.")}</div>`;
         }
         return entries.map(entry => `
-        <div class="session-log-row ${escapeHtml(entry.type || "info")}">
+        <div class="session-log-row ${escapeHtml(entry.type || "info")}" role="listitem">
             <span class="session-log-time">${escapeHtml(entry.time)}</span>
             <div>
-                <strong>${escapeHtml(sessionTypeLabel(entry.type))}</strong>
-                <small>${escapeHtml(entry.message)}</small>
+                <strong>${escapeHtml(entry.message)}</strong>
+                <small>${[sessionTypeLabel(entry.type), entry.player, entry.world].filter(Boolean).map(escapeHtml).join(" · ")}</small>
             </div>
         </div>
     `).join("");
@@ -59,7 +62,8 @@
             lines.push(t("Keine lokalen Bearbeitungsschritte aufgezeichnet."));
         } else {
             entries.slice().reverse().forEach(entry => {
-                lines.push(`[${entry.time}] ${sessionTypeLabel(entry.type)}: ${entry.message}`);
+                const scope = [entry.player, entry.world].filter(Boolean).join(" · ");
+                lines.push(`[${entry.time}] ${sessionTypeLabel(entry.type)}${scope ? ` (${scope})` : ""}: ${entry.message}`);
             });
         }
         return lines.join("\n");
@@ -155,6 +159,7 @@
         }
 
         function renderSessionLog() {
+            if (clearSessionLogButton) clearSessionLogButton.disabled = entries.length === 0;
             if (!sessionLogContainer) return;
             sessionLogContainer.innerHTML = sessionLogHtml(entries);
         }
@@ -175,7 +180,7 @@
                 time: formatSessionTime(),
                 type,
                 message: String(message).slice(0, 400),
-                player: getCurrentPlayerLabel ? getCurrentPlayerLabel() : "",
+                player: getCurrentPlayer() ? getCurrentPlayerLabel() : "",
                 world: getWorldName(),
             });
             if (entries.length > maxSessionLog) entries.length = maxSessionLog;
@@ -230,6 +235,7 @@
             copyWorldAnalysisButton?.addEventListener("click", () => copyTextToClipboard(getWorldAnalysisText(), t("Spielerdiagnose kopiert.")));
             copySessionLogButton?.addEventListener("click", () => copyTextToClipboard(buildSessionLogTextForCopy(), t("Sitzungs-Verlauf kopiert.")));
             clearSessionLogButton?.addEventListener("click", clearSessionLog);
+            renderSessionLog();
             updateHeaderStatusStack({ announce: false });
         }
 

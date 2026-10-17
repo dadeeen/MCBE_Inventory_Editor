@@ -75,6 +75,25 @@ def test_frontend_save_payload_logic_builds_delta_sections() -> None:
             }
 
             {
+                const book = {slot:2, source_index:7, name:"minecraft:writable_book", count:1,
+                    special_item:{kind:"book",editable:true,data:{pages:[]}}, nbt_view:{private:"presentation"},
+                    special_edit:{kind:"book",data:{pages:[{text:"Nested page"}]}}};
+                const container = {slot:0,name:"minecraft:bundle",count:1,source_item_digest:"parent-digest",
+                    special_item:{kind:"bundle",editable:true,data:{items:[]}},
+                    special_edit:{kind:"bundle",data:{items:[book]}}};
+                const { logic } = makeLogic({inventory:{0:container}});
+                const saved = logic.buildSavePayload().inventory[0];
+                assert.strictEqual(saved.source_item_digest,"parent-digest");
+                assert.strictEqual(saved.special_item,undefined);
+                const child = saved.special_edit.data.items[0];
+                assert.strictEqual(child.source_index,7);
+                assert.strictEqual(child.special_item,undefined);
+                assert.strictEqual(child.nbt_view,undefined);
+                assert.strictEqual(child.special_edit.data.pages[0].text,"Nested page");
+                assert(book.special_item && book.nbt_view, "serializing must not mutate the local draft");
+            }
+
+            {
                 const { logic } = makeLogic({
                     cleanSnapshot: {
                         inv: { 0: { slot: 0, name: "minecraft:stone", count: 1, damage: 0 } },

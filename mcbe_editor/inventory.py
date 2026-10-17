@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from . import _inventory_core as _core
 from . import item_data as _item_data
+from . import special_items as _special_items
 from ._inventory_core import (
     ABILITY_TAG_FIELDS,
     ATTRIBUTE_STAT_TAGS,
@@ -84,6 +85,7 @@ _check_item_enchantment_compatibility = _core._check_item_enchantment_compatibil
 _is_compound_tag = _core._is_compound_tag
 _is_list_tag = _core._is_list_tag
 _item_control_field_type_issues = _core._item_control_field_type_issues
+_item_entry_is_empty_placeholder = _core._item_entry_is_empty_placeholder
 _parse_item_slot = _core._parse_item_slot
 _read_item_slot = _core._read_item_slot
 _set_numeric_tag_preserving_type = _core._set_numeric_tag_preserving_type
@@ -96,6 +98,44 @@ def __getattr__(name: str):
     if name in {"EFFECTS", "ENCHANTMENTS"}:
         return _item_data.catalog_values()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _build_contained_item(payload, base, capacity, depth, budget, enchantments_db):
+    if any(
+        key in payload for key in ("source_player_key", "source_world_path", "source_container", "replace_original_nbt", "source_slot", "source_item_digest")
+    ):
+        raise ValueError("Container-Items dürfen keine externe Originalquelle angeben.")
+    validated = _core.validate_inventory_item(payload, enchantments_db, defer_stack_limit=True, defer_original_bounds=True, allowed_slots=range(capacity))
+    if validated is None:
+        raise ValueError("Leere Container-Slots müssen aus der Itemliste entfernt werden.")
+    if base is not None and not _core._tag_item_name_matches(base, validated["name"]):
+        base = None
+    return _build_validated_item(validated, base, enchantments_db, "Container", False, depth=depth, budget=budget)
+
+
+def _build_validated_item(validated, base, enchantments_db, label, is_ender_chest, *, depth=0, budget=None):
+    name, slot = validated["name"], validated["slot"]
+    _core._check_item_enchantment_compatibility(name, validated, base, enchantments_db, label, slot)
+    _core.reject_non_addable_new_item(name, base, label, slot)
+    _core.validate_item_stack_count(name, validated["count"], base, label, slot)
+    _core.validate_item_original_bounds(validated, base, label, slot)
+    _core.validate_item_data_value_variant(name, validated["damage"], base, label, slot)
+    unchanged = _core.item_payload_matches_original(base, {**validated, "special_edit": None}, enchantments_db)
+    item = _core._build_item_compound(base, validated, label, is_ender_chest, unchanged=unchanged)
+    if not unchanged:
+        _core.apply_editable_item_tags(item, validated, enchantments_db)
+        _core._apply_entity_variant_edit(item, validated, base, label)
+    _special_items.apply(
+        item,
+        validated.get("special_edit"),
+        _core._parse_contained_item,
+        lambda child, original, capacity, child_depth, child_budget: _build_contained_item(
+            child, original, capacity, child_depth, child_budget, enchantments_db
+        ),
+        depth=depth,
+        budget=budget,
+    )
+    return item
 
 
 __all__ = (
@@ -486,7 +526,6 @@ def _build_item_nbt_list(
         if slot in seen_slots:
             raise ValueError(_core.t("Doppelter {label}-Slot empfangen: {slot}", label=duplicate_label, slot=slot))
         seen_slots.add(slot)
-        name = validated_item["name"]
         base_item_tag = _resolve_base_item_tag(
             validated_item,
             original_items,
@@ -495,20 +534,11 @@ def _build_item_nbt_list(
             expected_source_container,
             used_external_source_checks,
         )
-        _core._check_item_enchantment_compatibility(name, validated_item, base_item_tag, enchantments_db, duplicate_label, slot)
-        _core.reject_non_addable_new_item(name, base_item_tag, duplicate_label, slot)
-        _core.validate_item_stack_count(name, validated_item["count"], base_item_tag, duplicate_label, slot)
-        _core.validate_item_original_bounds(validated_item, base_item_tag, duplicate_label, slot)
-        _core.validate_item_data_value_variant(name, validated_item["damage"], base_item_tag, duplicate_label, slot)
         # The payload always carries the complete container, so most entries of a
         # normal save are untouched echoes. Those must not be rebuilt: the tag
         # writers normalize enchantment order and drop empty standard containers,
         # which would silently reshape slots the user never opened.
-        unchanged = _core.item_payload_matches_original(base_item_tag, validated_item, enchantments_db)
-        item_compound = _core._build_item_compound(base_item_tag, validated_item, duplicate_label, is_ender_chest, unchanged=unchanged)
-        if not unchanged:
-            _core.apply_editable_item_tags(item_compound, validated_item, enchantments_db)
-            _core._apply_entity_variant_edit(item_compound, validated_item, base_item_tag, duplicate_label)
+        item_compound = _build_validated_item(validated_item, base_item_tag, enchantments_db, duplicate_label, is_ender_chest)
         new_items_by_slot[slot] = item_compound
 
     return _core.nbt.ListTag(

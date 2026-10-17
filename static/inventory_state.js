@@ -217,6 +217,7 @@
         getEnderChestInventory = () => ({}),
         getProtectedKnownSlots = () => ({ inventory: [], ender_chest: [] }),
         setProtectedKnownSlots = () => {},
+        onSavedItemsApplied = () => {},
     } = {}) {
         function ensureItemOrigin(item, containerName = "inventory") {
             if (!item) return item;
@@ -256,12 +257,13 @@
             });
         }
 
-        function normalizeOriginsToCurrentSavedState(itemSourceDigests = null) {
+        function normalizeOriginsToCurrentSavedState(itemSourceDigests = null, savedItems = null) {
             const hasDigestMaps = Boolean(
                 itemSourceDigests
                 && typeof itemSourceDigests === "object"
                 && (itemSourceDigests.inventory || itemSourceDigests.ender_chest),
             );
+            const updates = [];
             [
                 [getInventory?.() || {}, "inventory"],
                 [getEnderChestInventory?.() || {}, "ender_chest"],
@@ -271,6 +273,16 @@
                     if (!item) return;
                     const slotId = Number.isInteger(item.slot) ? item.slot : parseInt(slotKey, 10);
                     if (!Number.isInteger(slotId)) return;
+                    const savedItem = savedItems?.[containerName]?.[String(slotId)];
+                    if ((savedItems !== null && (!savedItem || savedItem.slot !== slotId
+                        || String(savedItem.name).trim().toLowerCase() !== String(item.name).trim().toLowerCase()))
+                        || (!savedItem && item.special_edit)) {
+                        throw new Error(t("Gespeicherte Item-Daten fehlen oder passen nicht zum Entwurf. Bitte Spieler neu laden."));
+                    }
+                    // Stage complete authoritative items before replacing the
+                    // maps. This clears consumed edits and refreshes all nested
+                    // origins/metadata atomically, including no-op responses.
+                    item = cloneJson(savedItem || item);
                     const readOnlyRootEquipment = item.root_equipment_read_only === true
                         || ["armor", "offhand"].includes(String(item.source_container || ""));
                     if (!readOnlyRootEquipment) {
@@ -290,8 +302,11 @@
                             delete item.source_item_digest;
                         }
                     }
+                    updates.push(() => { items[slotKey] = item; });
                 });
             });
+            updates.forEach(update => update());
+            onSavedItemsApplied();
         }
 
         return {

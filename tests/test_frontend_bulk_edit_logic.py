@@ -125,6 +125,50 @@ def test_frontend_bulk_edit_logic_count_and_repair_plans() -> None:
     )
 
 
+def test_bulk_fill_rejects_unsupported_variants_before_replacing_selected_items() -> None:
+    run_node(
+        r"""
+        const assert = require('assert');
+        const fs = require('fs');
+        global.window = {};
+        for (const file of ['selection_state', 'inventory_state', 'bulk_edit_logic']) {
+            eval(fs.readFileSync(`static/${file}.js`, 'utf8'));
+        }
+        for (const [name, invalid, valid, variants] of [
+            ['minecraft:banner', 16, 15, Array.from({length:16}, (_,damage) => ({damage}))],
+            ['minecraft:empty_map', 1, 2, [{damage:0}, {damage:2}]],
+        ]) {
+            const inventory = {0:{slot:0,name:'minecraft:diamond',count:3},1:{slot:1,name:'minecraft:stone',count:4}};
+            const before = JSON.stringify(inventory);
+            let click, undo = 0, dirty = 0;
+            const messages = [];
+            const elements = {
+                fillButton:{addEventListener(_event, listener) { click = listener; }},
+                bulkItemSearch:{value:name},bulkCount:{value:'1'},bulkDamage:{value:String(invalid)},
+            };
+            window.MCBEBulkEditLogic.createBulkEditController({
+                elements,
+                itemCatalog:{isValidItemId:()=>true,isAddableItemId:()=>true,getMaxStack:()=>64,
+                    getMaxDamage:()=>32767,hasVerifiedStackLimit:()=>true,dataValueVariantsForId:()=>variants},
+                getSelectedSlots:()=>[0,1],getInventory:()=>inventory,
+                getCurrentSelectionState:()=>({selectedSlots:[0,1]}),
+                pushUndo:()=>{undo++;},setDirty:()=>{dirty++;},showToast:message=>messages.push(message),
+            }).wire();
+            click();
+            assert.strictEqual(JSON.stringify(inventory), before);
+            assert.strictEqual(undo, 0);
+            assert.strictEqual(dirty, 0);
+            assert(messages[0].includes('Datenwert'));
+            elements.bulkDamage.value = String(valid);
+            click();
+            assert.strictEqual(undo, 1);
+            assert.strictEqual(dirty, 1);
+            assert(Object.values(inventory).every(item => item.name === name && item.damage === valid));
+        }
+        """
+    )
+
+
 def test_frontend_bulk_edit_controller_guards_every_mutation_entrypoint() -> None:
     run_node(
         textwrap.dedent(

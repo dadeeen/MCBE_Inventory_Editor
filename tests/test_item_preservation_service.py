@@ -1,6 +1,7 @@
 """Service-level preservation regressions using disposable, synthetic records."""
 
 from copy import deepcopy
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,7 @@ from mcbe_editor import nbt, services
 from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
 from mcbe_editor.players import encode_player_key
 from mcbe_editor.world import LOCAL_PLAYER_KEY
+from tests.node_runner import run_node
 
 
 SOURCE_KEY = b"player_server_source"
@@ -93,6 +95,122 @@ def _save(editor, loaded, inventory, **kwargs):
 
 def _stored(editor):
     return nbt.load(editor.store[LOCAL_PLAYER_KEY]).tag
+
+
+def _normalize_saved_draft(payload, response, container):
+    normalized = run_node(
+        "const item = "
+        + json.dumps(payload)
+        + ";\nconst response = "
+        + json.dumps(response)
+        + ";\nconst container = "
+        + json.dumps(container)
+        + ";\n"
+        + r"""
+        const fs = require('fs');
+        global.window = {};
+        eval(fs.readFileSync('static/inventory_state.js', 'utf8'));
+        const items = {0:item};
+        const origins = window.MCBEInventoryState.createInventoryOriginController({
+            getInventory:()=>container === 'inventory' ? items : {},
+            getEnderChestInventory:()=>container === 'ender_chest' ? items : {},
+            getWorldPath:()=>item.source_world_path,
+            getCurrentPlayerKey:()=>item.source_player_key,
+        });
+        origins.normalizeOriginsToCurrentSavedState(response.item_source_digests, response.saved_items);
+        console.log(JSON.stringify(items[0]));
+        """
+    )
+    return json.loads(normalized.stdout)
+
+
+@pytest.mark.parametrize("container,tag_name", [("inventory", "Inventory"), ("ender_chest", "EnderChestInventory")])
+@pytest.mark.parametrize("kind", ["book", "shulker"])
+def test_repeated_save_rebases_special_row_origins_to_the_stored_record(editor, container, tag_name, kind):
+    if kind == "book":
+        key, name = "pages", "minecraft:writable_book"
+        entries = [nbt.CompoundTag({"text": nbt.StringTag(text), "Future": nbt.StringTag(text)}) for text in ("First", "Second")]
+    else:
+        key, name = "Items", "minecraft:undyed_shulker_box"
+        entries = [_item("minecraft:diamond", slot, tag=nbt.CompoundTag({"Future": nbt.IntTag(slot)})) for slot in range(2)]
+    editor.store[LOCAL_PLAYER_KEY] = _player(**{tag_name: nbt.ListTag([_item(name, 0, tag=nbt.CompoundTag({key: nbt.ListTag(entries, 10)}))], 10)})
+    loaded = _load(editor)
+    payload = deepcopy(loaded[container][0])
+    data = deepcopy(payload["special_item"]["data"])
+    if kind == "book":
+        data["pages"].reverse()
+    else:
+        data["items"].pop(0)
+    payload["special_edit"] = {"kind": kind, "data": data}
+
+    def save_item(previous, value):
+        return _save(editor, previous, [value] if container == "inventory" else None, **({"ender_chest_list": [value]} if container == "ender_chest" else {}))
+
+    response = save_item(loaded, payload)
+    assert response["success"]
+    before_second_save = _stored(editor)[tag_name][0]["tag"][key].save_to()
+    next_payload = _normalize_saved_draft(payload, response, container)
+    next_payload["display_name"] = "Renamed after saving"
+    second = save_item(response, next_payload)
+    assert second["success"]
+    assert _stored(editor)[tag_name][0]["tag"][key].save_to() == before_second_save
+    assert "special_edit" not in next_payload
+    unchanged = _normalize_saved_draft(next_payload, second, container)
+    third = save_item(second, unchanged)
+    assert third["no_op"]
+    assert third["saved_items"][container][0]["special_item"] == unchanged["special_item"]
+    assert len(editor.backups) == 2
+
+
+def test_special_edits_survive_service_save_reload_and_reject_invalid_nested_batch(editor):
+    child = _item("minecraft:diamond", 12, Count=nbt.ByteTag(7), tag=nbt.CompoundTag({"Future": nbt.StringTag("keep")}))
+    container = _item("minecraft:undyed_shulker_box", 0, tag=nbt.CompoundTag({"Items": nbt.ListTag([child], 10)}))
+    editor.store[LOCAL_PLAYER_KEY] = _player(Inventory=nbt.ListTag([container], 10))
+    loaded = _load(editor)
+    payload = deepcopy(list(loaded["inventory"].values()))
+    data = deepcopy(payload[0]["special_item"]["data"])
+    data["items"][0]["count"] = 19
+    payload[0]["special_edit"] = {"kind": "shulker", "data": data}
+    assert _save(editor, loaded, payload)["success"]
+    reloaded = _load(editor)
+    edited = reloaded["inventory"][0]["special_item"]["data"]["items"][0]
+    assert edited["count"] == 19
+    assert _stored(editor)["Inventory"][0]["tag"]["Items"][0]["tag"]["Future"].py_data == "keep"
+    before = editor.store[LOCAL_PLAYER_KEY]
+    writes = len(editor.writes)
+    payload = deepcopy(list(reloaded["inventory"].values()))
+    payload[0]["special_edit"] = {"kind": "shulker", "data": {"items": [{"slot": 30, "name": "minecraft:diamond", "count": 1}]}}
+    with pytest.raises(ValueError):
+        _save(editor, reloaded, payload)
+    assert editor.store[LOCAL_PLAYER_KEY] == before
+    assert len(editor.writes) == writes
+
+
+def test_contained_enchantments_save_reload_and_reject_invalid_levels_atomically(editor):
+    original_enchantment = nbt.CompoundTag({"id": nbt.ShortTag(9), "lvl": nbt.ShortTag(2), "Future": nbt.IntTag(12)})
+    child = _item("minecraft:diamond_sword", 0, tag=nbt.CompoundTag({"ench": nbt.ListTag([original_enchantment], 10), "Future": nbt.StringTag("keep")}))
+    container = _item("minecraft:undyed_shulker_box", 0, tag=nbt.CompoundTag({"Items": nbt.ListTag([child], 10)}))
+    editor.store[LOCAL_PLAYER_KEY] = _player(Inventory=nbt.ListTag([container], 10))
+    loaded = _load(editor)
+    payload = deepcopy(list(loaded["inventory"].values()))
+    data = deepcopy(payload[0]["special_item"]["data"])
+    data["items"][0]["enchantments"] = [{"id": 9, "lvl": 5}, {"id": 17, "lvl": 3}]
+    payload[0]["special_edit"] = {"kind": "shulker", "data": data}
+    assert _save(editor, loaded, payload)["success"]
+    reloaded = _load(editor)
+    assert reloaded["inventory"][0]["special_item"]["data"]["items"][0]["enchantments"] == [{"id": 9, "lvl": 5}, {"id": 17, "lvl": 3}]
+    stored = _stored(editor)["Inventory"][0]["tag"]["Items"][0]["tag"]
+    assert stored["Future"].py_data == "keep"
+    assert stored["ench"][0]["Future"].py_data == 12
+    before, writes = editor.store[LOCAL_PLAYER_KEY], len(editor.writes)
+    payload = deepcopy(list(reloaded["inventory"].values()))
+    data = deepcopy(payload[0]["special_item"]["data"])
+    data["items"][0]["enchantments"][0]["lvl"] = 6
+    payload[0]["special_edit"] = {"kind": "shulker", "data": data}
+    with pytest.raises(ValueError):
+        _save(editor, reloaded, payload)
+    assert editor.store[LOCAL_PLAYER_KEY] == before
+    assert len(editor.writes) == writes
 
 
 @pytest.mark.parametrize(

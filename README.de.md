@@ -22,6 +22,14 @@ Studio-Layout mit Beispieldaten, englischer Oberfläche und integrierten Ersatzs
 
 [![Beispielinventar](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
 
+### Besondere Items
+
+Rechtsklick auf ein Item → **Inhalte bearbeiten**, oder die sichtbare Aktion im Slot-Editor verwenden. Shulkerkisten haben einen Editor mit 27 Slots; Bundles zeigen ihren Füllstand und unterstützen verschachtelte Bundles. Enthaltene Items verwenden dieselben Item- und Verzauberungsregeln wie das Hauptinventar.
+
+Eigene Editoren stehen für Buchseiten, Titel und Autoren signierter Bücher, Feuerwerksraketen und -sterne sowie geordnete Bannermuster mit texturierter Vanilla-Vorschau bereit, einschließlich komplexer Motive, Farbstofffarben und transparenter Verläufe. Die Vorschau verwendet lokal gespeicherte Minecraft-Texturen; **Bannermuster laden** ergänzt fehlende Texturen über das Vanilla-Icon-Update und hält sie offline verfügbar. Jeder Dialog führt einen lokalen Entwurf: **Übernehmen** erzeugt einen Rückgängig-Schritt; **Abbrechen** verwirft ihn. Erst das Speichern des Spielers schreibt die Änderungen in die Welt. Per Tastatur öffnet **Umschalt+F10** das Item-Menü; die Pfeiltasten wählen eine Aktion aus.
+
+Unbekannte Zusatzdaten bleiben erhalten. Nicht unterstützte Spezialdatenformate sind schreibgeschützt. Die unterstützten Formate, Grenzen und Quellen stehen im [Speichervertrag auf GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md#special-item-edits).
+
 ## Download → Backup → Start
 
 Wähle die passende Ausgabe:
@@ -76,7 +84,7 @@ Icons berücksichtigen aktive Welt-Packs, deren Versionen und Priorität. Ausdr�
 
 ## Drei Layouts
 
-Wähle zwischen **Klassisch**, **Studio** und **Fokus**, unabhängig vom hellen oder dunklen Farbtheme. Beim Layoutwechsel bleiben laufende Bearbeitungen erhalten.
+Wähle zwischen **Klassisch**, **Studio** und **Fokus**, unabhängig vom hellen oder dunklen Farbtheme. Beim Layoutwechsel bleiben laufende Bearbeitungen erhalten. Das Theme **System** folgt der hellen oder dunklen Einstellung des Betriebssystems, auch bei Änderungen während der Editor geöffnet ist.
 
 ## Portable Windows-App
 

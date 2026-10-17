@@ -253,9 +253,10 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
                         state.cleanCount += 1;
                         state.isDirty = false;
                     },
-                    normalizeOriginsToCurrentSavedState: digests => {
+                    normalizeOriginsToCurrentSavedState: (digests, savedItems) => {
                         state.normalized += 1;
                         state.normalizedDigests = digests;
+                        state.normalizedItems = savedItems;
                     },
                     openSaveReview: async () => state.reviewResponse,
                     payloadContainsUserChanges: () => state.payloadHasChanges,
@@ -409,6 +410,7 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
                         inventory: { 0: "b".repeat(64) },
                         ender_chest: {},
                     };
+                    const savedItems = { inventory: { 0: { slot: 0, name: "minecraft:stone", count: 1 } }, ender_chest: {} };
                     const { controller, state } = makeController({
                         postResponses: [{
                             success: true,
@@ -416,12 +418,14 @@ def test_frontend_save_controller_preserves_save_orchestration_contract() -> Non
                             backup_file: null,
                             player_revision: "rev-1",
                             item_source_digests: noOpDigests,
+                            saved_items: savedItems,
                         }],
                     });
                     await controller.saveCurrentPlayer({ skipReview: true });
                     assert.strictEqual(state.cleanCount, 1);
                     assert.strictEqual(state.normalized, 1);
                     assert.deepStrictEqual(state.normalizedDigests, noOpDigests);
+                    assert.strictEqual(state.normalizedItems, savedItems);
                     assert.strictEqual(state.createdPayload, null);
                     assert.strictEqual(state.flashed, 0);
                 }
@@ -990,11 +994,13 @@ def test_app_wiring_forwards_item_source_digests_to_origin_controller() -> None:
                 inventory: { 8: "d".repeat(64) },
                 ender_chest: {},
             };
-            wired(digests);
+            const savedItems = { inventory: { 8: { slot: 8, name: "minecraft:bundle", count: 1 } }, ender_chest: {} };
+            wired(digests, savedItems);
 
             assert.strictEqual(calls.length, 1);
-            assert.strictEqual(calls[0].length, 1);
+            assert.strictEqual(calls[0].length, 2);
             assert.strictEqual(calls[0][0], digests);
+            assert.strictEqual(calls[0][1], savedItems);
             """
         )
     )

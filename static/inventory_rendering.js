@@ -260,6 +260,7 @@
             setDirty = () => {},
             guardEditingAction = () => false,
             slotDisplayName = (slotId, containerName) => `${containerName}:${slotId}`,
+            itemLabel = item => item?.display_name || item?.name || "",
         } = deps;
         const {
             mainInventoryGrid = null,
@@ -326,7 +327,16 @@
             }
             if (!plan.ok) return false;
 
-            pushUndo();
+            const itemText = item => t("{count}× {item}", { count: item.count, item: itemLabel(item) });
+            const from = slotDisplayName(fromSlot, fromContainerName);
+            const to = slotDisplayName(toSlot, toContainerName);
+            const actionMessage = copyMode && fromItem
+                ? t("{item} von {from} nach {to} kopiert", { item: itemText(fromItem), from, to })
+                    + (toItem ? t(" · {item} ersetzt", { item: itemText(toItem) }) : "")
+                : fromItem && toItem
+                    ? t("{fromItem} ({from}) mit {toItem} ({to}) getauscht", { fromItem: itemText(fromItem), toItem: itemText(toItem), from, to })
+                    : t("{item} von {from} nach {to} verschoben", { item: itemText(fromItem || toItem), from: fromItem ? from : to, to: fromItem ? to : from });
+            pushUndo(actionMessage);
             const result = window.MCBEInventoryState.moveOrCopySlotState({
                 fromMap,
                 toMap,
@@ -338,11 +348,7 @@
                 ensureOrigin: ensureItemOrigin,
             });
             if (!result.changed) return false;
-            if (result.action === "copy") {
-                recordAction(`${slotDisplayName(fromSlot, fromContainerName)} nach ${slotDisplayName(toSlot, toContainerName)} kopiert`, "edit");
-            } else {
-                recordAction(`${slotDisplayName(fromSlot, fromContainerName)} mit ${slotDisplayName(toSlot, toContainerName)} getauscht/verschoben`, "edit");
-            }
+            recordAction(actionMessage, "edit");
             updateGridVisuals();
             setDirty(true);
             return true;
@@ -448,7 +454,8 @@
                 if (plan.ok) {
                     if (guardEditingAction()) return;
                     event.preventDefault();
-                    pushUndo(`Slot ${slotDisplayName(slotId, containerName)} geleert`);
+                    const actionMessage = t("{slot} geleert", { slot: slotDisplayName(slotId, containerName) });
+                    pushUndo(actionMessage);
                     window.MCBEInventoryState.clearTargets([{ map, slotId }]);
                     applySelectionState(containerName === "ender_chest"
                         ? window.MCBESelectionState.selectEnderSlot(currentSelectionState(), slotId)
@@ -456,7 +463,7 @@
                     updateGridVisuals();
                     updateSelectionUI();
                     setDirty(true);
-                    recordAction(`${slotDisplayName(slotId, containerName)} per Tastatur geleert`, "edit");
+                    recordAction(actionMessage, "edit");
                 }
                 return;
             }
@@ -791,6 +798,7 @@
             setDirty: helpers.setDirty,
             guardEditingAction: helpers.guardEditingAction,
             slotDisplayName: renderer.slotDisplayName,
+            itemLabel: renderer.itemLabel,
         });
     }
 

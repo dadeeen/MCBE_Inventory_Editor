@@ -22,6 +22,14 @@ Studio layout with example data, an English interface, and built-in placeholder 
 
 [![Example inventory](docs/assets/editor-inventory.png)](docs/assets/editor-inventory.png)
 
+### Special items
+
+Right-click an item and choose **Edit contents**, or use its visible action in the slot inspector. Shulker boxes have a 27-slot editor; bundles show their capacity and support nested bundles. Contained items use the same item and enchantment rules as the main inventory.
+
+Dedicated editors cover book pages, written-book titles and authors, firework rockets and stars, and ordered banner patterns with a textured Vanilla preview, including complex motifs, dye colors and transparent gradients. The preview uses locally cached Minecraft textures; **Load banner patterns** prepares missing assets through the Vanilla icon updater and keeps them available offline. Each dialog keeps a local draft: **Apply** creates one undo step; **Cancel** discards it. Save the player to write the changes to the world. Keyboard users can open the item menu with **Shift+F10** and navigate it with the arrow keys.
+
+Unknown metadata is preserved. Unsupported special-data formats remain read-only. The supported formats, bounds and source references are documented in the [save contract on GitHub](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md#special-item-edits).
+
 ## Download → backup → start
 
 Choose the edition that fits your setup:
@@ -76,7 +84,7 @@ Icons follow active world packs, their versions and priority. Explicitly added e
 
 ## Three layouts
 
-Choose between **Classic**, **Studio** and **Focus**, independently of the light or dark theme. Switch layouts without losing in-progress edits.
+Choose between **Classic**, **Studio** and **Focus**, independently of the light or dark theme. Switch layouts without losing in-progress edits. The **System** theme follows the operating system’s light or dark preference, including changes while the editor is open.
 
 ## Portable Windows app
 
