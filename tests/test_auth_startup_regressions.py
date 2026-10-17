@@ -160,17 +160,27 @@ def test_unwritable_setup_storage_preserves_authorized_open_modes(monkeypatch, t
 
 
 @pytest.mark.parametrize("host,browser_host", [("::1", "[::1]"), ("::", "[::1]"), ("0.0.0.0", "127.0.0.1")])
-def test_auto_browser_uses_public_health_endpoint_and_ipv6_brackets(monkeypatch, host, browser_host):
+def test_auto_browser_uses_direct_public_health_endpoint_and_ipv6_brackets(monkeypatch, host, browser_host):
     import main
     import webbrowser
 
-    ready = Mock(return_value=BytesIO(b"ok"))
+    requests = []
+
+    def http_open(_handler, request):
+        requests.append((request.host, request.full_url, request.timeout))
+        response = urllib.response.addinfourl(BytesIO(b"ok"), {}, request.full_url, 200)
+        response.msg = "OK"
+        return response
+
     opened = Mock(return_value=True)
-    monkeypatch.setattr(urllib.request, "urlopen", ready)
+    monkeypatch.setattr(urllib.request, "_opener", None)
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.invalid:3128"})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda _host: False)
+    monkeypatch.setattr(urllib.request.HTTPHandler, "http_open", http_open)
     monkeypatch.setattr(main.sys, "platform", "test-posix")
     monkeypatch.setattr(webbrowser, "open", opened)
     main.open_browser_when_ready(host, 5010)
-    ready.assert_called_once_with(f"http://{browser_host}:5010/healthz", timeout=2)
+    assert requests == [(f"{browser_host}:5010", f"http://{browser_host}:5010/healthz", 2)]
     opened.assert_called_once_with(f"http://{browser_host}:5010/", new=2)
 
 

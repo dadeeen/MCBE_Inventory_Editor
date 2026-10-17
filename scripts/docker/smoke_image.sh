@@ -21,7 +21,7 @@ container="$(timeout 30 docker run --detach --read-only --network none \
 ready=false
 for _ in {1..30}; do
     if timeout 5 docker exec "$container" python -c \
-        'import urllib.request; response = urllib.request.urlopen("http://127.0.0.1:8080/healthz", timeout=2); assert response.status == 200' \
+        'import urllib.request; response = urllib.request.build_opener(urllib.request.ProxyHandler({})).open("http://127.0.0.1:8080/healthz", timeout=2); assert response.status == 200' \
         >/dev/null 2>&1; then
         ready=true
         break

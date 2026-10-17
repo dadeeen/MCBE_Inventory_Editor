@@ -2254,9 +2254,10 @@ def open_browser_when_ready(host: str, port: int) -> None:
     browser_host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
     browser_url = f"http://{_host_for_origin(browser_host)}:{port}/"
     ready_url = f"{browser_url}healthz"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     while True:
         try:
-            with contextlib.closing(urllib.request.urlopen(ready_url, timeout=2)):
+            with contextlib.closing(opener.open(ready_url, timeout=2)):
                 pass
             break
         except Exception:

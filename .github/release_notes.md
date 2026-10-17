@@ -3,6 +3,7 @@ Release packages for the Minecraft Bedrock Inventory Editor.
 ## Unreleased
 
 - **Restore access:** POSIX restore retains existing ownership, group permissions and access metadata throughout the world tree, including Linux ACLs. Restored-only paths follow default ACLs independently of their parent's access mode, including minimal ACLs stored as permission bits. Metadata-copy failures stop before the world is replaced. Full restore support requires an editor identity that can preserve the server's file ownership; shared unprivileged UID/GID setup is documented.
+- **Local startup:** The Windows source launcher retains an explicit server-offline requirement. Internal browser readiness, Docker health and smoke checks bypass HTTP proxies for their local requests.
 
 ## What changed in v0.7.2
 

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from io import BytesIO
+from pathlib import Path
+import shlex
+import urllib.request
 
 from mcbe_editor.config import load_config
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
@@ -76,11 +80,26 @@ def test_local_write_gate_disabled_reports_world_access_warning(monkeypatch):
     assert "Lokalmodus" in status["message"]
 
 
-def test_dockerfile_uses_configured_internal_port_for_runtime_and_healthcheck():
-    dockerfile = __import__("pathlib").Path("Dockerfile").read_text(encoding="utf-8")
+def test_dockerfile_uses_configured_internal_port_for_runtime_and_direct_healthcheck(monkeypatch):
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
     assert "${MCBE_EDITOR_PORT:-8080}" in dockerfile
-    assert "os.environ.get('MCBE_EDITOR_PORT', '8080')" in dockerfile
+    requests = []
+
+    def http_open(_handler, request):
+        requests.append((request.host, request.full_url, request.timeout))
+        response = urllib.response.addinfourl(BytesIO(b"ok"), {}, request.full_url, 200)
+        response.msg = "OK"
+        return response
+
+    monkeypatch.setenv("MCBE_EDITOR_PORT", "8091")
+    monkeypatch.setattr(urllib.request, "_opener", None)
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://proxy.invalid:3128"})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda _host: False)
+    monkeypatch.setattr(urllib.request.HTTPHandler, "http_open", http_open)
+    command = next(line.strip() for line in dockerfile.splitlines() if line.strip().startswith("CMD python -c "))
+    exec(shlex.split(command)[3], {})
+    assert requests == [("127.0.0.1:8091", "http://127.0.0.1:8091/healthz", 2)]
 
 
 def test_write_gate_public_payload_does_not_expose_secrets(monkeypatch):
