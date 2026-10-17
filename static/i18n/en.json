@@ -1990,6 +1990,7 @@
   "Readonly-LevelDB konnte nicht geöffnet werden. Die Welt wurde nicht mit dem mutierenden LevelDB-Adapter geöffnet.": "Read-only LevelDB could not be opened. The world was not opened with the mutating LevelDB adapter.",
   "Restore": "Restore",
   "Restore abgelehnt: Das ausgewählte Backup stimmt nicht mehr mit der Vorschau überein. Bitte Vorschau neu laden.": "Restore rejected: the selected backup no longer matches the preview. Please reload the preview.",
+  "Restore abgelehnt: Die vorhandenen Dateirechte der Welt können nicht übernommen werden. Verwende für Editor und Server dieselbe unprivilegierte Benutzer- und Gruppenzuordnung.": "Restore refused: The world's existing file permissions cannot be preserved. Use the same unprivileged user and group identity for the editor and server.",
   "Restore abgelehnt: Die Backup-Datei wurde seit der Vorschau verändert. Bitte Vorschau neu laden.": "Restore rejected: the backup file changed since the preview. Please reload the preview.",
   "Restore abgelehnt: Die Restore-Vorschau fehlt oder ist veraltet. Bitte Vorschau neu laden.": "Restore rejected: the restore preview is missing or outdated. Please reload the preview.",
   "Restore abgelehnt: Die Restore-Vorschau hat ein unbekanntes Format. Bitte Vorschau neu laden.": "Restore rejected: the restore preview has an unknown format. Please reload the preview.",

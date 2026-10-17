@@ -10,6 +10,7 @@ import re
 import secrets
 import shutil
 import stat
+import sys
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterable
@@ -1429,6 +1430,91 @@ def safe_extract_zip(zipf: zipfile.ZipFile, target_dir: str) -> None:
         _sync_backup_directory(directory)
 
 
+def _preserve_restore_access(world_path: str, staging_dir: str) -> None:
+    """Keep the existing POSIX access policy instead of publishing mkdtemp's 0700.
+
+    ZIPs carry neither ownership nor a complete ACL policy. Existing paths use
+    the current world's metadata; restored-only paths inherit the nearest
+    existing directory's owner, group, access mode and default ACL. Never
+    publish under a different owner merely because a process cannot preserve
+    that identity.
+    """
+
+    if sys.platform != "win32" and os.name == "posix":
+        world_path = os.path.abspath(world_path)
+        staging_dir = os.path.abspath(staging_dir)
+        try:
+            for directory, _dirs, files in os.walk(staging_dir, topdown=False, onerror=_raise_walk_error):
+                for target in [*(os.path.join(directory, name) for name in files), directory]:
+                    target_is_dir = os.path.isdir(target)
+                    source = os.path.join(world_path, os.path.relpath(target, staging_dir))
+                    exact_source = os.path.exists(source) and os.path.isdir(source) == target_is_dir
+                    if not exact_source:
+                        source = os.path.dirname(source)
+                        while not os.path.isdir(source):
+                            source = os.path.dirname(source)
+                    reject_linklike_entry(source)
+                    source_info = os.stat(source, follow_symlinks=False)
+                    target_info = os.stat(target, follow_symlinks=False)
+                    if (target_info.st_uid, target_info.st_gid) != (source_info.st_uid, source_info.st_gid):
+                        os.chown(target, source_info.st_uid, source_info.st_gid, follow_symlinks=False)
+                    if exact_source:
+                        shutil.copystat(source, target, follow_symlinks=False)
+                        # The content changed. Keep the extraction timestamps so
+                        # lightweight world-change checks notice the replacement.
+                        os.utime(target, ns=(target_info.st_atime_ns, target_info.st_mtime_ns), follow_symlinks=False)
+                    # copystat treats unsupported/denied xattrs as optional.
+                    # An existing access/default ACL is not optional here.
+                    inherited_access_acl = False
+                    if hasattr(os, "listxattr"):
+                        try:
+                            source_attrs = os.listxattr(source, follow_symlinks=False)
+                            target_attrs = os.listxattr(target, follow_symlinks=False)
+                        except OSError as exc:
+                            if exc.errno not in {errno.ENOTSUP, errno.EINVAL}:
+                                raise
+                        else:
+                            names = ("system.posix_acl_access", "system.posix_acl_default") if target_is_dir else ("system.posix_acl_access",)
+                            for name in names:
+                                source_name = name if exact_source else "system.posix_acl_default"
+                                if source_name in source_attrs:
+                                    acl = os.getxattr(source, source_name, follow_symlinks=False)
+                                    if not exact_source:
+                                        # Setting a minimal access ACL can make
+                                        # Linux store only mode bits, with no
+                                        # readable access-ACL xattr afterwards.
+                                        os.setxattr(target, name, acl, follow_symlinks=False)
+                                        if name == "system.posix_acl_access":
+                                            inherited_access_acl = True
+                                    elif os.getxattr(target, name, follow_symlinks=False) != acl:
+                                        raise OSError("Restore-ACL konnte nicht übernommen werden.")
+                                elif name in target_attrs:
+                                    # An inherited staging ACL must not grant
+                                    # access that the original path never had.
+                                    os.removexattr(target, name, follow_symlinks=False)
+                    if not exact_source:
+                        # chmod also changes an access ACL's mask. Inherited
+                        # defaults define their own permissions independently
+                        # of the source directory's current access mode.
+                        permission_source = os.stat(target, follow_symlinks=False) if inherited_access_acl else source_info
+                        mode = stat.S_IMODE(permission_source.st_mode) & (0o777 if target_is_dir else 0o666)
+                        if target_is_dir:
+                            mode |= source_info.st_mode & stat.S_ISGID
+                        os.chmod(target, mode)
+                    if target_is_dir:
+                        _sync_backup_directory(target)
+                    else:
+                        with open(target, "rb") as restored:
+                            os.fsync(restored.fileno())
+        except OSError as exc:
+            raise ValueError(
+                t(
+                    "Restore abgelehnt: Die vorhandenen Dateirechte der Welt können nicht übernommen werden. "
+                    "Verwende für Editor und Server dieselbe unprivilegierte Benutzer- und Gruppenzuordnung."
+                )
+            ) from exc
+
+
 @_world_locked
 def list_backups(world_path: str) -> list[BackupListEntry]:
     backups_dir = ensure_safe_backup_location(world_path)
@@ -1610,6 +1696,7 @@ def restore_backup(
         if not os.path.isdir(os.path.join(temp_restore_dir, "db")):
             raise ValueError("Backup enthält keinen gültigen Bedrock-db-Ordner.")
 
+        _preserve_restore_access(world_path, temp_restore_dir)
         if pre_restore_check:
             pre_restore_check()
         # The application lock cannot stop an external writer. A server may have

@@ -3,6 +3,8 @@
 import builtins
 import errno
 import os
+import stat
+import struct
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -93,6 +95,163 @@ def test_restore_syncs_all_files_and_directories_before_replacing_world(restore_
     backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
     for name, value in contents.items():
         assert (world / name).read_bytes() == value
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory permissions")
+@pytest.mark.parametrize("mode", [0o750, 0o2770])
+def test_restore_preserves_world_directory_access_mode(restore_world, mode):
+    world, archive, contents = restore_world
+    world.chmod(mode)
+    (world / "db").chmod(mode)
+    (world / "db" / "CURRENT").chmod(0o660)
+
+    backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+
+    assert stat.S_IMODE(world.stat().st_mode) == mode
+    assert stat.S_IMODE((world / "db").stat().st_mode) == mode
+    assert stat.S_IMODE((world / "db" / "CURRENT").stat().st_mode) == 0o660
+    assert (world / "db" / "CURRENT").read_bytes() == contents["db/CURRENT"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership and permissions")
+def test_restore_permission_copy_failure_keeps_original_world(restore_world, monkeypatch):
+    world, archive, _contents = restore_world
+    original = (world / "db" / "CURRENT").read_bytes()
+    monkeypatch.setattr(backup.shutil, "copystat", Mock(side_effect=PermissionError("restore permissions")))
+
+    with pytest.raises(ValueError, match="Dateirechte"):
+        backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+
+    assert (world / "db" / "CURRENT").read_bytes() == original
+    assert archive.is_file()
+    assert not list(world.parent.glob(".world_restoring_*"))
+    assert not list(world.parent.glob(".world_rollback_*"))
+    assert not list(world.parent.glob(".mcbe_restore_*.json"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership and permissions")
+@pytest.mark.parametrize("deny_ownership", [False, True])
+def test_restore_keeps_owner_group_and_permissions_or_refuses_before_rename(restore_world, monkeypatch, deny_ownership):
+    world, archive, contents = restore_world
+    # The archive's old file is absent in the current world, so its restored
+    # identity and group access must come from the current containing directory.
+    (world / "resource_packs" / "nested" / "data.bin").unlink()
+    paths = [world, *(path for path in world.rglob("*"))]
+    try:
+        for path in paths:
+            os.chown(path, 10002, 10003)
+            path.chmod(0o2770 if path.is_dir() else 0o660)
+    except OSError as exc:
+        pytest.skip(f"Distinct POSIX test ownership unavailable: {exc}")
+    if deny_ownership:
+        monkeypatch.setattr(backup.os, "chown", Mock(side_effect=PermissionError("foreign owner")))
+        with pytest.raises(ValueError, match="Dateirechte"):
+            backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+        assert (world / "db" / "CURRENT").read_bytes() == b"current database"
+        assert not list(world.parent.glob(".world_restoring_*"))
+        assert not list(world.parent.glob(".world_rollback_*"))
+        assert not list(world.parent.glob(".mcbe_restore_*.json"))
+        return
+
+    backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+
+    for path in [world, *world.rglob("*")]:
+        info = path.stat()
+        assert (info.st_uid, info.st_gid) == (10002, 10003)
+        assert stat.S_IMODE(info.st_mode) == (0o2770 if path.is_dir() else 0o660)
+    for name, value in contents.items():
+        assert (world / name).read_bytes() == value
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="POSIX ACL support")
+@pytest.mark.parametrize("inherited_extra_acl", [False, True])
+@pytest.mark.parametrize("deny_acl", [False, True])
+def test_restore_preserves_existing_acls_without_inheriting_extra_access(restore_world, monkeypatch, inherited_extra_acl, deny_acl):
+    world, archive, _contents = restore_world
+    backup.shutil.rmtree(world / "resource_packs")
+    # Linux's version-2 POSIX ACL: owner, named editor, group, mask, other.
+    acl = struct.pack("<I", 2) + b"".join(
+        struct.pack("<HHI", tag, permissions, identity)
+        for tag, permissions, identity in [(1, 7, 0xFFFFFFFF), (2, 7, 10001), (4, 5, 0xFFFFFFFF), (16, 7, 0xFFFFFFFF), (32, 0, 0xFFFFFFFF)]
+    )
+    source = world.parent if inherited_extra_acl else world
+    try:
+        os.setxattr(source, "system.posix_acl_access", acl)
+        os.setxattr(source, "system.posix_acl_default", acl)
+    except OSError as exc:
+        pytest.skip(f"POSIX ACLs unavailable: {exc}")
+
+    if deny_acl:
+        operation = "removexattr" if inherited_extra_acl else "setxattr"
+        monkeypatch.setattr(backup.os, operation, Mock(side_effect=PermissionError(errno.EPERM, "restore ACL")))
+        with pytest.raises(ValueError, match="Dateirechte"):
+            backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+        assert (world / "db" / "CURRENT").read_bytes() == b"current database"
+        assert archive.is_file()
+        assert not list(world.parent.glob(".world_restoring_*"))
+        assert not list(world.parent.glob(".world_rollback_*"))
+        assert not list(world.parent.glob(".mcbe_restore_*.json"))
+        return
+
+    backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+
+    for path in (world, world / "resource_packs", world / "resource_packs" / "nested"):
+        for name in ("system.posix_acl_access", "system.posix_acl_default"):
+            if inherited_extra_acl:
+                assert name not in os.listxattr(path)
+            else:
+                assert os.getxattr(path, name) == acl
+    restored_file = world / "resource_packs" / "nested" / "data.bin"
+    if inherited_extra_acl:
+        assert "system.posix_acl_access" not in os.listxattr(restored_file)
+    else:
+        file_acl = struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, permissions, identity)
+            for tag, permissions, identity in [(1, 6, 0xFFFFFFFF), (2, 7, 10001), (4, 5, 0xFFFFFFFF), (16, 6, 0xFFFFFFFF), (32, 0, 0xFFFFFFFF)]
+        )
+        assert os.getxattr(restored_file, "system.posix_acl_access") == file_acl
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="POSIX ACL support")
+@pytest.mark.parametrize("directory_mode,default_mask", [(0o2770, 5), (0o750, 7), (0o700, 5)])
+@pytest.mark.parametrize("extended", [False, True], ids=["minimal-acl", "named-user-acl"])
+def test_restored_only_paths_follow_default_acl_instead_of_parent_access_mode(restore_world, tmp_path, directory_mode, default_mask, extended):
+    world, archive, contents = restore_world
+    backup.shutil.rmtree(world / "resource_packs")
+    expected = tmp_path / "expected"
+    expected.mkdir()
+    entries = (
+        [(1, 7, 0xFFFFFFFF)]
+        + ([(2, 7, 10001)] if extended else [])
+        + [(4, 5 if extended else default_mask, 0xFFFFFFFF)]
+        + ([(16, default_mask, 0xFFFFFFFF)] if extended else [])
+        + [(32, 0, 0xFFFFFFFF)]
+    )
+    acl = struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *entry) for entry in entries)
+    for parent in (world, expected):
+        parent.chmod(directory_mode)
+        try:
+            os.setxattr(parent, "system.posix_acl_default", acl)
+        except OSError as exc:
+            pytest.skip(f"POSIX ACLs unavailable: {exc}")
+    # Let the filesystem establish the expected inheritance. The parent's
+    # access mode deliberately differs from its default ACL's mask.
+    (expected / "resource_packs" / "nested").mkdir(parents=True)
+    (expected / "resource_packs" / "nested" / "data.bin").write_bytes(contents["resource_packs/nested/data.bin"])
+
+    backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+
+    assert stat.S_IMODE(world.stat().st_mode) == directory_mode
+    for relative in ("resource_packs", "resource_packs/nested", "resource_packs/nested/data.bin"):
+        actual_path, expected_path = world / relative, expected / relative
+        assert stat.S_IMODE(actual_path.stat().st_mode) == stat.S_IMODE(expected_path.stat().st_mode)
+        if extended:
+            assert os.getxattr(actual_path, "system.posix_acl_access") == os.getxattr(expected_path, "system.posix_acl_access")
+        else:
+            assert "system.posix_acl_access" not in os.listxattr(actual_path)
+        if actual_path.is_dir():
+            assert os.getxattr(actual_path, "system.posix_acl_default") == acl
+    assert (world / "resource_packs/nested/data.bin").read_bytes() == contents["resource_packs/nested/data.bin"]
 
 
 @pytest.mark.parametrize("failure", ["file", "directory"])

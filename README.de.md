@@ -162,7 +162,7 @@ Wichtiges Docker-Verhalten:
 
 ### Schreibrechte für Docker-Welten
 
-Das Host-Dateisystem muss UID/GID `10001` vor dem ersten Speichern Zugriff gewähren. Klappe die Anleitung auf, wenn Berechtigungen angepasst werden müssen.
+Das Host-Dateisystem muss UID/GID `10001` vor dem ersten Speichern Zugriff gewähren. Klappe die Anleitung auf, wenn Berechtigungen angepasst werden müssen. Ein vollständiger Welt-Restore übernimmt zusätzlich die vorhandenen Eigentümer, Gruppen und Zugriffsrechte vor dem Ersetzen der Welt. ACL- oder Gruppenschreibrechte allein erlauben keine Übernahme eines anderen Eigentümers: Ist diese nicht möglich, bricht der Restore vor dem Ersetzen ab. Verwende für vollständige Restore-Unterstützung dieselbe unprivilegierte UID/GID für Editor und Server wie unten beschrieben.
 
 <details>
 <summary>Docker-Dateirechte einrichten und Fehler prüfen</summary>

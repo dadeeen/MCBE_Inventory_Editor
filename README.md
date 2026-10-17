@@ -162,7 +162,7 @@ Important Docker behavior:
 
 ### Write permissions for Docker worlds
 
-The host filesystem must grant UID/GID `10001` access before the first save. Expand the instructions if permissions need adjusting.
+The host filesystem must grant UID/GID `10001` access before the first save. Expand the instructions if permissions need adjusting. A full-world restore also preserves the existing owner, group and access permissions before replacing the world. ACL or group write access alone cannot preserve a different owner: the restore refuses before replacement if it cannot retain that identity. For full restore support, use the same unprivileged UID/GID for the editor and server as described below.
 
 <details>
 <summary>Configure and diagnose Docker world permissions</summary>

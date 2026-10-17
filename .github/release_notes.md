@@ -1,5 +1,9 @@
 Release packages for the Minecraft Bedrock Inventory Editor.
 
+## Unreleased
+
+- **Restore access:** POSIX restore retains existing ownership, group permissions and access metadata throughout the world tree, including Linux ACLs. Restored-only paths follow default ACLs independently of their parent's access mode, including minimal ACLs stored as permission bits. Metadata-copy failures stop before the world is replaced. Full restore support requires an editor identity that can preserve the server's file ownership; shared unprivileged UID/GID setup is documented.
+
 ## What changed in v0.7.2
 
 - **Portable Windows app:** A separate x64 ZIP starts through `MCBEInventoryEditor.exe` in its own WebView2 window, with bundled Python and no BAT setup. It shares the browser/Docker editor, supports native file dialogs and updater workers, and checks unsaved changes before closing. The installed WebView2 Runtime is required. The host restricts window/frame navigation to its own local origin, opens clicked external HTTP(S) links in the default browser, and includes guarded `--recover` without a separate Python installation.
