@@ -97,6 +97,19 @@ def test_restore_syncs_all_files_and_directories_before_replacing_world(restore_
         assert (world / name).read_bytes() == value
 
 
+def test_restore_accepts_relative_world_path_without_parent_component(restore_world, monkeypatch):
+    world, archive, contents = restore_world
+    monkeypatch.chdir(world.parent)
+
+    backup.restore_backup(world.name, archive.name)
+
+    for name, value in contents.items():
+        assert (world / name).read_bytes() == value
+    assert not list(world.parent.glob(".world_restoring_*"))
+    assert not list(world.parent.glob(".world_rollback_*"))
+    assert not list(world.parent.glob(".mcbe_restore_*.json"))
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX directory permissions")
 @pytest.mark.parametrize("mode", [0o750, 0o2770])
 def test_restore_preserves_world_directory_access_mode(restore_world, mode):
@@ -210,6 +223,67 @@ def test_restore_preserves_existing_acls_without_inheriting_extra_access(restore
             for tag, permissions, identity in [(1, 6, 0xFFFFFFFF), (2, 7, 10001), (4, 5, 0xFFFFFFFF), (16, 6, 0xFFFFFFFF), (32, 0, 0xFFFFFFFF)]
         )
         assert os.getxattr(restored_file, "system.posix_acl_access") == file_acl
+
+
+@pytest.mark.skipif(os.name != "posix" or not hasattr(os, "setxattr"), reason="POSIX ACL support")
+@pytest.mark.parametrize("unsupported_side", ["source", "staging"])
+@pytest.mark.parametrize("error_number", [errno.ENOTSUP, errno.EINVAL])
+def test_restore_enforces_acls_when_xattr_support_differs(restore_world, monkeypatch, unsupported_side, error_number):
+    world, archive, contents = restore_world
+    # World subdirectories can reside on a filesystem with different ACL
+    # support from staging. Use a UID mapped even in a single-UID namespace.
+    acl = struct.pack("<I", 2) + b"".join(
+        struct.pack("<HHI", tag, permissions, identity)
+        for tag, permissions, identity in [(1, 7, 0xFFFFFFFF), (2, 7, os.getuid()), (4, 5, 0xFFFFFFFF), (16, 7, 0xFFFFFFFF), (32, 0, 0xFFFFFFFF)]
+    )
+    acl_path = world.parent if unsupported_side == "source" else world
+    try:
+        for name in ("system.posix_acl_access", "system.posix_acl_default"):
+            os.setxattr(acl_path, name, acl)
+    except OSError as exc:
+        pytest.skip(f"POSIX ACLs unavailable: {exc}")
+
+    real_listxattr, real_setxattr, real_getxattr = os.listxattr, os.setxattr, os.getxattr
+
+    def unsupported(path):
+        return Path(path).is_relative_to(world) if unsupported_side == "source" else _staged(Path(path))
+
+    def listxattr(path, *args, **kwargs):
+        if unsupported(path):
+            raise OSError(error_number, "synthetic filesystem without xattrs")
+        return real_listxattr(path, *args, **kwargs)
+
+    def setxattr(path, *args, **kwargs):
+        if unsupported(path):
+            raise OSError(error_number, "synthetic filesystem without xattrs")
+        return real_setxattr(path, *args, **kwargs)
+
+    def getxattr(path, *args, **kwargs):
+        if unsupported(path):
+            raise OSError(error_number, "synthetic filesystem without xattrs")
+        return real_getxattr(path, *args, **kwargs)
+
+    monkeypatch.setattr(backup.os, "listxattr", listxattr)
+    monkeypatch.setattr(backup.os, "setxattr", setxattr)
+    monkeypatch.setattr(backup.os, "getxattr", getxattr)
+    if unsupported_side == "staging":
+        # copystat may silently skip unsupported xattrs, but publishing without
+        # the existing world's ACL is not an acceptable restore outcome.
+        with pytest.raises(ValueError, match="Dateirechte"):
+            backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+        assert (world / "db" / "CURRENT").read_bytes() == b"current database"
+        assert real_getxattr(world, "system.posix_acl_access") == acl
+        assert not list(world.parent.glob(".world_restoring_*"))
+        assert not list(world.parent.glob(".world_rollback_*"))
+        assert not list(world.parent.glob(".mcbe_restore_*.json"))
+    else:
+        backup.restore_backup(str(world), archive.name, resolved_backup_path=str(archive))
+        for path in (world, *world.rglob("*")):
+            # Unsupported source xattrs must not retain broader ACLs inherited
+            # only because staging was created under a different parent.
+            assert not set(real_listxattr(path)) & {"system.posix_acl_access", "system.posix_acl_default"}
+        for name, value in contents.items():
+            assert (world / name).read_bytes() == value
 
 
 @pytest.mark.skipif(not hasattr(os, "setxattr"), reason="POSIX ACL support")

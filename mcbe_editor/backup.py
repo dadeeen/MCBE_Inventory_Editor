@@ -1430,6 +1430,16 @@ def safe_extract_zip(zipf: zipfile.ZipFile, target_dir: str) -> None:
         _sync_backup_directory(directory)
 
 
+def _restore_xattr_names(path: str) -> list[str]:
+    if sys.platform != "win32":
+        try:
+            return os.listxattr(path, follow_symlinks=False)
+        except OSError as exc:
+            if exc.errno not in {errno.ENOTSUP, errno.EINVAL}:
+                raise
+    return []
+
+
 def _preserve_restore_access(world_path: str, staging_dir: str) -> None:
     """Keep the existing POSIX access policy instead of publishing mkdtemp's 0700.
 
@@ -1467,31 +1477,29 @@ def _preserve_restore_access(world_path: str, staging_dir: str) -> None:
                     # An existing access/default ACL is not optional here.
                     inherited_access_acl = False
                     if hasattr(os, "listxattr"):
-                        try:
-                            source_attrs = os.listxattr(source, follow_symlinks=False)
-                            target_attrs = os.listxattr(target, follow_symlinks=False)
-                        except OSError as exc:
-                            if exc.errno not in {errno.ENOTSUP, errno.EINVAL}:
-                                raise
-                        else:
-                            names = ("system.posix_acl_access", "system.posix_acl_default") if target_is_dir else ("system.posix_acl_access",)
-                            for name in names:
-                                source_name = name if exact_source else "system.posix_acl_default"
-                                if source_name in source_attrs:
-                                    acl = os.getxattr(source, source_name, follow_symlinks=False)
-                                    if not exact_source:
-                                        # Setting a minimal access ACL can make
-                                        # Linux store only mode bits, with no
-                                        # readable access-ACL xattr afterwards.
-                                        os.setxattr(target, name, acl, follow_symlinks=False)
-                                        if name == "system.posix_acl_access":
-                                            inherited_access_acl = True
-                                    elif os.getxattr(target, name, follow_symlinks=False) != acl:
-                                        raise OSError("Restore-ACL konnte nicht übernommen werden.")
-                                elif name in target_attrs:
-                                    # An inherited staging ACL must not grant
-                                    # access that the original path never had.
-                                    os.removexattr(target, name, follow_symlinks=False)
+                        # Query each filesystem independently. Unsupported
+                        # staging xattrs must not bypass a source ACL, and an
+                        # unsupported source must not retain staging-only ACLs.
+                        source_attrs = _restore_xattr_names(source)
+                        target_attrs = _restore_xattr_names(target)
+                        names = ("system.posix_acl_access", "system.posix_acl_default") if target_is_dir else ("system.posix_acl_access",)
+                        for name in names:
+                            source_name = name if exact_source else "system.posix_acl_default"
+                            if source_name in source_attrs:
+                                acl = os.getxattr(source, source_name, follow_symlinks=False)
+                                if not exact_source:
+                                    # Setting a minimal access ACL can make
+                                    # Linux store only mode bits, with no
+                                    # readable access-ACL xattr afterwards.
+                                    os.setxattr(target, name, acl, follow_symlinks=False)
+                                    if name == "system.posix_acl_access":
+                                        inherited_access_acl = True
+                                elif os.getxattr(target, name, follow_symlinks=False) != acl:
+                                    raise OSError("Restore-ACL konnte nicht übernommen werden.")
+                            elif name in target_attrs:
+                                # An inherited staging ACL must not grant
+                                # access that the original path never had.
+                                os.removexattr(target, name, follow_symlinks=False)
                     if not exact_source:
                         # chmod also changes an access ACL's mask. Inherited
                         # defaults define their own permissions independently
@@ -1665,6 +1673,10 @@ def restore_backup(
     )
     if not os.path.exists(backup_zip_path):
         raise FileNotFoundError("Backup-Datei existiert nicht.")
+
+    # Directory transactions need an actual parent path even when the caller
+    # supplied a bare relative world name; fsync("") is not fsync(".").
+    world_path = os.path.abspath(os.path.normpath(world_path))
 
     # The service supplies the state from before its pre-restore backup. Direct
     # callers still detect changes during this function's preparation/extraction.
