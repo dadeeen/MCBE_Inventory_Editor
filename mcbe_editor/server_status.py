@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
 import random
 import re
+import selectors
 import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import suppress
+from dataclasses import dataclass, field
 from typing import Any
 
 from .config import AppConfig
@@ -14,6 +18,7 @@ RAKNET_MAGIC = bytes.fromhex("00ffff00fefefefefdfdfdfd12345678")
 NETHERNET_JOIN_PATH = "/v1/join"
 _HTTP_STATUS_LINE = re.compile(rb"HTTP/1\.[01] ([1-5][0-9][0-9])[ \r]")
 _MAX_STATUS_LINE_BYTES = 256
+_MAX_NETHERNET_CONNECTIONS = 16
 _TRUE_STRING_VALUES = {"1", "true", "yes", "ja", "on", "confirmed"}
 _STATUS_REVISION_LOCK = threading.Lock()
 _STATUS_REVISION = 0
@@ -135,37 +140,7 @@ def _http_authority(host: str, port: int) -> str:
     return f"{host}:{port}"
 
 
-def _read_status_line(conn: socket.socket, deadline: float) -> bytes:
-    head = b""
-    while b"\n" not in head and len(head) < _MAX_STATUS_LINE_BYTES:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("Keine vollständige HTTP-Statuszeile.")
-        conn.settimeout(remaining)
-        chunk = conn.recv(_MAX_STATUS_LINE_BYTES - len(head))
-        if not chunk:
-            break
-        head += chunk
-    return head
-
-
-def _nethernet_join_probe(host: str, port: int, timeout: float = 1.5) -> dict:
-    """Return Bedrock status from a NetherNet server's HTTP signaling endpoint.
-
-    A server with ``transport=nethernet`` ignores RakNet pings. That value is in
-    the server.properties template of current releases; a file without the key
-    keeps RakNet. NetherNet accepts an HTTP signaling handshake on TCP
-    ``server-port`` and answers ``GET /v1/join`` with 2xx while the server runs;
-    the itzg image uses the same request as its health check. Any other HTTP
-    status, such as a reverse proxy's 502 while the server is down, stays
-    unknown. A refused, reset or silent connection raises OSError like the
-    RakNet probe.
-    """
-
-    request = f"GET {NETHERNET_JOIN_PATH} HTTP/1.1\r\nHost: {_http_authority(host, port)}\r\nConnection: close\r\n\r\n"
-    with socket.create_connection((host, port), timeout=timeout) as conn:
-        conn.sendall(request.encode("ascii", errors="replace"))
-        head = _read_status_line(conn, time.monotonic() + timeout)
+def _nethernet_status_response(head: bytes | bytearray) -> dict:
     if not head:
         raise ConnectionResetError("Verbindung ohne Antwort geschlossen.")
     match = _HTTP_STATUS_LINE.match(head)
@@ -178,6 +153,112 @@ def _nethernet_join_probe(host: str, port: int, timeout: float = 1.5) -> dict:
         "status": "unknown",
         **_message_fields("Unerwartete HTTP-Antwort am Serverport (Status {status}).", status=code),
     }
+
+
+@dataclass
+class _NetherNetConnection:
+    address_index: int
+    sent: int = 0
+    head: bytearray = field(default_factory=bytearray)
+
+
+def _advance_nethernet_connection(conn: socket.socket, state: _NetherNetConnection, request: bytes, events: int) -> dict | None:
+    if events & selectors.EVENT_WRITE:
+        if state.sent == 0:
+            error = conn.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+            if error:
+                raise OSError(error, os.strerror(error))
+        sent = conn.send(request[state.sent :])
+        if sent == 0:
+            raise ConnectionResetError("Verbindung ohne Antwort geschlossen.")
+        state.sent += sent
+        return None
+    chunk = conn.recv(_MAX_STATUS_LINE_BYTES - len(state.head))
+    state.head.extend(chunk)
+    if chunk and b"\n" not in state.head and len(state.head) < _MAX_STATUS_LINE_BYTES:
+        return None
+    return _nethernet_status_response(state.head)
+
+
+def _nethernet_join_probe(host: str, port: int, timeout: float = 1.5) -> dict:
+    """Return Bedrock status from a NetherNet server's HTTP signaling endpoint.
+
+    A server with ``transport=nethernet`` ignores RakNet pings. That value is in
+    the server.properties template of current releases; a file without the key
+    keeps RakNet. NetherNet accepts an HTTP signaling handshake on TCP
+    ``server-port`` and answers ``GET /v1/join`` with 2xx while the server runs;
+    the itzg image uses the same request as its health check. Any other HTTP
+    status, such as a reverse proxy's 502 while the server is down, stays
+    unknown. Concurrent connections share one overall I/O deadline, so a slow
+    valid response remains eligible while other addresses are tried. At most
+    sixteen sockets are active; further DNS records are queued until a socket
+    completes. All sockets close before returning, including on early success.
+    """
+
+    addresses = list(dict.fromkeys(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)))
+    if not addresses:
+        raise ServerStatusProbeError("Serverstatus unbekannt: Serveradresse konnte nicht aufgelöst werden.")
+    request = f"GET {NETHERNET_JOIN_PATH} HTTP/1.1\r\nHost: {_http_authority(host, port)}\r\nConnection: close\r\n\r\n".encode("ascii", errors="replace")
+    deadline = time.monotonic() + timeout
+    first_unknown_response: tuple[int, dict] | None = None
+    last_error: OSError | None = None
+    pending = iter(enumerate(addresses))
+    with selectors.DefaultSelector() as selector:
+        try:
+            while True:
+                while len(selector.get_map()) < _MAX_NETHERNET_CONNECTIONS and time.monotonic() < deadline:
+                    next_address = next(pending, None)
+                    if next_address is None:
+                        break
+                    index, (family, socktype, proto, _canonname, sockaddr) = next_address
+                    conn = None
+                    try:
+                        conn = socket.socket(family, socktype, proto)
+                        conn.setblocking(False)
+                        with suppress(BlockingIOError, InterruptedError):
+                            conn.connect(sockaddr)
+                        selector.register(conn, selectors.EVENT_WRITE, _NetherNetConnection(index))
+                    except OSError as exc:
+                        if conn is not None:
+                            conn.close()
+                        last_error = exc
+                    except BaseException:
+                        if conn is not None:
+                            conn.close()
+                        raise
+                if not selector.get_map():
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    last_error = TimeoutError("Keine Antwort vom Server.")
+                    break
+                for key, events in selector.select(remaining):
+                    conn, state = key.fileobj, key.data
+                    try:
+                        outcome = _advance_nethernet_connection(conn, state, request, events)
+                        if outcome is None:
+                            if state.sent == len(request) and events & selectors.EVENT_WRITE:
+                                selector.modify(conn, selectors.EVENT_READ, state)
+                            continue
+                    except (BlockingIOError, InterruptedError):
+                        continue
+                    except OSError as exc:
+                        last_error = exc
+                    else:
+                        if outcome.get("status") == "online":
+                            return outcome
+                        if first_unknown_response is None or state.address_index < first_unknown_response[0]:
+                            first_unknown_response = state.address_index, outcome
+                    selector.unregister(conn)
+                    conn.close()
+        finally:
+            for key in list(selector.get_map().values()):
+                key.fileobj.close()
+    if first_unknown_response is not None:
+        return first_unknown_response[1]
+    if last_error is not None:
+        raise last_error
+    raise TimeoutError("Keine Antwort vom Server.")
 
 
 def _probe_server(host: str, port: int) -> dict:
