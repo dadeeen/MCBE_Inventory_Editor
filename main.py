@@ -1,6 +1,7 @@
 import argparse
 import atexit
 import contextlib
+import errno
 import logging
 import math
 import os
@@ -44,6 +45,7 @@ from mcbe_editor import (
     update_script_runner,
 )
 from mcbe_editor.audit import AuditLogger
+from mcbe_editor.browser_launch import browser_url, existing_editor_url, open_browser_url
 from mcbe_editor.config import _host_for_origin, host_reaches_beyond_loopback, request_host_is_trusted, trusted_hosts_for_bind
 from mcbe_editor.db import register_runtime_leveldb_write_guard
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
@@ -1676,7 +1678,9 @@ def set_scan_path_enabled_route():
 
 @app.route("/healthz", methods=["GET"])
 def healthz():
-    return app_info_routes.healthz(app_info_route_deps())
+    response = app_info_routes.healthz(app_info_route_deps())
+    response.headers["X-MCBE-Editor"] = "1"
+    return response
 
 
 @app.route("/setup", methods=["GET", "POST"])
@@ -2249,11 +2253,9 @@ if __name__ != "__main__":
 
 def open_browser_when_ready(host: str, port: int) -> None:
     import urllib.request
-    import webbrowser
 
-    browser_host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
-    browser_url = f"http://{_host_for_origin(browser_host)}:{port}/"
-    ready_url = f"{browser_url}healthz"
+    url = browser_url(host, port)
+    ready_url = f"{url}healthz"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     while True:
         try:
@@ -2262,18 +2264,7 @@ def open_browser_when_ready(host: str, port: int) -> None:
             break
         except Exception:
             time.sleep(0.3)
-    try:
-        if sys.platform.startswith("win"):
-            os.startfile(browser_url)
-            LOGGER.info("opened browser via Windows shell url=%s", browser_url)
-            return
-        opened = webbrowser.open(browser_url, new=2)
-        if opened:
-            LOGGER.info("opened browser url=%s", browser_url)
-        else:
-            LOGGER.warning("browser auto-open returned false url=%s", browser_url)
-    except Exception as exc:
-        LOGGER.warning("browser auto-open failed url=%s error=%s", browser_url, exc)
+    open_browser_url(url, LOGGER)
 
 
 def create_local_server(host: str, port: int, *, debug: bool = False):
@@ -2315,6 +2306,8 @@ if __name__ == "__main__":
     if not HOST:
         parser.error("--host must not be empty")
     PORT = args.port
+    if not 0 <= PORT <= 65535:
+        parser.error("--port must be between 0 and 65535")
     try:
         _SERVER = create_local_server(HOST, PORT, debug=bool(args.debug))
     except RuntimeError as exc:
@@ -2323,9 +2316,22 @@ if __name__ == "__main__":
         sys.exit(1)
 
     except OSError as e:
-        LOGGER.error("Port %s is already in use: %s", PORT, e.strerror)
-        print(f"  Error: port {PORT} is already in use ({e.strerror}).")
-        print(f"  Use another port: python main.py --port {PORT + 1}")
+        if e.errno == errno.EADDRINUSE or getattr(e, "winerror", None) == 10048:
+            existing_url = existing_editor_url(HOST, PORT) if APP_CONFIG.is_local else None
+            if existing_url:
+                print(f"  Der Editor läuft bereits: {browser_url(HOST, PORT)}")
+                print("  Nach Programmänderungen: laufende Instanz beenden und neu starten.")
+                if APP_CONFIG.open_browser and not args.no_browser:
+                    open_browser_url(existing_url, LOGGER)
+                sys.exit(0)
+            LOGGER.error("Port %s is already in use: %s", PORT, e.strerror)
+            print(f"  Port {PORT} ist belegt; die laufende Anwendung wurde nicht als Editor erkannt.")
+            print("  Prüfe das bereits geöffnete Serverfenster. Nach einem Update muss es beendet werden.")
+            if PORT < 65535:
+                print(f"  Alternativer Port: python main.py --port {PORT + 1}")
+        else:
+            LOGGER.error("Could not bind %s:%s: %s", HOST, PORT, e)
+            print(f"  Server konnte nicht gestartet werden: {e}")
         sys.exit(1)
 
     PORT = _SERVER.port

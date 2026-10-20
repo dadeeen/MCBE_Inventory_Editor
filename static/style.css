@@ -1813,6 +1813,22 @@ body {
     color: var(--success-text);
 }
 
+.startup-notice {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 10000;
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
+}
+.startup-notice[hidden], .startup-notice [hidden] { display: none; }
+.startup-notice strong { font-size: 1rem; }
+.startup-notice p { margin: 10px 0; color: var(--text-primary); }
+.startup-notice button { min-height: 44px; margin-top: 4px; }
+@media (max-width: 640px) {
+    .startup-notice { right: 16px; left: 16px; bottom: 16px; max-width: none; max-height: calc(100dvh - 32px); }
+}
+
 .toast-error {
     color: var(--danger-text);
 }

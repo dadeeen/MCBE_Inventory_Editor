@@ -1528,6 +1528,21 @@
         </div>
     </div>
 
+    <aside id="startupNotice" class="toast startup-notice" role="alert" aria-atomic="true" hidden>
+        <div id="startupFailure" hidden>
+            <strong id="startupFailureTitle">{{ t("Editor konnte nicht gestartet werden") }}</strong>
+            <p>{{ t("Die Oberfläche wurde nicht vollständig geladen. Die Weltsuche konnte deshalb nicht zuverlässig starten.") }}</p>
+            <p>{{ t("Lade die Seite neu. Nach einem Programmupdate: Beende die laufende Editor-Instanz, starte den Editor erneut und lade diese Seite neu.") }}</p>
+            <button id="startupReload" type="button" class="btn btn-secondary">{{ t("Seite neu laden") }}</button>
+        </div>
+        <div id="startupExisting" hidden>
+            <strong>{{ t("Editor läuft bereits") }}</strong>
+            <p>{{ t("Dieses Fenster verwendet die bereits laufende Instanz. Nach einem Programmupdate musst du diese zuerst beenden und neu starten.") }}</p>
+            <button id="startupDismiss" type="button" class="btn btn-secondary">{{ t("Verstanden") }}</button>
+        </div>
+    </aside>
+
+    <script src="{{ url_for('static', filename='startup_guard.js') }}"></script>
     <script src="{{ url_for('static', filename='i18n.js') }}"></script>
     <script src="{{ url_for('static', filename='api_client.js') }}"></script>
     <script src="{{ url_for('static', filename='app_bootstrap.js') }}"></script>

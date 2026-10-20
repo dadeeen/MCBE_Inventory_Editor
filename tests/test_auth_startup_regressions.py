@@ -74,6 +74,30 @@ def test_cli_rejects_empty_bind_host_before_listening(tmp_path, host):
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.parametrize("port", [-1, 65536])
+@pytest.mark.parametrize("source", ["cli", "environment"])
+def test_cli_rejects_out_of_range_port_before_listening(tmp_path, port, source):
+    app_root = Path(__file__).resolve().parents[1]
+    env = {key: value for key, value in os.environ.items() if not key.startswith("MCBE_")}
+    env.update(
+        MCBE_EDITOR_MODE="local",
+        MCBE_DATA_ROOT=str(tmp_path / "data"),
+        MCBE_WORLDS_ROOT=str(tmp_path / "no-worlds"),
+        MCBE_STARTUP_SECURITY_REPORT="false",
+        MCBE_STARTUP_NETWORK_CHECK="false",
+    )
+    arguments = [sys.executable, str(app_root / "main.py"), "--host=127.0.0.1", "--no-browser"]
+    if source == "cli":
+        arguments.append(f"--port={port}")
+    else:
+        env["MCBE_EDITOR_PORT"] = str(port)
+    result = subprocess.run(arguments, cwd=app_root, env=env, capture_output=True, text=True, timeout=15, check=False)
+
+    assert result.returncode == 2, result.stderr
+    assert "--port must be between 0 and 65535" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 @pytest.mark.parametrize("page,password,config_status", [("setup", None, 428), ("login", "secret", 401)])
 def test_auth_pages_keep_alive_with_csrf_without_unlocking_api(monkeypatch, tmp_path, page, password, config_status):
     main = _configure(monkeypatch, tmp_path, password=password)

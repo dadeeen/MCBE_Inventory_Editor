@@ -1,3 +1,4 @@
+if (window.MCBEStartupGuard?.hasFailed()) throw new Error("Application bootstrap stopped after a script error.");
 const t = window.t || ((text, params) => String(text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m)));
 const appRuntime = window.MCBEAppBootstrap.createRuntimeContext({ doc: document, win: window });
 const withCsrf = appRuntime.withCsrf;
@@ -1718,3 +1719,5 @@ window.MCBEWorkflowState.createInventoryEditorBootController({
     setInitialWorkflowView: setWorkflowView,
     updateGridVisuals,
 }).start();
+
+window.MCBEStartupGuard?.ready();

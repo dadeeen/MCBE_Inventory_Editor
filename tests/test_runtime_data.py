@@ -120,7 +120,7 @@ def test_prepare_persistent_item_db_sets_environment(tmp_path, monkeypatch):
 
 
 def test_main_bootstrap_loads_persistent_item_database_before_services(tmp_path):
-    data_root = tmp_path / "data"
+    data_root = tmp_path / "data-ü"
     item_db = data_root / "item_db.json"
     env = os.environ.copy()
     env.update(
@@ -128,6 +128,7 @@ def test_main_bootstrap_loads_persistent_item_database_before_services(tmp_path)
             "MCBE_DATA_ROOT": str(data_root),
             "MCBE_ITEM_DB_PATH": str(item_db),
             "MCBE_STARTUP_SECURITY_REPORT": "false",
+            "PYTHONIOENCODING": "utf-8",
         }
     )
     result = subprocess.run(
@@ -139,6 +140,7 @@ def test_main_bootstrap_loads_persistent_item_database_before_services(tmp_path)
         cwd=ROOT,
         env=env,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )
@@ -149,7 +151,7 @@ def test_main_bootstrap_loads_persistent_item_database_before_services(tmp_path)
 
 
 def test_main_bootstrap_recovers_corrupt_item_database_from_older_volume(tmp_path):
-    data_root = tmp_path / "data"
+    data_root = tmp_path / "data-ü"
     data_root.mkdir()
     item_db = data_root / "item_db.json"
     corrupt_payload = '{"schema_version":'
@@ -160,6 +162,7 @@ def test_main_bootstrap_recovers_corrupt_item_database_from_older_volume(tmp_pat
             "MCBE_DATA_ROOT": str(data_root),
             "MCBE_ITEM_DB_PATH": str(item_db),
             "MCBE_STARTUP_SECURITY_REPORT": "false",
+            "PYTHONIOENCODING": "utf-8",
         }
     )
     result = subprocess.run(
@@ -171,6 +174,7 @@ def test_main_bootstrap_recovers_corrupt_item_database_from_older_volume(tmp_pat
         cwd=ROOT,
         env=env,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )

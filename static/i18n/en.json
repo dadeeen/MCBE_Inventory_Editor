@@ -3268,5 +3268,12 @@
   "Geschützte oder zu umfangreiche Behälter wurden nicht vollständig durchsucht.": "Protected or overly complex containers were not fully searched.",
   "Inhalt im Editor öffnen": "Open contents in the editor",
   "Der gesuchte Inhalt wurde inzwischen geändert. Suche erneut.": "The contents have changed since the search. Search again.",
-  "Slot {slot}": "Slot {slot}"
+  "Slot {slot}": "Slot {slot}",
+  "Editor konnte nicht gestartet werden": "The editor could not start",
+  "Die Oberfläche wurde nicht vollständig geladen. Die Weltsuche konnte deshalb nicht zuverlässig starten.": "The interface did not load completely, so world discovery could not start reliably.",
+  "Lade die Seite neu. Nach einem Programmupdate: Beende die laufende Editor-Instanz, starte den Editor erneut und lade diese Seite neu.": "Reload the page. After an application update: close the running editor instance, restart the editor and reload this page.",
+  "Seite neu laden": "Reload page",
+  "Editor läuft bereits": "Editor is already running",
+  "Dieses Fenster verwendet die bereits laufende Instanz. Nach einem Programmupdate musst du diese zuerst beenden und neu starten.": "This window uses the editor instance that is already running. After an application update, close and restart that instance first.",
+  "Verstanden": "Understood"
 }
