@@ -233,3 +233,78 @@ def test_reading_an_online_player_marks_its_snapshot_stale(workflow):
     assert loaded["server_guard_stale"] is True
     assert loaded["player_server_guard_token"] != loaded["server_guard_token"]
     assert _read(workflow.world) == workflow.values
+
+
+def test_export_import_restore_and_followup_save_keep_current_world_and_revisions(workflow):
+    request = _prepare_import(workflow)
+    for key, xp in [(SOURCE, 29), (TARGET, 9)]:
+        selected = _request(workflow, key)
+        loaded = _payload(routes.load_player(selected, workflow.deps))
+        _payload(routes.save_player({**selected, "base_revision": loaded["player_revision"], "stats": {"xp_level": xp}}, workflow.deps))
+    before_import = _read(workflow.world)
+    loaded = _payload(routes.load_player(_request(workflow), workflow.deps))
+    request["base_revision"] = loaded["player_revision"]
+
+    imported = _payload(routes.import_player(request, workflow.deps))
+    assert _read(workflow.world) == {**before_import, TARGET: workflow.values[SOURCE]}
+    imported_player = _payload(routes.load_player(_request(workflow), workflow.deps))
+    service = workflow.deps.service
+    preview = service.preview_backup_restore(str(workflow.world), imported["backup_file"])
+    restored = service.restore_backup(str(workflow.world), imported["backup_file"], backup_token=preview["backup_token"])
+    assert restored["success"] is True
+    assert _read(workflow.world) == before_import
+
+    backups = set(Path(get_backups_dir(str(workflow.world))).glob("*.zip"))
+    stale = {**_request(workflow), "base_revision": imported_player["player_revision"], "stats": {"xp_level": 15}}
+    _payload(routes.save_player(stale, workflow.deps), 409)
+    assert _read(workflow.world) == before_import
+    assert set(Path(get_backups_dir(str(workflow.world))).glob("*.zip")) == backups
+    reloaded = _payload(routes.load_player(_request(workflow), workflow.deps))
+    assert reloaded["stats"]["xp_level"] == 9
+    assert reloaded["player_revision"] == loaded["player_revision"]
+    _payload(routes.save_player({**stale, "base_revision": reloaded["player_revision"]}, workflow.deps))
+    final = _read(workflow.world)
+    assert load_player_nbt(final[TARGET]).tag["XPLevel"].py_data == 15
+    assert final[SOURCE] == before_import[SOURCE]
+    assert final[b"unrelated-chunk"] == before_import[b"unrelated-chunk"]
+
+
+def test_import_readback_failure_rolls_back_before_followup_migration(workflow, monkeypatch):
+    request = _prepare_import(workflow)
+    open_readonly = workflow.deps.service._open_db_readonly
+    corrupt_once = True
+
+    def open_with_one_failed_readback(path):
+        nonlocal corrupt_once
+        reader = open_readonly(path)
+        read = reader.get
+
+        def get(key):
+            nonlocal corrupt_once
+            raw = read(key)
+            if corrupt_once and key == TARGET and raw == workflow.values[SOURCE]:
+                corrupt_once = False
+                return b"incomplete post-write read"
+            return raw
+
+        reader.get = get
+        return reader
+
+    monkeypatch.setattr(workflow.deps.service, "_open_db_readonly", open_with_one_failed_readback)
+    failure = _payload(routes.import_player(request, workflow.deps), 500)
+    assert corrupt_once is False
+    assert failure["code"] == "player_import_rolled_back"
+    assert failure["rolled_back"] is True
+    assert failure["write_committed"] is False
+    assert _read(workflow.world) == workflow.values
+    assert (Path(get_backups_dir(str(workflow.world))) / failure["backup_file"]).is_file()
+
+    migrated = _payload(routes.transfer_player_state(_prepare_transfer(workflow), workflow.deps))
+    assert migrated["write_committed"] is True
+    after = _read(workflow.world)
+    target = load_player_nbt(after[TARGET]).tag
+    assert target["XPLevel"].py_data == 17
+    assert target["UniqueID"].py_data == 999
+    assert target["AddonIdentity"].py_data == "keep-999"
+    assert after[SOURCE] == workflow.values[SOURCE]
+    assert after[b"unrelated-chunk"] == workflow.values[b"unrelated-chunk"]
