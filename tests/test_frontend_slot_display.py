@@ -400,7 +400,7 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
             assert.ok(model.subtitleHtml.includes("Slot &lt;1&gt;"));
             assert.ok(model.subtitleHtml.includes("Max-Stack 1&amp;"));
             assert.strictEqual(model.inspectDisabled, false);
-            assert.strictEqual(model.inspectTitle, "Geschützte Zusatzdaten für diesen Slot anzeigen");
+            assert.strictEqual(model.inspectTitle, "Gegenstand und geladene NBT-Daten analysieren");
             assert.strictEqual(model.clearDisabled, false);
             assert.strictEqual(model.maxStackDisabled, false);
             assert.strictEqual(model.repairDisabled, false);
@@ -424,7 +424,7 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
             assert.strictEqual(elements.title.textContent, "Schwert & Schild");
             assert.strictEqual(elements.subtitle.innerHTML, model.subtitleHtml);
             assert.strictEqual(elements.inspectButton.disabled, false);
-            assert.strictEqual(elements.inspectButton.title, "Geschützte Zusatzdaten für diesen Slot anzeigen");
+            assert.strictEqual(elements.inspectButton.title, "Gegenstand und geladene NBT-Daten analysieren");
             assert.strictEqual(elements.clearButton.disabled, false);
             assert.strictEqual(elements.maxStackButton.disabled, false);
             assert.strictEqual(elements.repairButton.disabled, false);
@@ -460,7 +460,7 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
             assert.strictEqual(elements.title.textContent, "Leerer Slot");
             assert.ok(elements.subtitle.innerHTML.includes("&nbsp;"));
             assert.strictEqual(elements.inspectButton.disabled, true);
-            assert.strictEqual(elements.inspectButton.title, "Keine geschützten Zusatzdaten in diesem Slot erkannt");
+            assert.strictEqual(elements.inspectButton.title, "Kein Gegenstand in diesem Slot");
             assert.strictEqual(elements.clearButton.disabled, true);
             assert.strictEqual(elements.maxStackButton.disabled, true);
             assert.strictEqual(elements.repairButton.disabled, true);

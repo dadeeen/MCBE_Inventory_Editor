@@ -1,185 +1,139 @@
+"""Pure inspector helpers keep analysis available without changing item data."""
+
 import textwrap
 
 from tests.node_runner import run_node
 
+SETUP = """
+const assert = require("assert");
+const fs = require("fs");
+const vm = require("vm");
+const context = {window: {}};
+vm.runInNewContext(fs.readFileSync("static/nbt_inspector.js", "utf8"), context);
+const inspector = context.window.MCBENbtInspector;
+"""
 
-def test_frontend_nbt_inspector_body_html_formats_editable_slot_details() -> None:
+
+def test_frontend_nbt_inspector_accepts_new_and_edited_items_without_raw_nbt() -> None:
     run_node(
-        textwrap.dedent(
-            r"""
-            const assert = require("assert");
-            const fs = require("fs");
-            const vm = require("vm");
-            const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
-            const inspectorCode = fs.readFileSync("static/nbt_inspector.js", "utf8");
-            const context = { window: {} };
-            vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
-            vm.runInNewContext(inspectorCode, context, { filename: "static/nbt_inspector.js" });
-
-            const view = context.window.MCBENbtInspector;
-            const html = view.slotInspectorBodyHtml({
-                label: "Inventar <Slot>",
-                slotId: 5,
-                containerName: "inventory",
-                item: {
-                    name: "minecraft:diamond_sword",
-                    source_slot: 1,
-                    nbt_view: { value: { Slot: { value: 1 } } },
-                },
-                inspectableDetails: ["CustomName <Name>", "Enchantments & Lore"],
-                nbtViewText: '{"tag":"<unsafe>"}',
-            });
-
-            assert.ok(html.includes("slot-inspector-callout info"));
-            assert.ok(html.includes("Inventar &lt;Slot&gt; enthält Zusatzdaten."));
-            assert.ok(html.includes("<li>CustomName &lt;Name&gt;</li>"));
-            assert.ok(html.includes("<li>Enchantments &amp; Lore</li>"));
-            assert.ok(html.includes("Inventory Slot 5"));
-            assert.ok(html.includes("Originalquelle: Inventory Slot 1"));
-            assert.ok(html.includes("Roh-NBT Slot-Feld: 1"));
-            assert.ok(html.includes('{&quot;tag&quot;:&quot;&lt;unsafe&gt;&quot;}'));
-            assert.ok(html.includes("Experten-NBT anzeigen"));
-            // Der kopierbare Detailtext wiederholt Tabelle und NBT und wird
-            // deshalb nicht zusätzlich im Panel angezeigt.
-            assert.ok(!html.includes("Detail-Log"));
-            assert.ok(!html.includes("slot-inspector-raw"));
-            assert.ok(!html.includes("Inventar <Slot>"));
+        SETUP
+        + textwrap.dedent(
+            """
+            const normal = {name: "minecraft:stone", count: 1};
+            for (const item of [normal, {...normal, replace_original_nbt: true},
+                {...normal, special_edit: {kind: "banner", data: {patterns: []}}},
+                {...normal, has_protected_nbt: true}, {name: "custom:unknown", count: 1}]) {
+                assert.strictEqual(inspector.itemHasInspectableNbt(item), true);
+                assert.strictEqual(inspector.itemHasInspectableNbt(item, {visible: false}), false);
+            }
+            for (const item of [null, undefined, {}, {name: "minecraft:air", count: 1},
+                {...normal, count: 0}, {...normal, count: -1}, {...normal, count: undefined}]) {
+                assert.strictEqual(inspector.itemHasInspectableNbt(item), false);
+            }
             """
         )
     )
 
 
-def test_frontend_nbt_inspector_body_html_formats_protected_slot_details() -> None:
+def test_frontend_nbt_inspector_preserves_known_protection_summaries() -> None:
     run_node(
-        textwrap.dedent(
+        SETUP
+        + textwrap.dedent(
             r"""
-            const assert = require("assert");
-            const fs = require("fs");
-            const vm = require("vm");
-            const inspectorCode = fs.readFileSync("static/nbt_inspector.js", "utf8");
-            const context = { window: {} };
-            vm.runInNewContext(inspectorCode, context, { filename: "static/nbt_inspector.js" });
-
-            const view = context.window.MCBENbtInspector;
-            const html = view.slotInspectorBodyHtml({
-                label: "Enderchest",
-                protectedKnown: true,
-                slotId: 2,
-                containerName: "ender_chest",
-                item: { name: "minecraft:apple" },
-                inspectableDetails: ["Should not render"],
-                nbtViewText: "Should not render",
-            });
-
-            assert.ok(html.includes("slot-inspector-callout warning"));
-            assert.ok(html.includes("Enderchest bleibt geschützt."));
-            assert.ok(html.includes("Read-only"));
-            assert.ok(html.includes("Nicht darstellbarer/future NBT-Eintrag"));
-            assert.ok(html.includes("Unverändert lassen oder Diagnose kopieren"));
-            assert.ok(!html.includes("Should not render"));
-            assert.ok(!html.includes("slot-inspector-json"));
-            assert.ok(!html.includes("Detail-Log"));
-            """
-        )
-    )
-
-
-def test_frontend_nbt_inspector_panel_model_and_applier() -> None:
-    run_node(
-        textwrap.dedent(
-            r"""
-            const assert = require("assert");
-            const fs = require("fs");
-            const vm = require("vm");
-            const inspectorCode = fs.readFileSync("static/nbt_inspector.js", "utf8");
-            const context = { window: {} };
-            vm.runInNewContext(inspectorCode, context, { filename: "static/nbt_inspector.js" });
-
-            const view = context.window.MCBENbtInspector;
-            const model = view.slotInspectorPanelModel({
-                label: "Hotbar 1",
-                protectedKnown: false,
-                slotId: 0,
-                containerName: "inventory",
-                item: { name: "minecraft:stone" },
-                inspectableDetails: ["Preserved"],
-            });
-
-            assert.strictEqual(model.visible, true);
-            assert.strictEqual(model.titleText, "Hotbar 1: NBT-Details");
-            assert.ok(model.bodyHtml.includes("Hotbar 1 enthält Zusatzdaten."));
-            assert.ok(model.bodyHtml.includes("<li>Preserved</li>"));
-
-            const elements = {
-                panel: { style: { display: "" } },
-                title: { textContent: "" },
-                body: { innerHTML: "" },
-            };
-            view.applySlotInspectorPanelModel(elements, model);
-            assert.strictEqual(elements.panel.style.display, "flex");
-            assert.strictEqual(elements.title.textContent, "Hotbar 1: NBT-Details");
-            assert.strictEqual(elements.body.innerHTML, model.bodyHtml);
-
-            const protectedModel = view.slotInspectorPanelModel({
-                label: "Helm",
-                protectedKnown: true,
-                slotId: 103,
-                containerName: "inventory",
-            });
-            view.applySlotInspectorPanelModel(elements, protectedModel);
-            assert.strictEqual(elements.title.textContent, "Helm ist read-only");
-            assert.ok(elements.body.innerHTML.includes("Helm bleibt geschützt."));
-
-            view.applySlotInspectorPanelModel(elements, { visible: false });
-            assert.strictEqual(elements.panel.style.display, "none");
-            """
-        )
-    )
-
-
-def test_frontend_nbt_inspector_copy_keeps_the_full_detail_text() -> None:
-    run_node(
-        textwrap.dedent(
-            r"""
-            const assert = require("assert");
-            const fs = require("fs");
-            const vm = require("vm");
-            const inspectorCode = fs.readFileSync("static/nbt_inspector.js", "utf8");
-            const context = { window: {}, setTimeout: () => {} };
-            vm.runInNewContext(inspectorCode, context, { filename: "static/nbt_inspector.js" });
-
-            const listeners = {};
-            const button = name => ({ addEventListener: (event, callback) => { listeners[name] = callback; } });
-            const elements = {
-                panel: { style: { display: "none" } },
-                title: { textContent: "" },
-                body: { innerHTML: "" },
-                closeButton: button("close"),
-                copyButton: button("copy"),
-            };
-            const copied = [];
             const item = {
-                name: "minecraft:diamond_sword",
-                protected_nbt_summary: ["CustomName"],
-                nbt_view: { value: { Slot: { value: 0 } } },
+                protected_nbt_summary: ["Unbekanntes Tag <Text>", 7],
+                preserved_nbt_summary: ["Eigener Name & Beschreibung"],
+                has_protected_nbt: true, has_preserved_nbt: true,
+                has_unknown_enchantments: true, protected_nbt_dropped: true,
             };
-            const controller = context.window.MCBENbtInspector.createSlotInspectorController({
-                elements,
-                getInventory: () => ({ 0: item }),
-                itemIsVisiblePresent: () => true,
-                currentPlayerLabel: () => "Spieler A",
-                getCurrentPlayerKey: () => "a",
-                getWorldPath: () => "C:/Welten/Test",
-                copyTextToClipboard: text => copied.push(text),
-            });
-            controller.wire();
-            controller.show(0, "inventory", "item_nbt");
-            assert.ok(!elements.body.innerHTML.includes("Weltpfad"));
+            const before = JSON.stringify(item);
+            const details = inspector.itemProtectedNbtDetails(item);
+            assert.deepStrictEqual(Array.from(details), ["Unbekanntes Tag <Text>", "7", "Eigener Name & Beschreibung",
+                "Unbekannte/future Verzauberungen werden erhalten.",
+                "Beim Itemtyp-Wechsel wird Zusatz-NBT vom vorherigen Item nicht übernommen."]);
+            assert.deepStrictEqual(Array.from(inspector.itemProtectedNbtDetails(item, {visible: false})), []);
+            assert.strictEqual(JSON.stringify(item), before);
+            """
+        )
+    )
 
-            listeners.copy();
-            assert.strictEqual(copied.length, 1);
-            for (const expected of ["Slot-Zusatzdaten", "- CustomName", "Experten-NBT:", "Auswirkung:", "Spieler: Spieler A", "Weltpfad: C:/Welten/Test"]) {
-                assert.ok(copied[0].includes(expected), expected);
+
+def test_frontend_nbt_inspector_summary_fallbacks_handle_missing_or_malformed_metadata() -> None:
+    run_node(
+        SETUP
+        + textwrap.dedent(
+            """
+            const protectedMessage = "Zusatz-NBT vorhanden, Kategorien in diesem Datensatz nicht genauer aufgeschlüsselt.";
+            const preservedMessage = "Bekannte Zusatz-NBT vorhanden, wird bei gleicher Item-ID erhalten.";
+            assert.deepStrictEqual(Array.from(inspector.itemProtectedNbtDetails(null)), []);
+            assert.deepStrictEqual(Array.from(inspector.itemProtectedNbtDetails({})), []);
+            for (const malformed of [undefined, null, [], "not an array", {length: 1}, 17]) {
+                assert.deepStrictEqual(Array.from(inspector.itemProtectedNbtDetails({
+                    has_protected_nbt: true, has_preserved_nbt: true, protected_nbt_summary: malformed,
+                })), [protectedMessage]);
+                assert.deepStrictEqual(Array.from(inspector.itemProtectedNbtDetails({
+                    has_preserved_nbt: true, preserved_nbt_summary: malformed,
+                })), [preservedMessage]);
+            }
+            """
+        )
+    )
+
+
+def test_frontend_nbt_inspector_json_keeps_types_exact_values_and_item_context_separate() -> None:
+    run_node(
+        SETUP
+        + textwrap.dedent(
+            r"""
+            const nbt_view = {type: "CompoundTag", value: {
+                Large: {type: "LongTag", value: "9223372036854775807"},
+                Number: {type: "DoubleTag", value: "NaN"},
+                Text: {type: "StringTag", value: "<script> & \\\""},
+                Partial: {type: "StringTag", value: "abc", truncation: {reason: "string", total: 5, shown: 3}},
+            }};
+            const item = {name: "minecraft:stone", nbt_view,
+                source_player_key: "synthetic_player", source_world_path: "C:/SyntheticWorld",
+                display_name: "UNSAVED DRAFT NAME"};
+            const before = JSON.stringify(item);
+            const text = inspector.itemNbtViewText(item);
+            assert.deepStrictEqual(JSON.parse(text), nbt_view);
+            for (const extra of ["synthetic_player", "C:/SyntheticWorld", "UNSAVED DRAFT NAME"]) {
+                assert.strictEqual(text.includes(extra), false);
+            }
+            assert.strictEqual(JSON.stringify(item), before);
+            assert.strictEqual(inspector.itemNbtViewText(null), "");
+            assert.strictEqual(inspector.itemNbtViewText({}), "");
+            const cycle = {}; cycle.self = cycle;
+            assert.strictEqual(inspector.itemNbtViewText({nbt_view: cycle}), "");
+            """
+        )
+    )
+
+
+def test_frontend_nbt_inspector_explanations_use_exact_paths_and_item_semantics() -> None:
+    run_node(
+        SETUP
+        + textwrap.dedent(
+            """
+            const tool = {name: "minecraft:diamond_pickaxe"};
+            const catalog = {itemUsesDurabilityDamage: name => name === tool.name};
+            const explain = (id, item = tool, source = catalog) => inspector.nodeExplanation({id, type: "IntTag"}, item, source);
+            const generic = "Originaler NBT-Wert. Nicht jeder Tag hat eine bekannte fachliche Bedeutung.";
+            assert.strictEqual(explain("$.Name"), "Technische Kennung des geladenen Gegenstands.");
+            assert.strictEqual(explain("$.Count"), "Gespeicherte Anzahl im Stapel.");
+            assert.ok(explain("$.Slot").includes("Originaldaten"));
+            assert.strictEqual(explain("$.tag.display.Name"), "Eigener Anzeigename des Gegenstands.");
+            assert.strictEqual(explain("$.tag.display.Lore"), "Eigene Beschreibung, zeilenweise gespeichert.");
+            assert.strictEqual(explain("$.tag.Damage"), "Verbrauchte Haltbarkeitspunkte des geladenen Gegenstands.");
+            assert.strictEqual(explain("$.Damage"), "Datenwert des geladenen Gegenstands; die Bedeutung hängt vom Itemtyp ab.");
+            for (const id of ["$.other.Damage", "$.tag.Items[0].Damage", "$.tag.display.Damage", "$['tag.Damage']", "$.future"]) {
+                assert.strictEqual(explain(id), generic);
+            }
+            assert.strictEqual(explain("$.tag.Damage", {name: "minecraft:banner"}), generic);
+            assert.strictEqual(explain("$.tag.Damage", tool, {}), generic);
+            assert.strictEqual(inspector.nodeExplanation({id: "$.tag.Damage"}, tool), generic);
+            for (const type of ["StringTag", "CompoundTag", "ListTag", "IntArrayTag", "FutureTag"]) {
+                assert.strictEqual(inspector.nodeExplanation({id: "$.tag.Damage", type}, tool, catalog), generic);
             }
             """
         )

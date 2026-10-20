@@ -1,6 +1,7 @@
 import math
 import re
 from collections.abc import Mapping
+from heapq import nsmallest
 from typing import Any, TypedDict
 
 from mcbe_editor import item_data as _item_data
@@ -29,6 +30,7 @@ ITEM_ID_RE = re.compile(r"^[a-z0-9_.-]+:[a-z0-9_.-]+$")
 MAX_NBT_VIEW_DEPTH = 8
 MAX_NBT_VIEW_ITEMS = 80
 MAX_NBT_VIEW_STRING = 512
+MAX_NBT_VIEW_NODES = 2048
 ROOT_ITEM_LIST_TAGS = ("Armor", "Offhand", "Mainhand", "PlayerUIItems")
 VANILLA_PLAYER_DIMENSION_IDS = frozenset({0, 1, 2})
 AXOLOTL_ITEM_IDS = {"minecraft:axolotl_bucket", "minecraft:bucketaxolotl"}
@@ -1852,43 +1854,84 @@ def _nbt_view_scalar(value):
         return str(value)
     if isinstance(value, float) and not math.isfinite(value):
         return "NaN" if math.isnan(value) else "Infinity" if value > 0 else "-Infinity"
+    if isinstance(value, float) and value == 0 and math.copysign(1.0, value) < 0:
+        return "-0"  # JavaScript's string conversion and JSON snapshots lose this sign.
     return value
 
 
 def _nbt_view_value(tag, depth: int = 0):
-    tag_type = type(tag).__name__
-    if depth >= MAX_NBT_VIEW_DEPTH:
-        return {"type": tag_type, "value": "<gekürzt: maximale Tiefe erreicht>"}
+    """Build a bounded, typed excerpt without changing the original NBT.
 
-    if _is_compound_tag(tag):
-        value = {}
-        keys = sorted(str(key) for key in tag)
-        for key in keys[:MAX_NBT_VIEW_ITEMS]:
-            value[key] = _nbt_view_value(tag[key], depth + 1)
-        result = {"type": tag_type, "value": value}
-        if len(keys) > MAX_NBT_VIEW_ITEMS:
-            result["truncated"] = t("{count} weitere Felder", count=len(keys) - MAX_NBT_VIEW_ITEMS)
+    The shared budget includes array elements because the inspector exposes
+    those as individual rows too. Per-container limits alone allow exponential
+    growth for nested compounds and lists.
+    """
+    remaining = MAX_NBT_VIEW_NODES
+
+    def annotate_count(result, total, message):
+        shown = len(result["value"])
+        if shown < total:
+            reason = "budget" if shown < min(total, MAX_NBT_VIEW_ITEMS) else "items"
+            result["truncation"] = {"reason": reason, "total": total, "shown": shown}
+            result["truncated"] = t(message, count=total - shown)
         return result
 
-    if _is_list_tag(tag):
-        entries = list(tag)
-        result = {"type": tag_type, "value": [_nbt_view_value(entry, depth + 1) for entry in entries[:MAX_NBT_VIEW_ITEMS]]}
-        if len(entries) > MAX_NBT_VIEW_ITEMS:
-            result["truncated"] = t("{count} weitere Einträge", count=len(entries) - MAX_NBT_VIEW_ITEMS)
-        return result
+    def visit(node, node_depth):
+        nonlocal remaining
+        remaining -= 1
+        tag_type = type(node).__name__
+        if node_depth >= MAX_NBT_VIEW_DEPTH:
+            result = {
+                "type": tag_type,
+                "value": "<gekürzt: maximale Tiefe erreicht>",
+                "truncation": {"reason": "depth"},
+                "truncated": t("Maximale Anzeigetiefe erreicht"),
+            }
+            if _is_list_tag(node):
+                result["list_type_id"] = node.list_data_type
+            return result
 
-    # Unlike editable fields, this view describes the original NBT, including
-    # NaN and infinity. get_tag_value intentionally normalizes those to zero.
-    value = tag.py_data
-    if isinstance(value, str) and len(value) > MAX_NBT_VIEW_STRING:
-        value = value[:MAX_NBT_VIEW_STRING] + "..."
-    elif isinstance(value, (bytes, bytearray, list, tuple)) or hasattr(value, "tolist"):
-        converted = value.tolist() if hasattr(value, "tolist") else value
-        sequence = list(converted)
-        value = [_nbt_view_scalar(entry) for entry in sequence[:MAX_NBT_VIEW_ITEMS]]
-        if len(sequence) > MAX_NBT_VIEW_ITEMS:
-            return {"type": tag_type, "value": value, "truncated": t("{count} weitere Werte", count=len(sequence) - MAX_NBT_VIEW_ITEMS)}
-    return {"type": tag_type, "value": _nbt_view_scalar(value)}
+        if _is_compound_tag(node):
+            value = {}
+            # Retain deterministic key order without materializing and sorting
+            # every key of a potentially very large compound.
+            for key in nsmallest(min(MAX_NBT_VIEW_ITEMS, remaining), node):
+                if remaining == 0:
+                    break
+                value[key] = visit(node[key], node_depth + 1)
+            return annotate_count({"type": tag_type, "value": value}, len(node), "{count} weitere Felder")
+
+        if _is_list_tag(node):
+            entries = []
+            for index in range(min(len(node), MAX_NBT_VIEW_ITEMS)):
+                if remaining == 0:
+                    break
+                entries.append(visit(node[index], node_depth + 1))
+            # Empty lists retain their declared element type in binary NBT.
+            # Preserve it even when no child is available to infer the type.
+            return annotate_count({"type": tag_type, "value": entries, "list_type_id": node.list_data_type}, len(node), "{count} weitere Einträge")
+
+        # Unlike editable fields, this view describes the original NBT,
+        # including non-finite numbers and integers beyond JSON's exact range.
+        value = node.py_data
+        if isinstance(value, str) and len(value) > MAX_NBT_VIEW_STRING:
+            return {
+                "type": tag_type,
+                "value": value[:MAX_NBT_VIEW_STRING] + "...",
+                "truncation": {"reason": "string", "total": len(value), "shown": MAX_NBT_VIEW_STRING},
+                "truncated": t("{count} weitere Zeichen", count=len(value) - MAX_NBT_VIEW_STRING),
+            }
+        if isinstance(value, (bytes, bytearray, list, tuple)) or hasattr(value, "tolist"):
+            # Slice before conversion; a full tolist() copies the entire array.
+            excerpt = value[: min(MAX_NBT_VIEW_ITEMS, remaining)]
+            if hasattr(excerpt, "tolist"):
+                excerpt = excerpt.tolist()
+            values = [_nbt_view_scalar(entry) for entry in excerpt]
+            remaining -= len(values)
+            return annotate_count({"type": tag_type, "value": values}, len(value), "{count} weitere Werte")
+        return {"type": tag_type, "value": _nbt_view_scalar(value)}
+
+    return visit(tag, depth)
 
 
 def _is_editable_item_list(tag) -> bool:

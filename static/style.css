@@ -4849,22 +4849,6 @@ input.item-count-fixed::-webkit-inner-spin-button, input.item-count-fixed::-webk
     cursor: not-allowed;
 }
 
-.slot-inspector-callout.info {
-    border-color: rgba(56, 189, 248, 0.34);
-    background: rgba(56, 189, 248, 0.1);
-}
-
-.slot-inspector-list {
-    margin: 0;
-    padding: 10px 12px 10px 28px;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    color: var(--text-secondary);
-    font-size: 0.82rem;
-    line-height: 1.45;
-    background: rgba(255, 255, 255, 0.035);
-}
-
 .save-review-tools {
     display: flex;
     justify-content: flex-end;
@@ -7848,73 +7832,8 @@ body[data-workflow-view="mounts"] .right-panel {
     background: var(--danger-bg);
 }
 
-.slot-inspector-panel {
-    gap: 12px;
-}
-
-.slot-inspector-body {
-    display: grid;
-    gap: 12px;
-}
-
-.slot-inspector-callout {
-    border-radius: 14px;
-    padding: 12px;
-    border: 1px solid rgba(245, 158, 11, .32);
-    background: rgba(245, 158, 11, .08);
-}
-
-.slot-inspector-callout strong {
-    color: var(--text-primary, #f8fafc);
-}
-
-.slot-inspector-callout p {
-    margin: 4px 0 0;
-    color: var(--text-secondary, #cbd5e1);
-}
-
-.slot-inspector-table {
-    display: grid;
-    gap: 8px;
-}
-
-.slot-inspector-table div {
-    display: grid;
-    grid-template-columns: minmax(120px, .34fr) minmax(0, 1fr);
-    gap: 10px;
-    padding: 9px 10px;
-    border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, .16);
-    background: rgba(15, 23, 42, .34);
-}
-
-.slot-inspector-table span {
-    color: var(--text-muted, #94a3b8);
-}
-
-.slot-inspector-table strong {
-    color: var(--text-primary, #f8fafc);
-    font-weight: 600;
-}
-
-.slot-inspector-json pre {
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 8px 0 0;
-    color: var(--text-secondary, #cbd5e1);
-    background: rgba(2, 6, 23, .48);
-    border-radius: 10px;
-    padding: 10px;
-}
-
-.slot-inspector-actions {
-    display: flex;
-    justify-content: flex-end;
-}
-
 @media (max-width: 900px) {
-    .decision-log-row,
-    .slot-inspector-table div {
+    .decision-log-row {
         grid-template-columns: 1fr;
     }
 }

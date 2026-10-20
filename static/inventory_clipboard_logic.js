@@ -162,6 +162,7 @@
         getActiveWorkflowView = () => "inventory",
         isProtectedKnownSlot = () => false,
         showProtectedSlotMessage = () => {},
+        showSlotInspector = () => {},
         handleSlotClick = () => {},
         handleEnderSlotClick = () => {},
         pushUndo = () => {},
@@ -230,6 +231,8 @@
                 const protectedKnown = isProtectedKnownSlot(ctxSlotId, ctxSlotContainer);
                 ctxElement = slot;
                 const item = inventoryForContainer(ctxSlotContainer)[ctxSlotId];
+                const inspect = contextMenu.querySelector('[data-action="inspect"]');
+                if (inspect) inspect.hidden = !protectedKnown && !(item?.name && item.name !== "minecraft:air" && item.count > 0);
                 const special = contextMenu.querySelector('[data-action="special"]');
                 if (special) {
                     special.hidden = protectedKnown || !specialItemModel?.kind(item);
@@ -259,6 +262,7 @@
             });
             contextMenu.addEventListener("keydown", event => {
                 event.stopPropagation();
+                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") event.preventDefault();
                 const buttons = Array.from(contextMenu.querySelectorAll("button")).filter(button => !button.hidden && button.style.display !== "none" && !button.disabled);
                 if (event.key === "Escape" || event.key === "Tab") { hideContextMenu(); ctxElement?.focus(); if (event.key === "Escape") event.preventDefault(); }
                 if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
@@ -285,6 +289,10 @@
             ctxElement?.focus();
 
             const source = inventoryForContainer(ctxSlotContainer);
+            if (action === "inspect") {
+                showSlotInspector(slotId, ctxSlotContainer, isProtectedKnownSlot(slotId, ctxSlotContainer) ? "protected_known_slot" : "item_nbt");
+                return true;
+            }
             if (action === "special") {
                 if (ctxSlotContainer === "ender_chest") handleEnderSlotClick(null, slotId);
                 else handleSlotClick(null, slotId);
@@ -517,6 +525,7 @@
             getCurrentSelectionState: selection.currentSelectionState,
             isProtectedKnownSlot: helpers.isProtectedKnownSlot,
             showProtectedSlotMessage: helpers.showProtectedSlotMessage,
+            showSlotInspector: helpers.showSlotInspector,
             handleSlotClick: slotHandlers.handleSlotClick,
             handleEnderSlotClick: slotHandlers.handleEnderSlotClick,
             pushUndo: helpers.pushUndo,

@@ -339,8 +339,8 @@
             subtitleHtml: slotQuickSubtitleHtml({ slotLabel, isEmpty, maxStack, stackLimitVerified }),
             inspectDisabled: !hasInspectableNbt,
             inspectTitle: hasInspectableNbt
-                ? t("Geschützte Zusatzdaten für diesen Slot anzeigen")
-                : t("Keine geschützten Zusatzdaten in diesem Slot erkannt"),
+                ? t("Gegenstand und geladene NBT-Daten analysieren")
+                : t("Kein Gegenstand in diesem Slot"),
             clearDisabled: isEmpty,
             maxStackDisabled: isEmpty || !isValidItem || !stackLimitVerified,
             repairDisabled: isEmpty || !canRepairDamage,

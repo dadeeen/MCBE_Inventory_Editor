@@ -699,8 +699,8 @@ const clipboardFeedbackController = window.MCBEUiFeedback.createInventoryClipboa
     clearStatus,
     showToastFn: showToast,
 });
-function copyTextToClipboard(text, successMessage = t("In die Zwischenablage kopiert.")) {
-    return clipboardFeedbackController.copyTextToClipboard(text, successMessage);
+function copyTextToClipboard(text, successMessage = t("In die Zwischenablage kopiert."), options = {}) {
+    return clipboardFeedbackController.copyTextToClipboard(text, successMessage, options);
 }
 clipboardFeedbackController.wire();
 
@@ -847,15 +847,18 @@ const slotInspectorController = window.MCBENbtInspector.createInventorySlotInspe
     doc: document,
     getInventory: () => inventory,
     getEnderChestInventory: () => enderChestInventory,
+    getCleanSnapshot: () => undoRedoAppController.getCleanSnapshot(),
+    catalog: itemCatalog,
+    itemLabel: item => detailItemLabel(item.name, item.display_name || "", item.damage),
+    getSpecialItemModel: () => specialItemModel,
+    getEnchantments: () => enchDb,
+    getBannerPatterns: () => iconSourceSummary?.banner_patterns || {},
     isProtectedKnownSlot,
     itemIsVisiblePresent,
-    itemRequiresOriginalNbt,
     slotDisplayName,
     currentPlayerLabel,
     getCurrentPlayerKey: () => currentPlayerKey,
     getWorldPath: () => worldPath,
-    getActiveWorkflowView: () => activeWorkflowView,
-    setWorkflowView,
     showToast,
     copyTextToClipboard,
 });
@@ -1181,7 +1184,7 @@ const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createCo
     },
     selection: { currentSelectionState },
     slotHandlers: { handleSlotClick, handleEnderSlotClick },
-    helpers: { isProtectedKnownSlot, showProtectedSlotMessage, pushUndo, updateGridVisuals, setDirty, showToast, recordAction, guardEditingAction, openSpecialEditor, specialItemModel },
+    helpers: { isProtectedKnownSlot, showProtectedSlotMessage, showSlotInspector, pushUndo, updateGridVisuals, setDirty, showToast, recordAction, guardEditingAction, openSpecialEditor, specialItemModel },
     renderer: { slotDisplayName },
 });
 inventoryClipboardController.bindContextMenu();

@@ -6042,6 +6042,36 @@ test("special unaccepted drafts warn before closing the browser or desktop", asy
 });
 
 
+test("item dialogs and menus suppress the browser save shortcut without changing inventory", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:writable_book", count: 1, damage: 0 } });
+  const slot = page.locator('.inventory-slot[data-slot="0"]');
+  await slot.click();
+  for (const [opener, id] of [["#btnSpecialItem", "#specialItemDialog"], ["#btnInspectSlotNbt", "#slotInspectorPanel"], ["#btnBrowserDetail", "#itemBrowserOverlay"], [null, "#slotContextMenu"]]) {
+    if (opener) await page.locator(opener).click();
+    else { await slot.focus(); await page.keyboard.press("Shift+F10"); }
+    const surface = page.locator(id);
+    await expect(surface).toBeVisible();
+    expect(await surface.evaluate(node => ["ctrlKey", "metaKey"].map(modifier => {
+      const event = new KeyboardEvent("keydown", { key: "s", [modifier]: true, bubbles: true, cancelable: true });
+      node.querySelector("button").dispatchEvent(event);
+      return event.defaultPrevented;
+    }))).toEqual([true, true]);
+    await expect(page.locator("#saveReviewOverlay")).toBeHidden();
+    expect(await page.evaluate(() => isDirty)).toBe(false);
+    await surface.locator("button:visible").first().focus();
+    await page.keyboard.press("Escape");
+    await expect(surface).toBeHidden();
+    if (opener) {
+      await slot.focus();
+      // Native close events are queued. A late delivery must not override
+      // the user's next focus choice or break the next keyboard action.
+      await surface.dispatchEvent("close");
+      await expect(slot).toBeFocused();
+    }
+  }
+});
+
+
 test("ordinary unaccepted slot drafts warn before closing without changing save or undo state", async ({ page }) => {
   await openSpecialFixture(page, {
     0: { slot: 0, name: "minecraft:diamond_sword", count: 1, damage: 3,

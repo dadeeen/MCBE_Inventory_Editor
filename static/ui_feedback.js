@@ -419,8 +419,8 @@
             clearStatus(fallbackStatusKey);
         }
 
-        async function copyTextToClipboard(text, successMessage = t("In die Zwischenablage kopiert.")) {
-            if (!text) return false;
+        async function copyTextToClipboard(text, successMessage = t("In die Zwischenablage kopiert."), { onFailure = null, allowEmpty = false } = {}) {
+            if (!text && !(allowEmpty && text === "")) return false;
             const copyOpener = doc?.activeElement;
             try {
                 if (!clipboard || typeof clipboard.writeText !== "function") {
@@ -432,7 +432,10 @@
                 showToastFn(successMessage, "success", 2500);
                 return true;
             } catch (_e) {
-                showFallback(text, copyOpener);
+                // A native modal makes the global fallback overlay inert. Its
+                // caller can keep manual copying inside that active dialog.
+                if (typeof onFailure === "function") onFailure(text, copyOpener);
+                else showFallback(text, copyOpener);
                 return false;
             }
         }

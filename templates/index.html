@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='mount_workspace.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='mount_model_preview.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='special_item_editor.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='nbt_inspector.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script id="appConfigJson" type="application/json">{{ app_config | tojson }}</script>
     <script id="i18nCatalog" type="application/json">{{ i18n_catalog | tojson }}</script>
@@ -1167,25 +1168,47 @@
                     </div>
                 </div>
 
-                <div class="glass-card tool-card slot-inspector-panel" id="slotInspectorPanel" style="display:none;">
-                    <div class="card-header">
-                        <div>
-                            <span class="panel-kicker">{{ t("Read-only Erklärung") }}</span>
-                            <h2 id="slotInspectorTitle">{{ t("Slot geschützt") }}</h2>
-                        </div>
-                        <button id="btnCloseSlotInspector" class="btn-text" type="button">{{ t("Schließen") }}</button>
-                    </div>
-                    <div id="slotInspectorBody" class="slot-inspector-body">
-                        <div class="no-backups">{{ t("Wähle einen geschützten Slot, um Details zu sehen.") }}</div>
-                    </div>
-                    <div class="slot-inspector-actions">
-                        <button id="btnCopySlotInspector" class="btn btn-secondary btn-sm" type="button">{{ t("Details kopieren") }}</button>
-                    </div>
-                </div>
-
             </div>
         </div>
     </div>
+
+    <dialog id="slotInspectorPanel" class="item-inspector" aria-labelledby="slotInspectorTitle">
+        <header class="inspector-header">
+            <div><span class="panel-kicker">{{ t("Item-Inspektor · Nur lesen") }}</span><h2 id="slotInspectorTitle"></h2><p id="itemInspectorLocation"></p></div>
+            <button id="btnCloseSlotInspector" class="btn btn-secondary btn-sm" type="button" autofocus>{{ t("Schließen") }}</button>
+        </header>
+        <div class="inspector-tabs" role="tablist" aria-label="{{ t('Item-Analyse') }}">
+            <button id="inspectorTabOverview" type="button" role="tab" data-inspector-tab="overview" aria-controls="inspectorOverview" aria-selected="true">{{ t("Übersicht") }}</button>
+            <button id="inspectorTabTree" type="button" role="tab" data-inspector-tab="tree" aria-controls="inspectorTree" aria-selected="false" tabindex="-1">{{ t("NBT-Baum") }}</button>
+            <button id="inspectorTabJson" type="button" role="tab" data-inspector-tab="json" aria-controls="inspectorJson" aria-selected="false" tabindex="-1">JSON</button>
+        </div>
+        <div id="slotInspectorBody" class="inspector-body">
+            <section id="itemInspectorCopyFallback" class="inspector-copy-fallback" hidden>
+                <label for="itemInspectorCopyText">{{ t("Automatisches Kopieren ist blockiert. Markierten Text manuell kopieren:") }}</label>
+                <textarea id="itemInspectorCopyText" rows="3" readonly></textarea>
+                <button id="itemInspectorCopyDismiss" class="btn btn-secondary btn-sm" type="button">{{ t("Fertig") }}</button>
+            </section>
+            <section id="inspectorOverview" role="tabpanel" aria-labelledby="inspectorTabOverview"></section>
+            <section id="inspectorTree" role="tabpanel" aria-labelledby="inspectorTabTree" hidden>
+                <p class="inspector-source"></p>
+                <div class="inspector-search">
+                    <label for="itemInspectorSearch">{{ t("Schlüssel, Wert oder Pfad suchen") }}</label>
+                    <div><input id="itemInspectorSearch" type="search" autocomplete="off" maxlength="512"><button id="itemInspectorPrevious" class="btn btn-secondary btn-sm" type="button" aria-label="{{ t('Vorheriger Treffer') }}">↑</button><button id="itemInspectorNext" class="btn btn-secondary btn-sm" type="button" aria-label="{{ t('Nächster Treffer') }}">↓</button></div>
+                </div>
+                <div class="inspector-tree-tools"><span id="itemInspectorSearchStatus" role="status"></span><button id="itemInspectorCollapse" class="btn-text" type="button">{{ t("Alles einklappen") }}</button></div>
+                <div id="itemInspectorTree" role="tree" aria-label="{{ t('Geladene NBT-Daten') }}"></div>
+                <div id="itemInspectorNode" class="inspector-node-detail" hidden>
+                    <div class="inspector-node-summary"><code id="itemInspectorPath"></code><p id="itemInspectorExplanation"></p></div>
+                    <pre id="itemInspectorValue" tabindex="0" aria-labelledby="itemInspectorPath" hidden></pre>
+                    <div class="inspector-copy-actions"><button id="itemInspectorCopyPath" class="btn btn-secondary btn-sm" type="button">{{ t("Pfad kopieren") }}</button><button id="itemInspectorCopyValue" class="btn btn-secondary btn-sm" type="button">{{ t("Wert kopieren") }}</button></div>
+                </div>
+            </section>
+            <section id="inspectorJson" role="tabpanel" aria-labelledby="inspectorTabJson" hidden>
+                <p class="inspector-source"></p><button id="itemInspectorCopyJson" class="btn btn-secondary btn-sm" type="button">{{ t("JSON-Ansicht kopieren") }}</button><pre id="itemInspectorJson"></pre>
+            </section>
+        </div>
+        <footer class="inspector-footer"><span id="itemInspectorCopyStatus" role="status"></span><button id="btnCopySlotInspector" class="btn-text" type="button" title="{{ t('Enthält Spielerbezeichnung und lokalen Weltpfad.') }}">{{ t("Diagnose mit Kontext kopieren") }}</button></footer>
+    </dialog>
 
     <dialog id="specialItemDialog" class="special-editor" aria-labelledby="specialItemTitle" aria-describedby="specialItemNote">
         <header class="special-header">
@@ -1205,6 +1228,7 @@
         <button class="context-item" data-action="special" hidden>{{ t("Inhalte bearbeiten") }}</button>
         <button class="context-item" data-action="copy">{{ t("📋 Kopieren") }}</button>
         <button class="context-item" data-action="paste">{{ t("📄 Einfügen") }}</button>
+        <button class="context-item" data-action="inspect" hidden>{{ t("NBT-Details") }}</button>
         <button class="context-item" data-action="cut">{{ t("✂️ Ausschneiden") }}</button>
         <div class="context-separator"></div>
         <button class="context-item" data-action="clear">{{ t("🗑️ Leeren") }}</button>
@@ -1594,6 +1618,7 @@
     <script src="{{ url_for('static', filename='effects_view.js') }}"></script>
     <script src="{{ url_for('static', filename='icon_manager_view.js') }}"></script>
     <script src="{{ url_for('static', filename='icon_sources_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='nbt_inspector_model.js') }}"></script>
     <script src="{{ url_for('static', filename='nbt_inspector.js') }}"></script>
     <script src="{{ url_for('static', filename='player_compare_view.js') }}"></script>
     <script src="{{ url_for('static', filename='player_diagnostics.js') }}"></script>

@@ -301,7 +301,6 @@
             ].forEach(key => {
                 if (Object.prototype.hasOwnProperty.call(previousItem, key)) builtItem[key] = previousItem[key];
             });
-            if (visibleUnchanged && Object.prototype.hasOwnProperty.call(previousItem, "nbt_view")) builtItem.nbt_view = previousItem.nbt_view;
         }
         if (sameItem && entityVariantEdit) {
             builtItem.entity_variant_edit = cloneJson(entityVariantEdit);

@@ -262,6 +262,127 @@ def test_missing_clipboard_fallback_remains_a_real_warning() -> None:
     )
 
 
+def test_clipboard_failure_can_stay_inside_the_calling_modal() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const opener = {name: "copy-in-dialog"};
+            const document = {activeElement: opener};
+            const overlay = {style: {display: "none"}};
+            const textEl = {value: "untouched", focus() {throw new Error("Global fallback must stay closed");}, select() {}};
+            const statuses = [], notifications = [], failed = [];
+            const context = {document, navigator: {}, setTimeout, window: {document}};
+            vm.runInNewContext(fs.readFileSync("static/ui_feedback.js", "utf8"), context);
+            let rejectCopy;
+            const controller = context.window.MCBEUiFeedback.createClipboardFeedbackController({
+                doc: document, elements: {overlay, textEl},
+                clipboard: {writeText: () => new Promise((resolve, reject) => {rejectCopy = reject;})},
+                logStatus: (...args) => statuses.push(args),
+                showToastFn: (...args) => notifications.push(args),
+            });
+            (async () => {
+                const pending = controller.copyTextToClipboard("9223372036854775807", "Copied", {
+                    onFailure: (...args) => failed.push(args),
+                });
+                document.activeElement = {name: "another-control"};
+                rejectCopy(new Error("permission denied"));
+                assert.strictEqual(await pending, false);
+                assert.strictEqual(failed.length, 1);
+                assert.strictEqual(failed[0][0], "9223372036854775807");
+                assert.strictEqual(failed[0][1], opener, "Capture the opener before awaiting the clipboard");
+                assert.strictEqual(overlay.style.display, "none");
+                assert.strictEqual(textEl.value, "untouched");
+                assert.strictEqual(statuses.length, 0);
+                assert.strictEqual(notifications.length, 0);
+
+                const unavailable = context.window.MCBEUiFeedback.createClipboardFeedbackController({
+                    doc: document, elements: {overlay, textEl}, clipboard: null,
+                    showToastFn: () => assert.fail("No success toast for an unavailable clipboard"),
+                });
+                const missingApi = [];
+                assert.strictEqual(await unavailable.copyTextToClipboard("text", "Copied", {
+                    onFailure: (...args) => missingApi.push(args),
+                }), false);
+                assert.strictEqual(missingApi[0][0], "text");
+                assert.strictEqual(missingApi[0][1], document.activeElement);
+                assert.strictEqual(overlay.style.display, "none");
+                assert.strictEqual(await unavailable.copyTextToClipboard("", "Copied", {
+                    onFailure: () => assert.fail("Empty text needs no fallback"),
+                }), false);
+            })().catch(error => {console.error(error); process.exit(1);});
+            """
+        )
+    )
+
+
+def test_clipboard_success_keeps_feedback_without_invoking_modal_fallback() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const statuses = [], notifications = [], cleared = [], written = [];
+            const context = {navigator: {}, setTimeout, window: {}};
+            vm.runInNewContext(fs.readFileSync("static/ui_feedback.js", "utf8"), context);
+            const controller = context.window.MCBEUiFeedback.createClipboardFeedbackController({
+                clipboard: {writeText: async text => written.push(text)},
+                logStatus: (...args) => statuses.push(args),
+                clearStatus: key => cleared.push(key),
+                showToastFn: (...args) => notifications.push(args),
+            });
+            (async () => {
+                assert.strictEqual(await controller.copyTextToClipboard("$.tag.Name", "NBT-Pfad kopiert.", {
+                    onFailure: () => assert.fail("Successful copy must not open a fallback"),
+                }), true);
+                assert.deepStrictEqual(written, ["$.tag.Name"]);
+                assert.deepStrictEqual(cleared, ["clipboard-copy:fallback"]);
+                assert.deepStrictEqual(statuses, [["NBT-Pfad kopiert.", "success"]]);
+                assert.deepStrictEqual(notifications, [["NBT-Pfad kopiert.", "success", 2500]]);
+            })().catch(error => {console.error(error); process.exit(1);});
+            """
+        )
+    )
+
+
+def test_clipboard_can_explicitly_copy_an_empty_nbt_string() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const written = [], failed = [];
+            const context = {navigator: {}, setTimeout, window: {}};
+            vm.runInNewContext(fs.readFileSync("static/ui_feedback.js", "utf8"), context);
+            const makeController = clipboard => context.window.MCBEUiFeedback.createClipboardFeedbackController({
+                clipboard, showToastFn() {},
+            });
+            (async () => {
+                const controller = makeController({writeText: async text => written.push(text)});
+                const onFailure = () => assert.fail("Empty text is ignored by default and a successful copy needs no fallback");
+                assert.strictEqual(await controller.copyTextToClipboard("", "Copied", {onFailure}), false);
+                assert.strictEqual(written.length, 0);
+                assert.strictEqual(await controller.copyTextToClipboard("", "Copied", {allowEmpty: true, onFailure}), true);
+                assert.deepStrictEqual(written, [""]);
+                for (const text of [null, undefined, false, 0]) {
+                    assert.strictEqual(await controller.copyTextToClipboard(text, "Copied", {allowEmpty: true, onFailure}), false);
+                }
+                assert.strictEqual(written.length, 1, "allowEmpty accepts only the exact empty string");
+                const blocked = makeController(null);
+                assert.strictEqual(await blocked.copyTextToClipboard("", "Copied", {
+                    allowEmpty: true, onFailure: text => failed.push(text),
+                }), false);
+                assert.deepStrictEqual(failed, [""], "The caller also receives an exact empty value on failure");
+            })().catch(error => {console.error(error); process.exit(1);});
+            """
+        )
+    )
+
+
 def test_focus_keeper_returns_the_focus_once_the_app_is_usable_again() -> None:
     run_node(
         textwrap.dedent(

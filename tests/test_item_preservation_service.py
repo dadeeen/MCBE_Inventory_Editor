@@ -1,6 +1,7 @@
 """Service-level preservation regressions using disposable, synthetic records."""
 
 from copy import deepcopy
+from dataclasses import replace
 import json
 from types import SimpleNamespace
 
@@ -95,6 +96,67 @@ def _save(editor, loaded, inventory, **kwargs):
 
 def _stored(editor):
     return nbt.load(editor.store[LOCAL_PLAYER_KEY]).tag
+
+
+def test_signed_nbt_zero_survives_load_api_browser_snapshot_and_no_op_save(editor, monkeypatch, tmp_path):
+    import main
+
+    zeros = nbt.CompoundTag(
+        {
+            "NegativeFloat": nbt.FloatTag(-0.0),
+            "NegativeDouble": nbt.DoubleTag(-0.0),
+            "PositiveFloat": nbt.FloatTag(0.0),
+            "PositiveDouble": nbt.DoubleTag(0.0),
+        }
+    )
+    original = _player(Inventory=nbt.ListTag([_item(slot=0, tag=zeros)], 10))
+    editor.store[LOCAL_PLAYER_KEY] = original
+    deps = replace(main.player_route_deps(), service=editor.service, world_db_access_gate=lambda: {"read_allowed": True})
+    monkeypatch.setattr(main, "player_route_deps", lambda: deps)
+    response = main.app.test_client().post(
+        "/api/player/load",
+        json={"world_path": editor.world, "player_key": encode_player_key(LOCAL_PLAYER_KEY)},
+        headers={"X-CSRF-Token": main.CSRF_TOKEN},
+    )
+    assert response.status_code == 200
+    load_response = tmp_path / "load-response.json"
+    load_response.write_bytes(response.data)
+
+    # Exercise the actual HTTP JSON and the browser's clean-snapshot clone before
+    # checking the tree, scalar copy text and complete typed-JSON copy.
+    result = run_node(
+        "const fs = require('fs');\n"
+        + "const response = JSON.parse(fs.readFileSync("
+        + json.dumps(str(load_response))
+        + ", 'utf8'));\n"
+        + r"""
+        const assert = require('assert');
+        global.window = {};
+        eval(fs.readFileSync('static/nbt_inspector_model.js', 'utf8'));
+        eval(fs.readFileSync('static/nbt_inspector.js', 'utf8'));
+        const item = JSON.parse(JSON.stringify(response.inventory['0']));
+        const model = window.MCBENbtInspectorModel;
+        const nodes = model.flattenTree(item.nbt_view);
+        const copied = JSON.parse(window.MCBENbtInspector.itemNbtViewText(item));
+        for (const kind of ['Float', 'Double']) {
+            for (const sign of ['Negative', 'Positive']) {
+                const key = sign + kind;
+                const value = sign === 'Negative' ? '-0' : 0;
+                const node = nodes.find(entry => entry.id === '$.tag.' + key);
+                assert.strictEqual(node.type, kind + 'Tag');
+                assert.strictEqual(node.value, value);
+                assert.strictEqual(model.nodeValueText(node), String(value));
+                assert.deepStrictEqual(copied.value.tag.value[key], {type: kind + 'Tag', value});
+            }
+        }
+        console.log(JSON.stringify(item));
+        """
+    )
+    saved = _save(editor, response.get_json(), [json.loads(result.stdout)])
+    assert saved["no_op"]
+    assert editor.store[LOCAL_PLAYER_KEY] == original
+    assert editor.writes == []
+    assert editor.backups == []
 
 
 def _normalize_saved_draft(payload, response, container):
