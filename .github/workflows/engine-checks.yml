@@ -16,7 +16,7 @@ on:
         required: true
         default: all
         type: choice
-        options: [all, extended, service, addons, items, catalog]
+        options: [all, extended, special, service, addons, items, catalog]
 
 permissions:
   contents: read

@@ -125,7 +125,8 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
         # Freeze the comparison before any editor code receives these mutable
         # tags. A builder that accidentally mutates its input must not redefine
         # the reference against which its output is checked.
-        before_bytes = {slot: item.save_to() for slot, item in indexed_items(original_items).items()}
+        before_items = indexed_items(original_items)
+        before_bytes = {slot: item.save_to() for slot, item in before_items.items()}
         wrapper = nbt.CompoundTag({"Inventory": original_items})
         parsed, _ = nbt_to_json(wrapper)
         payloads = dict(parsed)
@@ -148,11 +149,17 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
                 "lore": case["lore"],
                 "enchantments": [{"id": ENCHANTMENT_IDS[entry["id"]], "lvl": entry["level"]} for entry in case["enchantments"]],
             }
+            if "special_edit" in case:
+                from .special import resolve_special_edit
+
+                payloads[slot]["special_edit"] = resolve_special_edit(case["special_edit"], before_items.get(slot))
         result = build_inventory_nbt(wrapper, list(payloads.values()), ENCHANTMENTS)
         after = indexed_items(result)
         for slot in [26, *(case["slot"] for case in grouped[name] if case["mode"] == "preserve")]:
             if slot not in before_bytes or slot not in after or before_bytes[slot] != after[slot].save_to():
                 raise ProbeError("Editor changed an untouched engine-created item")
+        if before_bytes != {slot: item.save_to() for slot, item in indexed_items(original_items).items()}:
+            raise ProbeError("Editor mutated the original carrier items")
         # Replacing this one field must leave all other typed actor data intact.
         named.tag[field] = result
         serialized = save_player_nbt(named)
@@ -253,6 +260,10 @@ def verify_saved_items(records: dict[bytes, bytes], cases: list[dict]) -> dict:
         item = indexed[case["carrier"]][case["slot"]]
         if disk_snapshot(item, case) != expected_snapshot(case):
             raise ProbeError(f"Saved NBT changed item semantics in {case['case_id']}")
+        if "special_edit" in case:
+            from .special import verify_special
+
+            verify_special(item, case["special_edit"])
         digest.update(case["case_id"].encode() + item.save_to())
     return {"status": "pass", "cases": len(cases), "carriers": len(found), "item_nbt_sha256": digest.hexdigest()}
 
@@ -324,6 +335,20 @@ def run(run_dir: Path, action: str) -> dict:
     if any(not path.resolve(strict=True).is_relative_to(run_dir) or path.is_symlink() or path.is_junction() for path in (world, world / "db")):
         raise ProbeError("World escaped the disposable run directory")
     before = read_records(world)
+    if report.get("suite") == "special":
+        from .special import revision_cases
+
+        if action == "revise":
+            if report.get("phases", {}).get("reload1") != "pass" or report.get("phases", {}).get("revision") not in (None, "running"):
+                raise ProbeError("Special revision requires the first verified reload and may run only once")
+            verify_saved_items(before, cases)
+            cases = revision_cases(cases)
+        elif report.get("phases", {}).get("revision") == "pass":
+            if action != "verify":
+                raise ProbeError("A revised special profile may only be verified")
+            cases = revision_cases(cases)
+    elif action == "revise":
+        raise ProbeError("Revision is only supported by the special profile")
     if report.get("suite") == "client":
         from .client_profile import client_worker
 
@@ -338,6 +363,11 @@ def run(run_dir: Path, action: str) -> dict:
     writes = build_item_writes(before, cases)
     rejected_counts = verify_rejected_counts(cases)
     rejected_unknown = verify_unknown_creations(cases)
+    rejected_special = 0
+    if report.get("suite") == "special":
+        from .special import verify_special_rejections
+
+        rejected_special = verify_special_rejections()
     backup = create_backup(str(world), prune_after=False)
     if not Path(backup).is_file():
         raise ProbeError("Pre-write backup missing")
@@ -360,11 +390,12 @@ def run(run_dir: Path, action: str) -> dict:
         "untouched_records_verified": len(before) - len(writes),
         "rejected_count_cases": rejected_counts,
         "rejected_unregistered_creations": rejected_unknown,
+        "rejected_special_edits": rejected_special,
     }
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[2] not in {"edit", "verify", "rules"}:
-        raise SystemExit("Usage: python -m scripts.engine_checks.nbt_roundtrip RUN_DIR edit|verify|rules")
+    if len(sys.argv) != 3 or sys.argv[2] not in {"edit", "revise", "verify", "rules"}:
+        raise SystemExit("Usage: python -m scripts.engine_checks.nbt_roundtrip RUN_DIR edit|revise|verify|rules")
     configure_worker_catalog(Path(sys.argv[1]))
     print(json.dumps(run(Path(sys.argv[1]), sys.argv[2]), sort_keys=True))

@@ -13,7 +13,7 @@ def main() -> int:
     parser.add_argument("--sha256", required=True, help="Expected archive SHA-256")
     parser.add_argument("--server-version", required=True, help="Exact version printed by BDS, e.g. 1.26.50.5")
     parser.add_argument("--image", default="mcbe-engine-check:local", help="Locally built developer image")
-    parser.add_argument("--suite", choices=("all", "catalog", "items", "extended", "addons", "service", "client"), default="all")
+    parser.add_argument("--suite", choices=("all", "catalog", "items", "extended", "special", "addons", "service", "client"), default="all")
     parser.add_argument("--client-port", type=int, default=19134, help="Client suite only: IPv4 loopback TCP+UDP port; three real client joins required")
     parser.add_argument("--catalog", type=Path, help="Optional candidate item database; does not modify the bundled catalog")
     parser.add_argument("--work-root", type=Path, default=ROOT / ".engine-tests", help="Local generated artifacts; use an ignored directory")
@@ -21,7 +21,7 @@ def main() -> int:
     args = parser.parse_args()
     statuses = []
     try:
-        for suite in ("extended", "service", "addons") if args.suite == "all" else (args.suite,):
+        for suite in ("extended", "special", "service", "addons") if args.suite == "all" else (args.suite,):
             directory, report = run_probe(
                 args.archive.resolve(),
                 args.sha256,

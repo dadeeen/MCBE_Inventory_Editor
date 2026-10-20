@@ -23,6 +23,7 @@ from .client_profile import CLIENT_API_VERSION, CONTROL_NAME, CONTROL_SLOTS, ena
 from .extended import enchantment_registry_result, extend_cases, matrix_result, validate_behavior_events
 from .protocol import ProbeError, Transcript, catalog_result
 from .service_profile import assignments, make_service_cases
+from .special import make_special_cases, revision_cases
 
 ROOT = Path(__file__).resolve().parents[2]
 PACK = Path(__file__).with_name("pack")
@@ -362,7 +363,22 @@ def nbt_worker(run_dir: Path, action: str) -> dict:
     (run_dir / f"nbt-{action}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
         raise ProbeError(f"Offline NBT {action} failed; see the local nbt-{action}.log")
-    return json.loads(result.stdout)
+    try:
+        report = json.loads(result.stdout)
+    except ValueError as exc:
+        raise ProbeError(f"Offline NBT {action} returned malformed JSON; see the local nbt-{action}.log") from exc
+    if not isinstance(report, dict) or report.get("status") not in ("pass", "fail"):
+        raise ProbeError(f"Offline NBT {action} returned an invalid result status")
+    # Rule differences are report data and the caller explicitly rejects them.
+    # Every persistence operation must prove success and complete case coverage;
+    # a process exiting normally is not evidence that its checks passed.
+    if action != "rules":
+        if report["status"] != "pass":
+            raise ProbeError(f"Offline NBT {action} reported failed checks")
+        cases = json.loads((run_dir / "cases.json").read_text(encoding="utf-8"))
+        if not isinstance(cases, list) or not cases or type(report.get("cases")) is not int or report["cases"] != len(cases):
+            raise ProbeError(f"Offline NBT {action} did not verify every planned case")
+    return report
 
 
 def public_summary(report: dict) -> dict:
@@ -400,6 +416,11 @@ def public_summary(report: dict) -> dict:
         },
         "roundtrip": report.get("roundtrip", {"status": "not_completed"}),
         "extended": report.get("extended", {"status": "not_selected"}),
+        "special": {
+            key: value
+            for key, value in report.get("special", {"status": "not_selected"}).items()
+            if key in {"status", "cases", "kinds", "revised_cases", "preserved_cases", "rejected_edits", "content_observer"}
+        },
         "enchantment_registry": {
             key: value
             for key, value in report.get("enchantment_registry", {"status": "not_selected"}).items()
@@ -458,7 +479,7 @@ def run_probe(
         raise ProbeError("An exact four-part Bedrock server version is required")
     if not 10 <= timeout <= 1800:
         raise ProbeError("Timeout must be between 10 and 1800 seconds per engine phase")
-    if suite not in {"catalog", "items", "extended", "addons", "service", "client"}:
+    if suite not in {"catalog", "items", "extended", "special", "addons", "service", "client"}:
         raise ProbeError("Unknown engine check suite")
     if suite == "client" and (type(client_port) is not int or not 1024 <= client_port <= 65535):
         raise ProbeError("Client port must be an integer between 1024 and 65535")
@@ -519,6 +540,8 @@ def run_probe(
             "all metadata combinations",
             "combat, equipping, consumption, crafting and brewing",
             "stack merging and gameplay item transport",
+            "special-editor contents persistence",
+            "special-item gameplay: opening, placing, extracting, reading and launching",
         ],
     }
     write_json(run_dir / "run.json", report)
@@ -545,8 +568,19 @@ def run_probe(
         report["phases"]["catalog"] = catalog["status"]
         if catalog["status"] == "fail":
             raise ProbeError("Engine disagrees with catalog limits; no NBT mutations were attempted")
-        if suite in {"items", "extended", "addons", "service", "client"}:
+        if suite in {"items", "extended", "special", "addons", "service", "client"}:
             cases = make_cases(expected_ids, catalog["observations"], db["stack_limits"])
+            if suite == "special":
+                cases = make_special_cases(catalog["observations"], db["stack_limits"])
+                revised = sum(case["revision"] is not None for case in cases)
+                report["special"] = {
+                    "status": "incomplete",
+                    "cases": len(cases),
+                    "kinds": sorted({case["special_edit"]["kind"] for case in cases}),
+                    "revised_cases": revised,
+                    "preserved_cases": len(cases) - revised,
+                    "content_observer": "independent typed disk NBT after each engine stop; no gameplay assertion",
+                }
             if suite in {"service", "client"}:
                 cases = make_service_cases(catalog["observations"], db["stack_limits"], db["enchantments"])
             if suite == "client":
@@ -612,7 +646,13 @@ def run_probe(
             write_json(run_dir / "run.json", report)
             report["nbt_edit"] = nbt_worker(run_dir, "edit")
             for name in ("reload1", "reload2"):
-                validate_case_events(phase(name), cases)
+                if name == "reload2" and suite == "special":
+                    report["phases"]["revision"] = "running"
+                    write_json(run_dir / "run.json", report)
+                    report["special_revision"] = nbt_worker(run_dir, "revise")
+                    report["phases"]["revision"] = "pass"
+                    config["cases"] = revision_cases(cases)
+                validate_case_events(phase(name), config["cases"])
                 report[name + "_disk"] = nbt_worker(run_dir, "verify")
                 report["phases"][name] = "pass"
                 if suite == "client":
@@ -633,6 +673,10 @@ def run_probe(
                 report["not_covered"].append("enchantment/metadata products beyond the explicit pairs, equipment profiles and boundary cases")
             if suite == "addons":
                 report["addon"]["status"] = "pass"
+            if suite == "special":
+                report["special"].update(status="pass", rejected_edits=report["nbt_edit"]["rejected_special_edits"])
+                report["not_covered"].remove("special-editor contents persistence")
+                report["not_covered"].append("special-item combinations outside the explicit special profile")
             if suite in {"service", "client"}:
                 report["roundtrip"]["write_path"] = "production player service, codec, backup and pure-Python WAL batch"
                 report["not_covered"].remove("complete player service")

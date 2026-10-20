@@ -315,6 +315,59 @@ def test_native_offline_worker_writes_only_generated_carriers(tmp_path, monkeypa
     assert run(tmp_path, "verify")["status"] == "pass"
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"status": "fail", "cases": 1},
+        {"status": "partial", "cases": 1},
+        {"cases": 1},
+        {"status": "pass"},
+        {"status": "pass", "cases": 0},
+        {"status": "pass", "cases": 2},
+        {"status": "pass", "cases": True},
+        {"status": "pass", "cases": 1.0},
+        {"status": "pass", "cases": "1"},
+        [],
+        None,
+    ],
+)
+@pytest.mark.parametrize("action", ["edit", "verify", "revise"])
+def test_offline_worker_result_requires_success_and_exact_case_coverage(tmp_path, monkeypatch, payload, action):
+    from types import SimpleNamespace
+    from scripts.engine_checks import runner
+
+    runner.write_json(tmp_path / "cases.json", [{"case_id": "synthetic_case"}])
+    response = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+    monkeypatch.setattr(runner.subprocess, "run", lambda *_args, **_kwargs: response)
+    with pytest.raises(ProbeError, match="Offline NBT"):
+        runner.nbt_worker(tmp_path, action)
+
+
+@pytest.mark.parametrize("action,status", [("edit", "pass"), ("verify", "pass"), ("revise", "pass"), ("rules", "pass"), ("rules", "fail")])
+def test_offline_worker_result_keeps_valid_reports_and_rule_differences(tmp_path, monkeypatch, action, status):
+    from types import SimpleNamespace
+    from scripts.engine_checks import runner
+
+    runner.write_json(tmp_path / "cases.json", [{"case_id": "synthetic_case"}])
+    payload = {"status": status, "differences": {"example": []}} if action == "rules" else {"status": status, "cases": 1}
+    response = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="local diagnostics")
+    monkeypatch.setattr(runner.subprocess, "run", lambda *_args, **_kwargs: response)
+    assert runner.nbt_worker(tmp_path, action) == payload
+    assert (tmp_path / f"nbt-{action}.log").read_text(encoding="utf-8").endswith("local diagnostics")
+
+
+@pytest.mark.parametrize("stdout,code", [('"PRIVATE_INVALID_REPORT"', 0), ("PRIVATE_MALFORMED_JSON", 0), ('{"status":"pass","cases":1}', 1)])
+def test_offline_worker_result_rejects_bad_output_without_exposing_raw_diagnostics(tmp_path, monkeypatch, stdout, code):
+    from types import SimpleNamespace
+    from scripts.engine_checks import runner
+
+    response = SimpleNamespace(returncode=code, stdout=stdout, stderr="PRIVATE_ERROR")
+    monkeypatch.setattr(runner.subprocess, "run", lambda *_args, **_kwargs: response)
+    with pytest.raises(ProbeError) as error:
+        runner.nbt_worker(tmp_path, "verify")
+    assert "PRIVATE_" not in str(error.value)
+
+
 def test_runtime_release_excludes_engine_tools_and_generated_data():
     from pathlib import PurePosixPath
 
@@ -341,6 +394,7 @@ def test_public_summary_drops_raw_world_data_logs_and_failure_paths():
         "catalog": {"status": "fail", "errors": {"minecraft:stone": "PRIVATE_LOG"}, "observations": {"private": "PRIVATE_OBSERVATION"}},
         "enchantment_registry": {"status": "fail", "added": {"future": 2}, "log": "PRIVATE_REGISTRY_LOG"},
         "editor_rules": {"status": "fail", "applicability_checks": 42, "log": "PRIVATE_RULE_LOG"},
+        "special": {"status": "fail", "cases": 16, "world_nbt": "PRIVATE_SPECIAL_NBT", "log": "PRIVATE_SPECIAL_LOG"},
     }
     summary = json.dumps(public_summary(report))
     assert "PRIVATE_" not in summary

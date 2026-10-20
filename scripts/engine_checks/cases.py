@@ -62,10 +62,12 @@ def expected_snapshot(case: dict, *, seed: bool = False) -> dict | None:
     if seed and "seed_item" in case:
         return expected_snapshot({**case, **case["seed_item"]})
     seeded = seed and not case.get("seeded_metadata")
+    # Signing an engine-created book sets its display name to the title.
+    seed_name = case["seed_book"]["title"] if "seed_book" in case else ""
     result = {
         "id": case["id"],
         "amount": case["amount"],
-        "name": "" if seed else case["name"],
+        "name": seed_name if seed else case["name"],
         "lore": [] if seed else case["lore"],
         "damage": 0 if seeded or "data_value" in case else case["damage"],
         "enchantments": [] if seeded else sorted(case["enchantments"], key=lambda enchantment: enchantment["id"]),
