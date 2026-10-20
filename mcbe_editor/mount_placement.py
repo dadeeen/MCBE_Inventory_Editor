@@ -815,3 +815,26 @@ def placement_safety_from_preview(preview: dict[str, Any]) -> dict[str, Any]:
         "candidate_id": selected_id,
         "message": message,
     }
+
+
+def validate_selected_placement(db: Any, preview: dict[str, Any], *, allow_unchecked: bool = False) -> dict[str, Any]:
+    """Recheck the exact selected position through the locked write connection."""
+
+    mount_type = str(preview.get("mount_type") or "minecraft:horse")
+    selected_id = preview.get("selected_candidate_id") or "selected"
+    dimension_id = preview.get("dimension_id")
+    if isinstance(dimension_id, bool) or not isinstance(dimension_id, int):
+        dimension_id = None
+    candidate = _candidate_with_footprint_probe(
+        db,
+        {"id": selected_id, **normalize_mount_position(preview.get("selected_position"))},
+        dimension_id,
+        half_width=mount_collision_width(mount_type) / 2,
+        clearance_blocks=max(1, math.ceil(mount_collision_height(mount_type))),
+    )
+    safety = placement_safety_from_preview({"selected_candidate_id": selected_id, "candidate_positions": [candidate]})
+    if safety["safe_to_place"] is False:
+        raise ValueError(str(safety["message"]))
+    if safety["safe_to_place"] is None and not allow_unchecked:
+        raise ValueError(t("Speichern abgelehnt: Die Mount-Position ist vor dem Schreiben ungeprüft. Bitte Vorschau neu laden und Platzierung prüfen."))
+    return safety

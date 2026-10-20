@@ -12,6 +12,7 @@ import contextlib
 import math
 import os
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -1236,6 +1237,7 @@ def create_horse_mount_with_service(
     tamed: bool = False,
     base_revision: str | None = None,
     pre_write_check=None,
+    placement_check: Callable[[Any], None] | None = None,
 ) -> dict[str, Any]:
     mount_type = str(preview.get("mount_type") or "")
     _require_synthetic_creatable(mount_type)
@@ -1284,6 +1286,8 @@ def create_horse_mount_with_service(
             player_raw = service._read_player(db, player_key)
             if player_raw != original_player_raw:
                 raise ValueError("Speichern abgelehnt: Der Spieler wurde während der Backup-Erstellung extern geändert. Bitte neu laden.")
+            if placement_check:
+                placement_check(db)
             owner_unique_id = None
             if tamed:
                 # Evidenz: Zähmen setzt OwnerNew auf die UniqueID des Spielers.

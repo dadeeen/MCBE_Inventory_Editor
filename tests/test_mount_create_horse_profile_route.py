@@ -50,12 +50,31 @@ def _preview(*, safe_to_place=True):
 
 
 def _patch_create(monkeypatch, preview, captured):
+    writer_db = object()
+
     def fake_preview_from_request(data, _deps):
         captured["request_data"] = data
         return "world", "player", preview
 
+    def fake_validate_selected_placement(db, received_preview, *, allow_unchecked):
+        assert db is writer_db
+        assert received_preview is preview
+        captured["allow_unchecked"] = allow_unchecked
+        return mount_api_routes.placement_safety_from_preview(received_preview)
+
     def fake_create_horse_mount_with_service(
-        service, world_path, player_key, received_preview, *, create_mode, horse_profile, mount_stats=None, tamed=False, base_revision, pre_write_check
+        service,
+        world_path,
+        player_key,
+        received_preview,
+        *,
+        create_mode,
+        horse_profile,
+        mount_stats=None,
+        tamed=False,
+        base_revision,
+        pre_write_check,
+        placement_check,
     ):
         captured.update(
             {
@@ -71,6 +90,7 @@ def _patch_create(monkeypatch, preview, captured):
             }
         )
         pre_write_check()
+        placement_check(writer_db)
         return {
             "success": True,
             "mount_type": "minecraft:horse",
@@ -79,6 +99,7 @@ def _patch_create(monkeypatch, preview, captured):
         }
 
     monkeypatch.setattr(mount_api_routes, "_preview_from_request", fake_preview_from_request)
+    monkeypatch.setattr(mount_api_routes, "validate_selected_placement", fake_validate_selected_placement)
     monkeypatch.setattr(mount_api_routes, "create_horse_mount_with_service", fake_create_horse_mount_with_service)
 
 
@@ -113,6 +134,7 @@ def test_mount_create_passes_horse_profile_to_writer(monkeypatch) -> None:
     assert captured["horse_profile"] == profile
     assert captured["preview"] is preview
     assert captured["base_revision"] == preview["player_revision"]
+    assert captured["allow_unchecked"] is False
 
 
 def test_mount_create_returns_error_status_after_committed_validation_failure(monkeypatch) -> None:
@@ -245,3 +267,4 @@ def test_mount_create_allows_unchecked_when_explicitly_confirmed(monkeypatch) ->
     assert result["success"] is True
     assert result["placement_safety"]["status"] == "unchecked"
     assert captured["preview"]["selected_candidate_id"] == "rechts_2"
+    assert captured["allow_unchecked"] is True

@@ -23,7 +23,7 @@ from .api_errors import (
 from .bedrock_nbt import load_player_nbt
 from .db import close_db_preserving_active_exception
 from .i18n import t
-from .mount_placement import mark_preview_probe_failed, placement_safety_from_preview, refine_preview_placement
+from .mount_placement import mark_preview_probe_failed, placement_safety_from_preview, refine_preview_placement, validate_selected_placement
 from .mount_write import (
     CREATE_MODE_SYNTHETIC_FULL,
     MOUNT_WRITE_LABELS,
@@ -301,6 +301,10 @@ def create_mount(data: dict, deps: MountRouteDeps):
         if blocked:
             deps.audit_event("mount.create", "blocked", world_path=world_path, player_key=player_key, details={"reason": "write_gate_recheck"})
             return blocked
+
+        def check_placement(db: Any) -> None:
+            placement_safety.update(validate_selected_placement(db, preview, allow_unchecked=_allow_unchecked_placement(data)))
+
         result = create_horse_mount_with_service(
             deps.service,
             world_path,
@@ -312,6 +316,7 @@ def create_mount(data: dict, deps: MountRouteDeps):
             tamed=tamed,
             base_revision=preview["player_revision"],
             pre_write_check=lambda: deps.require_final_world_write_allowed("Mount erzeugen"),
+            placement_check=check_placement,
         )
         result["placement_safety"] = placement_safety
         validation = result.get("post_create_validation") if isinstance(result.get("post_create_validation"), dict) else {}
@@ -492,7 +497,7 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
             specs.append(
                 {
                     "preview": preview,
-                    "placement_safety": placement_safety,
+                    "allow_unchecked": _allow_unchecked_placement(request_data),
                     "create_mode": normalize_create_mode(mount.get("create_mode") or CREATE_MODE_SYNTHETIC_FULL),
                     "horse_profile": mount.get("horse_profile"),
                     "mount_stats": mount.get("mount_stats"),
@@ -509,6 +514,7 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
             for spec in specs:
                 preview = spec["preview"]
                 tamed = spec["tamed"]
+                placement_safety = validate_selected_placement(db, preview, allow_unchecked=spec["allow_unchecked"])
                 record = build_horse_mount_record(
                     staged,
                     preview.get("selected_position"),
@@ -530,7 +536,7 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
                         "horse_profile": record.horse_profile,
                         "mount_stats": record.mount_stats,
                         "tamed": record.tamed,
-                        "placement_safety": spec["placement_safety"],
+                        "placement_safety": placement_safety,
                     }
                 )
             return {"writes": staged.writes, "records": records, "result": {"mounts": results}}

@@ -108,7 +108,7 @@ def _refusal(result):
 
     if isinstance(result, tuple):
         return result
-    return result, result["status"]
+    return result, result.get("status", 200)
 
 
 @pytest.mark.parametrize("owner_tag", [None, nbt.IntTag(42), nbt.FloatTag(42), nbt.StringTag("42"), nbt.LongTag(-1)])
@@ -196,6 +196,110 @@ def test_missing_neighbor_chunk_does_not_allow_mount_in_known_stone(tmp_path, mo
     assert fixture.backups == []
 
 
+@pytest.mark.parametrize("workspace_save", [False, True])
+@pytest.mark.parametrize(
+    "terrain_change,allow_unchecked,expected_status",
+    [("blocked", False, 400), ("blocked", True, 400), ("unfinalized", False, 400), ("unfinalized", True, 200), ("unchanged", False, 200)],
+)
+def test_mount_rechecks_terrain_changed_after_preview_before_writing(
+    tmp_path, monkeypatch, workspace_save, terrain_change, allow_unchecked, expected_status
+) -> None:
+    fixture = _synthetic_mount_workspace(tmp_path, monkeypatch, position=(8.5, 65.62, 8.5))
+    base = bytes(8)
+    solid = {(x, y, z) for x in range(16) for y in range(16) for z in range(16)}
+    fixture.values.update(
+        {
+            base + b"\x2c": b"\x29",
+            base + b"\x36": (2).to_bytes(4, "little"),
+            base + b"\x2f\x03": _single_layer_payload_with_palette_indices(solid),
+            base + b"\x2f\x04": _single_layer_payload_with_palette_indices(set()),
+        }
+    )
+    mount = {
+        "mount_type": "minecraft:horse",
+        "create_mode": "synthetic_full",
+        "placement_radius": 2,
+        "preferred_offset": {"x": 2, "z": 0},
+        "allow_unchecked_placement": allow_unchecked,
+    }
+    preview = mount_api_routes._preview_from_request({**fixture.request, **mount}, fixture.deps)[2]
+    assert placement_safety_from_preview(preview)["safe_to_place"] is True
+    original_player = fixture.values[b"~local_player"]
+    backup_path = tmp_path / "before-mount.zip"
+
+    def change_terrain_before_backup(_path, **_kwargs):
+        # A world edit leaves player bytes intact after the route's read-only
+        # placement check. The backup captures the newer terrain.
+        if terrain_change == "blocked":
+            fixture.values[base + b"\x2f\x04"] = _single_layer_payload_with_palette_indices(solid)
+        elif terrain_change == "unfinalized":
+            fixture.values[base + b"\x36"] = (0).to_bytes(4, "little")
+        backup_path.write_bytes(b"test backup")
+        fixture.backups.append(True)
+        return str(backup_path)
+
+    for module in (services, mount_write):
+        monkeypatch.setattr(module, "create_backup", change_terrain_before_backup)
+    if workspace_save:
+        result = mount_api_routes.save_workspace({**fixture.request, "mounts": [mount]}, fixture.deps, fixture.player_deps)
+    else:
+        result = mount_api_routes.create_mount({**fixture.request, **mount}, fixture.deps)
+    payload, status = _refusal(result)
+    assert status == expected_status
+    assert fixture.values[b"~local_player"] == original_player
+    if expected_status == 400:
+        assert payload["success"] is False
+        assert fixture.batches == []
+        assert not any(key.startswith((b"actorprefix", b"digp")) for key in fixture.values)
+        assert not backup_path.exists()
+    else:
+        assert payload["success"] is True
+        assert len(fixture.batches) == 1
+        created = payload["mounts"][0] if workspace_save else payload
+        assert created["selected_position"] == preview["selected_position"]
+        assert created["placement_safety"]["safe_to_place"] is (None if terrain_change == "unfinalized" else True)
+        assert backup_path.exists()
+
+
+def test_workspace_terrain_refusal_keeps_player_and_other_mount_unwritten(tmp_path, monkeypatch) -> None:
+    fixture = _synthetic_mount_workspace(tmp_path, monkeypatch, position=(8.5, 65.62, 8.5))
+    base = bytes(8)
+    solid = {(x, y, z) for x in range(16) for y in range(16) for z in range(16)}
+    fixture.values.update(
+        {
+            base + b"\x2c": b"\x29",
+            base + b"\x36": (2).to_bytes(4, "little"),
+            base + b"\x2f\x03": _single_layer_payload_with_palette_indices(solid),
+            base + b"\x2f\x04": _single_layer_payload_with_palette_indices(set()),
+        }
+    )
+    mounts = [
+        {"mount_type": "minecraft:horse", "create_mode": "synthetic_full", "placement_radius": 2, "preferred_offset": offset}
+        for offset in [{"x": 2, "z": 0}, {"x": 0, "z": 2}]
+    ]
+    previews = [mount_api_routes._preview_from_request({**fixture.request, **mount}, fixture.deps)[2] for mount in mounts]
+    assert all(placement_safety_from_preview(preview)["safe_to_place"] is True for preview in previews)
+    original = dict(fixture.values)
+    position = previews[1]["selected_position"]
+    obstruction = _single_layer_payload_with_palette_indices({(int(position["x"]), int(position["y"]) % 16, int(position["z"]))})
+    backup_path = tmp_path / "before-workspace.zip"
+
+    def change_second_placement(_path, **_kwargs):
+        fixture.values[base + b"\x2f\x04"] = obstruction
+        backup_path.write_bytes(b"test backup")
+        return str(backup_path)
+
+    monkeypatch.setattr(services, "create_backup", change_second_placement)
+    payload, status = _refusal(
+        mount_api_routes.save_workspace({**fixture.request, "stats": {"health": 19}, "mounts": mounts}, fixture.deps, fixture.player_deps)
+    )
+    assert status == 400
+    assert payload["success"] is False
+    assert fixture.batches == []
+    assert fixture.values == {**original, base + b"\x2f\x04": obstruction}
+    assert not backup_path.exists()
+
+
 def test_workspace_save_builds_one_atomic_player_and_mount_batch(monkeypatch) -> None:
     service = _FakeWorkspaceService()
     preview = {
@@ -207,6 +311,7 @@ def test_workspace_save_builds_one_atomic_player_and_mount_batch(monkeypatch) ->
     }
     monkeypatch.setattr(mount_api_routes, "_preview_from_request", lambda _data, _deps: ("C:/World", "player", preview))
     monkeypatch.setattr(mount_api_routes, "placement_safety_from_preview", lambda _preview: {"safe_to_place": True, "status": "safe"})
+    monkeypatch.setattr(mount_api_routes, "validate_selected_placement", lambda *_args, **_kwargs: {"safe_to_place": True, "status": "safe"})
     monkeypatch.setattr(mount_api_routes, "load_player_nbt", lambda _raw: SimpleNamespace(tag={"UniqueID": SimpleNamespace(py_data=42)}))
     record = SimpleNamespace(
         actor_key=b"actorprefix-one",

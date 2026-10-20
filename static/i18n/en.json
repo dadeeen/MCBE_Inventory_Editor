@@ -2133,6 +2133,7 @@
   "Weltzugriff blockiert.": "World access blocked.",
   "Speichern abgelehnt: Der gemeinsame Schreibplan ist leer.": "Save rejected: the combined write plan is empty.",
   "Speichern abgelehnt: Eine Mount-Position ist ungeprüft und nicht explizit bestätigt.": "Save rejected: a mount position is unchecked and not explicitly confirmed.",
+  "Speichern abgelehnt: Die Mount-Position ist vor dem Schreiben ungeprüft. Bitte Vorschau neu laden und Platzierung prüfen.": "Save rejected: the mount position is unchecked before writing. Reload the preview and check the placement.",
   "Speichern abgelehnt: Zwei Mounts verwenden dieselbe Position.": "Save rejected: two mounts use the same position.",
   "Die Änderungen wurden geschrieben, aber mindestens ein Mount konnte danach nicht validiert werden. Nicht erneut speichern; stelle bei Zweifeln das angegebene Backup wieder her.": "The changes were written, but at least one mount could not be validated afterwards. Do not save again; if in doubt, restore the specified backup.",
   "Fehler beim gemeinsamen Speichern der Änderungen: {error}": "Error while saving the combined changes: {error}",
