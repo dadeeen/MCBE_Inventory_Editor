@@ -1381,6 +1381,73 @@ def test_main_rejects_changed_review_token_before_processing_sources(monkeypatch
         update_db.main()
 
 
+def test_update_accepts_registry_additions_before_public_localizations(monkeypatch, tmp_path, capsys):
+    from mcbe_editor import item_data
+    from mcbe_editor.update_db_report import extract_report
+
+    monkeypatch.setattr(update_db, "log", lambda *_args, **_kwargs: None)
+    for name, filename in (
+        ("ITEM_DB_PATH", "item_db.json"),
+        ("SOURCE_VERSION_JSON", "source_version.json"),
+        ("SOURCE_VERSION_HISTORY", "source_version_history.json"),
+    ):
+        monkeypatch.setattr(update_db, name, tmp_path / filename)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(update_db, "CACHE_DIR", cache_dir)
+    archive = cache_dir / "bedrock_resource_pack.zip"
+    future_id = "minecraft:future_widget"
+    with zipfile.ZipFile(archive, "w") as zf:
+        for module, entries in (
+            ("items", [{"name": "stone"}, {"name": future_id}]),
+            ("blocks", [{"name": "stone"}]),
+            ("effects", [{"name": "speed"}]),
+            ("enchantments", [{"name": "unbreaking"}]),
+        ):
+            zf.writestr(f"metadata/vanilladata_modules/mojang-{module}.json", json.dumps({"data_items": entries}))
+        for locale in ("en_US", "de_DE"):
+            zf.writestr(f"resource_pack/texts/{locale}.lang", "item.stone.name=Stone\neffect.speed=Speed\nenchant.unbreaking=Unbreaking\n")
+    release = {
+        "resource_pack_release": "v999.0.0",
+        "resource_pack_asset": "source.zip",
+        "resource_pack_asset_size": archive.stat().st_size,
+        "resource_pack_url": "https://github.com/Mojang/bedrock-samples/releases/download/v999.0.0/source.zip",
+    }
+    monkeypatch.setattr(update_db, "resolve_latest_rp", lambda _path: release)
+    monkeypatch.setattr(
+        update_db,
+        "resolve_microsoft_item_listing_snapshot",
+        lambda *, reuse_cached: ({"stone": "Stone"}, {}),
+    )
+    update_db.ensure_data_paths()
+    original = update_db.ITEM_DB_PATH.read_bytes()
+
+    monkeypatch.setattr(sys, "argv", ["update_db.py", "--json-summary", "--dry-run"])
+    assert update_db.main() == 0
+    _, preview = extract_report(capsys.readouterr().out)
+    missing_names = next(issue for issue in preview["audit"]["issues"] if issue["code"] == "missing_entries")
+    assert missing_names["items"] == [future_id]
+    assert missing_names["severity"] == "warning"
+    assert preview["status"] == "available"
+    assert update_db.ITEM_DB_PATH.read_bytes() == original
+
+    monkeypatch.setattr(sys, "argv", ["update_db.py", "--json-summary", "--force"])
+    assert update_db.main() == 0
+    _, applied = extract_report(capsys.readouterr().out)
+    assert applied["applied"] is True
+    persisted = json.loads(update_db.ITEM_DB_PATH.read_text(encoding="utf-8"))
+    assert future_id in persisted["addable_items"]
+    assert future_id not in persisted["items"]  # Runtime fallback must not be saved as an official name.
+    catalog = item_data.prepare_item_catalog(update_db.ITEM_DB_PATH)
+    with item_data.use_item_catalog(catalog):
+        assert item_data.is_addable_item_id(future_id)
+        assert item_data.selectable_item_catalog()[future_id] == ("Future Widget", "Future Widget")
+        assert item_data.get_max_stack(future_id) == 1
+        assert not item_data.has_verified_stack_limit(future_id)
+    metadata = json.loads(update_db.SOURCE_VERSION_JSON.read_text(encoding="utf-8"))
+    assert update_db.item_db_verification.item_db_verification_snapshot(metadata, update_db.ITEM_DB_PATH)["verified"]
+
+
 @pytest.mark.parametrize(
     ("invalid_limit", "invalid_member", "replacement"),
     [

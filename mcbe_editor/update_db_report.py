@@ -29,9 +29,12 @@ def audit_items(items, addable, stack_limits, durability, source_names, componen
         if ids:
             issues.append({"code": code, "severity": severity, "count": len(ids), "items": ids})
 
-    issue("invalid_ids", [key for key in items if not re.fullmatch(r"[a-z0-9_.-]+:[a-z0-9_./-]+", key)], "error")
+    issue("invalid_ids", [key for key in set(items) | set(addable) if not re.fullmatch(r"[a-z0-9_.-]+:[a-z0-9_./-]+", key)], "error")
     issue("missing_names", [key for key, names in items.items() if len(names) != 2 or any(not isinstance(n, str) or not n.strip() for n in names)], "error")
-    issue("missing_entries", set(addable) - items.keys(), "error")
+    # Official registry additions may precede both public localization sources.
+    # The runtime supplies display-only fallback names for these exact IDs;
+    # missing translations must not prevent their registry from being updated.
+    issue("missing_entries", set(addable) - items.keys())
     issue("invalid_stack_limits", [key for key, value in stack_limits.items() if type(value) is not int or not 1 <= value <= 127], "error")
     issue("invalid_durability", [key for key, value in durability.items() if type(value) is not int or value <= 0], "error")
     issue("unverified_stack_limits", set(addable) - stack_limits.keys())

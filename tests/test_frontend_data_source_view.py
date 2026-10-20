@@ -3,6 +3,81 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_late_status_responses_preserve_applied_update_and_open_history() -> None:
+    run_node(r"""
+const assert = require('node:assert/strict');
+global.window = global;
+require('./static/data_source_view.js');
+(async () => {
+    for (const fails of [false, true]) {
+        const panel = { innerHTML: '', querySelector: () => null };
+        const applied = [], warnings = [];
+        let status = null, finishOld;
+        console.warn = (...args) => warnings.push(args);
+        global.fetch = url => {
+            if (url.endsWith('/versions')) return Promise.resolve({ json: async () => ({
+                success: true, entries: [{ resource_pack_release: 'new-release' }],
+            }) });
+            return new Promise((resolve, reject) => {
+                finishOld = () => fails ? reject(new Error('late old request failed'))
+                    : resolve({ json: async () => ({ item_db: { status: 'metadata-missing', history_count: 0 } }) });
+            });
+        };
+        const controller = MCBEDataSourceView.createDataSourceController({
+            elements: { itemDbStatusPanel: panel },
+            getItemDbStatus: () => status,
+            setItemDbStatus: value => { status = value; applied.push(value); },
+        });
+        const oldLoad = controller.loadItemDbStatus();
+        const updated = { status: 'ok', history_count: 1, verification: { verified: true } };
+        controller.applyItemDbStatus(updated);
+        await controller.toggleVersionHistory();
+        const currentHistory = panel.innerHTML;
+        assert.match(currentHistory, /new-release/);
+        finishOld();
+        await oldLoad;
+        assert.equal(status, updated, `stale ${fails ? 'error' : 'success'} must not replace update status`);
+        assert.equal(panel.innerHTML, currentHistory, 'stale status must not close or invalidate the new history');
+        assert.equal(applied.length, 1);
+        assert.equal(warnings.length, 0);
+    }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_status_refresh_uses_latest_request_and_still_reports_current_failure() -> None:
+    run_node(r"""
+const assert = require('node:assert/strict');
+global.window = global;
+require('./static/data_source_view.js');
+(async () => {
+    const responses = [], warnings = [], applied = [];
+    let status = null;
+    console.warn = (...args) => warnings.push(args);
+    global.fetch = () => new Promise(resolve => responses.push(resolve));
+    const controller = MCBEDataSourceView.createDataSourceController({
+        getItemDbStatus: () => status,
+        setItemDbStatus: value => { status = value; applied.push(value); },
+    });
+    const older = controller.loadItemDbStatus();
+    const newer = controller.loadItemDbStatus();
+    const current = { status: 'ok', verification: { verified: true } };
+    responses[1]({ json: async () => ({ item_db: current }) });
+    await newer;
+    responses[0]({ json: async () => ({ item_db: { status: 'metadata-missing' } }) });
+    await older;
+    assert.equal(status, current);
+    assert.equal(applied.length, 1);
+
+    global.fetch = async () => { throw new Error('current refresh failed'); };
+    await controller.loadItemDbStatus();
+    assert.equal(status.status, 'unavailable');
+    assert.equal(applied.length, 2);
+    assert.equal(warnings.length, 1);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
+
+
 def test_version_history_retries_failures_caches_success_and_refreshes_after_db_update() -> None:
     run_node(r"""
 const assert = require('node:assert/strict');

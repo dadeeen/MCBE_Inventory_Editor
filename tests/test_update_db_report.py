@@ -96,6 +96,15 @@ def test_audit_does_not_confuse_same_language_names_with_missing_translations():
     assert audit == {"checked_items": 1, "issues": [], "expected_name_differences": []}
 
 
+@pytest.mark.parametrize("identifier,expected_status", [("minecraft:future_widget", "current"), ("minecraft:bad ID", "incomplete")])
+def test_missing_registry_names_do_not_hide_invalid_registry_ids(identifier, expected_status):
+    audit = audit_items({}, [identifier], {}, {}, {}, {}, {})
+    report = build_report(scope="items", release="v999.0.0", sections={}, metadata_changed=False, audit=audit, blocked=[])
+    assert report["status"] == expected_status
+    if expected_status == "incomplete":
+        assert next(issue for issue in audit["issues"] if issue["code"] == "invalid_ids")["items"] == [identifier]
+
+
 def test_audit_separates_errors_source_conflicts_and_preserved_names():
     audit = audit_items(
         {"bad ID": ("", "Name"), "minecraft:test": ("Erhaltener Name", "Test")},

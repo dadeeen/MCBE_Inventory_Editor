@@ -5320,7 +5320,8 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
       await page.locator('#updateDbDetails > summary').click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
       for (const id of ['btnUpdateDbDryRun', 'btnUpdateDbApply', 'btnClearUpdateOutput']) {
-        expect((await page.locator(`#${id}`).boundingBox()).height).toBeGreaterThanOrEqual(44);
+        // Chromium DOMRect rounding can report 43.999992 px for a 44 px button.
+        expect((await page.locator(`#${id}`).boundingBox()).height).toBeGreaterThanOrEqual(44 - 0.001);
       }
     }
     state = 'current';

@@ -233,6 +233,7 @@
         let historyLoading = false;
         let historyError = "";
         let historyRequestId = 0;
+        let statusRequestId = 0;
 
         function render() {
             const itemDbStatus = getItemDbStatus();
@@ -314,6 +315,7 @@
         function applyItemDbStatus(status) {
             const normalizedStatus = status || null;
             // A status refresh can follow an update of the database and history.
+            statusRequestId++;
             historyRequestId++;
             historyVisible = false;
             historyEntries = null;
@@ -327,12 +329,15 @@
         }
 
         async function loadItemDbStatus() {
+            const requestId = ++statusRequestId;
             try {
                 const res = await fetch("/api/item-db/status");
                 const data = await parseJsonResponse(res);
+                if (requestId !== statusRequestId) return;
                 if (!data?.item_db) throw new Error(t("Item-DB-Status konnte nicht geladen werden."));
                 applyItemDbStatus(data.item_db);
             } catch (err) {
+                if (requestId !== statusRequestId) return;
                 console.warn("Item-DB status unavailable", err);
                 applyItemDbStatus({ status: "unavailable", message: t("Item-DB-Status konnte nicht geladen werden."), counts: {} });
             }
