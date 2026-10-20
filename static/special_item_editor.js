@@ -15,7 +15,7 @@
     };
     const SHAPES = ["Kleine Kugel", "Große Kugel", "Stern", "Creeper", "Explosion"];
 
-    function createEditor({ dialog, model, catalog, getItems, getEnchantments, itemLabel, commit, canEdit,
+    function createEditor({ dialog, model, catalog, textLimits, getItemBrowser, isCurrentContext, getEnchantments, itemLabel, commit, canEdit,
         getBannerPatterns, loadBannerPatterns, canLoadBannerPatterns }) {
         const COLOR_HEX = model.schema.color_hex;
         const doc = dialog.ownerDocument;
@@ -27,9 +27,13 @@
         let frames = [];
         let context = null;
         let returnFocus = null;
+        let nativeReturnFocus = null;
         let saveFrame = () => {};
         let controlId = 0;
+        let disposeAutocomplete = null;
         let refreshPreview = () => {};
+        let inheritedDraft = false;
+        let hasInputChanges = () => false;
         const bannerRenderer = window.MCBEBannerPreview.createRenderer(doc);
         function el(tag, text = "", className = "") {
             const node = doc.createElement(tag);
@@ -88,7 +92,11 @@
             if (result.ok) close();
             else { frames.push(frame); message(result.error); }
         }
-        function close() { frames = []; refreshPreview = () => {}; dialog.close(); }
+        function close() {
+            disposeAutocomplete?.(); disposeAutocomplete = null;
+            frames = []; refreshPreview = () => {}; dialog.close();
+            returnFocus?.focus?.();
+        }
         function cancel() {
             if (frames.length > 1) { frames.pop(); render(); }
             else close();
@@ -97,6 +105,8 @@
         function specialFrame(item, done, renderNow = true) {
             if (specialDepth() + 1 >= model.schema.limits.depth) { message(t("Die maximale Verschachtelungstiefe ist erreicht.")); return null; }
             const frame = { type: "special", item: clone(item), data: model.data(item), done };
+            frame.initialItemState = JSON.stringify(frame.item);
+            frame.initialDataState = JSON.stringify(frame.data);
             frames.push(frame);
             if (renderNow) render();
             return frame;
@@ -105,6 +115,7 @@
             const original = container.data.items.find(item => item.slot === slot);
             const frame = { type: "item", originSlot: slot, item: clone(original || { slot, name: "", count: 1, damage: 0, enchantments: [], lore: [] }), container,
                 done: item => { container.data = model.withChild(container.data, slot, item); } };
+            frame.initialItemState = JSON.stringify(frame.item);
             frames.push(frame);
             if (renderNow) render();
             return frame;
@@ -121,12 +132,18 @@
             }
             return true;
         }
+        function focusInitialControl() {
+            const target = body.querySelector(".special-item-name") || body.querySelector("input, textarea, select, button");
+            target?.focus();
+        }
         function render() {
             const frame = frames.at(-1);
             refreshPreview = () => {};
+            hasInputChanges = () => false;
+            disposeAutocomplete?.(); disposeAutocomplete = null;
             body.replaceChildren(); message("");
-            title.textContent = frame.type === "item" ? t("Item bearbeiten") : model.label(frame.item);
-            path.textContent = frames.map(entry => itemLabel(entry.item) || t("Leerer Slot")).join(" › ");
+            title.textContent = frame.type === "item" ? t(frame.item.name ? "Item bearbeiten" : "Item hinzufügen") : model.label(frame.item);
+            path.textContent = frames.map(entry => entry.item.name ? itemLabel(entry.item) : t("Leerer Slot")).join(" › ");
             path.title = path.textContent;
             accept.textContent = frames.length > 1 ? t("Übernehmen und zurück") : t("Übernehmen");
             accept.disabled = false;
@@ -146,7 +163,7 @@
                     finish(model.apply(frame.item, frame.data));
                 };
             }
-            body.querySelector("input, textarea, select, button")?.focus();
+            focusInitialControl();
         }
         function renderContainer(frame) {
             const isBundle = model.kind(frame.item) === "bundle";
@@ -184,104 +201,160 @@
         }
         function renderItem(frame) {
             const item = frame.item;
-            const fields = el("div", "", "special-fields"); body.append(fields);
-            const name = field(fields, "Item-ID", item.name, { wide: true, list: "specialItemSuggestions" });
-            const choices = el("datalist"); choices.id = "specialItemSuggestions";
-            Object.keys(getItems()).filter(id => catalog.isAddableItemId(id)).forEach(id => {
-                const option = el("option", itemLabel({ name: id })); option.value = id; choices.append(option);
-            }); body.append(choices);
-            const count = field(fields, "Menge", item.count, { type: "number", min: 1, max: 127 });
-            const damage = field(fields, "Abnutzung / Datenwert", item.damage, { type: "number", min: 0, max: 32767 });
+            const logic = window.MCBESlotDetailLogic;
+            const browser = getItemBrowser();
+            const fields = el("div", "", "special-fields special-item-primary"); body.append(fields);
+            const searchField = el("div", "", "special-item-search"); fields.append(searchField);
+            const heading = el("div", "", "item-picker-header");
+            const label = el("label", t("Item-ID"));
+            const name = el("input", "", "special-item-name");
+            name.type = "text"; name.id = `special-control-${++controlId}`; name.value = item.name;
+            label.htmlFor = name.id;
+            name.placeholder = t("Name oder Item-ID eingeben");
+            name.autocomplete = "off";
+            const suggestions = el("div", "", "autocomplete-list special-item-suggestions");
+            const choose = button("📖 Item-Browser", () => browser.openPicker({
+                onSelect: selectItem, selectionReason, isCurrent: current, focusTarget: choose,
+            }));
+            heading.append(label, choose); searchField.append(heading, name, suggestions);
+            const count = field(fields, "Menge", item.count, { type: "number", min: 1 });
+            const countHint = el("p", "", "special-note special-count-hint");
+            countHint.id = `special-control-${++controlId}`; count.setAttribute("aria-describedby", countHint.id); body.append(countHint);
+            const properties = el("details", "", "special-properties");
+            properties.open = Boolean(frame.propertiesOpen);
+            properties.append(el("summary", t("Weitere Eigenschaften")));
+            properties.addEventListener("toggle", () => { frame.propertiesOpen = properties.open; });
+            const extraFields = el("div", "", "special-fields"); properties.append(extraFields); body.append(properties);
+            const damage = field(extraFields, "Abnutzung / Datenwert", item.damage, { type: "number", min: 0, max: 32767 });
+            const variant = select(extraFields, "Variante", item.damage, []);
             const capacity = model.kind(frame.container.item) === "bundle" ? 64 : 27;
-            const destination = select(fields, "Zielslot", item.slot, Array.from({ length: capacity }, (_, slot) => slot)
+            const destination = select(extraFields, "Zielslot", item.slot, Array.from({ length: capacity }, (_, slot) => slot)
                 .filter(slot => slot === frame.originSlot || !frame.container.data.items.some(child => child.slot === slot))
                 .map(slot => [slot, String(slot + 1)]));
-            const custom = field(fields, "Anzeigename", item.display_name || "", { maxLength: 512 });
-            const lore = field(fields, "Beschreibung (eine Zeile je Eintrag)", (item.lore || []).join("\n"), { multiline: true });
-            const initialCustomValue = custom.value;
-            const initialLoreValue = lore.value;
+            const custom = field(extraFields, "Anzeigename", item.display_name || "", { maxLength: textLimits.maxDisplayName });
+            const lore = field(extraFields, "Beschreibung (eine Zeile je Eintrag)", (item.lore || []).join("\n"), { multiline: true });
             const enchantments = clone(item.enchantments || []);
-            const enchBox = el("div", "", "special-card"); body.append(enchBox);
+            const enchBox = el("div", "", "special-card"); properties.append(enchBox);
             enchBox.append(el("h3", t("Verzauberungen")));
             const enchRows = el("div"); enchBox.append(enchRows);
+            const enchSelect = select(enchBox, "Verzauberung hinzufügen", "", []);
+            const normalizedName = () => logic.normalizedItemName(name.value);
+            let formItemName = logic.normalizedItemName(item.name);
+            const current = () => dialog.open && frames.at(-1) === frame && isCurrentContext(context);
+            const limitFor = id => model.childCountLimit(frame.container.item, frame.container.data, frame.originSlot,
+                id === item.name ? item : { name: id, count: 1 }, specialDepth());
+            function selectionReason(id) {
+                const limit = limitFor(id);
+                return limit.error || (limit.maximum < 1 ? t("Für dieses Item ist im Bundle nicht genügend Platz.") : "");
+            }
+            function resetItemFields(nextName) {
+                const plan = window.MCBEEnchantmentEditorLogic.manualItemResetPlan({
+                    previousName: formItemName, nextName, isValidItemId: catalog.isAddableItemId,
+                });
+                if (plan.shouldReset) {
+                    formItemName = plan.nextName;
+                    count.value = 1; damage.value = 0; custom.value = ""; lore.value = ""; enchantments.length = 0;
+                }
+            }
+            function selectItem(selected) {
+                if (!current() || !canEdit()) return;
+                resetItemFields(selected.id);
+                name.value = selected.id;
+                if (selected.damage !== null && selected.damage !== undefined && Number.isInteger(Number(selected.damage))) damage.value = Number(selected.damage);
+                syncFields();
+            }
             function drawEnchantments() {
+                const id = normalizedName();
+                const db = getEnchantments();
+                const rows = window.MCBEEnchantmentEditorLogic.enchantmentRowsForItem({
+                    itemName: id, enchantmentsDb: db, activeEnchantments: enchantments,
+                    isCompatible: catalog.isEnchantmentCompatibleWithItem,
+                });
+                const available = rows.filter(row => row.compatible && !row.activeEnchantment);
+                enchBox.hidden = !catalog.isEnchantableItemForEditor(id) && !enchantments.length;
                 enchRows.replaceChildren();
                 enchantments.forEach((entry, index) => {
+                    const compatible = catalog.isEnchantmentCompatibleWithItem(entry.id, id);
+                    const data = db[entry.id];
                     const row = el("div", "", "special-actions");
-                    const data = getEnchantments()[entry.id];
-                    row.append(el("span", window.MCBESlotDetailLogic.localizedEnchantmentName(data, entry.id)));
+                    row.append(el("span", logic.localizedEnchantmentName(data, entry.id)
+                        + (!compatible ? ` · ${t("unpassend, wird erhalten")}` : "")));
                     const level = field(row, "Stufe", entry.lvl, { type: "number", min: 1, max: data?.max_lvl ?? 1 });
+                    level.readOnly = !compatible || !data;
                     level.addEventListener("input", () => { entry.lvl = level.valueAsNumber; });
                     row.append(button("Entfernen", () => { enchantments.splice(index, 1); drawEnchantments(); })); enchRows.append(row);
                 });
+                enchSelect.replaceChildren();
+                for (const [id, label] of [["", t("Bitte wählen")], ...available.map(row => [row.id, logic.localizedEnchantmentName(row.info, row.id)])]) {
+                    const option = el("option", label); option.value = id; enchSelect.append(option);
+                }
+                enchSelect.parentElement.hidden = !available.length;
             }
-            drawEnchantments();
-            const enchSelect = select(enchBox, "Verzauberung hinzufügen", "", [["", t("Bitte wählen")], ...Object.entries(getEnchantments()).map(([id, value]) => [id, window.MCBESlotDetailLogic.localizedEnchantmentName(value, id)])]);
             enchSelect.addEventListener("change", () => {
                 const id = Number(enchSelect.value);
-                if (enchSelect.value && !enchantments.some(entry => Number(entry.id) === id)) enchantments.push({ id, lvl: 1 });
-                enchSelect.value = ""; drawEnchantments();
+                if (enchSelect.value && catalog.isEnchantmentCompatibleWithItem(id, normalizedName())
+                    && !enchantments.some(entry => Number(entry.id) === id)) enchantments.push({ id, lvl: 1 });
+                drawEnchantments();
             });
             function build() {
-                const normalizedName = name.value.trim().toLowerCase();
-                const sameType = normalizedName === item.name.trim().toLowerCase();
-                const requestedCount = count.valueAsNumber;
-                const requestedDamage = damage.valueAsNumber;
-                const variants = catalog.dataValueVariantsForId(normalizedName);
-                if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > 127
-                    || requestedCount > catalog.getMaxStack(normalizedName) && !(sameType && requestedCount === item.count)) {
-                    message(t("Die Menge liegt außerhalb des erlaubten Stacklimits.")); return null;
-                }
-                if (!Number.isInteger(requestedDamage) || (requestedDamage < 0 || requestedDamage > catalog.getMaxDamage(normalizedName)
-                    || variants.length && !variants.some(variant => variant.damage === requestedDamage))
-                    && !(sameType && requestedDamage === item.damage)) {
-                    message(t("Der Abnutzungs- oder Datenwert liegt außerhalb des erlaubten Bereichs.")); return null;
-                }
-                const preserveCustom = sameType && custom.value === initialCustomValue;
-                const preserveLore = sameType && lore.value === initialLoreValue;
-                const requestedLore = lore.value === "" ? [] : lore.value.split("\n");
-                if (!preserveCustom && custom.value.length > 512) {
-                    message(t("Der Anzeigename darf höchstens {max} Zeichen enthalten.", { max: 512 })); return null;
-                }
-                if (!preserveLore && (requestedLore.length > 50 || requestedLore.some(line => line.length > 512))) {
-                    message(t("Die Beschreibung darf höchstens {lines} Zeilen mit jeweils {length} Zeichen enthalten.", { lines: 50, length: 512 })); return null;
-                }
-                if (enchantments.some(entry => !Number.isInteger(entry.lvl) || entry.lvl < 1 || !getEnchantments()[entry.id]
-                    || entry.lvl > getEnchantments()[entry.id].max_lvl)) {
-                    message(t("Die Verzauberungsstufe liegt außerhalb des erlaubten Bereichs.")); return null;
-                }
-                const result = window.MCBESlotDetailLogic.buildDetailItemFromForm({
-                    slotId: item.slot, previousItem: item.name ? item : null, rawName: name.value, rawCount: requestedCount,
-                    rawDamage: requestedDamage, rawCustomName: preserveCustom ? item.display_name || "" : custom.value, rawLore: lore.value, enchantments,
-                    maxStack: catalog.getMaxStack(name.value), maxDamage: catalog.getMaxDamage(name.value),
-                    stackLimitVerified: catalog.hasVerifiedStackLimit(name.value),
-                    maxDisplayName: 512, maxLoreLines: 50, maxLoreLineLength: 512,
-                    isValidItemId: catalog.isValidItemId, isAddableItemId: catalog.isAddableItemId,
-                    isEnchantableItem: catalog.isEnchantableItemForEditor, isEnchantmentCompatible: catalog.isEnchantmentCompatibleWithItem,
+                resetItemFields(normalizedName());
+                const result = logic.buildItemForm({ catalog, enchantmentsDb: getEnchantments(), countLimit: limitFor(normalizedName()),
+                    slotId: item.slot, previousItem: item.name ? item : null, rawName: name.value, rawCount: count.value,
+                    rawDamage: damage.value, rawCustomName: custom.value, rawLore: lore.value, enchantments,
+                    maxDisplayName: textLimits.maxDisplayName, maxLoreLines: textLimits.maxLoreLines, maxLoreLineLength: textLimits.maxLoreLineLength,
+                    enchantmentLabel: id => logic.localizedEnchantmentName(getEnchantments()[id], id),
+                    detailItemLabel: id => itemLabel({ name: id }), specialItemNbtRequirement: catalog.specialItemNbtRequirement,
                 });
                 if (!result.ok || !result.item) { message(result.error || t("Wähle ein Item.")); return null; }
                 const built = model.cleanChild(result.item);
-                // HTML text controls normalize line breaks. Keep untouched NBT
-                // text verbatim even when another field of the item changes.
-                if (preserveLore) built.lore = clone(item.lore || []);
                 built.slot = Number(destination.value);
-                // A replacement starts a new item identity. Retaining its old
-                // origin could restore invisible NBT after another type change.
-                if (sameType && item.source_index !== undefined) built.source_index = item.source_index;
+                if (normalizedName() === item.name && item.source_index !== undefined) built.source_index = item.source_index;
                 if (window.MCBESpecialItemLogic.sameUserFields(item, built)) return model.cleanChild(item);
                 return built;
             }
             const special = button(model.label(item), () => {
                 const built = build();
                 if (built) {
-                    // The parent form is its own draft. Cancelling the child
-                    // editor must discard only that child's special-data edits.
                     frame.item = built;
                     specialFrame(built, updated => { frame.item = updated; });
                 }
             });
-            const syncSpecial = () => { special.hidden = !model.kind({ name: name.value }); special.textContent = model.label({ name: name.value }); };
-            name.addEventListener("input", syncSpecial); syncSpecial();
+            function syncQuantity() {
+                const id = normalizedName();
+                const limit = limitFor(id);
+                const state = logic.itemFormModel({ catalog, rawName: id, rawCount: count.value, rawDamage: damage.value,
+                    previousItem: item, countLimit: limit });
+                const validId = id === item.name && Boolean(id) || catalog.isAddableItemId(id);
+                logic.applyItemFormConstraints(state, { count, damage });
+                countHint.textContent = !validId ? t("Wähle ein Item.") : state.preserved && (limit.error || Number(count.value) > limit.maximum)
+                    ? t("Vorhandene Menge {count} bleibt unverändert erhalten.", { count: count.value })
+                    : limit.error || t("Maximal {max} in diesem Behälter.", { max: limit.maximum });
+                accept.disabled = !validId || Boolean(state.countError);
+                special.disabled = accept.disabled;
+                special.hidden = !model.kind({ name: id }); special.textContent = model.label({ name: id });
+                message(validId ? state.countError : "");
+            }
+            function syncFields() {
+                const id = normalizedName();
+                const variants = catalog.dataValueVariantsForId(id);
+                damage.parentElement.hidden = variants.length > 0;
+                variant.parentElement.hidden = !variants.length;
+                variant.replaceChildren();
+                const options = variants.map(value => [value.damage, itemLabel({ name: id, damage: value.damage })]);
+                if (variants.length && !variants.some(value => value.damage === Number(damage.value))) options.unshift([damage.value, t("Datenwert {value}", { value: damage.value })]);
+                options.forEach(([value, label]) => { const option = el("option", label); option.value = value; variant.append(option); });
+                variant.value = damage.value;
+                drawEnchantments(); syncQuantity();
+            }
+            name.addEventListener("input", syncFields);
+            count.addEventListener("input", syncQuantity);
+            variant.addEventListener("change", () => { damage.value = variant.value; syncQuantity(); });
+            damage.addEventListener("input", syncQuantity);
+            disposeAutocomplete = browser.setupAutocomplete(name, suggestions, {
+                includeVariants: true, onSelect: selectItem, selectionReason, browserButton: choose,
+                onCommit: () => { resetItemFields(normalizedName()); syncFields(); },
+            });
+            syncFields();
             const actions = el("div", "", "special-actions"); actions.append(special);
             if (item.name) actions.append(button("Item entfernen", () => finish(null)));
             body.append(actions);
@@ -293,6 +366,12 @@
                 if (validation) { message(validation); return; }
                 finish(built);
             };
+            const formState = () => JSON.stringify({
+                controls: [name, count, damage, destination, custom, lore].map(input => input.value),
+                enchantments: enchantments.map(({ id, lvl }) => [id, lvl]).sort(([a], [b]) => a - b),
+            });
+            const initialFormState = formState();
+            hasInputChanges = () => formState() !== initialFormState;
         }
         function renderBook(frame) {
             const data = frame.data;
@@ -434,20 +513,36 @@
         });
         dialog.querySelectorAll('[data-special="cancel"]').forEach(node => node.addEventListener("click", cancel));
         dialog.addEventListener("cancel", event => { event.preventDefault(); cancel(); });
-        dialog.addEventListener("close", () => { if (!dialog.open) returnFocus?.focus?.(); });
-        dialog.addEventListener("keydown", event => { event.stopPropagation(); });
+        dialog.addEventListener("close", () => {
+            // Native cancellation may restore its own opener after close().
+            // Only correct that fallback; never steal a newer user selection.
+            if (!dialog.open && (doc.activeElement === nativeReturnFocus || doc.activeElement === doc.body)) returnFocus?.focus?.();
+        });
+        dialog.addEventListener("keydown", event => {
+            event.stopPropagation();
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") event.preventDefault();
+        });
         return {
             refreshPreview() { refreshPreview(); },
-            open(item, nextContext, slots = [], focusAfterClose = null) {
+            hasPendingChanges() {
+                if (!dialog.open) return false;
+                return inheritedDraft || hasInputChanges() || frames.some(frame =>
+                    JSON.stringify(frame.item) !== frame.initialItemState
+                    || frame.type === "special" && JSON.stringify(frame.data) !== frame.initialDataState);
+            },
+            open(item, nextContext, slots = [], focusAfterClose = null, originalItem = item) {
                 if (!item || !model.kind(item) || !canEdit()) return;
-                context = nextContext; frames = []; returnFocus = focusAfterClose || doc.activeElement;
+                context = nextContext; frames = []; nativeReturnFocus = doc.activeElement;
+                returnFocus = focusAfterClose || nativeReturnFocus;
+                inheritedDraft = !window.MCBESpecialItemLogic.sameUserFields(item, originalItem)
+                    || Boolean(item.replace_original_nbt) !== Boolean(originalItem?.replace_original_nbt);
                 specialFrame(item, null, false);
                 const found = openPath(slots);
                 if (!found) frames = frames.slice(0, 1);
                 render();
                 if (!found) message(t("Der gesuchte Inhalt wurde inzwischen geändert. Suche erneut."));
                 if (!dialog.open) dialog.showModal();
-                body.querySelector("button, input, textarea, select")?.focus();
+                focusInitialControl();
             },
         };
     }

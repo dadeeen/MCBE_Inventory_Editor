@@ -103,6 +103,16 @@
             if (value.explosions?.some(effect => effect.colors.length === 0)) return t("Wähle mindestens eine gültige Feuerwerksfarbe.");
             return "";
         }
+        function childCountLimit(container, contents, originSlot, child, depth = 0) {
+            const stack = Math.min(127, catalog.getMaxStack(child.name));
+            if (kind(child) === "shulker") return { maximum: 0, error: t("Shulkerkisten dürfen nicht in Bundles oder andere Shulkerkisten gelegt werden.") };
+            if (kind(container) !== "bundle") return { maximum: stack, error: "" };
+            if (depth + 1 >= schema.limits.depth) return { maximum: 0, error: t("Die maximale Verschachtelungstiefe ist erreicht.") };
+            const used = contentWeight(contents.items.filter(item => item.slot !== originSlot), depth + 1);
+            const unit = weight({ ...child, count: 1 }, depth + 1);
+            if (used === null || unit === null) return { maximum: stack, error: t("Das Gewicht dieses Items ist ungeprüft. Der Bundle-Inhalt kann nicht sicher geändert werden.") };
+            return { maximum: Math.max(0, Math.min(stack, Math.floor((64 - used) / unit))), error: "" };
+        }
         function apply(item, value) {
             const result = clone(item);
             if (JSON.stringify(data(item)) !== JSON.stringify(value)) {
@@ -126,7 +136,7 @@
             else items.splice(index, 1);
             return { ...value, items };
         }
-        return { kind, label, data, editable, searchContents, weight, contentWeight, validate, apply, cleanChild, withChild, schema };
+        return { kind, label, data, editable, searchContents, weight, contentWeight, childCountLimit, validate, apply, cleanChild, withChild, schema };
     }
     window.MCBESpecialItemLogic = { createModel, clone, sameUserFields, changeLabel };
 }());

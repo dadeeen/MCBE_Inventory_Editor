@@ -51,6 +51,37 @@ def test_frontend_ability_state_apply_stats_update_clamps_touched_values() -> No
     )
 
 
+def test_frontend_ability_state_integer_stats_accept_number_input_notation() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/ability_state.js", "utf8"), context);
+        const state = context.window.MCBEAbilityState;
+        for (const [xpLevel, foodLevel, expectedXp, expectedFood] of [
+            ["1e4", "1e1", 10000, 10],
+            ["-3e2", "2.9", 0, 2],
+            ["30000", "25", 24791, 20],
+            ["7.9", "4.9", 7, 4],
+            [".9", ".9", 0, 0],
+            ["", "", 0, 20],
+            [" ", " ", 0, 20],
+            ["7junk", "2junk", 0, 20],
+            ["1e", "1e", 0, 20],
+            ["Infinity", "NaN", 0, 20],
+        ]) {
+            const stats = {xp_level: 2, food_level: 5};
+            const result = state.applyStatsUpdate({
+                stats, values: {xpLevel, foodLevel}, touchedFields: ["xp_level", "food_level"],
+            });
+            assert.equal(result.nextStats.xp_level, expectedXp, "xpLevel " + xpLevel);
+            assert.equal(result.nextStats.food_level, expectedFood, "foodLevel " + foodLevel);
+            assert.deepEqual(stats, {xp_level: 2, food_level: 5});
+        }
+    """)
+
+
 def test_frontend_ability_state_keeps_xp_progress_below_next_level_boundary() -> None:
     run_node(
         textwrap.dedent(
@@ -318,6 +349,31 @@ def test_frontend_ability_state_dimension_switch_keeps_exact_position() -> None:
             });
             assert.strictEqual(moved.changed, true);
             assert.deepStrictEqual(Array.from(moved.nextStats.pos), [exactPosition[0], 80, exactPosition[2]]);
+
+            // Gerundete negative Null muss die exakte negative Position erhalten.
+            const nearZero = [-0.004, 71.62001037597656, 0.004];
+            const nearZeroValues = {
+                posX: state.formatPositionForDisplay(nearZero[0]),
+                posY: state.formatPositionForDisplay(nearZero[1]),
+                posZ: state.formatPositionForDisplay(nearZero[2]),
+                dimensionId: "1",
+            };
+            assert.strictEqual(nearZeroValues.posX, "-0.00");
+            assert.deepStrictEqual(Array.from(state.positionFromFormValues(nearZeroValues, nearZero)), nearZero);
+            const nearZeroSwitch = state.applyStatsUpdate({
+                stats: { pos: nearZero, dimension_id: 0 },
+                values: nearZeroValues,
+                touchedFields: ["dimension_id"],
+            });
+            assert.strictEqual(nearZeroSwitch.changed, true);
+            assert.deepStrictEqual(Array.from(nearZeroSwitch.nextStats.pos), nearZero);
+            const crossZero = state.applyStatsUpdate({
+                stats: { pos: nearZero, dimension_id: 0 },
+                values: { ...nearZeroValues, posX: "0.004" },
+                touchedFields: ["pos"],
+            });
+            assert.strictEqual(crossZero.changed, true);
+            assert.deepStrictEqual(Array.from(crossZero.nextStats.pos), [0.004, nearZero[1], nearZero[2]]);
             """
         )
     )

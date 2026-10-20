@@ -80,6 +80,63 @@
         return preservesExistingOverstack ? previousCount : legalCount;
     }
 
+    // Both item forms use the same input rules. Container capacity is supplied
+    // by its model; inventory slots use only the catalog's stack limit.
+    function itemFormModel({ catalog, rawName, rawCount, rawDamage, previousItem = null, countLimit = null }) {
+        const name = normalizedItemName(rawName);
+        const sameItem = Boolean(previousItem) && normalizedItemName(previousItem.name) === name;
+        const count = String(rawCount ?? "").trim() === "" ? NaN : Number(rawCount);
+        const damage = String(rawDamage ?? "").trim() === "" ? NaN : Number(rawDamage);
+        const stack = Math.min(MAX_BEDROCK_STACK_COUNT, catalog.getMaxStack(name));
+        const maximum = countLimit?.maximum ?? stack;
+        const preserved = sameItem && count === Number(previousItem.count);
+        const variants = catalog.dataValueVariantsForId?.(name) || [];
+        const maxDamage = catalog.getMaxDamage(name);
+        const countError = !Number.isInteger(count) || count < 1 || count > MAX_BEDROCK_STACK_COUNT || !preserved && count > stack
+            ? t("Die Menge liegt außerhalb des erlaubten Stacklimits.")
+            : !preserved && (countLimit?.error || count > maximum)
+                ? countLimit?.error || t("Für dieses Item ist im Bundle nicht genügend Platz.") : "";
+        const damageError = !Number.isInteger(damage) || !(sameItem && damage === Number(previousItem.damage))
+            && (damage < 0 || damage > maxDamage || variants.length && !variants.some(variant => variant.damage === damage))
+            ? t("Der Abnutzungs- oder Datenwert liegt außerhalb des erlaubten Bereichs.") : "";
+        return { maximum, maxDamage, countError, damageError, preserved, variants,
+            readOnlyCount: maximum === 1 && count === 1 && !countLimit?.error };
+    }
+
+    function applyItemFormConstraints(model, { count, damage }) {
+        if (count) {
+            count.max = String(model.maximum);
+            count.readOnly = model.readOnlyCount;
+            count.classList?.toggle("item-count-fixed", model.readOnlyCount);
+            count.setAttribute?.("aria-invalid", String(Boolean(model.countError)));
+        }
+        if (damage) {
+            damage.max = String(model.maxDamage);
+            damage.setAttribute?.("aria-invalid", String(Boolean(model.damageError)));
+        }
+    }
+
+    function buildItemForm({ catalog, enchantmentsDb = {}, countLimit = null, ...fields }) {
+        const name = normalizedItemName(fields.rawName);
+        if (name && name !== "minecraft:air") {
+            const model = itemFormModel({ catalog, countLimit, ...fields });
+            if (model.countError || model.damageError) return { ok: false, error: model.countError || model.damageError };
+            const unchanged = normalizedItemName(fields.previousItem?.name) === name
+                && JSON.stringify(fields.previousItem?.enchantments || []) === JSON.stringify(fields.enchantments || []);
+            if (!unchanged && (fields.enchantments || []).some(entry => !Number.isInteger(entry.lvl) || entry.lvl < 1
+                || !enchantmentsDb[entry.id] || entry.lvl > enchantmentsDb[entry.id].max_lvl)) {
+                return { ok: false, error: t("Die Verzauberungsstufe liegt außerhalb des erlaubten Bereichs.") };
+            }
+        }
+        return buildDetailItemFromForm({
+            ...fields, rawCount: Number(fields.rawCount), rawDamage: Number(fields.rawDamage),
+            maxStack: catalog.getMaxStack(name), maxDamage: catalog.getMaxDamage(name),
+            stackLimitVerified: catalog.hasVerifiedStackLimit(name), isValidItemId: catalog.isValidItemId,
+            isAddableItemId: catalog.isAddableItemId, isEnchantableItem: catalog.isEnchantableItemForEditor,
+            isEnchantmentCompatible: catalog.isEnchantmentCompatibleWithItem,
+        });
+    }
+
     function buildDetailItemFromForm({
         slotId,
         containerName = "inventory",
@@ -226,6 +283,7 @@
                 && JSON.stringify(previousItem.lore || []) === JSON.stringify(builtItem.lore || [])
                 && JSON.stringify(previousItem.enchantments || []) === JSON.stringify(builtItem.enchantments || [])
                 && !entityVariantEdit;
+            if (visibleUnchanged) return { ok: true, item: cloneJson(previousItem) };
             [
                 "has_protected_nbt",
                 "has_preserved_nbt",
@@ -360,6 +418,9 @@
     window.MCBESlotDetailLogic = {
         applySingleSlotPlan,
         buildDetailItemFromForm,
+        buildItemForm,
+        itemFormModel,
+        applyItemFormConstraints,
         dataVariantSelectionPlan,
         entityVariantMetadataForItem,
         loreLinesFromText,
@@ -433,6 +494,7 @@
         let currentEditingIsEnder = false;
         let lastDetailItemResetName = "";
         let currentEntityVariantModel = { visible: false, editable: false, kind: "" };
+        let detailFormBaseline = null;
 
         const maxDisplayName = constants.maxDisplayName ?? 64;
         const maxLoreLines = constants.maxLoreLines ?? 10;
@@ -457,6 +519,39 @@
             const reason = getEditingBlockedReason?.() || t("Bearbeitung ist aktuell gesperrt.");
             showToast?.(reason, "warning", 4500);
             return true;
+        }
+
+        function detailFormState() {
+            const entityControls = !currentEntityVariantModel.visible || !currentEntityVariantModel.editable ? []
+                : currentEntityVariantModel.kind === "axolotl" ? [elements.detailAxolotlColor, elements.detailAxolotlAge]
+                    : currentEntityVariantModel.kind === "tropical_fish"
+                        ? [elements.detailTropicalFishPattern, elements.detailTropicalFishColor, elements.detailTropicalFishColor2]
+                        : [];
+            return JSON.stringify({
+                controls: [
+                    elements.detailItemSearch, elements.detailCount, elements.detailDamage,
+                    elements.detailCustomName, elements.detailLore, ...entityControls,
+                ].map(control => control?.value ?? ""),
+                enchantments: currentEditingEnchantments.map(({ id, lvl }) => [id, lvl]).sort(([a], [b]) => a - b),
+            });
+        }
+
+        function detailContextKey(slotId, containerName) {
+            return JSON.stringify([getWorldPath?.(), getCurrentPlayerKey?.(), containerName, slotId]);
+        }
+
+        function captureDetailFormBaseline(slotId, containerName) {
+            detailFormBaseline = { context: detailContextKey(slotId, containerName), state: detailFormState() };
+        }
+
+        function hasPendingChanges() {
+            const target = currentDetailTarget();
+            // Inspect the current rendered draft without validating it, setting
+            // dirty state or counting stale controls from a closed editor.
+            return Boolean(detailFormBaseline && target
+                && window.MCBESelectionState.selectedCount(getCurrentSelectionState?.()) === 1
+                && detailFormBaseline.context === detailContextKey(target.slotId, target.containerName)
+                && detailFormBaseline.state !== detailFormState());
         }
 
         function detailLoreLinesFromForm() {
@@ -628,16 +723,19 @@
             const maxDmg = itemCatalog.getMaxDamage(itemId);
             const target = currentDetailTarget();
             const sourceItem = target?.source?.[target.slotId] || null;
+            logic.applyItemFormConstraints(logic.itemFormModel({ catalog: itemCatalog, rawName: itemId,
+                rawCount: elements.detailCount?.value, rawDamage: elements.detailDamage?.value, previousItem: sourceItem }),
+            { count: elements.detailCount, damage: elements.detailDamage });
             const count = isEmpty
                 ? 0
                 : logic.stackCountFromForm({
-                    rawCount: elements.detailCount?.value,
+                    rawCount: Number(elements.detailCount?.value),
                     maxStack,
                     stackLimitVerified: itemCatalog.hasVerifiedStackLimit(itemId),
                     previousItem: sourceItem,
                     itemName: itemId,
                 });
-            const damage = isEmpty ? 0 : itemCatalog.clampNumber(elements.detailDamage?.value, 0, 0, maxDmg);
+            const damage = isEmpty ? 0 : itemCatalog.clampNumber(Number(elements.detailDamage?.value), 0, 0, maxDmg);
             const usesDurability = !isEmpty && itemCatalog.itemUsesDurabilityDamage(itemId);
             const damageLabel = isEmpty ? t("Abnutzung") : itemCatalog.itemDamageLabel(itemId);
             if (elements.detailDamageLabel) {
@@ -725,6 +823,7 @@
 
             switchTab?.("tabGeneral");
             if (!item.name) elements.detailItemSearch?.focus();
+            captureDetailFormBaseline(slotId, isEnderChest ? "ender_chest" : "inventory");
         }
 
         function currentDetailTarget() {
@@ -747,14 +846,13 @@
         }
 
         function buildDetailItemFromForm(slotId, containerName) {
+            resetDetailFormForNewItem(elements.detailItemSearch?.value);
             const source = containerName === "ender_chest" ? enderChestInventory() : inventory();
             const name = logic.normalizedItemName(elements.detailItemSearch?.value);
             const previousItem = source[slotId];
-            const validDetailItemId = !name || name === "minecraft:air" || itemCatalog.isValidItemId(name);
-            const maxStack = validDetailItemId ? itemCatalog.getMaxStack(name) : 64;
-            const maxDmg = validDetailItemId ? itemCatalog.getMaxDamage(name) : 0;
             const entityState = selectedEntityVariantState(previousItem, name);
-            return logic.buildDetailItemFromForm({
+            return logic.buildItemForm({
+                catalog: itemCatalog, enchantmentsDb: enchDb(),
                 slotId,
                 containerName,
                 previousItem,
@@ -766,16 +864,9 @@
                 enchantments: currentEditingEnchantments,
                 currentPlayerKey: getCurrentPlayerKey?.(),
                 worldPath: getWorldPath?.(),
-                maxStack,
-                stackLimitVerified: itemCatalog.hasVerifiedStackLimit(name),
-                maxDamage: maxDmg,
                 maxDisplayName,
                 maxLoreLines,
                 maxLoreLineLength,
-                isValidItemId: itemCatalog.isValidItemId,
-                isAddableItemId: itemCatalog.isAddableItemId,
-                isEnchantableItem: itemCatalog.isEnchantableItemForEditor,
-                isEnchantmentCompatible: itemCatalog.isEnchantmentCompatibleWithItem,
                 enchantmentLabel: id => localizedEnchantmentName(enchDb()[id], id),
                 detailItemLabel,
                 itemRequiresOriginalNbt,
@@ -792,7 +883,7 @@
             const name = String(elements.detailItemSearch?.value || "").trim().toLowerCase();
             const isEmpty = !name || name === "minecraft:air";
             const maxStack = itemCatalog.getMaxStack(name);
-            const damage = itemCatalog.clampNumber(elements.detailDamage?.value, 0, 0, itemCatalog.getMaxDamage(name));
+            const damage = itemCatalog.clampNumber(Number(elements.detailDamage?.value), 0, 0, itemCatalog.getMaxDamage(name));
             const slotLabel = slotDisplayName(target.slotId, target.containerName);
             const model = window.MCBESlotDisplay.slotQuickActionsModel({
                 slotLabel,
@@ -916,7 +1007,16 @@
         }
 
         function resetDetailFormForNewItem(itemName) {
-            lastDetailItemResetName = String(itemName || "").trim().toLowerCase();
+            const target = currentDetailTarget();
+            if (!target) return;
+            const plan = window.MCBEEnchantmentEditorLogic.manualItemResetPlan({
+                previousName: target.source?.[target.slotId]?.name || "",
+                nextName: itemName,
+                lastResetName: lastDetailItemResetName,
+                isValidItemId: itemCatalog.isAddableItemId,
+            });
+            if (!plan.shouldReset) return;
+            lastDetailItemResetName = plan.nextName;
             const maxStack = itemCatalog.getMaxStack(itemName);
             if (elements.detailCount) elements.detailCount.value = Math.min(1, maxStack);
             if (elements.detailDamage) elements.detailDamage.value = 0;
@@ -924,7 +1024,8 @@
             if (elements.detailLore) elements.detailLore.value = "";
             currentEditingEnchantments = [];
             updateDataVariantEditor(itemName, 0);
-            updateEntityVariantEditor(itemName, null);
+            const sourceItem = target.source?.[target.slotId] || null;
+            updateEntityVariantEditor(itemName, logic.normalizedItemName(sourceItem?.name) === plan.nextName ? sourceItem : null);
             buildEnchantmentsList();
             updateDetailPreview();
         }
@@ -937,21 +1038,6 @@
             updateDetailPreview();
         }
 
-        function maybeResetDetailFormForManualItemChange() {
-            const target = currentDetailTarget();
-            if (!target) return;
-            const previousItem = target.source?.[target.slotId] || null;
-            const plan = window.MCBEEnchantmentEditorLogic.manualItemResetPlan({
-                previousName: previousItem?.name || "",
-                nextName: elements.detailItemSearch?.value || "",
-                lastResetName: lastDetailItemResetName,
-                isValidItemId: itemCatalog.isValidItemId,
-            });
-            if (!plan.shouldReset) return;
-            lastDetailItemResetName = plan.nextName;
-            resetDetailFormForNewItem(plan.nextName);
-        }
-
         function updateVariantEditorsForCurrentForm() {
             const target = currentDetailTarget();
             const itemName = logic.normalizedItemName(elements.detailItemSearch?.value);
@@ -959,8 +1045,19 @@
             const matchingSource = sourceItem && logic.normalizedItemName(sourceItem.name) === itemName
                 ? sourceItem
                 : null;
-            updateDataVariantEditor(itemName, elements.detailDamage?.value, matchingSource);
-            updateEntityVariantEditor(itemName, matchingSource);
+            const formItemName = logic.normalizedItemName(lastDetailItemResetName || sourceItem?.name);
+            if (itemName === formItemName) {
+                updateDataVariantEditor(itemName, elements.detailDamage?.value, matchingSource);
+            } else {
+                if (elements.detailDataVariantGroup) elements.detailDataVariantGroup.style.display = "none";
+                if (elements.detailDamageGroup) elements.detailDamageGroup.style.display = "";
+            }
+            // Search text can temporarily hide the controls, but must not
+            // reload them from the original and discard an unaccepted edit.
+            // Loading a slot or changing its item identity initializes them.
+            if (elements.detailEntityVariantPanel) {
+                elements.detailEntityVariantPanel.style.display = currentEntityVariantModel.visible && itemName === formItemName ? "" : "none";
+            }
             updateDetailPreview();
         }
 
@@ -989,6 +1086,7 @@
             if (!plan.ok) {
                 if (plan.toast) showToast?.(plan.toast.message, plan.toast.type, plan.toast.ms);
                 if (plan.refreshQuickActions) updateDetailQuickActions();
+                if (plan.reason === "unchanged") captureDetailFormBaseline(slotId, containerName);
                 return;
             }
 
@@ -1011,6 +1109,7 @@
             updateEntityVariantEditor(nextItem?.name || "", nextItem);
             updateGridVisuals?.();
             updateDetailPreview();
+            captureDetailFormBaseline(slotId, containerName);
             setDirty?.(true);
             logStatus?.(currentEditingIsEnder ? t("Enderchest-Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }) : t("Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }), "info");
             recordAction?.(actionMessage, "edit");
@@ -1046,6 +1145,7 @@
             buildEnchantmentsList();
             updateDetailPreview();
             updateGridVisuals?.();
+            captureDetailFormBaseline(target.slotId, target.containerName);
             setDirty?.(true);
             logStatus?.(t("{label} geleert – noch nicht gespeichert", { label: slotDisplayName(target.slotId, target.containerName) }), "info");
             recordAction?.(actionMessage, "edit");
@@ -1073,7 +1173,7 @@
             if (guardEditingAction()) return;
             const target = currentDetailTarget();
             const name = logic.normalizedItemName(elements.detailItemSearch?.value);
-            const damage = target ? itemCatalog.clampNumber(elements.detailDamage?.value, 0, 0, itemCatalog.getMaxDamage(name)) : 0;
+            const damage = target ? itemCatalog.clampNumber(Number(elements.detailDamage?.value), 0, 0, itemCatalog.getMaxDamage(name)) : 0;
             const plan = logic.quickRepairSlotPlan({
                 hasTarget: Boolean(target),
                 repairableDamage: itemHasRepairableDamage({ name, count: 1, damage }),
@@ -1121,7 +1221,6 @@
             [elements.detailItemSearch, elements.detailCount, elements.detailDamage, elements.detailCustomName, elements.detailLore]
                 .filter(Boolean)
                 .forEach(input => input.addEventListener("input", updateDetailPreview));
-            elements.detailItemSearch?.addEventListener("input", maybeResetDetailFormForManualItemChange);
             elements.detailItemSearch?.addEventListener("input", buildEnchantmentsList);
             elements.detailItemSearch?.addEventListener("input", updateVariantEditorsForCurrentForm);
             elements.detailDataVariant?.addEventListener("change", () => {
@@ -1158,7 +1257,7 @@
                 const target = currentDetailTarget();
                 const sourceItem = target?.source?.[target.slotId] || null;
                 if (!target || !itemHasInspectableNbt(sourceItem)) {
-                    showToast?.(t("Keine geschützten Zusatzdaten in diesem Slot erkannt."), "warning", 2500);
+                    showToast?.(t("Kein Gegenstand in diesem Slot."), "warning", 2500);
                     return;
                 }
                 showSlotInspector?.(target.slotId, target.containerName, "item_protected_nbt");
@@ -1179,6 +1278,7 @@
             buildEnchantmentsList,
             currentDetailTarget,
             firstEmptyWritableSlot,
+            hasPendingChanges,
             loadSingleSlotEditor,
             resetDetailFormForNewItem,
             selectDetailItemVariant,

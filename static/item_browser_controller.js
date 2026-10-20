@@ -37,6 +37,10 @@
             title,
         } = elements;
         let browserActiveInput = null;
+        let picker = null;
+        const autocompleteOptions = new WeakMap();
+        const autocompletes = new Map();
+        const pendingInputs = new WeakSet();
         let returnFocusElement = null;
         let selectingAutocompleteItem = false;
         let pageScrollLocked = false;
@@ -47,6 +51,7 @@
         }
 
         function equipmentTargets(inputEl) {
+            if (inputEl !== detailInput && inputEl !== bulkInput) return [];
             return getEquipmentTargets(isDetailInput(inputEl))
                 .filter(target => equipmentRules?.isEquipmentSlot(target.slotId, target.container));
         }
@@ -69,7 +74,7 @@
                 Infinity,
                 getBlockOnlyItems(),
                 getAddableItems(),
-                isDetailInput(inputEl) ? getItemVariantsForId : null,
+                isDetailInput(inputEl) || autocompleteOptions.get(inputEl)?.includeVariants ? getItemVariantsForId : null,
             ).filter(item => allowedForInput(item.id, inputEl)).slice(0, limit);
         }
 
@@ -86,14 +91,20 @@
         function selectAutocompleteItem(inputEl, listEl, item, options = {}) {
             if (!inputEl || !listEl || !item || !item.id) return;
             if (!allowedForInput(item.id, inputEl)) return;
-            const previousName = String(inputEl.value || "").trim().toLowerCase();
-            inputEl.value = item.id;
+            if (options.selectionReason?.(item.id, item)) return;
+            pendingInputs.delete(inputEl);
             listEl.style.display = "none";
             listEl.innerHTML = "";
+            if (options.onSelect) {
+                options.onSelect(item);
+                inputEl.focus?.({ preventScroll: true });
+                return;
+            }
+            inputEl.value = item.id;
 
             if (isDetailInput(inputEl)) {
                 const nextName = String(item.id || "").trim().toLowerCase();
-                if (nextName && nextName !== previousName) {
+                if (nextName) {
                     onDetailItemChanged(nextName);
                 }
                 if (Number.isInteger(Number(item.damage))) {
@@ -117,6 +128,8 @@
 
         function setupAutocomplete(inputEl, listEl, options = {}) {
             if (!inputEl || !listEl) return;
+            autocompleteOptions.set(inputEl, options);
+            autocompletes.set(inputEl, listEl);
             function dismissAutocomplete(event) {
                 if (event.key !== "Escape" || listEl.style.display !== "block") return false;
                 event.preventDefault();
@@ -128,6 +141,7 @@
             }
             listEl.addEventListener?.("keydown", dismissAutocomplete);
             inputEl.addEventListener("input", event => {
+                if (!selectingAutocompleteItem) pendingInputs.add(inputEl);
                 const query = event.target.value.toLowerCase().trim();
                 listEl.innerHTML = "";
 
@@ -159,6 +173,7 @@
                             row.addEventListener("click", () => {
                                 selectAutocompleteItem(inputEl, listEl, item, options);
                             });
+                            markUnavailable(row, options.selectionReason?.(item.id, item));
 
                             listEl.appendChild(row);
                             firstRow ||= row;
@@ -216,16 +231,23 @@
                 event.preventDefault();
                 selectAutocompleteItem(inputEl, listEl, selected, options);
             });
+            return () => { autocompletes.delete(inputEl); autocompleteOptions.delete(inputEl); pendingInputs.delete(inputEl); };
         }
 
         function hideAutocompleteLists(event) {
-            [
-                { input: detailInput, list: detailAutocomplete },
-                { input: bulkInput, list: bulkAutocomplete },
-            ].forEach(({ input, list }) => {
+            autocompletes.forEach((list, input) => {
                 if (!input || !list) return;
                 if (event.target !== input && !list.contains(event.target)) {
                     list.style.display = "none";
+                    const options = autocompleteOptions.get(input);
+                    // A valid ID can still be a prefix of the item being
+                    // searched for. Commit only when leaving the picker;
+                    // suggestion and browser selections commit their own ID.
+                    if (pendingInputs.has(input) && event.target !== options?.browserButton
+                        && !options?.browserButton?.contains?.(event.target) && !overlay?.open) {
+                        pendingInputs.delete(input);
+                        options?.onCommit?.(input.value);
+                    }
                 }
             });
         }
@@ -258,23 +280,42 @@
         }
 
         function closeBrowser() {
+            if (overlay?.open) overlay.close();
             if (overlay) overlay.style.display = "none";
             overlay?.setAttribute?.("aria-hidden", "true");
             setPageScrollLocked(false);
             const focusTarget = returnFocusElement;
             returnFocusElement = null;
+            picker = null;
             focusTarget?.focus?.({ preventScroll: true });
         }
 
+        function markUnavailable(card, reason) {
+            if (!reason) return;
+            card.setAttribute("aria-disabled", "true");
+            const note = documentObj.createElement("span");
+            note.className = "browser-unavailable";
+            note.textContent = reason;
+            card.appendChild(note);
+        }
+
         function selectBrowserItem(id, metadata = null) {
+            if (picker) {
+                const target = picker;
+                if (!target.isCurrent()) { closeBrowser(); return; }
+                if (target.selectionReason?.(id, metadata)) return;
+                closeBrowser();
+                target.onSelect({ ...metadata, id });
+                return;
+            }
             if (!allowedForInput(id, browserActiveInput)) return;
-            const previousName = String(browserActiveInput?.value || "").trim().toLowerCase();
             if (browserActiveInput) {
+                pendingInputs.delete(browserActiveInput);
                 browserActiveInput.value = id;
             }
             closeBrowser();
             if (browserActiveInput) {
-                if (isDetailInput(browserActiveInput) && id !== previousName) {
+                if (isDetailInput(browserActiveInput)) {
                     onDetailItemChanged(id);
                 }
                 if (isDetailInput(browserActiveInput) && Number.isInteger(Number(metadata?.damage))) {
@@ -301,7 +342,7 @@
                 addableIds: getAddableItems(),
                 blockItemIds: getBlockItems(),
             };
-            if (isDetailInput(browserActiveInput)) browserOptions.itemVariantsForId = getItemVariantsForId;
+            if (picker || isDetailInput(browserActiveInput)) browserOptions.itemVariantsForId = getItemVariantsForId;
             const items = itemBrowserLogic.browserItems(getItemsDb(), browserOptions)
                 .filter(([id]) => allowedForInput(id, browserActiveInput));
 
@@ -322,6 +363,7 @@
             });
 
             function appendCards(start, end) {
+                let firstCard = null;
                 items.slice(start, end).forEach(([id, names, metadata]) => {
                     const iconMeta = getItemIconMeta(itemIconTarget(id, metadata?.damage));
                     const card = itemBrowserLogic.browserItemCardElement({
@@ -334,8 +376,11 @@
                         availability: getItemAvailability(id, metadata?.damage),
                     });
                     card.addEventListener("click", () => selectBrowserItem(id, metadata));
+                    markUnavailable(card, picker?.selectionReason?.(id, metadata));
                     grid.appendChild(card);
+                    firstCard ||= card;
                 });
+                return firstCard;
             }
 
             // Chunk-Rendering: nur die erste Portion sofort ins DOM; der Rest
@@ -354,25 +399,29 @@
             moreButton.className = "browser-load-more";
             moreButton.textContent = plan.buttonLabel;
             moreButton.addEventListener("click", () => {
+                const hadFocus = documentObj.activeElement === moreButton;
                 moreButton.remove();
                 plan = chunkPlanFor(plan.end);
-                appendCards(plan.start, plan.end);
+                const firstCard = appendCards(plan.start, plan.end);
                 if (plan.hasMore) {
                     moreButton.textContent = plan.buttonLabel;
                     grid.appendChild(moreButton);
+                }
+                if (hadFocus) {
+                    firstCard?.focus({ preventScroll: true });
+                    firstCard?.scrollIntoView({ block: "nearest" });
                 }
             });
             grid.appendChild(moreButton);
         }
 
-        function openItemBrowser(inputEl, focusTarget = null) {
+        function showBrowser(focusTarget) {
             if (!overlay || !searchInput) return;
-            browserActiveInput = inputEl;
-            if (title) title.textContent = browserTitle(inputEl);
-            returnFocusElement = focusTarget || documentObj.activeElement || inputEl || null;
+            returnFocusElement = focusTarget || documentObj.activeElement;
             overlay.style.display = "flex";
             overlay.setAttribute?.("aria-hidden", "false");
             setPageScrollLocked(true);
+            overlay.showModal();
             searchInput.value = "";
             searchInput.focus();
 
@@ -381,15 +430,35 @@
             renderBrowserItems("");
         }
 
+        function openItemBrowser(inputEl, focusTarget = null) {
+            picker = null;
+            browserActiveInput = inputEl;
+            if (title) title.textContent = browserTitle(inputEl);
+            showBrowser(focusTarget || inputEl);
+        }
+
+        function openPicker({ onSelect, selectionReason, isCurrent, focusTarget }) {
+            browserActiveInput = null;
+            picker = { onSelect, selectionReason, isCurrent };
+            if (title) title.textContent = window.t ? window.t("📖 Item-Browser") : "📖 Item-Browser";
+            showBrowser(focusTarget);
+        }
+
         function handleEscape(event) {
-            if (event.key === "Escape" && overlay && overlay.style.display === "flex") {
+            event.stopPropagation();
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") event.preventDefault();
+            if (event.key === "Escape" && overlay?.open) {
+                event.preventDefault();
                 closeBrowser();
             }
         }
 
         function wire() {
-            setupAutocomplete(detailInput, detailAutocomplete, { applyOnSelect: true });
+            setupAutocomplete(detailInput, detailAutocomplete, {
+                applyOnSelect: true, onCommit: onDetailItemChanged, browserButton: detailBrowserButton,
+            });
             setupAutocomplete(bulkInput, bulkAutocomplete);
+            documentObj.addEventListener("pointerdown", hideAutocompleteLists, true);
             documentObj.addEventListener("click", hideAutocompleteLists);
             documentObj.addEventListener("focusin", hideAutocompleteLists);
             detailBrowserButton?.addEventListener("click", () => openItemBrowser(detailInput, detailBrowserButton));
@@ -401,13 +470,15 @@
             searchInput?.addEventListener("input", () => renderBrowserItems(searchInput.value));
             categorySelect?.addEventListener("change", () => renderBrowserItems(searchInput?.value || ""));
             sortSelect?.addEventListener("change", () => renderBrowserItems(searchInput?.value || ""));
-            documentObj.addEventListener("keydown", handleEscape);
+            overlay?.addEventListener("keydown", handleEscape);
+            overlay?.addEventListener("cancel", event => { event.preventDefault(); closeBrowser(); });
         }
 
         return {
             autocompleteMatches,
             closeBrowser,
             openItemBrowser,
+            openPicker,
             renderBrowserItems,
             selectAutocompleteItem,
             setupAutocomplete,

@@ -282,7 +282,9 @@ def test_frontend_item_browser_controller_applies_selected_bed_damage_before_sav
                 { applyOnSelect: true },
             );
 
-            assert.deepStrictEqual(calls, [["variant", 15], ["apply"]]);
+            // The controller commits the selected ID even when it equals the
+            // query; only the item form knows the identity of its draft.
+            assert.deepStrictEqual(calls, [["changed", "minecraft:bed"], ["variant", 15], ["apply"]]);
             assert.strictEqual(detailInput.value, "minecraft:bed");
             assert.strictEqual(detailInput.dispatched.length, 1);
             """
@@ -321,6 +323,8 @@ def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bu
 
             const cards = [];
             const overlay = element();
+            overlay.showModal = function () { this.open = true; };
+            overlay.close = function () { this.open = false; };
             const bulkInput = element();
             const bulkButton = element();
             const searchInput = element();
@@ -457,6 +461,8 @@ def test_frontend_item_browser_controller_renders_in_chunks_with_load_more() -> 
             context.document = fakeDocument;
 
             const overlay = element();
+            overlay.showModal = function () { this.open = true; };
+            overlay.close = function () { this.open = false; };
             const searchInput = element();
             const count = { textContent: "" };
             const controller = context.window.MCBEItemBrowserController.createItemBrowserController({
@@ -494,3 +500,43 @@ def test_frontend_item_browser_controller_renders_in_chunks_with_load_more() -> 
             """
         )
     )
+
+
+def test_item_picker_keeps_selection_isolated_and_rechecks_stale_or_blocked_targets() -> None:
+    run_node(r"""
+        const assert = require('assert');
+        const vm = require('vm');
+        const fs = require('fs');
+        const ctx = {window: {}, document: {}};
+        vm.runInNewContext(fs.readFileSync('static/item_browser_controller.js', 'utf8'), ctx);
+        const element = () => ({style: {}, setAttribute() {}, addEventListener() {}, appendChild() {}, focus() {},
+            showModal() {this.open=true;}, close() {this.open=false;}});
+        const overlay = element();
+        const cards = [];
+        let reason = '', valid = true, selected = [], applied = 0;
+        const controller = ctx.window.MCBEItemBrowserController.createItemBrowserController({
+            elements: {overlay, grid: {...element(), appendChild(card) {cards.push(card);}}, searchInput: element(), count: element()},
+            getEquipmentTargets: () => {throw new Error('Container picker must not inherit selected equipment slots');},
+            documentObj: {createElement: element}, onApplyDetailItem: () => applied++,
+            getItemVariantsForId: () => [{damage: 5}],
+            itemBrowserLogic: {
+                browserItems: (_, options) => {
+                    assert.ok(options.itemVariantsForId);
+                    return [['minecraft:goat_horn', ['Horn','Horn'], {damage:5}]];
+                },
+                browserCountText: () => '',
+                browserItemCardElement: () => ({...element(), addEventListener(type, fn) {this[type]=fn;}}),
+            },
+        });
+        const open = () => controller.openPicker({onSelect: item => selected.push(item),
+            isCurrent: () => valid, selectionReason: () => reason, focusTarget: element()});
+        open(); reason = 'blocked'; cards.at(-1).click();
+        assert.strictEqual(overlay.open, true); assert.strictEqual(selected.length, 0);
+        valid = false; cards.at(-1).click();
+        assert.strictEqual(overlay.open, false); assert.strictEqual(selected.length, 0);
+        valid = true; reason = ''; open(); cards.at(-1).click();
+        assert.strictEqual(overlay.open, false);
+        assert.deepStrictEqual(JSON.parse(JSON.stringify(selected)), [{id:'minecraft:goat_horn',damage:5}]);
+        assert.strictEqual(applied, 0);
+        open(); controller.closeBrowser(); assert.strictEqual(selected.length, 1);
+    """)

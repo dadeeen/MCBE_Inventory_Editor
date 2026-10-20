@@ -290,6 +290,7 @@ function updateAppMode() { const result = workflowShell.updateAppMode(); window.
 const statsFormController = window.MCBEEffectsLogic.createConfiguredStatsFormController({
     doc: document,
     getPlayerStats: () => playerStats,
+    getContextKey: () => worldPath && currentPlayerKey ? JSON.stringify([worldPath, currentPlayerKey]) : null,
 });
 const touchedStatsFields = statsFormController.touchedFields;
 function statsFormElements() { return statsFormController.elements(); }
@@ -804,7 +805,7 @@ function setDirty(dirty) {
 // Read-only contract for the desktop close guard; the browser uses beforeunload.
 window.MCBEDesktop = Object.freeze({
     closeState: () => ({
-        dirty: isDirty,
+        dirty: hasUnsavedChanges(),
         title: t("Ungespeicherte Änderungen"),
         message: t("Ungespeicherte Änderungen verwerfen und den Editor schließen?"),
     }),
@@ -1126,7 +1127,10 @@ const specialItemEditor = window.MCBESpecialItemEditor.createEditor({
     dialog: document.getElementById("specialItemDialog"),
     model: specialItemModel,
     catalog: itemCatalog,
-    getItems: () => itemsDb,
+    textLimits: appRuntime.constants,
+    getItemBrowser: () => itemBrowserController,
+    isCurrentContext: context => context?.player === currentPlayerKey && context?.world === worldPath
+        && JSON.stringify((context.container === "ender_chest" ? enderChestInventory : inventory)[context.slot] || null) === context.before,
     getEnchantments: () => enchDb,
     getBannerPatterns: () => iconSourceSummary?.banner_patterns || {},
     loadBannerPatterns: () => iconSourcesController.updateVanillaIcons(),
@@ -1157,7 +1161,12 @@ const specialItemEditor = window.MCBESpecialItemEditor.createEditor({
 function openSpecialEditor(slot, container = "inventory", draft = null, childSlots = []) {
     if (guardEditingAction() || isProtectedKnownSlot(slot, container)) return;
     const source = container === "ender_chest" ? enderChestInventory : inventory;
-    specialItemEditor.open(draft || source[slot], { slot, container, player: currentPlayerKey, world: worldPath, before: JSON.stringify(source[slot] || null) }, childSlots, childSlots.length ? gridSearch : null);
+    specialItemEditor.open(draft || source[slot], { slot, container, player: currentPlayerKey, world: worldPath, before: JSON.stringify(source[slot] || null) }, childSlots, childSlots.length ? gridSearch : null, source[slot] || null);
+}
+
+function hasUnsavedChanges() {
+    return isDirty || specialItemEditor.hasPendingChanges() || slotDetailController.hasPendingChanges()
+        || statsFormController.hasPendingChanges();
 }
 
 const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createConfiguredInventoryClipboardController({
@@ -1451,7 +1460,10 @@ dashboardTabController.wire();
 const effectsAbilitiesController = window.MCBEEffectsLogic.createEffectsAbilitiesController({
     doc: document,
     statsFormElements,
-    onStatsApplied: () => statsFormController.resetConversion(),
+    onStatsApplied: () => {
+        statsFormController.resetConversion();
+        statsFormController.captureFormBaseline();
+    },
     getTouchedStatsFields: () => touchedStatsFields,
     getProtectedNbt: () => protectedNbt,
     getPlayerStats: () => playerStats,
@@ -1702,7 +1714,7 @@ window.MCBEWorkflowState.createInventoryEditorBootController({
         win: window,
         appConfig,
         withCsrf,
-        getIsDirty: () => isDirty,
+        getIsDirty: hasUnsavedChanges,
         refreshServerStatus,
         getWorldPresenceController,
         scanPathsController,

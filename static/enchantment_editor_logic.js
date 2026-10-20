@@ -76,10 +76,11 @@
         lastResetName = "",
         isValidItemId = () => false,
     } = {}) {
-        const previous = normalizedItemName(previousName);
+        // Compare item identities, including an unaccepted replacement, rather
+        // than the transient search text shown in the input.
+        const previous = normalizedItemName(lastResetName || previousName);
         const next = normalizedItemName(nextName);
-        if (!previous || !next || next === previous || next === "minecraft:air") return { shouldReset: false };
-        if (!isValidItemId(next) || next === normalizedItemName(lastResetName)) return { shouldReset: false };
+        if (!next || next === previous || next === "minecraft:air" || !isValidItemId(next)) return { shouldReset: false };
         return { shouldReset: true, nextName: next };
     }
 

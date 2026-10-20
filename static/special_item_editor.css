@@ -39,6 +39,17 @@
 .special-editor textarea { resize: vertical; min-height: 100px; }
 .special-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .special-wide { grid-column: 1 / -1; }
+.special-item-primary { grid-template-columns: minmax(0, 1fr) 120px; align-items: end; }
+.special-count-hint { margin: 8px 0 16px; }
+.special-item-primary input { min-height: 44px; }
+.special-item-search { position: relative; min-width: 0; }
+.special-item-suggestions { max-height: 240px; overscroll-behavior: contain; }
+.special-item-suggestions .browser-unavailable { display: block; }
+.special-editor [hidden] { display: none !important; }
+.special-properties { border-top: 1px solid var(--border-color); margin: 12px 0; }
+.special-properties > summary { cursor: pointer; min-height: 44px; padding: 12px 0; font-size: .9rem; }
+.special-properties > .special-fields { padding-top: 8px; }
+.special-editor input[aria-invalid="true"] { border-color: var(--danger); }
 .special-card { padding: 16px; margin: 16px 0; border: 1px solid var(--border-color, #3e5058); border-radius: 10px; }
 .special-card h3 { margin: 0 0 12px; font-size: 1rem; }
 .special-card .special-actions { margin-top: 12px; }
@@ -65,6 +76,7 @@
     .special-header, .special-footer, .special-body { padding: 14px; }
     .special-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .special-fields { grid-template-columns: 1fr; }
+    .special-fields input, .special-fields select, .special-fields textarea { font-size: 16px; }
     .special-banner-layout { grid-template-columns: 1fr; gap: 20px; }
     .special-banner-preview { position: static; display: grid; grid-template-columns: 100px minmax(0, 1fr); align-items: center; gap: 16px; }
     .special-banner-stage { min-height: 184px; margin: 0; }

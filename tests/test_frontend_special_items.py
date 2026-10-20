@@ -4,6 +4,46 @@ from mcbe_editor.special_items import editor_schema
 from tests.node_runner import run_node
 
 
+def test_container_count_limits_account_for_existing_slots_and_nested_bundle_weight():
+    run_node(
+        "const schema = "
+        + json.dumps(editor_schema())
+        + ";\n"
+        + r"""
+        const assert = require('assert');
+        const fs = require('fs');
+        global.window = {};
+        eval(fs.readFileSync('static/special_item_logic.js', 'utf8'));
+        const limits = {'minecraft:diamond':64,'minecraft:ender_pearl':16,'minecraft:diamond_sword':1};
+        const model = window.MCBESpecialItemLogic.createModel(schema, {
+            getMaxStack: name => limits[name] || 1, hasVerifiedStackLimit: name => name in limits,
+        });
+        const bundle = {name:'minecraft:bundle',count:1};
+        const shulker = {name:'minecraft:undyed_shulker_box',count:1};
+        const diamond = {slot:0,name:'minecraft:diamond',count:60};
+        const contents = {items:[diamond]};
+        const limit = (parent, data, slot, name) => model.childCountLimit(parent,data,slot,{name,count:1});
+        assert.strictEqual(limit(bundle,contents,1,'minecraft:diamond').maximum,4);
+        assert.strictEqual(limit(bundle,contents,0,'minecraft:diamond').maximum,64);
+        assert.strictEqual(limit(bundle,contents,1,'minecraft:ender_pearl').maximum,1);
+        assert.strictEqual(limit(bundle,contents,1,'minecraft:diamond_sword').maximum,0);
+        assert.strictEqual(limit(shulker,contents,1,'minecraft:diamond').maximum,64);
+        assert.strictEqual(limit(shulker,contents,1,'minecraft:ender_pearl').maximum,16);
+        assert.strictEqual(limit(shulker,contents,1,'minecraft:diamond_sword').maximum,1);
+        assert.strictEqual(limit(bundle,contents,1,'minecraft:bundle').maximum,1);
+        const nested = {...bundle,special_edit:{kind:'bundle',data:{items:[{...diamond,count:1}]}}};
+        assert.strictEqual(model.childCountLimit(bundle,contents,1,nested).maximum,0);
+        assert(limit(bundle,contents,1,'addon:unknown').error);
+        assert(limit(bundle,{items:[{slot:0,name:'addon:unknown',count:1}]},1,'minecraft:diamond').error);
+        assert(limit(bundle,contents,1,shulker.name).error);
+        assert(limit(shulker,contents,1,shulker.name).error);
+        assert.strictEqual(limit(bundle,contents,1,'minecraft:diamond').maximum,4);
+        assert.strictEqual(contents.items[0].count,60);
+        assert.strictEqual(limit(bundle,{items:[{...diamond,count:65}]},1,'minecraft:diamond').maximum,0);
+        """
+    )
+
+
 def test_container_search_uses_current_drafts_paths_and_reports_unsearched_contents():
     run_node(
         "const schema = "

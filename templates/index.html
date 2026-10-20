@@ -1007,12 +1007,14 @@
                         <button id="btnClearSelection" class="btn-text">{{ t("Auswahl aufheben") }}</button>
                     </div>
                     <div class="field-group">
-                        <label for="bulkItemSearch">{{ t("Gegenstand auswählen") }}</label>
+                        <div class="item-picker-header">
+                            <label for="bulkItemSearch">{{ t("Gegenstand auswählen") }}</label>
+                            <button id="btnBrowserBulk" class="btn btn-secondary btn-sm" type="button">{{ t("📖 Item-Browser") }}</button>
+                        </div>
                         <div class="autocomplete-wrapper">
                             <input type="text" id="bulkItemSearch" placeholder="{{ t('Suche nach Item...') }}" title="{{ t('Gib einen Item-Namen ein, z.B. diamond_sword') }}" />
                             <div class="autocomplete-list" id="bulkItemAutocomplete"></div>
                         </div>
-                        <button id="btnBrowserBulk" class="btn btn-secondary btn-sm" style="margin-top: 4px;">{{ t("📖 Item-Browser") }}</button>
                     </div>
                     <div class="row">
                         <div class="field-group col">
@@ -1067,13 +1069,13 @@
                     <!-- Tab General -->
                     <div class="tab-content active" id="tabGeneral">
                         <div class="field-group">
-                            <label for="detailItemSearch">{{ t("Gegenstand") }}</label>
+                            <div class="item-picker-header">
+                                <label for="detailItemSearch">{{ t("Gegenstand") }}</label>
+                                <button id="btnBrowserDetail" class="btn btn-secondary btn-sm" type="button">{{ t("📖 Item-Browser") }}</button>
+                            </div>
                             <div class="autocomplete-wrapper">
                                 <input type="text" id="detailItemSearch" placeholder="minecraft:diamond_sword" />
                                 <div class="autocomplete-list" id="detailItemAutocomplete"></div>
-                            </div>
-                            <div class="detail-item-actions">
-                                <button id="btnBrowserDetail" class="btn btn-secondary btn-sm" type="button">{{ t("📖 Item-Browser") }}</button>
                             </div>
                         </div>
                         <div class="row">
@@ -1455,8 +1457,8 @@
     </div>
 
     <!-- Item Browser Modal -->
-    <div id="itemBrowserOverlay" class="modal-overlay" style="display:none;" aria-hidden="true">
-        <div class="modal-box browser-box" role="dialog" aria-modal="true" aria-labelledby="itemBrowserTitle">
+    <dialog id="itemBrowserOverlay" class="modal-overlay" style="display:none;" aria-hidden="true" aria-labelledby="itemBrowserTitle">
+        <div class="modal-box browser-box">
             <div class="browser-header">
                 <h3 id="itemBrowserTitle">{{ t("📖 Item-Browser") }}</h3>
                 <button id="btnBrowserClose" class="btn-text" type="button">{{ t("✕ Schließen") }}</button>
@@ -1490,7 +1492,7 @@
                 <span id="browserCount">0 Items</span>
             </div>
         </div>
-    </div>
+    </dialog>
 
     <!-- Help Modal -->
     <div id="helpOverlay" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="helpTitle">

@@ -67,10 +67,10 @@
     }
 
     function clampNumber(value, fallback, min, max) {
-        const parsed = parseInt(value, 10);
-        if (!Number.isFinite(parsed)) return fallback;
+        const parsed = strictFiniteNumber(value);
+        if (parsed === null) return fallback;
         if (min > max) [min, max] = [max, min];
-        return Math.min(Math.max(parsed, min), max);
+        return Math.min(Math.max(Math.trunc(parsed), min), max);
     }
 
     function clampFiniteNumber(value, fallback, min, max) {
@@ -98,7 +98,9 @@
     // stellt für jede unveränderte Achse den exakten Ausgangswert wieder her.
     function formatPositionForDisplay(value) {
         const parsed = strictFiniteNumber(value);
-        return parsed === null ? "" : parsed.toFixed(2);
+        if (parsed === null) return "";
+        // Keep the sign of a rounded negative coordinate when the form is read back.
+        return Object.is(parsed, -0) ? "-0.00" : parsed.toFixed(2);
     }
 
     function positionFromFormValues(values = {}, currentPosition = null) {

@@ -158,6 +158,17 @@ def test_frontend_enchantment_editor_logic_manual_reset_plan() -> None:
                 lastResetName: "minecraft:diamond_sword",
                 isValidItemId: () => true,
             }))), { shouldReset: false });
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(logic.manualItemResetPlan({
+                previousName: "minecraft:stone", nextName: "minecraft:stone",
+                lastResetName: "minecraft:diamond_sword", isValidItemId: () => true,
+            }))), { shouldReset: true, nextName: "minecraft:stone" });
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(logic.manualItemResetPlan({
+                previousName: "minecraft:stone", nextName: "minecraft:sto",
+                isValidItemId: () => false,
+            }))), { shouldReset: false });
+            assert.deepStrictEqual(JSON.parse(JSON.stringify(logic.manualItemResetPlan({
+                previousName: "", nextName: "minecraft:stone", isValidItemId: () => true,
+            }))), { shouldReset: true, nextName: "minecraft:stone" });
             """
         )
     )

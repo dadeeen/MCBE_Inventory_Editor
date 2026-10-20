@@ -192,6 +192,154 @@ def test_stats_form_clamps_manual_values_to_declared_input_range() -> None:
     )
 
 
+def test_stats_form_pending_drafts_preserve_values_and_ignore_reverted_or_stale_controls() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        for (const path of ["static/ability_state.js", "static/ability_view.js", "static/effects_logic.js"]) {
+            vm.runInNewContext(fs.readFileSync(path, "utf8"), context, { filename: path });
+        }
+        const elements = Object.fromEntries([
+            "dimensionId", "posX", "posY", "posZ", "health", "xpLevel", "xpProgress", "foodLevel", "foodSaturation", "convertLocation",
+        ].map(key => [key, {
+            value: "", listeners: {},
+            addEventListener(name, callback) { this.listeners[name] = callback; },
+        }]));
+        const stats = {
+            dimension_id: 0, pos: [80.1234567, 70.345678, -40.56789], health: 20,
+            xp_level: 17, xp_progress: 0.123456, food_level: 20, food_saturation: 5,
+        };
+        const original = JSON.stringify(stats);
+        let playerContext = "world/player-a";
+        const controller = context.window.MCBEEffectsLogic.createStatsFormController({
+            elements, getPlayerStats: () => stats, getContextKey: () => playerContext,
+        });
+        controller.wireTouchedTracking();
+        assert.equal(controller.hasPendingChanges(), false);
+        controller.render();
+        assert.equal(controller.hasPendingChanges(), false);
+        for (const [key, value] of [
+            ["health", "19.5"], ["xpLevel", "18"], ["xpProgress", "12.9"], ["foodLevel", "19"], ["foodSaturation", "4.5"],
+            ["dimensionId", "1"], ["posX", "100"], ["posY", "80"], ["posZ", "-20"],
+        ]) {
+            const previous = elements[key].value;
+            elements[key].value = value;
+            elements[key].listeners.input();
+            assert.equal(controller.hasPendingChanges(), true, key);
+            assert.equal(JSON.stringify(stats), original, "query must not apply a draft");
+            elements[key].value = String(Number(previous)) + ".000";
+            // Only use alternate trailing-zero spelling for integer baselines.
+            if (!Number.isInteger(Number(previous))) elements[key].value = String(Number(previous));
+            assert.equal(controller.hasPendingChanges(), false, key + " reverted");
+        }
+        elements.posX.value = "";
+        const touchedBefore = [...controller.touchedFields];
+        assert.equal(controller.hasPendingChanges(), true, "blank is not zero");
+        assert.deepEqual([...controller.touchedFields], touchedBefore);
+        controller.render();
+        elements.convertLocation.listeners.click();
+        assert.equal(controller.hasPendingChanges(), true);
+        elements.convertLocation.listeners.click();
+        assert.equal(Number(elements.posY.value), stats.pos[1], "conversion leaves exact unchanged Y in the form");
+        assert.equal(controller.hasPendingChanges(), false, "undoing conversion preserves source precision");
+        elements.health.value = "19";
+        assert.equal(controller.hasPendingChanges(), true);
+        playerContext = "world/player-b";
+        assert.equal(controller.hasPendingChanges(), false, "a new player cannot inherit an old form draft");
+        controller.render();
+        elements.health.value = "19";
+        playerContext = null;
+        assert.equal(controller.hasPendingChanges(), false, "unloaded controls are not an editor draft");
+        assert.equal(JSON.stringify(stats), original);
+        playerContext = "world/player-a";
+        stats.pos[0] = 0;
+        controller.render();
+        elements.posX.value = "";
+        assert.equal(controller.hasPendingChanges(), true, "blank must not normalize to the zero baseline");
+        stats.pos[0] = 0.004;
+        controller.render();
+        elements.posX.value = "-0.004";
+        assert.equal(controller.hasPendingChanges(), true, "position precision preserves a change across zero");
+        elements.posX.value = "0.004";
+        assert.equal(controller.hasPendingChanges(), false, "unchanged stored coordinate precision is not a draft");
+        elements.posX.value = "0.02";
+        assert.equal(controller.hasPendingChanges(), true, "a coordinate change visible at stored display precision is a draft");
+        stats.pos[0] = -0.004;
+        controller.render();
+        elements.posX.value = "0.004";
+        assert.equal(controller.hasPendingChanges(), true, "negative rounded zero also detects crossing to positive");
+        elements.posX.value = "-0.004";
+        assert.equal(controller.hasPendingChanges(), false, "restoring the exact negative source is not a draft");
+        elements.convertLocation.listeners.click();
+        elements.convertLocation.listeners.click();
+        assert.equal(controller.hasPendingChanges(), false, "conversion undo retains negative source precision");
+        stats.xp_level = 10;
+        stats.food_level = 10;
+        controller.render();
+        for (const key of ["xpLevel", "foodLevel"]) {
+            elements[key].value = "1e1";
+            assert.equal(controller.hasPendingChanges(), false, "equivalent exponent notation is not a draft");
+            elements[key].value = "2e1";
+            assert.equal(controller.hasPendingChanges(), true, "changed exponent notation is a draft");
+            elements[key].value = "10.0";
+            assert.equal(controller.hasPendingChanges(), false, "alternate integer spelling is not a draft");
+        }
+    """)
+
+
+def test_stats_apply_rebases_accepted_drafts_but_keeps_invalid_positions_pending() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        for (const path of ["static/ability_state.js", "static/ability_view.js", "static/effects_logic.js"]) {
+            vm.runInNewContext(fs.readFileSync(path, "utf8"), context, { filename: path });
+        }
+        const control = () => ({value: "", listeners: {}, addEventListener(name, callback) { this.listeners[name] = callback; }});
+        const fields = Object.fromEntries([
+            "dimensionId", "posX", "posY", "posZ", "health", "xpLevel", "xpProgress", "foodLevel", "foodSaturation",
+        ].map(key => [key, control()]));
+        const applyButton = control();
+        let stats = {dimension_id: 0, pos: [1, 70, 2], health: 20, xp_level: 0, xp_progress: 0, food_level: 20, food_saturation: 5};
+        const form = context.window.MCBEEffectsLogic.createStatsFormController({elements: fields, getPlayerStats: () => stats});
+        form.wireTouchedTracking();
+        form.render();
+        let accepted = 0;
+        let dirtyCalls = 0;
+        const controller = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+            doc: {getElementById: id => id === "btnApplyStats" ? applyButton : null, querySelectorAll: () => []},
+            statsFormElements: () => fields, getPlayerStats: () => stats, setPlayerStats: next => { stats = next; },
+            getTouchedStatsFields: () => form.touchedFields,
+            onStatsApplied: () => { accepted += 1; form.resetConversion(); form.captureFormBaseline(); },
+            setDirty: () => { dirtyCalls += 1; },
+        });
+        controller.wire();
+        fields.health.value = ""; // Existing apply policy accepts the unchanged default of 20.
+        fields.health.listeners.input();
+        assert.equal(form.hasPendingChanges(), true);
+        applyButton.listeners.click();
+        assert.equal(accepted, 1, "successful no-op Apply still accepts the form draft");
+        assert.equal(form.hasPendingChanges(), false);
+        assert.equal(dirtyCalls, 0);
+        fields.health.value = "19";
+        fields.health.listeners.input();
+        applyButton.listeners.click();
+        assert.equal(stats.health, 19);
+        assert.equal(accepted, 2);
+        assert.equal(dirtyCalls, 1);
+        assert.equal(form.hasPendingChanges(), false);
+        fields.posX.value = "";
+        fields.posX.listeners.input();
+        applyButton.listeners.click();
+        assert.equal(accepted, 2, "rejected position must not rebase the draft");
+        assert.equal(form.hasPendingChanges(), true);
+        assert.deepEqual(Array.from(stats.pos), [1, 70, 2]);
+    """)
+
+
 def test_stats_form_dimension_conversion_is_explicit_and_reversible() -> None:
     run_node(
         textwrap.dedent(

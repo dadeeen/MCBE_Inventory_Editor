@@ -734,3 +734,58 @@ def test_frontend_slot_detail_logic_keeps_custom_name_padding() -> None:
             """
         )
     )
+
+
+def test_shared_item_form_validates_capacity_variants_and_preserves_originals() -> None:
+    run_node(
+        r"""
+        const assert = require('assert');
+        const vm = require('vm');
+        const fs = require('fs');
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync('static/slot_detail_logic.js', 'utf8'), context);
+        const logic = context.window.MCBESlotDetailLogic;
+        const catalog = {
+            getMaxStack: name => name === 'minecraft:diamond_sword' ? 1 : 64,
+            getMaxDamage: () => 100,
+            hasVerifiedStackLimit: () => true,
+            isValidItemId: () => true, isAddableItemId: () => true,
+            isEnchantableItemForEditor: name => name === 'minecraft:diamond_sword',
+            isEnchantmentCompatibleWithItem: (id, name) => name === 'minecraft:diamond_sword' && id === 9,
+            dataValueVariantsForId: name => name === 'minecraft:banner' ? [{damage: 0}, {damage: 1}] : [],
+        };
+        const base = { catalog, slotId: 0, rawName: 'minecraft:stone', rawCount: 1, rawDamage: 0 };
+        for (const rawCount of ['', '1.5', '65', '2x', -1, 128]) {
+            assert.strictEqual(logic.buildItemForm({...base, rawCount}).ok, false);
+        }
+        assert.strictEqual(logic.buildItemForm({...base, rawCount: 64}).item.count, 64);
+        assert.strictEqual(logic.buildItemForm({...base, rawCount: '1e1', rawDamage: '1e1'}).item.damage, 10);
+        assert.strictEqual(logic.buildItemForm({...base, rawCount: '1e1'}).item.count, 10);
+        const limit = { maximum: 4, error: '' };
+        assert.strictEqual(logic.buildItemForm({...base, countLimit: limit, rawCount: 5}).ok, false);
+        assert.strictEqual(logic.buildItemForm({...base, countLimit: limit, rawCount: 4}).item.count, 4);
+        for (const rawDamage of ['', '1.5', -1, 101]) assert.strictEqual(logic.buildItemForm({...base, rawDamage}).ok, false);
+        assert.strictEqual(logic.buildItemForm({...base, rawName: 'minecraft:banner', rawDamage: 2}).ok, false);
+        const previousItem = {slot: 0, name: 'minecraft:banner', count: 65, damage: 2, enchantments: [{id: 999, lvl: 99}]};
+        const saved = JSON.stringify(previousItem);
+        assert.strictEqual(logic.buildItemForm({...base, previousItem, rawName: previousItem.name,
+            rawCount: 65, rawDamage: 2, enchantments: previousItem.enchantments}).ok, true);
+        assert.strictEqual(JSON.stringify(previousItem), saved);
+        assert.strictEqual(logic.buildItemForm({...base, enchantments: [{id: 9, lvl: 1}], enchantmentsDb: {9: {max_lvl: 5}}}).ok, false);
+        assert.strictEqual(logic.buildItemForm({...base, rawName: 'minecraft:diamond_sword',
+            enchantments: [{id: 9, lvl: 6}], enchantmentsDb: {9: {max_lvl: 5}}}).ok, false);
+        const state = logic.itemFormModel({...base, rawName: 'minecraft:diamond_sword'});
+        assert.strictEqual(state.readOnlyCount, true);
+        assert.strictEqual(state.maximum, 1);
+        const original = {...previousItem, display_name: 'Keep name', lore: ['Keep lore'],
+            source_item_digest: 'verified', nbt_view: {type: 'CompoundTag', value: {}}};
+        const unchanged = logic.buildItemForm({...base, previousItem: original, rawName: original.name,
+            rawCount: original.count, rawDamage: original.damage, rawCustomName: original.display_name,
+            rawLore: original.lore.join('\n'), enchantments: original.enchantments});
+        assert.strictEqual(JSON.stringify(unchanged.item), JSON.stringify(original));
+        assert.strictEqual(logic.applySingleSlotPlan({previousItem: original, buildResult: unchanged}).reason, 'unchanged');
+        assert.notStrictEqual(unchanged.item, original);
+        unchanged.item.lore.push('Only the draft');
+        assert.strictEqual(original.lore.length, 1);
+        """
+    )

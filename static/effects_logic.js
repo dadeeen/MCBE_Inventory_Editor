@@ -172,6 +172,7 @@
     function createStatsFormController({
         elements = {},
         getPlayerStats = () => ({}),
+        getContextKey = () => "",
         touchedFields = new Set(),
         abilityView = window.MCBEAbilityView,
         abilityState = window.MCBEAbilityState,
@@ -190,9 +191,36 @@
         let conversionApplied = false;
         let conversionOriginalPosition = null;
         let conversionSourceDimension = null;
+        let formBaseline = null;
 
         function formElements() {
             return elements;
+        }
+
+        function formSnapshot() {
+            return JSON.stringify(statsFields.map(([input, field]) => {
+                const raw = String(input?.value ?? "");
+                const value = Number(raw);
+                if (!raw.trim() || !Number.isFinite(value)) return raw;
+                // Match the existing position editor's precision without applying the draft.
+                return field === "pos" && abilityState?.formatPositionForDisplay
+                    ? abilityState.formatPositionForDisplay(value)
+                    : value;
+            }));
+        }
+
+        function captureFormBaseline() {
+            formBaseline = { contextKey: getContextKey(), values: formSnapshot() };
+        }
+
+        function hasPendingChanges() {
+            const contextKey = getContextKey();
+            return Boolean(
+                formBaseline
+                && contextKey != null
+                && formBaseline.contextKey === contextKey
+                && formBaseline.values !== formSnapshot()
+            );
         }
 
         function conversionPosition(values) {
@@ -218,6 +246,7 @@
             conversionApplied = false;
             conversionOriginalPosition = null;
             refreshLocationConversion();
+            captureFormBaseline();
         }
 
         function refreshLocationConversion() {
@@ -312,7 +341,9 @@
         }
 
         return {
+            captureFormBaseline,
             elements: formElements,
+            hasPendingChanges,
             markTouched,
             refreshLocationConversion,
             resetConversion,
@@ -326,6 +357,7 @@
     function createConfiguredStatsFormController({
         doc = document,
         getPlayerStats = () => ({}),
+        getContextKey = () => "",
     } = {}) {
         return createStatsFormController({
             elements: {
@@ -343,6 +375,7 @@
                 convertLocationNote: doc.getElementById("locationConversionNote"),
             },
             getPlayerStats,
+            getContextKey,
         });
     }
 
@@ -654,6 +687,7 @@
                     return;
                 }
                 if (!result.changed) {
+                    onStatsApplied();
                     logStatus?.(t("Keine Statistikänderung erkannt."), "warning");
                     return;
                 }

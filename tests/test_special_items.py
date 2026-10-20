@@ -130,6 +130,33 @@ def test_book_reorder_and_edit_preserves_unknown_page_and_book_tags():
     assert result["pages"][2]["photoname"].py_data == ""
 
 
+@pytest.mark.parametrize("page_count", [2, 12, 49, 50])
+def test_book_trailing_blank_pages_require_explicit_deletion(page_count):
+    pages = nbt.ListTag(
+        [nbt.CompoundTag({"text": nbt.StringTag("Original"), "photoname": nbt.StringTag("")})]
+        + [nbt.CompoundTag({"text": nbt.StringTag(""), "photoname": nbt.StringTag("")}) for _ in range(page_count - 1)],
+        10,
+    )
+    pages[-1]["addon"] = nbt.IntTag(7)
+    original = item("minecraft:writable_book", pages=pages)
+    before = original.save_to()
+    data = parsed(original)["special_item"]["data"]
+    assert [page["text"] for page in data["pages"]] == ["Original"] + [""] * (page_count - 1)
+    assert save(original, data).save_to() == before
+
+    data["pages"][0]["text"] = "Revised"
+    result = save(original, data)["tag"]["pages"]
+    assert len(result) == page_count
+    assert result[0]["text"].py_data == "Revised"
+    assert [page.save_to() for page in result[1:]] == [page.save_to() for page in pages[1:]]
+
+    data["pages"] = data["pages"][:1]
+    result = save(original, data)["tag"]["pages"]
+    assert len(result) == 1
+    assert result[0]["text"].py_data == "Revised"
+    assert original.save_to() == before
+
+
 def test_container_move_and_change_keep_original_child_unknown_data():
     sword = item("minecraft:diamond_sword", slot=8, addon=nbt.LongTag(712))
     original = item("minecraft:undyed_shulker_box", Items=nbt.ListTag([sword], 10), addon=nbt.StringTag("keep"))
@@ -248,6 +275,16 @@ def test_invalid_container_payloads_fail_without_changing_original(children):
     before = original.save_to()
     with pytest.raises(ValueError):
         save(original, {"items": children})
+    assert original.save_to() == before
+
+
+@pytest.mark.parametrize("container", ["minecraft:bundle", "minecraft:undyed_shulker_box"])
+@pytest.mark.parametrize("name,count", [("minecraft:diamond", 65), ("minecraft:ender_pearl", 17), ("minecraft:diamond_sword", 2)])
+def test_container_rejects_new_overstacked_children_without_changing_original(container, name, count):
+    original = item(container)
+    before = original.save_to()
+    with pytest.raises(ValueError):
+        save(original, {"items": [{"slot": 0, "name": name, "count": count, "damage": 0}]})
     assert original.save_to() == before
 
 

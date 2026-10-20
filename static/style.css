@@ -31,6 +31,9 @@
     box-sizing: border-box;
 }
 
+/* Preserve native dialog centering after the universal margin reset. */
+dialog { margin: auto; }
+
 .visually-hidden {
     position: absolute !important;
     width: 1px !important;
@@ -1154,12 +1157,15 @@ body {
     outline: none;
 }
 
-.detail-item-actions {
-    display: grid;
-    grid-template-columns: 1fr auto;
+.item-picker-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
     gap: 8px;
-    margin-top: 8px;
+    margin-bottom: 6px;
 }
+.item-picker-header > label { margin: 0; min-width: 0; }
+.item-picker-header > .btn { flex: 0 0 auto; min-height: 44px; }
 
 .select-field {
     background: rgba(0, 0, 0, 0.2);
@@ -2269,7 +2275,22 @@ body.item-browser-open {
 
 #itemBrowserOverlay {
     overscroll-behavior: none;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
 }
+
+#itemBrowserOverlay::backdrop { background: transparent; }
+.browser-unavailable { font-size: .75rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+.autocomplete-item .browser-unavailable { grid-column: 1 / -1; }
+.browser-item[aria-disabled="true"], .autocomplete-item[aria-disabled="true"] { cursor: not-allowed; border-style: dashed; }
+.browser-item[aria-disabled="true"]:hover { transform: none; }
+input.item-count-fixed { appearance: textfield; }
+input.item-count-fixed::-webkit-inner-spin-button, input.item-count-fixed::-webkit-outer-spin-button { appearance: none; margin: 0; }
 
 .browser-box {
     max-width: 880px;

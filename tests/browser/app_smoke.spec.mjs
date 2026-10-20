@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 
+async function openSpecialProperties(dialog) {
+  const properties = dialog.locator(".special-properties");
+  await expect(properties).toBeVisible();
+  if (!(await properties.evaluate(element => element.open))) await properties.locator("summary").click();
+}
+
 async function openSpecialFixture(page, inventory, overrides = {}) {
   await page.route("**/api/server_status", route => route.fulfill({ json: { success: true, status: "offline", write_gate: { allowed: true, read_allowed: true } } }));
   await page.route("**/api/item-db/status", route => route.fulfill({ json: { item_db: { status: "ok", verification: { verified: true }, counts: { items: 8 } } } }));
@@ -31,10 +37,15 @@ test("special contained data values validate registered variants and preserve un
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   for (const [slot, invalid, valid] of [[2, "16", "15"], [3, "1", "2"]]) {
     await dialog.getByRole("button", { name: new RegExp(`Slot ${slot}:`) }).click();
-    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill(invalid);
+    await openSpecialProperties(dialog);
+    // A forged value must still be rejected behind the registered variant picker.
+    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).evaluate((input, value) => {
+      input.value = value; input.dispatchEvent(new Event("input", { bubbles: true }));
+    }, invalid);
     await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Datenwert");
-    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill(valid);
+    await openSpecialProperties(dialog);
+    await dialog.getByLabel("Variante", { exact: true }).selectOption(valid);
     await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   }
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
@@ -60,6 +71,7 @@ test("special contained text preserves untouched raw strings and rejects silent 
   expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ ...original, count: 2 });
   await page.locator("#btnSpecialItem").click();
   await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await openSpecialProperties(dialog);
   const lore = dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true });
   for (const text of [Array(51).fill("Zeile").join("\n"), "x".repeat(511) + "🦜"]) {
     await lore.fill(text);
@@ -69,10 +81,16 @@ test("special contained text preserves untouched raw strings and rejects silent 
   }
   await page.keyboard.press("Escape");
   await dialog.getByRole("button", { name: /Slot 2:/ }).click();
-  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:writable_book");
+  await openSpecialProperties(dialog);
+  // Programmatic input also reaches the builder's limit check; maxlength
+  // alone must not permit oversized replacement text.
+  await dialog.getByLabel("Anzeigename", { exact: true }).evaluate(input => {
+    input.value = "y".repeat(513); input.dispatchEvent(new Event("input", {bubbles: true}));
+  });
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await expect(dialog.getByRole("alert")).toContainText("Anzeigename");
-  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
+  await page.keyboard.press("Escape");
+  await dialog.getByRole("button", { name: /Slot 2:/ }).click();
   await dialog.getByLabel("Menge", { exact: true }).fill("2");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
@@ -96,7 +114,7 @@ test("special bundles inside a shulker enforce their absolute nesting depth", as
   }
   await dialog.getByRole("button", { name: /Slot 1:/ }).click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
-  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
   await expect(dialog.getByRole("alert")).toContainText("Verschachtelungstiefe");
   await expect(dialog.getByLabel("Item-ID", { exact: true })).toHaveValue("minecraft:diamond");
   expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
@@ -157,16 +175,22 @@ test("special nested editor cancellation preserves the parent item draft", async
   await dialog.getByRole("button", { name: /Slot 1:/ }).click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:written_book");
   await dialog.getByLabel("Menge", { exact: true }).fill("3");
+  await openSpecialProperties(dialog);
   await dialog.getByLabel("Zielslot", { exact: true }).selectOption({ value: "5" });
+  await openSpecialProperties(dialog);
   await dialog.getByLabel("Anzeigename", { exact: true }).fill("Mein Entwurf");
+  await openSpecialProperties(dialog);
   await dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true }).fill("Unveröffentlicht");
   await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
   await dialog.getByLabel("Titel", { exact: true }).fill("Verwerfen");
   await page.keyboard.press("Escape");
   await expect(dialog.getByLabel("Item-ID", { exact: true })).toHaveValue("minecraft:written_book");
   await expect(dialog.getByLabel("Menge", { exact: true })).toHaveValue("3");
+  await openSpecialProperties(dialog);
   await expect(dialog.getByLabel("Zielslot", { exact: true })).toHaveValue("5");
+  await openSpecialProperties(dialog);
   await expect(dialog.getByLabel("Anzeigename", { exact: true })).toHaveValue("Mein Entwurf");
+  await openSpecialProperties(dialog);
   await expect(dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true })).toHaveValue("Unveröffentlicht");
   await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
   await expect(dialog.getByLabel("Titel", { exact: true })).toHaveValue("");
@@ -190,6 +214,7 @@ test("special contained enchantments retain levels and enforce the catalog bound
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
   await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await openSpecialProperties(dialog);
   const levels = dialog.getByLabel("Stufe", { exact: true });
   await expect(levels.first()).toHaveValue("2");
   await levels.first().fill("6");
@@ -204,6 +229,7 @@ test("special contained enchantments retain levels and enforce the catalog bound
     if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/enchantments-${name}.png`, animations: "disabled" });
   }
   await levels.first().fill("5");
+  await openSpecialProperties(dialog);
   await dialog.getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("17");
   await expect(levels.nth(1)).toHaveValue("1");
   await levels.nth(1).fill("3");
@@ -347,6 +373,113 @@ test("special saved draft without authoritative state requires reload before ano
   expect(writes).toBe(1);
 });
 
+for (const [locale, width, height] of [["de", 1440, 1000], ["en", 1024, 768], ["de", 320, 568], ["en", 390, 844]]) {
+  test(`special compact item form enforces stack and bundle limits in ${locale} at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+    const ids = ["bundle", "undyed_shulker_box", "diamond", "diamond_sword", "ender_pearl"];
+    await openSpecialFixture(page, {
+      0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0 },
+      1: { slot: 1, name: "minecraft:bundle", count: 1, damage: 0, special_item: { kind: "bundle", editable: true,
+        data: { items: [{ slot: 0, name: "minecraft:diamond", count: 60, damage: 0 }] } } },
+      2: { slot: 2, name: "minecraft:undyed_shulker_box", count: 1, damage: 0, special_item: { kind: "shulker", editable: true,
+        data: { items: [{ slot: 0, name: "minecraft:diamond", count: 65, damage: 0, source_index: 0 }] } } },
+    }, {
+      items_db: Object.fromEntries(ids.map(id => [`minecraft:${id}`, [id, id]])), addable_items: ids.map(id => `minecraft:${id}`),
+      stack_limits: { __default__: 64, "minecraft:diamond": 64, "minecraft:ender_pearl": 16, "minecraft:diamond_sword": 1 },
+    });
+    const dialog = page.locator("#specialItemDialog");
+    const accept = dialog.locator('[data-special="accept"]');
+    const name = dialog.locator('.special-item-name');
+    const count = dialog.locator('.special-item-primary input[type="number"]');
+    const open = async slot => {
+      await page.locator(`.inventory-slot[data-slot="${slot}"]`).focus();
+      await page.keyboard.press("Shift+F10");
+      await page.locator('#slotContextMenu [data-action="special"]').click();
+    };
+    await open(0);
+    await dialog.locator(".special-slot").first().click();
+    await expect(dialog.locator("h2")).toHaveText(locale === "de" ? "Item hinzufügen" : "Add item");
+    const properties = dialog.locator(".special-properties");
+    await expect(properties).not.toHaveAttribute("open");
+    await expect(properties.locator("summary")).toHaveText(locale === "de" ? "Weitere Eigenschaften" : "More properties");
+    await expect(accept).toBeDisabled();
+    await name.fill("minecraft:diamond_sword");
+    await expect(count).toHaveAttribute("max", "1");
+    await expect(count).toHaveAttribute("readonly");
+    await count.focus(); await page.keyboard.press("ArrowUp");
+    await expect(count).toHaveValue("1");
+    await expect(accept).toBeEnabled();
+    if (process.env.MCBE_QA_SPECIAL_DIR) await page.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/compact-${locale}-${width}.png` });
+    await name.fill("minecraft:diamond");
+    await expect(count).not.toHaveAttribute("readonly");
+    await expect(count).toHaveAttribute("max", "64");
+    for (const invalid of ["65", "0", "0.5", ""]) {
+      await count.fill(invalid);
+      await expect(accept).toBeDisabled();
+      await expect(count).toHaveValue(invalid);
+    }
+    await count.fill("64");
+    await properties.locator("summary").focus(); await page.keyboard.press("Enter");
+    await expect(properties).toHaveAttribute("open");
+    await properties.locator('input[maxlength="512"]').fill("Custom name");
+    if (process.env.MCBE_QA_SPECIAL_DIR) await page.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/properties-${locale}-${width}.png` });
+    await properties.locator("summary").click();
+    await accept.click(); await accept.click();
+    expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ count: 64, display_name: "Custom name" });
+
+    await open(1);
+    await dialog.locator(".special-slot").last().click();
+    await name.fill("minecraft:ender_pearl");
+    await expect(count).toHaveAttribute("max", "1");
+    await expect(accept).toBeEnabled();
+    await name.fill("minecraft:diamond_sword");
+    await expect(count).toHaveAttribute("max", "0");
+    await expect(accept).toBeDisabled();
+    await name.fill("minecraft:diamond");
+    await expect(count).toHaveAttribute("max", "4");
+    await count.fill("5"); await expect(accept).toBeDisabled();
+    await count.fill("4"); await accept.click();
+    await dialog.locator(".special-slot").first().click();
+    await expect(count).toHaveAttribute("max", "60");
+    await expect(count).toHaveValue("60");
+    await expect(accept).toBeEnabled();
+    await count.fill("61"); await expect(accept).toBeDisabled();
+    await count.fill("60"); await accept.click(); await accept.click();
+    expect(await page.evaluate(() => inventory[1].special_edit.data.items.map(item => item.count))).toEqual([60, 4]);
+
+    await open(2); await dialog.locator(".special-slot").first().click();
+    await expect(count).toHaveValue("65");
+    await expect(accept).toBeEnabled();
+    await count.fill("66"); await expect(accept).toBeDisabled();
+    await count.fill("65"); await accept.click(); await accept.click();
+    expect(await page.evaluate(() => inventory[2].special_edit)).toBeUndefined();
+  });
+}
+
+test("special compact item form supports touch editing on mobile", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await context.newPage();
+    await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:bundle", count: 1, damage: 0 } });
+    await page.locator('.inventory-slot[data-slot="0"]').tap();
+    await page.locator('.btn-toggle[data-panel="right"]').tap();
+    await page.locator("#btnSpecialItem").tap();
+    const dialog = page.locator("#specialItemDialog");
+    await dialog.locator(".special-slot").tap();
+    await dialog.locator('.special-item-name').fill("minecraft:diamond");
+    await dialog.locator('.special-item-primary input[type="number"]').fill("64");
+    await dialog.locator("summary").tap();
+    await expect(dialog.locator(".special-properties")).toHaveAttribute("open");
+    await dialog.locator('input[maxlength="512"]').fill("Touch item");
+    await dialog.locator("summary").tap();
+    await dialog.locator('[data-special="accept"]').tap();
+    await dialog.locator('[data-special="accept"]').tap();
+    await expect(dialog).toBeHidden();
+    expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ count: 64, display_name: "Touch item" });
+  } finally { await context.close(); }
+});
+
 test("special contained numeric edits reject invalid input without silently clamping", async ({ page }) => {
   await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
     special_item: { kind: "shulker", editable: true, data: { items: [{ slot: 0, source_index: 0, name: "minecraft:diamond", count: 10, damage: 0 }] } } } },
@@ -355,19 +488,41 @@ test("special contained numeric edits reject invalid input without silently clam
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
   await dialog.getByRole("button", { name: /Slot 1:/ }).click();
-  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond_sword");
-  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("65");
+  await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
   await expect(dialog.getByRole("alert")).toContainText("Stacklimits");
-  await dialog.getByLabel("Menge", { exact: true }).fill("1");
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond_sword");
+  await dialog.getByLabel("Menge", { exact: true }).click();
+  await expect(dialog.getByLabel("Menge", { exact: true })).toHaveValue("1");
+  await expect(dialog.getByLabel("Menge", { exact: true })).toHaveAttribute("readonly");
   for (const value of ["", "0.5", "101"]) {
+    await openSpecialProperties(dialog);
     await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill(value);
     await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Datenwert");
   }
+  await openSpecialProperties(dialog);
   await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill("1e1");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
   expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ name: "minecraft:diamond_sword", count: 1, damage: 10 });
+});
+
+test("item numeric previews agree with the applied numeric values", async ({page}) => {
+  await openSpecialFixture(page, {
+    0: {slot: 0, name: "minecraft:diamond", count: 1, damage: 0},
+    1: {slot: 1, name: "minecraft:diamond_sword", count: 1, damage: 0},
+  }, {max_damage: {__default__: 0, "minecraft:diamond_sword": 100}});
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#detailCount").fill("1e1");
+  await expect(page.locator("#detailPreviewMeta")).toContainText("10x");
+  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[0].count)).toBe(10);
+  await page.locator('.inventory-slot[data-slot="1"]').click();
+  await page.locator("#detailDamage").fill("1e1");
+  await expect(page.locator("#detailPreviewMeta")).toContainText("Abnutzung 10");
+  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[1].damage)).toBe(10);
 });
 
 test("special editor cannot bypass equipment slot validation", async ({ page }) => {
@@ -424,6 +579,39 @@ test("special editors isolate nested drafts, cancel, undo and preserve origins",
   expect(errors).toEqual([]);
 });
 
+for (const [width, height] of [[2240, 1122], [390, 844], [320, 568]]) {
+  test(`special editors stay centered at ${width}px`, async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    await page.setViewportSize({ width, height });
+    const names = ["bundle", "undyed_shulker_box", "written_book", "firework_rocket", "firework_star", "banner"];
+    await openSpecialFixture(page, Object.fromEntries(names.map((name, slot) => [slot, { slot, name: `minecraft:${name}`, count: 1, damage: 0 }])));
+    const dialog = page.locator("#specialItemDialog");
+    for (const [slot, name] of names.entries()) {
+      const inventorySlot = page.locator(`.inventory-slot[data-slot="${slot}"]`);
+      await inventorySlot.focus();
+      await page.keyboard.press("Shift+F10");
+      await page.locator('#slotContextMenu [data-action="special"]').click();
+      await expect(dialog).toBeVisible();
+      const box = await dialog.boundingBox();
+      expect(Math.abs(box.x * 2 + box.width - width)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.y * 2 + box.height - height)).toBeLessThanOrEqual(1);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      await expect(dialog.locator('footer [data-special="cancel"]')).toBeInViewport();
+      await expect(dialog.locator('footer [data-special="accept"]')).toBeInViewport();
+      if (process.env.MCBE_QA_SPECIAL_DIR) {
+        await page.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/centered-${name}-${width}.png`, animations: "disabled" });
+      }
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(inventorySlot).toBeFocused();
+    }
+    await expect(page.locator("#btnUndo")).toBeDisabled();
+    expect(errors).toEqual([]);
+  });
+}
+
 test("special editors validate bundle capacity and keyboard focus at mobile width", async ({ page }) => {
   const errors = collectBrowserErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -437,8 +625,9 @@ test("special editors validate bundle capacity and keyboard focus at mobile widt
   if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + "/bundle-mobile.png" });
   await dialog.getByRole("button", { name: /Slot 2:/ }).click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
-  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
-  await expect(dialog.getByRole("alert")).toContainText("zu voll");
+  await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
+  await expect(dialog.getByRole("alert")).toContainText("nicht genügend Platz");
+  await page.keyboard.press("Escape"); // Dismiss the shared item suggestions first.
   await page.keyboard.press("Escape");
   await expect(dialog).toContainText("64 / 64 Gewichtseinheiten");
   await page.keyboard.press("Escape");
@@ -2745,6 +2934,38 @@ test("narrowing to mobile keeps the active workspace panel visible", async ({ pa
   expect(mobileOverflow.navOverflowX).toBe("auto");
 });
 
+test("item browser keeps keyboard focus on newly revealed results", async ({ page }) => {
+  const items = Object.fromEntries(Array.from({length: 450}, (_, index) => {
+    const name = `test_item_${String(index).padStart(3, "0")}`;
+    return [`minecraft:${name}`, [name, name]];
+  }));
+  await openSpecialFixture(page, {0: {slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0}}, {
+    items_db: items, addable_items: Object.keys(items), stack_limits: Object.fromEntries(Object.keys(items).map(id => [id, 64])),
+  });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.locator(".special-slot").first().click();
+  await expect(dialog.getByLabel("Item-ID", {exact: true})).toBeFocused();
+  await dialog.getByRole("button", {name: "📖 Item-Browser", exact: true}).click();
+  const picker = page.locator("#itemBrowserOverlay");
+  const cards = picker.locator(".browser-item");
+  const more = picker.locator(".browser-load-more");
+  for (const [previous, next] of [[200, 400], [400, 450]]) {
+    await expect(cards).toHaveCount(previous);
+    await more.focus();
+    await page.keyboard.press("Enter");
+    await expect(cards).toHaveCount(next);
+    await expect(cards.nth(previous)).toBeFocused();
+    await expect(cards.nth(previous)).toBeInViewport();
+  }
+  await expect(more).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(picker).toBeHidden();
+  await expect(dialog.locator(".special-item-name")).toHaveValue("minecraft:test_item_400");
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+});
+
 test("item browser closes accessibly and restores keyboard focus", async ({ page }) => {
   await openDragFixture(page, { addable_items: ["minecraft:stone"] });
   await page.evaluate(() => {
@@ -2755,7 +2976,8 @@ test("item browser closes accessibly and restores keyboard focus", async ({ page
 
   const trigger = page.locator("#btnBrowserBulk");
   const overlay = page.locator("#itemBrowserOverlay");
-  await trigger.focus();
+  await page.locator("#bulkItemSearch").fill("stone");
+  await expect(page.locator("#bulkItemAutocomplete")).toBeVisible();
   await trigger.click();
 
   await expect(overlay).toBeVisible();
@@ -4235,6 +4457,9 @@ for (const [layout, stickyTop] of [["focus", 12], ["studio", 18]]) {
   test(`${layout} keeps the inspector in view while scrolling and locks the page for the item browser`, async ({ page }) => {
     const browserErrors = collectBrowserErrors(page);
     await page.setViewportSize({ width: 1440, height: 900 });
+    // A presence update from another test session can change the page geometry
+    // between measuring the scroll position and opening the item browser.
+    await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
     await openDragFixture(page);
     await selectLayout(page, layout);
     await page.locator('[data-slot="0"]').click();
@@ -5765,3 +5990,476 @@ test("container search refuses a stale child path without creating a replacement
   expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
   await expect(page.locator("#btnUndo")).toBeDisabled();
 });
+
+
+test("special unaccepted drafts warn before closing the browser or desktop", async ({ page }) => {
+  const book = { slot: 0, source_index: 0, name: "minecraft:written_book", count: 1, damage: 0,
+    special_item: { kind: "book", editable: true, data: { pages: [], title: "Original", author: "Autor" } } };
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [book] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const pending = async expected => {
+    expect(await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return { desktop: window.MCBEDesktop.closeState().dirty, browser: event.defaultPrevented, inventory: isDirty };
+    })).toEqual({ desktop: expected, browser: expected, inventory: false });
+  };
+  await pending(false);
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await pending(false);
+  const count = dialog.getByLabel("Menge", { exact: true });
+  await count.fill("2");
+  await pending(true);
+  await count.fill("1");
+  await pending(false);
+  await count.fill("2");
+  await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
+  await pending(true); // The suspended parent item form still owns its draft.
+  await dialog.getByLabel("Titel", { exact: true }).fill("Verwerfen");
+  await page.keyboard.press("Escape");
+  await pending(true);
+  await page.keyboard.press("Escape");
+  await pending(false); // Cancelling that parent discards only its draft.
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
+  await pending(false);
+  const title = dialog.getByLabel("Titel", { exact: true });
+  await title.fill("Entwurf");
+  await pending(true);
+  await title.fill("Original");
+  await pending(false);
+  await title.fill("Entwurf");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await pending(true); // An accepted child remains pending until the root is accepted.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await pending(false);
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
+
+test("ordinary unaccepted slot drafts warn before closing without changing save or undo state", async ({ page }) => {
+  await openSpecialFixture(page, {
+    0: { slot: 0, name: "minecraft:diamond_sword", count: 1, damage: 3,
+      display_name: "Erste\nZweite", lore: ["Erste\r\nZweite"], enchantments: [{ id: 9, lvl: 2 }, { id: 17, lvl: 1 }] },
+    1: { slot: 1, name: "minecraft:axolotl_bucket", count: 1, damage: 0,
+      entity_variant: { entity_id: "minecraft:axolotl", variant: 1, is_baby: false, can_edit: true } },
+    2: { slot: 2, name: "minecraft:diamond", count: 1, damage: 0 },
+  }, {
+    ender_chest: { 0: { slot: 0, name: "minecraft:diamond", count: 2, damage: 0 } },
+    items_db: { "minecraft:diamond_sword": ["Diamantschwert", "Diamond Sword"], "minecraft:diamond": ["Diamant", "Diamond"], "minecraft:axolotl_bucket": ["Axolotleimer", "Axolotl Bucket"] },
+    max_damage: { "minecraft:diamond_sword": 1561, __default__: 0 },
+    ench_db: { 9: { name_de: "Schärfe", name_en: "Sharpness", max_lvl: 5 }, 17: { name_de: "Haltbarkeit", name_en: "Unbreaking", max_lvl: 3 } },
+    enchantment_compatibility: { item_slots: { "minecraft:diamond_sword": ["sword"] }, compatible_slots: { 9: ["sword"], 17: ["sword"] } },
+  });
+  const pending = async (expected, committed = false) => {
+    expect(await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return { desktop: window.MCBEDesktop.closeState().dirty, browser: event.defaultPrevented, inventory: isDirty };
+    })).toEqual({ desktop: expected || committed, browser: expected || committed, inventory: committed });
+  };
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await pending(false);
+  await expect(page.locator("#detailCount")).toHaveAttribute("readonly");
+  for (const [id, value] of [["detailDamage", "8"], ["detailCustomName", "Entwurf"], ["detailLore", "Neue Beschreibung"]]) {
+    const field = page.locator(`#${id}`);
+    const original = await field.inputValue();
+    await field.fill(value); await pending(true);
+    await field.fill(original); await pending(false);
+  }
+  await page.locator('[data-tab="tabEnchants"]').click();
+  const sharpness = page.locator(".ench-row").filter({ hasText: "Schärfe" });
+  await sharpness.locator(".ench-checkbox").uncheck(); await pending(true);
+  await sharpness.locator(".ench-checkbox").check(); await pending(false);
+  await sharpness.locator(".ench-slider").press("ArrowRight"); await pending(true);
+  await sharpness.locator(".ench-slider").press("ArrowLeft"); await pending(false);
+  await page.locator('[data-tab="tabGeneral"]').click();
+  await page.locator("#detailItemSearch").fill("minecraft:");
+  await page.locator("#btnApplySingle").click();
+  await pending(true);
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await pending(false);
+
+  await page.locator('.inventory-slot[data-slot="2"]').click(); await pending(false);
+  await page.locator("#detailCount").fill(""); await pending(true);
+  await page.locator("#detailCount").fill("1"); await pending(false);
+  await page.locator("#detailItemSearch").fill("minecraft:axolotl_bucket"); await pending(true);
+  await page.locator("#detailItemSearch").fill("minecraft:diamond"); await pending(false);
+
+  await page.locator('.inventory-slot[data-slot="1"]').click(); await pending(false);
+  await page.locator("#detailAxolotlColor").selectOption("4"); await pending(true);
+  await page.locator("#detailAxolotlColor").selectOption("1"); await pending(false);
+  await page.locator("#detailAxolotlAge").selectOption("baby"); await pending(true);
+  await page.locator("#btnCloseDetail").click(); await pending(false);
+  await page.locator('.inventory-slot[data-slot="1"]').click(); await pending(false);
+
+  await page.locator('.inventory-slot[data-ender-slot="0"]').click(); await pending(false);
+  await page.locator("#detailCustomName").fill("Ender-Entwurf"); await pending(true);
+  await page.locator("#btnApplySingle").click(); await pending(false, true);
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+  await page.locator("#detailCount").fill("2.0");
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(true);
+  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+  await page.locator("#btnQuickClearSlot").click();
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+  expect(await page.evaluate(() => enderChestInventory[0].display_name)).toBe("Ender-Entwurf");
+});
+
+test("special contained enchantment replacements count as unaccepted drafts", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [
+      { slot: 0, source_index: 0, name: "minecraft:diamond_sword", count: 1, damage: 0, enchantments: [{ id: 9, lvl: 1 }] },
+    ] } } } }, {
+    ench_db: { 9: { name_de: "Schärfe", name_en: "Sharpness", max_lvl: 5 }, 17: { name_de: "Haltbarkeit", name_en: "Unbreaking", max_lvl: 3 } },
+    enchantment_compatibility: { item_slots: { "minecraft:diamond_sword": ["sword"] }, compatible_slots: { 9: ["sword"], 17: ["sword"] } },
+  });
+  const pending = async expected => {
+    expect(await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return { desktop: window.MCBEDesktop.closeState().dirty, browser: event.defaultPrevented, inventory: isDirty };
+    })).toEqual({ desktop: expected, browser: expected, inventory: false });
+  };
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByRole("button", { name: /Slot 1:/ }).click(); await pending(false);
+  await openSpecialProperties(dialog);
+  await dialog.getByRole("button", { name: "Entfernen", exact: true }).click();
+  await openSpecialProperties(dialog);
+  await dialog.getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("17"); await pending(true);
+  await dialog.getByRole("button", { name: "Entfernen", exact: true }).click();
+  await openSpecialProperties(dialog);
+  await dialog.getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("9"); await pending(false);
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
+
+test("unaccepted player stats and dimension conversions warn before closing", async ({ page }) => {
+  const players = [
+    { player_key: "drag-player", label: "Stats A", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: true },
+    { player_key: "stats-other", label: "Stats B", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: true },
+  ];
+  const originalStats = { pos: [94.41, 71.625, 93.52], dimension_id: 0, health: 20, xp_level: 0, xp_progress: 0, food_level: 20, food_saturation: 5, gamemode: 0 };
+  await page.route("**/api/server_status", route => route.fulfill({ json: { success: true, status: "offline", write_gate: { allowed: true, read_allowed: true } } }));
+  await openDragFixture(page, ({ player_key }) => ({
+    player: players.find(player => player.player_key === player_key),
+    stats: { ...originalStats, health: player_key === "stats-other" ? 10 : 20 },
+  }), players);
+  await selectLayout(page, "studio");
+  await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
+  const pending = async (expected, committed = false) => {
+    expect(await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return { desktop: window.MCBEDesktop.closeState().dirty, browser: event.defaultPrevented, inventory: isDirty };
+    })).toEqual({ desktop: expected || committed, browser: expected || committed, inventory: committed });
+  };
+  await pending(false);
+  for (const [id, value] of [["statHealth", "12"], ["statXpLevel", "3"], ["statXpProgress", "25"], ["statFoodLevel", "15"], ["statFoodSaturation", "8"], ["statPosX", "99"], ["statPosY", "75"], ["statPosZ", "101"]]) {
+    const field = page.locator(`#${id}`);
+    const original = await field.inputValue();
+    await field.fill(value); await pending(true);
+    await field.fill(original); await pending(false);
+  }
+  await page.locator("#statDimensionId").selectOption("2"); await pending(true);
+  await page.locator("#statDimensionId").selectOption("0"); await pending(false);
+  const originalX = await page.locator("#statPosX").inputValue();
+  await page.locator("#statPosX").fill("");
+  await page.locator("#btnApplyStats").click(); await pending(true);
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  await page.locator("#statPosX").fill(originalX); await pending(false);
+  const convert = page.locator("#btnConvertOverworldNether");
+  await convert.click(); await pending(true);
+  await expect(page.locator("#statDimensionId")).toHaveValue("1");
+  await convert.click(); await pending(false);
+  await expect(page.locator("#statDimensionId")).toHaveValue("0");
+  expect(await page.evaluate(() => playerStats)).toEqual(originalStats);
+  await page.locator("#btnApplyStats").click(); await pending(false);
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+
+  await page.locator("#statXpLevel").fill("1e4");
+  await page.locator("#statFoodLevel").fill("1e1"); await pending(true);
+  await page.locator("#btnApplyStats").click(); await pending(false, true);
+  expect(await page.evaluate(() => [playerStats.xp_level, playerStats.food_level])).toEqual([10000, 10]);
+  await page.locator("#btnUndo").click(); await pending(false);
+  expect(await page.evaluate(() => playerStats)).toEqual(originalStats);
+
+  await page.locator("#statHealth").fill("13"); await pending(true);
+  await page.locator("#btnApplyStats").click(); await pending(false, true);
+  expect(await page.evaluate(() => statsFormController.hasPendingChanges())).toBe(false);
+  await page.locator("#btnApplyStats").click();
+  expect(await page.evaluate(() => statsFormController.hasPendingChanges())).toBe(false);
+  await page.locator("#btnUndo").click(); await pending(false);
+  await expect(page.locator("#statHealth")).toHaveValue("20.0");
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  await convert.click(); await pending(true);
+  await page.locator("#btnApplyStats").click(); await pending(false, true);
+  expect(await page.evaluate(() => statsFormController.hasPendingChanges())).toBe(false);
+  await page.locator("#btnUndo").click(); await pending(false);
+  expect(await page.evaluate(() => playerStats)).toEqual(originalStats);
+
+  await page.locator("#statHealth").fill("12"); await pending(true);
+  await page.locator('.layout-context-chip[data-workflow-view="player"]').click();
+  await page.locator('.player-row[data-player-key="stats-other"]').click();
+  await expect(page.locator("#statHealth")).toHaveValue("10.0"); await pending(false);
+  await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
+  await page.locator("#statHealth").fill("9"); await pending(true);
+  await page.locator("#statHealth").fill("10"); await pending(false);
+});
+
+
+for (const [locale, width, height] of [["de", 1440, 1000], ["en", 1024, 768], ["de", 320, 740], ["en", 390, 844]]) {
+  test.describe(`shared item picker ${locale} ${width}px`, () => {
+    test.use({ viewport: { width, height }, isMobile: width < 600, hasTouch: width < 600 });
+    test("selects variants and respects container rules without changing the parent draft", async ({ page }) => {
+      const activate = locator => width < 600 ? locator.tap() : locator.click();
+      await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+      const items = { "minecraft:undyed_shulker_box": ["Shulkerkiste", "Shulker Box"],
+        "minecraft:light_blue_shulker_box": ["Hellblaue Shulkerkiste", "Light Blue Shulker Box"],
+        "minecraft:bundle": ["Bündel", "Bundle"], "minecraft:stone": ["Stein", "Stone"],
+        "minecraft:diamond": ["Diamant", "Diamond"], "minecraft:diamond_sword": ["Diamantschwert", "Diamond Sword"],
+        "minecraft:goat_horn": ["Ziegenhorn", "Goat Horn"] };
+      const errors = collectBrowserErrors(page);
+      await openSpecialFixture(page, {
+        0: {slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0},
+        1: {slot: 1, name: "minecraft:bundle", count: 1, damage: 0, special_item: {kind: "bundle", editable: true,
+          data: {items: [{slot: 0, name: "minecraft:diamond", count: 60, damage: 0}]}}},
+        2: {slot: 2, name: "minecraft:diamond_sword", count: 1, damage: 0},
+      }, { items_db: items, addable_items: Object.keys(items),
+        ench_db: { 9: {name_de: "Schärfe", name_en: "Sharpness", max_lvl: 5}, 15: {name_de: "Effizienz", name_en: "Efficiency", max_lvl: 5} },
+        enchantment_compatibility: { item_slots: {"minecraft:diamond_sword": ["sword"]}, compatible_slots: {9: ["sword"], 15: ["pickaxe"]} },
+        stack_limits: {__default__: 64, "minecraft:diamond": 64, "minecraft:stone": 64, "minecraft:goat_horn": 1, "minecraft:diamond_sword": 1, "minecraft:bundle": 1},
+        max_damage: {__default__: 32767, "minecraft:diamond_sword": 1561},
+      });
+      const dialog = page.locator("#specialItemDialog");
+      const picker = page.locator("#itemBrowserOverlay");
+      const search = picker.locator("#browserSearchInput");
+      const accept = dialog.locator('[data-special="accept"]');
+      const choose = dialog.getByRole("button", {name: /Item.Browser|Item browser/});
+      const card = text => picker.locator(".browser-item").filter({has: page.locator(".browser-item-id", {hasText: text})});
+      async function open(slot) {
+        if (!(await page.locator(`.inventory-slot[data-slot="${slot}"]`).isVisible())) await activate(page.locator('.btn-toggle[data-panel="left"]'));
+        await activate(page.locator(`.inventory-slot[data-slot="${slot}"]`));
+        if (!(await page.locator("#btnSpecialItem").isVisible())) await activate(page.locator('.btn-toggle[data-panel="right"]'));
+        await activate(page.locator("#btnSpecialItem"));
+      }
+      const before = await page.evaluate(() => JSON.stringify(inventory));
+      await open(0); await activate(dialog.locator(".special-slot").first());
+      await activate(choose);
+      expect(await picker.evaluate(el => el.matches(":modal"))).toBe(true);
+      await search.fill("shulker");
+      await expect(picker.locator('.browser-item[aria-disabled="true"]')).toHaveCount(2);
+      await expect(picker.locator(".browser-unavailable").first()).toContainText(locale === "de" ? "dürfen nicht" : "cannot");
+      // Aria-disabled cards remain keyboard-readable and cannot be chosen.
+      await picker.locator(".browser-item").first().focus(); await page.keyboard.press("Enter");
+      await expect(picker).toBeVisible();
+      if (process.env.MCBE_QA_SPECIAL_DIR) await page.screenshot({path: `${process.env.MCBE_QA_SPECIAL_DIR}/picker-${locale}-${width}.png`, animations: "disabled"});
+      await page.keyboard.press("Escape");
+      await expect(picker).toBeHidden(); await expect(dialog).toBeVisible(); await expect(choose).toBeFocused();
+      expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+      await activate(choose); await search.fill("goat_horn");
+      await activate(card(/minecraft:goat_horn .* 5$/));
+      await expect(dialog.locator(".special-item-name")).toHaveValue("minecraft:goat_horn");
+      await expect(dialog.getByLabel(locale === "de" ? "Menge" : "Count", {exact: true})).toHaveAttribute("readonly");
+      await activate(dialog.locator("summary"));
+      await expect(dialog.getByLabel(locale === "de" ? "Variante" : "Variant", {exact: true})).toHaveValue("5");
+      await expect(dialog.locator(".special-card")).toBeHidden();
+      // Selection alone leaves the original inventory untouched.
+      expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+      await activate(choose); await search.fill("diamond_sword"); await activate(card(/^minecraft:diamond_sword$/));
+      const ench = dialog.getByLabel(locale === "de" ? "Verzauberung hinzufügen" : "Add enchantment", {exact: true});
+      await expect(ench.locator('option[value="9"]')).toHaveCount(1);
+      await expect(ench.locator('option[value="15"]')).toHaveCount(0);
+      await ench.selectOption("9");
+      await expect(dialog.getByLabel(locale === "de" ? "Stufe" : "Level", {exact: true})).toHaveAttribute("max", "5");
+      await activate(accept); await activate(accept);
+      expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({name: "minecraft:diamond_sword", count: 1, enchantments: [{id: 9, lvl: 1}]});
+      await open(1); await activate(dialog.locator(".special-slot").last());
+      await activate(choose); await search.fill("diamond_sword");
+      await expect(card(/^minecraft:diamond_sword$/)).toHaveAttribute("aria-disabled", "true");
+      await search.fill("diamond"); await activate(card(/^minecraft:diamond$/));
+      await expect(dialog.getByLabel(locale === "de" ? "Menge" : "Count", {exact: true})).toHaveAttribute("max", "4");
+      await dialog.locator(".special-item-name").fill(locale === "de" ? "Stein" : "Stone");
+      await activate(dialog.locator(".autocomplete-item").first());
+      await expect(dialog.locator(".special-item-name")).toHaveValue("minecraft:stone");
+      if (process.env.MCBE_QA_SPECIAL_DIR) await page.screenshot({path: `${process.env.MCBE_QA_SPECIAL_DIR}/shared-form-${locale}-${width}.png`, animations: "disabled"});
+      await activate(dialog.locator('footer [data-special="cancel"]')); await activate(dialog.locator('footer [data-special="cancel"]'));
+      expect(await page.evaluate(() => inventory[1].special_edit)).toBeUndefined();
+      if (!(await page.locator('.inventory-slot[data-slot="2"]').isVisible())) await activate(page.locator('.btn-toggle[data-panel="left"]'));
+      await activate(page.locator('.inventory-slot[data-slot="2"]'));
+      if (!(await page.locator("#detailCount").isVisible())) await activate(page.locator('.btn-toggle[data-panel="right"]'));
+      await expect(page.locator("#detailCount")).toHaveAttribute("max", "1");
+      await expect(page.locator("#detailCount")).toHaveAttribute("readonly");
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
+for (const [locale, width] of [["de", 1440], ["en", 390]]) {
+  test.describe(`entity draft reselection ${locale} ${width}px`, () => {
+    test.use({viewport: {width, height: 900}, isMobile: width < 600, hasTouch: width < 600});
+    test("keeps unaccepted entity variants through search and browser reselection", async ({page}) => {
+      const activate = locator => width < 600 ? locator.tap() : locator.click();
+      await page.context().addCookies([{name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL}]);
+      const ids = ["minecraft:axolotl_bucket", "minecraft:tropical_fish_bucket", "minecraft:diamond"];
+      await openSpecialFixture(page, {
+        0: {slot: 0, name: ids[0], count: 1, damage: 0,
+          entity_variant: {entity_id: "minecraft:axolotl", variant: 1, is_baby: false, can_edit: true}},
+        1: {slot: 1, name: ids[1], count: 1, damage: 0,
+          entity_variant: {entity_id: "minecraft:tropicalfish", variant: 0, mark_variant: 1, color: 2, color2: 3, can_edit: true}},
+      }, {items_db: Object.fromEntries(ids.map(id => [id, [id, id]])), addable_items: ids,
+        stack_limits: Object.fromEntries(ids.map(id => [id, 1]))});
+      const errors = collectBrowserErrors(page);
+      for (const [slot, controls, edit] of [
+        [0, [["detailAxolotlColor", "4"], ["detailAxolotlAge", "baby"]], {kind: "axolotl", variant: 4, is_baby: true}],
+        [1, [["detailTropicalFishPattern", "1:5"], ["detailTropicalFishColor", "14"], ["detailTropicalFishColor2", "15"]],
+          {kind: "tropical_fish", variant: 1, mark_variant: 5, color: 14, color2: 15}],
+      ]) {
+        const gridSlot = page.locator(`.inventory-slot[data-slot="${slot}"]`);
+        if (!(await gridSlot.isVisible())) await activate(page.locator('.btn-toggle[data-panel="left"]'));
+        await activate(gridSlot);
+        if (!(await page.locator("#detailItemSearch").isVisible())) await activate(page.locator('.btn-toggle[data-panel="right"]'));
+        for (const [id, value] of controls) await page.locator(`#${id}`).selectOption(value);
+        // A temporary search query does not replace the item represented by the form.
+        await page.locator("#detailItemSearch").fill(ids[slot].slice(10));
+        await activate(page.locator("#detailItemAutocomplete .autocomplete-item").filter({has: page.locator(".item-id", {hasText: ids[slot]})}));
+        expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual(edit);
+        for (const [id, value] of controls) await expect(page.locator(`#${id}`)).toHaveValue(value);
+        // The catalogue also preserves a subsequent unaccepted change.
+        const [control] = controls[0];
+        const nextValue = slot === 0 ? "2" : "1:4";
+        await page.locator(`#${control}`).selectOption(nextValue);
+        await activate(page.locator("#btnBrowserDetail"));
+        await page.locator("#browserSearchInput").fill(ids[slot]);
+        await activate(page.locator("#browserGrid .browser-item").filter({has: page.locator(".browser-item-id", {hasText: ids[slot]})}));
+        await expect(page.locator(`#${control}`)).toHaveValue(nextValue);
+        expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual({...edit, ...(slot === 0 ? {variant: 2} : {mark_variant: 4})});
+      }
+      expect(errors).toEqual([]);
+    });
+  });
+
+  test.describe(`item reselection ${locale} ${width}px`, () => {
+    test.use({viewport: {width, height: 900}, isMobile: width < 600, hasTouch: width < 600});
+    for (const contained of [false, true]) {
+      test(`typing an item ID preserves the draft across valid prefixes (${contained ? "contained" : "slot"})`, async ({page}) => {
+        const activate = locator => width < 600 ? locator.tap() : locator.click();
+        await page.context().addCookies([{name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL}]);
+        const original = {slot: 0, name: "minecraft:diamond_sword", count: 1, damage: 37,
+          display_name: "Keep name", lore: ["Keep lore"], enchantments: [{id: 9, lvl: 2}]};
+        await openSpecialFixture(page, {0: contained
+          ? {slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+              special_item: {kind: "shulker", editable: true, data: {items: [{...original, source_index: 0}]}}}
+          : original});
+        const errors = collectBrowserErrors(page);
+        await activate(page.locator('.inventory-slot[data-slot="0"]'));
+        if (!(await page.locator("#detailItemSearch").isVisible())) await activate(page.locator('.btn-toggle[data-panel="right"]'));
+        const dialog = page.locator("#specialItemDialog");
+        if (contained) {
+          await activate(page.locator("#btnSpecialItem"));
+          await activate(dialog.locator(".special-slot").first());
+          await expect(dialog.locator(".special-item-name")).toBeFocused();
+          await activate(dialog.locator(".special-properties summary"));
+        }
+        const name = contained ? dialog.locator(".special-item-name") : page.locator("#detailItemSearch");
+        const custom = contained ? dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", {exact: true}) : page.locator("#detailCustomName");
+        const damage = contained ? dialog.getByLabel(locale === "de" ? "Abnutzung / Datenwert" : "Wear / data value", {exact: true}) : page.locator("#detailDamage");
+        const lore = contained ? dialog.locator("textarea") : page.locator("#detailLore");
+        await custom.fill("Pending name");
+        await name.fill("");
+        await name.pressSequentially("minecraft:diamond_sword");
+        await activate(custom);
+        await expect(custom).toHaveValue("Pending name");
+        await expect(damage).toHaveValue("37");
+        await expect(lore).toHaveValue("Keep lore");
+        // A complete prefix can also be a search query for a longer ID.
+        // Choosing a suggestion must not commit the prefix on pointer focus.
+        await name.fill("minecraft:diamond");
+        const suggestions = contained ? dialog.locator(".special-item-suggestions") : page.locator("#detailItemAutocomplete");
+        await activate(suggestions.locator(".autocomplete-item").filter({has: page.locator(".item-id", {hasText: /^minecraft:diamond_sword$/})}));
+        await expect(custom).toHaveValue("Pending name");
+        await expect(damage).toHaveValue("37");
+        await custom.fill("Browser draft");
+        const browserButton = contained ? dialog.getByRole("button", {name: /Item.Browser|Item browser/}) : page.locator("#btnBrowserDetail");
+        await name.fill("minecraft:diamond");
+        if (process.env.MCBE_QA_SPECIAL_DIR) await page.screenshot({path: `${process.env.MCBE_QA_SPECIAL_DIR}/item-picker-${contained ? "contained" : "slot"}-${locale}-${width}.png`, animations: "disabled"});
+        await activate(browserButton);
+        await page.keyboard.press("Escape");
+        // Cancelling the picker also leaves the form's draft intact.
+        await expect(custom).toHaveValue("Browser draft");
+        await expect(damage).toHaveValue("37");
+        await activate(browserButton);
+        await page.locator("#browserSearchInput").fill("diamond_sword");
+        await activate(page.locator("#browserGrid .browser-item").filter({has: page.locator(".browser-item-id", {hasText: /^minecraft:diamond_sword$/})}));
+        await expect(custom).toHaveValue("Browser draft");
+        await expect(damage).toHaveValue("37");
+        if (contained) {
+          await activate(dialog.locator('[data-special="accept"]'));
+          await activate(dialog.locator('[data-special="accept"]'));
+        }
+        expect(await page.evaluate(contained => contained ? inventory[0].special_edit.data.items[0] : inventory[0], contained))
+          .toMatchObject({...original, display_name: "Browser draft"});
+        expect(errors).toEqual([]);
+      });
+    }
+    test("preserves the same item and resets only a real replacement in both forms", async ({page}) => {
+      const activate = locator => width < 600 ? locator.tap() : locator.click();
+      await page.context().addCookies([{name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL}]);
+      const original = {slot: 0, name: "minecraft:diamond", count: 12, damage: 0, display_name: "Keep name", lore: ["Keep lore"]};
+      await openSpecialFixture(page, {
+        0: original,
+        1: {slot: 1, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+          special_item: {kind: "shulker", editable: true, data: {items: [{...original, source_index: 0}]}}},
+      });
+      const errors = collectBrowserErrors(page);
+      async function selectSlot(slot) {
+        const gridSlot = page.locator(`.inventory-slot[data-slot="${slot}"]`);
+        if (!(await gridSlot.isVisible())) await activate(page.locator('.btn-toggle[data-panel="left"]'));
+        await activate(gridSlot);
+        if (!(await page.locator("#detailItemSearch").isVisible())) await activate(page.locator('.btn-toggle[data-panel="right"]'));
+      }
+      await selectSlot(0);
+      await page.locator("#detailItemSearch").fill("diam");
+      await activate(page.locator("#detailItemAutocomplete .autocomplete-item").filter({has: page.locator(".item-id", {hasText: /^minecraft:diamond$/})}));
+      expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
+      await expect(page.locator("#btnUndo")).toBeDisabled();
+      await expect(page.locator("#detailCustomName")).toHaveValue("Keep name");
+      await page.locator("#detailItemSearch").fill("minecraft:diamond_sword");
+      await page.locator("#detailItemSearch").press("Enter");
+      await expect(page.locator("#detailCount")).toHaveValue("1");
+      await expect(page.locator("#detailCustomName")).toHaveValue("");
+      await selectSlot(1);
+      await activate(page.locator("#btnSpecialItem"));
+      const dialog = page.locator("#specialItemDialog");
+      await activate(dialog.locator(".special-slot").first());
+      const name = dialog.locator(".special-item-name");
+      const count = dialog.getByLabel(locale === "de" ? "Menge" : "Count", {exact: true});
+      const custom = dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", {exact: true});
+      await name.fill("diam");
+      await activate(dialog.locator(".autocomplete-item").filter({has: page.locator(".item-id", {hasText: /^minecraft:diamond$/})}));
+      await expect(count).toHaveValue("12");
+      await activate(dialog.locator(".special-properties summary"));
+      await expect(custom).toHaveValue("Keep name");
+      await name.fill("minecraft:diamond_sword");
+      await name.press("Enter");
+      await expect(count).toHaveValue("1");
+      await expect(count).toHaveAttribute("readonly");
+      await expect(custom).toHaveValue("");
+      await expect(dialog.locator("textarea")).toHaveValue("");
+      await activate(dialog.locator('[data-special="accept"]'));
+      expect(await page.evaluate(() => inventory[1].special_edit)).toBeUndefined();
+      await activate(dialog.locator('footer [data-special="cancel"]'));
+      expect(await page.evaluate(() => inventory[1].special_item.data.items[0])).toMatchObject(original);
+      expect(errors).toEqual([]);
+    });
+  });
+}
