@@ -1,6 +1,6 @@
 # Experimental Mount Creation
 
-This document records the durable engineering contract for creating persistent Minecraft Bedrock mounts directly in a stopped world's LevelDB. It is not a user guide or a progress log.
+This contract covers creation of persistent Minecraft Bedrock mounts directly in a stopped world's LevelDB.
 
 The feature is experimental. Test it on expendable world copies before using it on important data.
 
@@ -27,7 +27,7 @@ Type-specific definitions, attributes, equipment lists, and editable ranges are 
 
 Generated values must remain within the observed bounds and pass the same post-write validation as explicit values.
 
-Values the game rolls per specimen are rolled, not fixed. Taming progress (`Temper`) is one of them: 41 scanned horse, donkey and mule records spread over 0 to 98, so a constant would mark every created animal as editor-made. Horses take it from the horse profile — random mode draws it from the same seeded generator as the other profile values, so one seed still reproduces one exact record, and custom mode exposes it as a bounded field. Donkeys and mules roll it from the same generator that already rolls their health, and expose the same bounded field on their wild variant. Skeleton horses and camels carry no `Temper` at all, and taming removes it — the tamed variants therefore offer no field, and a submitted value is dropped rather than written.
+Wild horses, donkeys and mules use the profile's seeded generator for random taming progress (`Temper`), keeping generated records reproducible. Custom profiles expose a bounded field. Skeleton horses and camels have no `Temper`; tamed variants omit it and discard a submitted value.
 
 ## Visual preview
 
@@ -54,7 +54,7 @@ The preview checks four directional lines around the player. With rotation, thes
 
 Every candidate keeps at least `MIN_PLACEMENT_RADIUS` blocks of horizontal distance from the player, and stays within the chosen search radius apart from the half-block-per-axis slack that whole-block rounding implies.
 
-Offsets are whole blocks, so a diagonal cannot hit an arbitrary distance exactly. Nearest rounding keeps a candidate closest to the requested distance, but it shortens diagonals, and at the inner end that breaks the floor: a 45° direction at distance 2 rounds to `(1, 1)`, which is 1.41 blocks. Only in that case are the components rounded away from zero instead. Overshooting is then unavoidable — no whole-block diagonal lies between 1.41 and 2.83 blocks — so it is confined to the one step where the alternative would place the mount too close. Pushing every diagonal outward instead would trade the broken floor for a broken radius.
+Whole-block offsets use nearest rounding. If that would violate the minimum distance, components round away from zero instead: for example, `(1, 1)` is too close for a two-block minimum. This exception preserves the distance floor without pushing every diagonal beyond the search radius.
 
 The browser sends only a bounded offset. At preview and save time, the backend:
 
@@ -123,21 +123,11 @@ At minimum, validation must confirm:
 
 A failure before the batch is a normal rejected save and must leave the world unchanged.
 
-A failure after the batch has committed is different. The response uses `success=false`, `write_committed=true`, and `validation_failed=true`. The frontend must adopt the returned revision, remove already written drafts, show the backup notice, and prevent an unchanged retry. Repeating a committed operation could create duplicate entities.
+A validation failure after the batch has committed uses `success=false`, `write_committed=true`, and `validation_failed=true`. The frontend adopts the returned revision, removes already written drafts, shows the backup notice, and prevents an unchanged retry. An uncertain write outcome instead requires a reload without marking drafts as written; see [write outcomes](save_contract.md#write-outcomes-and-post-write-validation). Repeating either operation could create duplicate entities.
 
 ## Safety gates
 
-Mount creation uses the same write boundary as player saves:
-
-- loaded-player revision and opaque server guard;
-- presence-conflict handling;
-- configured Bedrock server reachability check;
-- explicit confirmation for unknown server status;
-- final server check immediately before `putBatch`;
-- backup before the write;
-- post-write validation.
-
-A confirmation for unknown status never overrides a later `online` result. `MCBE_READ_ONLY=true` rejects mount creation.
+Mount creation uses the [player-save write gates](save_contract.md#revision-presence-and-write-gates), including revision and presence checks and the final server check immediately before `putBatch`. A confirmation for unknown status never overrides a later `online` result. `MCBE_READ_ONLY=true` rejects mount creation.
 
 ## Known limits
 
@@ -149,8 +139,6 @@ A confirmation for unknown status never overrides a later `online` result. `MCBE
 - Tamed donkey and mule ownership uses the world-internal player actor identity; it does not transfer external account identity or pet ownership from another player.
 - Tamed donkeys and mules created by the editor have no manual in-game load test.
 - Not all non-default horse colors and markings have been visually confirmed in game. The reference fixture pins the definitions mapping for colors 3, 5 and 6 and markings 1 to 4 against real Minecraft records; the remaining combinations rest on the lookup tables alone.
-
-Open product work belongs in the issue tracker. Historical experiments and one-off world observations belong in private diagnostics, not in this contract.
 
 ## Verification
 

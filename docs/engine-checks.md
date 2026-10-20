@@ -221,18 +221,61 @@ access; the runner does not change system networking permissions.
 
 ## Specialized item editors and manual gameplay checks
 
-The current engine suites cover general item construction, metadata and
-save/reload behavior. They do **not** submit `special_edit` payloads or
-independently check filled shulkers/bundles, book pages, banner patterns or
-firework effects. A passing roundtrip for one of these item IDs does not verify
-its specialized contents. The historical results below do not extend that scope.
+The `special` suite submits real `special_edit` payloads through the production
+item builder, codec, backup and WAL path. It uses the same disposable carriers
+and two engine save/reload cycles as the item suite, with an additional edit
+between those cycles. The deterministic cases cover:
+
+- Bundles with maximal stacks of 64, 16 and 1; a mixed load increasing from 63
+  to 64 weight units; an inner bundle including its four-unit overhead; empty,
+  filled and cleared contents, including slot 63 and a colored bundle.
+- All 27 shulker slots, a colored shulker containing a bundle with a book, and
+  a named, enchanted, damaged sword. The second edit moves existing children,
+  changes their metadata and edits the nested book. Origins bind to stored
+  slots, not an assumed list order; unknown child tags stay with their origin.
+- Writable and signed books with Unicode, newlines, empty pages, a 256-character
+  page and 50 pages; page reordering, editing and removal; title and author.
+  The signed reference uses the documented
+  [Book component](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/itembookcomponent?view=minecraft-bedrock-stable)
+  to sign an engine-created writable book. It does not invent a creatable
+  written-book registry entry. A missing component fails the profile.
+- Banner base colors and six ordered patterns, including complex motifs;
+  reordering and clearing patterns.
+- Rocket flight durations, seven effects spanning all five shapes, colors,
+  fade colors, trail and flicker; effect removal and a firework star color change.
+
+After the first reload, selected cases are edited and the controls remain
+byte-preserved by the editor. An independent typed-NBT oracle checks the saved contents immediately
+after each editor write and each clean engine stop. It checks nested counts,
+IDs, metadata, occupied slots and bundle weight, as well as the specialized
+fields above. Unexpected/duplicate slots, missing contents, wrong tag types and
+changed values fail the run. The existing Script API observation independently
+checks each outer item's identity, count, name, lore, damage and enchantments;
+it does not observe the specialized contents in memory. Explicit empty slots
+and omitted default-valued fields are accepted only where the oracle defines
+their equivalent representation.
+
+Separate editor rejection checks cover overstacked children, out-of-range
+and duplicate slots, shulkers inside shulkers/bundles, excess bundle capacity and
+nested-bundle overhead. Rejections must leave the original unchanged. These
+checks validate editor guards, not engine gameplay rejection behavior. Required
+stack limits must agree with both the engine measurement and the curated catalog;
+missing prerequisites fail rather than silently reducing coverage.
+The offline-worker boundary also requires a successful result status and the
+exact planned case count; a zero process exit code alone does not pass a phase.
+
+Disk persistence does not establish that a client opens, places or uses the
+special items correctly. The profile does not exhaust every color, metadata
+combination, legacy/add-on schema or actual player/Ender Chest flow with special
+items.
 
 `tests/test_special_items.py` checks the production writer's typed NBT,
 preservation, bounds and nested edits with synthetic data. The frontend and
 browser tests check isolated drafts, direct container-search entry, cancel,
 Undo/Redo and editing gates. These checks can run without Minecraft; they cannot
-prove that a client opens or uses the resulting items correctly. Even an engine
-save/reload check alone would not establish those gameplay behaviors.
+prove that a client opens or uses the resulting items correctly.
+`tests/test_engine_special.py` also injects corrupted results to verify that
+the harness detects failures; these synthetic unit checks are not BDS evidence.
 
 Use a **separate disposable world** for the following manual checks. Do not
 modify an automated or real-client profile's world during its run: those
@@ -263,45 +306,22 @@ and effects, and inspect the edited star's color. Keep these observations
 separate from automated pass counts. A missing real client or unperformed step
 must remain an explicit coverage gap.
 
+With **BDS 1.26.52.3** and Windows Bedrock **1.26.5203.0**, clicking into a blank
+page and closing a writable book can persist that page and preceding blank
+pages without typing. This behavior also occurs with Minecraft-created books.
+The displayed page total alone does not establish the stored page count;
+compare actual page contents and counts. The editor preserves existing blank
+pages until explicitly removed, and the engine checks require the requested
+page count, text and order, including blank pages.
+
 ## Verified builds
 
-The results below use **BDS 1.26.52.3**, editor runtime **v0.6.2** at source
-revision `4e1d1ba2ebe5675f6a60a7681ce2567fb7d139cd`, and the source snapshots
-identified below. They come from local Docker runs,
-not from the manually dispatched workflow. The scope exclusions above apply.
-The bundled catalog has no registry, stack-limit or durability differences from
-this engine. The provenance of its reviewed values is documented in
+The automated and real-client profiles have been exercised with **BDS 1.26.52.3**
+and the editor's development version. Each local report identifies the tested
+editor revision and source hashes. Coverage is limited to the cases and operations
+described above; reports, screenshots and logs remain local.
+The provenance of reviewed catalog values is documented in
 [item-stack-limits.md](item-stack-limits.md).
-The roundtrip covers the entire measured registry, including cushions, the
-straw bed and poplar items.
-
-| Profile | Completed checks |
-| --- | --- |
-| Extended | 1,623 IDs; 13,153 item cases; 2 engine save/reload cycles; 6,492 invalid creation amounts rejected |
-| Enchantments | 68,166 applicability checks; 9,102 ordered pair checks, including 652 engine rejections; 2,028 level cases, 3,386 accepted pair cases and 795 preserved references |
-| Editor rules | 68,166 applicability comparisons and 5,658 conflict-hint comparisons with no differences; 84 incompatible creations, 126 invalid levels and 168 invalid damage values rejected |
-| Variants/boundaries | 120 data-variant cases, 282 potion cases, 420 durability boundaries and 32 mixed-metadata cases across 8 equipment profiles |
-| Stack/gameplay | 1,648 merge pairs including full-container remainders; 6 hopper/drop cases |
-| Player service | 45 item cases; 2 synthetic player formats; 10 backed-up writes with 10 intermediate NBT checks, 4 cross-container moves and 2 recreations of mixed-metadata items, 2 no-op checks and 2 stale revision rejections; 2 engine reloads |
-| Controlled add-on | 12 cases including 2 custom item types and Vanilla controls; 2 engine reloads; 2 unregistered creation attempts rejected |
-| Real client | 3 connections; 45 item cases across Inventory and Ender Chest; 5 backed-up writes with 5 intermediate NBT checks, 2 cross-container moves and 1 recreation of mixed-metadata items, 1 no-op check and 1 stale revision rejection; 2 engine reloads with independent disk checks |
-
-The rule comparison explicitly accounts for 42 ordinary-book preservation
-exceptions and 861 enchanted-book pairs without conflict hints. All 42
-enchantment identifiers and maximum levels agree with the reviewed catalog.
-The real-client row represents one complete three-connection run with the Beta
-API and local offline-server profile described above. Results from failed or
-partial runs are not combined with it.
-
-SHA-256 provenance:
-
-- Official Linux archive: `f6348d84fa714d04ca194f207e89453ca6bba0a1359396475271a52a150471c6`.
-- Raw catalog snapshot: `7c6789be2cb159fe90350ba76bd214f5e28d60257d3a8a14a0deb41ec9e16954`.
-- Editor sources: `c1a490938f1e60402bb0f2f6cb90603ec1c0c659703e90a698b5e9d5cc0f767f`.
-- Probe sources: `a4ca5eb7080680c3d7a69651b01ae3f2c647c07485446294d8fc7d55850c0fcc`.
-
-Source hashes use the runner's `source_hashes()` procedure. Raw file hashes are
-line-ending sensitive.
 
 ## Local use
 
@@ -322,10 +342,11 @@ $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
 .venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.52.3
 ```
 
-The default `--suite all` sequentially runs `extended`, `service` and `addons`,
+The default `--suite all` sequentially runs `extended`, `special`, `service` and `addons`,
 each in a separate fresh world and with its own report. A failure/partial result
 in any suite stays failed/partial in the aggregate process exit code. Use
-`--suite items` for the smaller base NBT suite or `--suite catalog` for registry
+`--suite special` to focus on specialized editor persistence, `--suite items`
+for the smaller base NBT suite or `--suite catalog` for registry
 and component measurements only. `--suite client` is a separate, interactive
 opt-in. `--timeout 300` bounds each engine phase; shutdown has a shorter
 deadline. Missing Docker/BDS is an error, never a substituted mock engine.

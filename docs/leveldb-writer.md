@@ -142,11 +142,8 @@ exclusive offline access; it does not replace the server-status gate and does no
 affect WAL synchronization or read-back.
 
 The cache avoids repeated block reads, CRC checks and decompression while a
-batch of nearby keys is validated. With CPython 3.12.14, validating and writing
-1,000 scattered keys in a synthetic database of 60,000 records of about 1 KiB
-takes a median of 984 ms without the cache and 406 ms with the 64 MiB limit;
-smaller limits gain less on that workload. Single writes show no comparable
-benefit, and a cold full-world scan and WAL replay remain separate costs.
+batch of nearby keys is validated. A cold full-world scan and WAL replay remain
+separate costs.
 
 ## Player list after saves
 
@@ -162,11 +159,8 @@ committed write.
 The service's `PlayerDirectory` uses this receipt to keep a discovered player
 list across an ordinary save of one existing player; the
 [save contract](save_contract.md) describes when it applies. The list is only an
-optimization: selected records, revisions, write gates and backups stay
-authoritative. With CPython 3.12.14 and worlds of 777,893 records, reloading after
-a save takes 0.1–0.2 seconds with the kept list instead of 14–17 seconds for a new
-discovery; the save itself, including its backup, takes the same 1.4–1.7 seconds
-either way.
+optimization: it avoids repeated discovery but does not replace selected-record
+reads, revisions, write gates or backups.
 
 ## Architectural boundary
 
@@ -232,8 +226,8 @@ pure-Python writer against an explicitly selected official BDS build. They
 cover item records in generated carriers, two synthetic player formats and
 an owned conformance add-on through two engine save/reload cycles. The separate
 real-client profile covers actual Inventory and Ender Chest persistence.
-Server versions, case counts and archive/source hashes are maintained in
-[Verified builds](engine-checks.md#verified-builds).
+See [Verified builds](engine-checks.md#verified-builds) for the reference version;
+individual run reports and archive/source hashes remain local.
 
 ### Minecraft client evidence
 

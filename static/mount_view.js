@@ -566,7 +566,7 @@
     }
 
     // Editierbare Werte pro Mount-Typ: nur Felder, die das Vanilla-Spiel selbst
-    // pro Exemplar würfelt (Evidenz-Reports 2026-07-10). Alles andere bleibt fix.
+    // pro Exemplar würfelt. Alles andere bleibt fix.
     const HEALTH_STAT_FIELD = { id: "mountStatHealthInput", key: "health", label: t("Leben"), min: 15, max: 30, step: 1, note: t("Vanilla-Bereich: 15 bis 30.") };
     // wildOnly: Zähmen entfernt das Temper-Tag komplett, das Feld verschwindet
     // deshalb mit gesetztem Haken statt einen verworfenen Wert anzubieten.

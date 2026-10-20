@@ -23,7 +23,7 @@ The frontend sends heartbeats only with this local opt-in, including setup/login
 Desktop forces the option off and follows its native window lifecycle. During
 shutdown, the local server stops accepting new work,
 keeps I/O running until active handlers finish, then allows up to five seconds to
-flush buffered response bytes. During shutdown, a response whose full buffer
+flush buffered response bytes. A response whose full buffer
 blocks a worker is disconnected after five seconds; application work such as a
 save is still awaited. A stuck application handler can therefore delay shutdown;
 a second Ctrl+C interrupts the wait. Recheck this integration when upgrading
@@ -85,45 +85,23 @@ python scripts/test_full.py --require-references -q
 python -m pytest tests/test_nbt_reference.py tests/test_nbt_reference_write_path.py tests/test_nbt_reference_workflows.py tests/test_nbt_codec.py -q
 ```
 
-`tests/test_nbt_reference_write_path.py` is the write-path differential: the same
-player edit runs through the real service layer in two separate processes, once
-with the project codec and once with Amulet-NBT installed as `mcbe_editor.nbt`
-(the pre-migration binding), and the resulting logical database records must be
-byte-identical. Each editable player must complete the requested edit; shared
-save errors, unsuccessful results and unexpected no-op results fail instead of
-becoming skips. An independent Amulet-based comparison also
-checks untouched player NBT against the original, excluding only the worker's
-explicitly edited slots and fields. Regression cases inject common data loss
-and a change from negative to positive floating zero into both backends.
-Its always-on case in the reference environment uses a synthetic world. With `MCBE_RUN_PRIVATE_WORLD_TESTS=1`
-and `MCBE_RUN_PRIVATE_WORLD_WRITE_TESTS=1` it repeats the comparison on temporary
-copies of the git-ignored `fixtures/private` worlds (limited by
-`MCBE_PRIVATE_WORLD_MAX_WORLDS`, default 3); no private data is part of the test.
+`tests/test_nbt_reference_write_path.py` compares player edits through the real
+service in separate project-codec and Amulet-NBT processes.
+`tests/test_nbt_reference_workflows.py` extends that comparison to mount creation,
+state transfer and all codec pairings for export/import. Intended writes must
+succeed; equal failures or unexpected no-ops cannot pass. Resulting NBT must match
+byte for byte, and untouched data is independently compared with the original.
+Only path-dependent tokens, backup filenames, export timestamps and ZIP metadata
+are excluded. See [reference coverage](dependency-portability-assessment.md#executable-validation)
+for scope and limits.
 
-`tests/test_nbt_reference_workflows.py` extends the service differential to mount
-creation (all supported types and tame states, automatic fallback, and explicit
-or automatic template cloning), player-state transfer in both directions, and
-player export/import. Both codecs export local and server players; all four
-exporter/importer combinations overwrite an existing player and create a new
-record. The exported and imported `player.nbt` must equal the original bytes.
-Mount actor NBT, chunk `digp` references and transferred player NBT must match
-between backends. Every untouched database key/value is checked against the
-original, and independent fixture expectations cover transferred gameplay,
-preserved target identity, unknown nested data and template data. Service
-failures, missing writes, missing backups and failed post-write validation fail
-the comparison. Only path-dependent tokens, backup filenames, export timestamps
-and ZIP container metadata are excluded; NBT bytes are never normalized.
-These synthetic native-database cases run in the Python 3.12 oracle CI step.
-The same two private-world flags and world limit enable an additional workflow
-case on temporary copies of each selected world: transfer a real player into a
-synthetic counterpart, export with both backends and import all four combinations,
-then create a synthetic horse. Private worlds without editable players are not
-eligible; failed eligible operations fail the test. Copies and real backup ZIPs
-need temporary disk space (several times the largest selected world); completed
-stages and import copies are removed before proceeding. Source fixtures remain
-unchanged and no private payload is checked into the repository.
-They compare current services using the old NBT binding, not an entire historical
-application checkout, and do not replace Minecraft gameplay validation.
+Synthetic cases run in the reference CI job. The two
+[private-world opt-ins](#test-fixtures-and-private-worlds) also enable these
+comparisons on temporary copies, limited by `MCBE_PRIVATE_WORLD_MAX_WORLDS`
+(default 3). Worlds without editable players are ineligible; failed eligible
+operations fail the test. Allow several times the largest selected world's size
+for copies and backups. Source fixtures stay unchanged and private payloads
+remain outside the repository.
 
 When running multiple local interpreter suites concurrently, give each process
 its own `MCBE_DATA_ROOT` before Python starts. Some tests import the app during
@@ -179,7 +157,7 @@ For release/CI runs, use `scripts/test_full.py`. The regular suite requires the 
 python scripts/test_full.py -v
 ```
 
-The GitHub Actions workflow runs on pull requests, pushes to `main`, version tags, a weekly schedule, and manually via **Actions → CI → Run workflow**. Pull requests, `main`, scheduled runs, and manual runs execute the full validation including a Docker build, but never publish. Only a version-tag push may publish the Docker image and create a GitHub Release; a separate publish workflow without tests does not exist. External actions are immutably pinned to full commit SHAs, with the corresponding release tag documented as a comment.
+CI runs the full validation, including a Docker build, on pull requests, `main`, version tags, a weekly schedule and manual **Actions → CI → Run workflow** requests. Only version tags may publish; see [release hygiene](#release-hygiene). External actions are pinned to full commit SHAs with their release tag in a comment.
 
 The `Lint` job requires both `ruff check .` and `ruff format --check .` to pass.
 Package and release jobs depend on it. Apply formatting locally with
@@ -211,9 +189,8 @@ This requires a Playwright-supported **Node.js** version in the local `PATH`; CI
 The UI is bilingual (German/English). German is the source language: user-facing strings appear in the code as German literals and are translated at runtime.
 
 - Frontend: `static/i18n.js` provides `t(text, params)` plus the only supported locale-sensitive helpers: `localizedPair`, `compare`, `formatNumber`, `formatDate`, and `tp` (plural selection). Feature modules must use these helpers instead of reading `MCBEI18n.locale` directly. The English catalog lives in `static/i18n/en.json` and maps the exact German source string to its English translation. Placeholders use the `{name}` syntax and are substituted after catalog lookup.
-- Templates: Jinja templates use the same `t()` via a template global; the active locale is decided server-side (cookie `mcbe_locale`, falling back to the `Accept-Language` header) so pages render without a flash of untranslated text.
+- Templates: visible text and translatable attributes use Jinja `t()`. CSS-generated labels use translated `data-*` attributes, never hard-coded text. The server selects the locale from `mcbe_locale`, falling back to `Accept-Language`, so pages render in the selected language.
 - Fallback: a missing catalog entry falls back to the German source string. When adding or changing a user-facing string, update `static/i18n/en.json` in the same change.
-- Templates: visible text and translatable attributes use Jinja `t()` explicitly. CSS-generated labels receive their localized values through translated `data-*` attributes; styles must not hard-code user-facing text.
 - Backend messages: `mcbe_editor/i18n.py` provides a request-aware `t(text, **params)` that resolves the locale of the active Flask request (outside a request it falls back to German, the source language). API failures use `mcbe_editor/api_errors.py` and return stable `code`, `params`, `message_key`, and localized `message`; the legacy `error` alias remains during migration. The frontend localizes `message_key` again at the display boundary, so a stale or separately negotiated API locale cannot leak into the active page language. A specific backend message already names the failed action and is shown as it is; the page puts its own context (for example `Fehler beim Speichern: {error}`) only in front of a technical reason: an unreadable answer, an error answer without a message, a bare `error`, or a generic handler message such as `Interner Serverfehler` (`errorMessageInContext` in `static/api_client.js`). Because a refusal is such a specific message, the save routes put `Speichern abgelehnt:` in front of one that names only its reason, such as `Welt-Ordner existiert nicht.` (`save_refusal_payload` in `mcbe_editor/api_errors.py`). Localized responses include `Vary: Accept-Language, Cookie`.
 - Tests: the pytest suite pins the Flask test client to German via `tests/conftest.py` (`Accept-Language: de` in `environ_base`), because assertions use the German source strings. Translation itself is covered by `tests/test_backend_i18n.py`; tests that exercise English send their own `Accept-Language` header, which overrides the pin. `tests/test_i18n_catalog.py` checks unique keys, placeholders, referenced literals, and rejects raw translatable template text; `tests/test_frontend_i18n.py` prevents feature modules from reintroducing raw locale checks or a DOM-translation fallback.
 - Operator-facing console output, CLI help, batch scripts and internal logs are outside the request-locale translation contract. Their language varies by tool; do not assume that all console output is English.
@@ -245,9 +222,20 @@ That table is maintained by hand, so two situations need a maintainer:
 
 A `wiki_*` stamp in `source_version.json` records a comparison made by that update. A later update without `--check-wiki` removes the stamp. The initial table values came from wiki revision 3648146; this is recorded in the table's `seeded_from` block.
 
-The updater emits a structured report independently of the localized console log. It records the previous and checked source releases, section counts, description-only effect changes, stack-limit coverage, removed non-item language keys and changed durability values. A confirmed atomic write emits a final report with `applied: true`; the reader uses the last report. This distinguishes partial writes with skipped sections from failures before a write. The API reloads confirmed writes even when a skipped section makes the process exit nonzero, and the UI refreshes the active catalog while retaining the partial-failure warning. Current results state that no update is required; the pending-preview label appears only for available content or source-metadata changes. A successful current result without reload warnings disables the apply button for that scope in the open page. The adjacent hint identifies this as the last check, and a new check remains available. Scope changes, failures and subsequent results reset this state; clearing the output only hides the result. Explicit database-repair workflows can still request a verification write. Deliberately preserved names appear only inside the technical log as a flat list, with one comparison per item in the active UI language. Change details contain actual changes and unresolved findings; an empty section is hidden. The technical log opens independently. A preview does not update the persistent database. The apply action keeps the confirmed scope and uses the matching review receipt; a failed request discards that receipt.
+The updater emits a structured report separately from the localized console log.
+It compares saved and checked sources, item-data changes and validation findings.
+A confirmed atomic write emits `applied: true`; the reader uses the last report.
+The API reloads confirmed writes even if skipped sections cause a nonzero exit,
+and the UI retains the partial-failure warning.
 
-Each update replaces the browser's technical output. The server's recent-log view retains at most 200 entries in memory. Successful source changes append small metadata entries to `source_version_history.json`; the history has no entry limit, but unchanged sources do not append entries. A full apply can refresh the verification timestamp without rewriting the item database or extending the source history. The Item-DB download uses one replaceable archive and one item-list snapshot; the icon updater retains only its current managed full-release ZIP. Progress snapshots are removed when requests finish, with crash leftovers older than 24 hours removed by a later tracked request. If enabled, audit logging rotates its current file into one archive (5,000,000 bytes per file by default). The portable desktop log rotates at 2,000,000 bytes with three archives.
+A preview leaves persistent data unchanged. Applying uses the confirmed scope
+and matching review receipt; a failed request discards that receipt. A current
+result disables applying that scope until another check or scope change, while
+explicit repair workflows may request a verification write. Change details list
+actual changes and unresolved findings; deliberately preserved names appear in
+the separate technical log. See [Item names and source comparisons](item-localization.md).
+
+Each update replaces the browser's technical output. Successful source changes append metadata to `source_version_history.json`; unchanged sources do not extend this history. A full apply can refresh the verification timestamp without rewriting the item database. The Item-DB download keeps one replaceable archive and item-list snapshot; the icon updater keeps its current managed release ZIP. Progress snapshots are removed when requests finish; a later tracked request removes crash leftovers older than 24 hours.
 
 The Microsoft Learn source identity uses `microsoft_item_listing_items_hash`, a canonical hash of the parsed item mapping. The full HTML hash remains provenance; page-layout changes and fetch timestamps do not establish a different item-source identity. Metadata without the normalized fingerprint retains its original verification semantics and requires one source-metadata update to persist that fingerprint. Cached listings already contain a verified normalized mapping and supply the same fingerprint as an online fetch. Review receipts bind the complete cache files and starting files, including HTML provenance, so changed inputs still invalidate an outstanding apply receipt.
 
@@ -263,6 +251,8 @@ documented in [Inventory icon resolution](icon-resolution.md).
 `mcbe_editor/resources/item_availability.json` is the reviewed source for the availability badges shown by the item browser. It is deliberately separate from generated `item_db.json`: Mojang's registry establishes that an identifier exists, while availability in Survival, Creative, command tooling, Education features, generated world state, or legacy saves is a curated gameplay claim.
 
 The file records its Bedrock sample release, review date, and references. Rules use explicit item identifiers; data-value-specific exceptions live under `variants`. `mcbe_editor/item_availability.py` validates the schema, the bundled-source release, category coverage, duplicate assignments, registry membership, and variant ranges before the server starts. The check intentionally targets the bundled snapshot rather than a newer persistent database created by the in-app updater, so an update cannot make the application unbootable before the next curated review. When the persistent database has a newer versioned Mojang source and an explicit positive item registry, that exact registry becomes the effective addable set; same-release, older, unversioned, and legacy copies without an explicit registry use the bundled reviewed set. IDs newly added since the bundled snapshot receive a derived, non-blocking `unreviewed` badge until the bundled data catches up. This derived category is added only to the client payload and does not change either persisted schema. If an official registry ID arrives before Mojang's public language catalogs contain its display name, the runtime catalog exposes a readable identifier-derived fallback in both locales; the fallback is not persisted and is replaced automatically once an official localization becomes available. Missing stack limits are explicitly unverified: new stacks use the safe creation bound of 1 while recorded original amounts remain preserved. Explicit 64s are stored per item, so registry additions cannot accidentally inherit a blanket 64. See [Item stack limits](item-stack-limits.md) for source precedence, validation, and the reviewed snapshot. Durability/data-value handling retains its existing runtime defaults.
+
+The updater reports missing display names for valid official registry IDs as warnings, allowing that runtime fallback to take effect after an update. Malformed registry identifiers, invalid existing name entries, and invalid limits remain blocking audit errors. The integration test exercises the dry run, persisted update, and runtime catalog with a registry addition that neither public localization source names yet.
 
 One shared technical-ID policy is applied while generating the database, loading an existing persistent copy, and selecting icon targets. These block-only patterns override temporary exposure in Mojang's positive item registry. In particular, double-slab block states remain recognizable for lossless handling of existing worlds but are excluded from new-item creation and icon targets. Missing icons remain non-fatal and use the normal fallback behavior.
 
@@ -381,29 +371,9 @@ A tagged GitHub Release attaches four build assets:
 
 GitHub also supplies its own source snapshots. The two README screenshots are inside both application ZIPs, not separate release assets. The GitHub Release job waits for `package`, `docker-publish` and `desktop`; failure in any required job prevents that release. GHCR publication depends on `package` and its own Docker checks, not on `desktop`, so it can finish before a later desktop failure.
 
-Among the things that do not belong in a release:
-
-```text
-.venv/
-.git/
-__pycache__/
-.pytest_cache/
-.pip-tools-cache/
-.ruff_cache/
-.mypy_cache/
-.lockcheck/
-.coverage*
-htmlcov/
-data/
-dist/
-fixtures/private/
-.env
-.env.*
-player_exports/
-*.mcbe-player.zip
-RELEASE_MANIFEST.json as a local source artifact
-real Bedrock worlds
-```
+Exclude development environments, Git metadata, caches, coverage reports and
+previous build outputs. Runtime `data/`, `.env*`, private fixtures, real worlds,
+backups and player exports must never enter a release.
 
 `RELEASE_MANIFEST.json` is generated during each package build and belongs in both application archives. A copy lying in the local working tree is only an ignored build/check artifact and should not be committed.
 

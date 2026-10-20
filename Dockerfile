@@ -1,4 +1,4 @@
-# Multi-architecture digest for python:3.12-slim, verified 2026-08-14.
+# Multi-architecture digest for python:3.12-slim.
 # Refresh deliberately with: docker buildx imagetools inspect python:3.12-slim
 ARG PYTHON_BASE_IMAGE=python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65
 

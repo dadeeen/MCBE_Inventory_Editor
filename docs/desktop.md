@@ -87,8 +87,9 @@ logs and the WebView profile remain private runtime data.
 
 An OS file lock protects each desktop data directory. Its file may remain after
 exit; Windows releases the lock when the process exits. The application does
-not delete a lock file to bypass a running instance. Existing per-world locks
-also protect access across different installations.
+not delete a lock file to bypass a running instance. To share per-world locks,
+different installations must use the same `MCBE_BACKUP_ROOT` (or, when unset,
+`MCBE_DATA_ROOT`) and the same normalized world path.
 
 After closing the application, an update can replace the EXE, the entire
 `_internal` directory and the other package files, including
@@ -160,6 +161,11 @@ installer prepared separately. The ZIP does not include a fixed WebView2
 distribution. Builds are unsigned unless a release signing process is configured;
 checksums establish file integrity, not publisher identity.
 
+Maintenance covers the Windows build, bundled CPython security updates,
+deliberate pywebview/PyInstaller lock updates and native window checks.
+Inventory, NBT, backup and UI features stay shared; separate desktop templates,
+storage backends and domain logic are outside this architecture.
+
 ## Command-line limits
 
 The EXE accepts `--data-dir`, `--port`, `--diagnose`, `--with-window`, `--debug`,
@@ -186,11 +192,3 @@ spaces, apostrophes and Unicode paths are quoted. Help and results go to
 launches. `--recovery-report PATH`, placed before `--recover`, selects a different
 report and suppresses that dialog for automation. See the [recovery
 instructions](../SECURITY.md#interrupted-restores) for browser and Docker commands.
-
-## Maintenance
-
-Maintenance consists of the Windows build, bundled CPython security updates,
-deliberate pywebview/PyInstaller lock updates and native window checks.
-Inventory, NBT, backup and UI features remain shared. Separate desktop templates,
-a second storage backend and desktop-specific domain logic are outside this
-architecture.

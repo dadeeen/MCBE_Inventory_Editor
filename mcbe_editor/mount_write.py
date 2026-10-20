@@ -593,17 +593,16 @@ RANDOM_LIKE_GAME = "random"
 # its own version on the next world load, so any plausible value works.
 OBSERVED_INVENTORY_VERSION = "1.26.33"
 
-# Evidence-based write specs for further rideable types.  All values come from
-# real Minecraft-written records collected via scripts/horse_diagnostic.py
-# --all-mounts / --dump-nbt (reports 2026-07-10): definitions sets, fixed
-# float32 attribute bases and per-type tag differences.  skip_body_slot_upgrade
+# Write specs follow the reviewed Bedrock records in tests/fixtures/mount_reference.json:
+# definition sets, fixed float32 attribute bases and per-type tag differences.
+# skip_body_slot_upgrade
 # None = tag absent (donkey/mule/skeleton horse); camel keeps it at 1.
 # chest_item_slots/include_breeding_tags reproduce the camel-only extra tags
 # (ChestItems, BreedCooldown, InLove, LoveCause, InventoryVersion).
 # editable_stats lists the fields the vanilla game itself randomizes per
 # specimen (inclusive ranges); only those may be user-overridden so every
 # written record stays within values Minecraft produces on its own.
-# tamed describes the player-tamed variant (wild-vs-tamed dumps 2026-07-10):
+# tamed describes the player-tamed variant:
 # taming rewrites definitions to -_wild/+_tamed/+_unchested, removes Temper
 # entirely, sets IsTamed 1, adds a 16-slot ChestItems inventory plus
 # InventoryVersion, sets OwnerNew to the taming player's UniqueID, and for

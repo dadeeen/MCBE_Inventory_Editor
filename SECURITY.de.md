@@ -16,7 +16,7 @@ Der Minecraft Bedrock Inventory Editor ist für die lokale Nutzung und vertrauen
 
 Melde vermutete Sicherheitslücken privat über GitHubs Formular [Report a vulnerability](https://github.com/dadeeen/MCBE_Inventory_Editor/security/advisories/new).
 
-Eröffne für eine ungepatchte Sicherheitslücke kein öffentliches Issue. Hänge niemals echte Welten, Backups, Spieler- oder Audit-Exporte, Roh-NBT-Daten, Spielernamen, XUID-ähnliche Kennungen, private Pfade, IP-Adressen, Benutzernamen, Token, Passwörter, Cookies oder Sitzungsdaten an.
+Lege eine ungepatchte Sicherheitslücke nicht in einem öffentlichen Issue offen. Verwende synthetische Beispiele; hänge niemals echte Welten, Backups, rohe Spielerdaten, Zugangsdaten oder ungeprüfte Logs an. Siehe [Private Daten und Diagnosen](#private-daten-und-diagnosen).
 
 Nenne nur die erforderlichen Informationen:
 
@@ -33,26 +33,25 @@ Normale Fehler gehören in den Issue-Tracker. Verwende den privaten Kanal für D
 
 ## Sicherheitsgrenze
 
-Der Editor liest und verändert Bedrock-NBT und LevelDB direkt. Backups, Validierung, Revisionen, Dateisperren, Schreibsperren, CSRF-/Origin-Prüfungen und Authentifizierung reduzieren Risiken, können aber nicht die Korrektheit für jede Bedrock-Version, jedes Add-on und jede ungewöhnliche Weltstruktur garantieren.
+Der Editor verändert Bedrock-NBT und LevelDB direkt. Seine Schutzmaßnahmen können die Kompatibilität mit jeder Bedrock-Version, jedem Add-on und jeder ungewöhnlichen Weltstruktur nicht garantieren.
 
 Die unterstützte Grenze umfasst:
 
 - den lokalen Modus auf `127.0.0.1`; oder
 - eine authentifizierte Instanz, die nur aus einem vertrauenswürdigen LAN oder privaten Netz erreichbar ist;
-- vollständig beendete Welten vor Schreibvorgängen;
-- vollständige, unabhängige Weltkopien außerhalb der vom Editor verwalteten Pfade.
+- vollständig beendete Welten mit unabhängigen Sicherungskopien.
 
-Öffentliches Hosting, nicht vertrauenswürdiger Mehrbenutzerzugriff, breite Host-Dateisystem-Mounts und direkter Internetzugang liegen außerhalb der unterstützten Grenze. Ein Reverse Proxy ändert diese Grenze nicht.
+Öffentliches Hosting, nicht vertrauenswürdiger Mehrbenutzerzugriff, breite Host-Dateisystem-Mounts und direkter Zugriff aus dem Internet liegen außerhalb der unterstützten Grenze. Ein Reverse Proxy ändert diese Grenze nicht.
 
 Beende Minecraft oder den Server vor jeder Bearbeitung und erstelle eine vollständige Kopie außerhalb des eingebundenen Weltordners und von `MCBE_BACKUP_ROOT`. Behalte sie, bis das Ergebnis in Minecraft geprüft wurde.
 
-Jedes vom Editor erstellte Welt-Backup vergleicht die Quellmetadaten vor und nach der Erstellung und synchronisiert das fertige Archiv ausdrücklich vor der Veröffentlichung. Erkannte Änderungen und Synchronisierungsfehler brechen abhängige Schreibvorgänge ab. Der Metadatenvergleich ist keine atomare Momentaufnahme einer laufenden Welt; die Verzeichnissynchronisierung steht unter Windows und auf manchen Dateisystemen nicht zur Verfügung. Diese Maßnahmen gewährleisten keinen universellen Schutz vor Stromausfällen.
+Editor-Backups sind eine zusätzliche Absicherung. Ihre Konsistenz- und Archivprüfungen garantieren weder eine atomare Momentaufnahme einer laufenden Welt noch deren Verwendbarkeit in Minecraft. Der Schutz vor Stromausfällen hängt auch von Betriebssystem, Dateisystem und Datenträger ab. Technische Grenzen beschreibt der [Backup- und Restore-Vertrag](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/save_contract.md#backups-and-restore).
 
 ## Wesentliche Deployment-Regeln
 
 - Aktiviere für LAN-Nutzung den Passwortschutz.
 - Belasse `MCBE_TRUST_PROXY_HEADERS=false`, sofern ein vertrauenswürdiger Reverse Proxy nicht der einzige Weg zur App ist.
-- Loopback-Anfragen sind standardmäßig auf lokale Hostnamen begrenzt. Setze für LAN/Docker oder einen ausdrücklich vertrauenswürdigen Reverse Proxy `MCBE_TRUSTED_HOSTS` auf die erwarteten Hostnamen (kommasepariert, ohne URL-Schema, Pfad oder Port), oder prüfe diese am Proxy. Das ist unabhängig von `MCBE_ALLOWED_ORIGINS` und dem CSRF-Schutz. Der integrierte Desktop deaktiviert Proxy-Header-Vertrauen immer und erzwingt seine eigene Loopback-Hostliste.
+- Loopback-Anfragen sind standardmäßig auf lokale Hostnamen begrenzt. Setze für LAN/Docker oder einen vertrauenswürdigen Reverse Proxy `MCBE_TRUSTED_HOSTS` auf die erwarteten Hostnamen (kommasepariert, ohne URL-Schema, Pfad oder Port), oder prüfe diese am Proxy. Das ist unabhängig von `MCBE_ALLOWED_ORIGINS` und dem CSRF-Schutz.
 - Belasse `MCBE_REQUIRE_SERVER_OFFLINE=true` für echte Serverwelten und konfiguriere `MCBE_SERVER_HOST`. Bei einem NetherNet-Server braucht der Editor zusätzlich TCP-Zugriff auf den Serverport.
 - Behandle `MCBE_REQUIRE_SERVER_OFFLINE=false` als ausdrückliche unsichere Ausnahme ausschließlich für beendete Kopien oder Archive.
 - Verwende für Viewer sowohl `MCBE_READ_ONLY=true` als auch ein `/worlds:ro`-Volume. Docker `read_only: true` schützt nur das Root-Dateisystem des Containers.
@@ -62,54 +61,33 @@ Jedes vom Editor erstellte Welt-Backup vergleicht die Quellmetadaten vor und nac
 - Halte `/data` privat und persistent. Es enthält Einrichtungszustand, Backups und möglicherweise Audit-Daten.
 - Verwende `MCBE_FAIL_ON_INSECURE_CONFIG=true`, wenn ein nicht authentifizierter breiter Bind den Start abbrechen soll.
 
-Schreibvorgänge prüfen den Server-Guard unmittelbar vor dem abschließenden Dateisystem- oder LevelDB-Zugriff erneut. Ein unbekannter Status kann eine ausdrückliche Bestätigung verlangen; ein später als online erkannter Server blockiert den Schreibvorgang weiterhin.
+Dateisperren allein beweisen nicht, dass ein Bedrock-Server beendet ist. Lass die Serverstatus-Prüfung konfiguriert: Sie prüft unmittelbar vor dem Schreiben erneut. Ein unbekannter Status kann eine Bestätigung verlangen; ein als online erkannter Server blockiert den Schreibvorgang weiterhin.
 
-Dateisperren allein beweisen nicht, dass ein Bedrock-Server beendet ist: BDS 1.26.51.1 unter Linux hält keinen LevelDB-`LOCK`. Beende den Server und lass die Serverstatus-Prüfung konfiguriert.
-
-Der Editor schreibt nicht in unvollständige oder widersprüchliche Datenbanken und repariert keine Datenbanken. Meldet ein Speichern einen unbekannten Ausgang oder ein fehlgeschlagenes Zurücksetzen, behalte das zugehörige Backup und lade die Welt neu, bevor du weiter bearbeitest: Ein Teil der Daten kann schon auf dem Datenträger sein. Fehler, bei denen der Editor nachweisen kann, dass noch nichts geschrieben wurde, meldet er als gewöhnliche Ablehnung.
+Der Editor schreibt nicht in unvollständige oder widersprüchliche Datenbanken und repariert sie nicht. Meldet ein Speichern einen unbekannten Ausgang oder ein fehlgeschlagenes Zurücksetzen, behalte das Backup und lade die Welt neu, bevor du weiter bearbeitest: Daten können bereits geschrieben worden sein.
 
 ## Private Daten und Diagnosen
 
-Echte Welten, Backups, `.mcbe-player.zip`-Dateien, Roh-NBT-Daten, Diagnoseberichte und Audit-Exporte müssen als privat behandelt werden. Das Umbenennen einer Welt oder Löschen ihres Icons anonymisiert keine LevelDB-Datensätze.
+Echte Welten, Backups, `.mcbe-player.zip`-Dateien, Roh-NBT-Daten, Diagnoseberichte und Audit-Exporte müssen als privat behandelt werden. Das Umbenennen einer Welt oder Löschen ihres Icons anonymisiert keine LevelDB-Datensätze. Laufzeitdaten unter `data`, einschließlich Desktop-Profilen und Logs, gehören nicht in Releases.
 
-Das optionale Audit-Log kann enthalten:
+Audit-Logs können IP-Adressen, Benutzernamen, Weltnamen, Pfad- und Spielerschlüssel-Hashes, gekürzte Spielerschlüssel sowie Aktionen, Ergebnisse und Anfrage-/Fehlerdetails enthalten. Automatische Bereinigung, Hashes und Kürzungen anonymisieren diese Daten nicht. Prüfe und bereinige Material vor jeder Weitergabe.
 
-- entfernte IP-Adressen und konfigurierte Benutzernamen;
-- Weltordnernamen und stabile Hashes normalisierter Weltpfade;
-- gekürzte Spielerschlüssel-Vorschauen und Spielerschlüssel-Hashes;
-- Aktionsnamen, Ergebnisse, Anforderungskennungen und bereinigte Fehlerdetails.
+Details unerwarteter Ausnahmen bleiben im Server-Log, auf das die Anfrage-ID der Antwort (`X-Request-ID`) verweist; sie können private Pfade enthalten. Auch nutzergerichtete Meldungen können betroffene Dateien benennen. Unter POSIX sind neu erstellte Setup- und Audit-Dateien auf den Eigentümer beschränkt; unter Windows muss der umgebende Ordner durch passende ACLs geschützt sein.
 
-Hashes und Kürzungen reduzieren Risiken, sind aber keine Anonymisierung. Weltnamen, IP-Adressen, Benutzernamen, Anforderungsmetadaten und stabile Hashes können weiterhin eine Person, ein Gerät oder eine Installation identifizieren. Veröffentliche Audit-Dateien oder Exporte nicht ohne manuelle Prüfung und zweckgebundene Bereinigung.
-
-Geheimnisse, CSRF-Token, Passwörter, Sitzungswerte und erkannte vollständige Pfade werden vor der Audit-Speicherung redigiert oder reduziert. Dadurch werden die Logs nicht zu öffentlichen Daten. Unter POSIX beschränkt die App neu erstellte Setup- und Audit-Dateien auf den Eigentümer; unter Windows bleiben die ACLs des umgebenden Verzeichnisses maßgeblich.
-
-Fehlerantworten nennen die fehlgeschlagene Aktion. Der Text einer unerwarteten Ausnahme, der lokale Pfade oder Interna enthalten kann, bleibt im Server-Log: Die Antwort nennt die Anfrage-ID, unter der das Log ihn führt (auch als Header `X-Request-ID`), und bei einem Betriebssystemfehler dessen Beschreibung ohne Pfad. Meldungen, die der Editor für Nutzer formuliert, etwa eine verweigerte Dateiberechtigung, und Hinweise auf Dateien, die von Hand entfernt werden müssen, erscheinen vollständig.
-
-Private Fixture-Welten gehören ausschließlich unter `fixtures/private/`; dieser Ordner wird ignoriert und aus Releases ausgeschlossen. Öffentliche Fixtures benötigen eine LevelDB-/NBT-gerechte Anonymisierung und eine manuelle Prüfung. Der unterstützte Scanner-Fixture-Generator entfernt die ursprünglichen LevelDB-Dateien.
+Private Fixture-Welten gehören ausschließlich unter `fixtures/private/`; dieser Ordner wird ignoriert und aus Releases ausgeschlossen. Öffentliche Fixtures benötigen eine LevelDB-/NBT-gerechte Anonymisierung und manuelle Prüfung; siehe die [Fixture-Regeln](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/tests/fixtures/README.md) und den [Vertrag für isolierte Entity-Datensätze](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/tests/data/README.md).
 
 ## Abhängigkeiten und Prüfung
 
-Lokale und Release-Umgebungen verwenden hashgebundene Abhängigkeiten für Python 3.12–3.14. Maßgeblich sind `pyproject.toml` und die Lockfiles; Versionen werden in dieser Richtlinie nicht dupliziert.
+Abhängigkeiten sind für Python 3.12–3.14 hashgebunden; maßgeblich sind `pyproject.toml` und die Lockfiles. Das Windows-Browser-Setup und Docker benötigen vorgefertigte Pakete ohne automatischen Quellbau als Ersatz. Der portable Desktop enthält Python und verwendet die installierte WebView2 Runtime. Build-Details stehen im [Abhängigkeitsleitfaden](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/requirements/README.md) und in der [Desktop-Dokumentation](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/desktop.md).
 
-Runtime-ZIPs enthalten den Python-Code für NBT und Bedrock-LevelDB ohne Amulet-Bibliotheken oder gebündelte LevelDB-Wheels. Windows-Setup und Docker installieren ausschließlich hashgeprüfte vorgefertigte Abhängigkeiten. CI prüft frische Umgebungen ohne native Referenzbibliotheken sowie separat die unabhängigen Amulet-Vergleichstests. Prüfe zusätzlich die veröffentlichte Prüfsumme des Release-ZIPs.
+Mitwirkende sollten betroffene Pakete gezielt aktualisieren und die [Test- und Abhängigkeitsprüfungen](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#local-check-round) in der Entwicklungsumgebung des Quellcode-Checkouts ausführen. Audits bieten keinen Laufzeitschutz; vermeide breite automatische Upgrades.
 
-Das portable Windows-ZIP enthält CPython und seine Abhängigkeiten. Das Fenster verwendet die installierte WebView2 Evergreen Runtime sowie dieselbe lokale HTTP-API und dieselben Schreibsperren. Browser und Docker benötigen keine Desktop-Abhängigkeiten. Die Desktop-Build-Abhängigkeiten besitzen ein separates, auditiertes Hash-Lockfile; der Build erlaubt ausdrücklich das kleine reine Python-Quellarchiv `proxy-tools` in einer gebundenen Build-Umgebung. Die Anwendung installiert keine Abhängigkeiten auf dem Rechner des Nutzers. Halte `data` einschließlich WebView-Profil und Desktop-Log privat und außerhalb von Release-Archiven.
-
-Mitwirkende führen die [lokale Prüfrunde und Abhängigkeitsprüfung](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/development.md#local-check-round) in einem Quellcode-Checkout mit Entwicklungsumgebung aus. Diese Python-Befehle lassen sich nicht über die portable EXE starten. Verwende den Interpreter aus der Projekt-`.venv`, statt Entwicklungspakete global zu installieren.
-
-Es gibt keinen automatischen Quellbau als Ersatz für fehlende Wheels. Docker lädt Abhängigkeiten in einer separaten Stufe mit Hashprüfung herunter und installiert sie im Runtime-Image ohne Netzwerkzugriff. Die zusätzlichen Referenz-Lockfiles sind nicht Teil der Runtime; ihr verpflichtender CI-Lauf prüft die tatsächlichen Imports und auditiert beide Lockfiles.
-
-Abhängigkeitsfunde sind Release-Signale, kein Laufzeitschutz. Aktualisiere betroffene Pakete gezielt und wiederhole die vollständigen Test- und Release-Prüfungen; führe keine breiten automatischen Upgrades aus.
-
-Normales Bearbeiten benötigt keinen ausgehenden Internetzugriff. Der optionale Item-Daten-Updater verwendet zugelassene HTTPS-Quellen und Größenlimits. Fehlender Netzwerkzugriff verhindert den Start nicht.
+Normales Bearbeiten und der Start benötigen keinen ausgehenden Internetzugriff. Optionale Item-Daten- und Icon-Downloads verwenden zugelassene HTTPS-Quellen und Größenlimits; konfigurierte Serverstatus-Prüfungen kontaktieren den Server.
 
 ## Releases und Wiederherstellung
 
 Offizielle Browser- und Desktop-ZIPs werden über die [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases) des ursprünglichen Repositorys veröffentlicht; Docker-Images verwenden `ghcr.io/dadeeen/mcbe-inventory-editor`. Jedes Release-ZIP besitzt eine separate SHA-256-Prüfsummendatei und enthält ein Dateimanifest. Diese erkennen Übertragungsfehler oder Änderungen, sind aber keine unabhängige kryptografische Signatur.
 
-App-Backups werden vor einem Restore auf technische Lesbarkeit geprüft. Diese Prüfung kann nicht bestätigen, dass eine Welt semantisch korrekt oder mit einer bestimmten Minecraft-Version kompatibel ist. Die unabhängige Weltkopie bleibt die letzte Wiederherstellungsgrenze.
-
-Gewährleistung und Haftung richten sich für den eigenen Projektcode nach dem genauen Text der [MIT-Lizenz](LICENSE). Abhängigkeiten, einschließlich der optionalen Amulet-Testreferenzen, besitzen eigene Lizenzbedingungen.
+Gewährleistung und Haftung richten sich für den eigenen Projektcode nach der [MIT-Lizenz](LICENSE). Abhängigkeiten besitzen eigene Lizenzbedingungen.
 
 ### Unterbrochene Wiederherstellungen
 
@@ -127,12 +105,12 @@ Unter Linux/macOS verwendest du `.venv/bin/python`. Für einen laufenden Docker-
 docker exec mcbe-editor python -m mcbe_editor.restore_recovery /worlds
 ```
 
-Die Prüfung lässt ausstehende Wiederherstellungen zurückgestellt. Prüfe die gemeldeten Pfade und bestätige, dass der Server beendet ist; wiederhole den Befehl dann mit `--confirm-server-stopped`. Read-only-Modus oder ein erkannt laufender Server blockieren Änderungen weiterhin. Mehrdeutige Welt-/Rollback-Kopien bleiben unverändert und müssen manuell beurteilt werden. Ohne Pfadangabe verwendet der Befehl die konfigurierten Suchorte dieser Installation.
-
 **Desktop-EXE:** Schließe den Editor und verwende den enthaltenen Recovery-Befehl aus PowerShell:
 
 ```powershell
 .\MCBEInventoryEditor.exe --recover "C:/PFAD/ZU/WELTEN"
 ```
 
-Es gelten dieselben Prüfungen und Schreibschutzregeln. Ergänze `--confirm-server-stopped` erst, nachdem du den Server beendet und die Pfade geprüft hast. Behalte die Umgebungsvariablen für Server und Read-only-Modus (`MCBE_SERVER_HOST`, `MCBE_SERVER_PORT`, `MCBE_READ_ONLY`) bei. Der in einer Desktop-Warnung angebotene Befehl enthält den aktiven `--data-dir`; übernimm ihn. Ergebnisse und Hilfetext stehen in `restore-recovery.txt` in diesem Datenordner (normalerweise `data/restore-recovery.txt`). Für automatisierte Aufrufe setzt du `--recovery-report "C:/PFAD/ZUM/bericht.txt"` vor `--recover`, um den Berichtspfad festzulegen und den Ergebnisdialog zu unterdrücken. Die Wiederherstellung benötigt weder eine separate Python-Installation noch WebView2 Runtime. Behandle Recovery-Berichte als privat.
+Alle drei Befehle prüfen ausstehende Wiederherstellungen, ohne sie auszuführen. Wiederhole den Befehl erst mit `--confirm-server-stopped`, nachdem du den Server beendet und die gemeldeten Pfade geprüft hast. Read-only-Modus oder ein erkannt laufender Server blockieren Änderungen weiterhin. Mehrdeutige Welt-/Rollback-Kopien bleiben unverändert und müssen manuell beurteilt werden.
+
+Behalte die Server- und Read-only-Einstellungen (`MCBE_SERVER_HOST`, `MCBE_SERVER_PORT`, `MCBE_READ_ONLY`) bei. Übernimm einen vorhandenen `--data-dir` aus dem Befehl einer Desktop-Warnung. Desktop-Ergebnisse stehen in der dortigen `restore-recovery.txt` (normalerweise `data/restore-recovery.txt`); behandle Berichte als privat. Die Desktop-Wiederherstellung benötigt weder eine separate Python-Installation noch WebView2. Weitere Optionen stehen in der [Desktop-Befehlsreferenz](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/desktop.md#command-line-limits).
