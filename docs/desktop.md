@@ -11,6 +11,8 @@ editor implementation across desktop, browser and Docker.
 | --- | --- |
 | `desktop.py` | Executable entry point; no editing logic |
 | `mcbe_editor/desktop_app.py` | Loopback configuration, instance lock, native pickers, close guard, window profile |
+| `mcbe_editor/desktop_locale.py` | Windows display-language fallback and last editor language for native messages |
+| `mcbe_editor/desktop_window.py` | Remembered window size and maximization, fitted to the current monitor |
 | `mcbe_editor/desktop_navigation.py` | Exact-origin navigation policy and native WebView2 event adapter |
 | `mcbe_editor/desktop_worker.py` | Allowlisted updater subprocesses and explicit UTF-8 output |
 | `packaging/windows/desktop.spec` | Frozen modules, shared assets and dependency license metadata |
@@ -85,6 +87,15 @@ window. If the backend fails, a dialog offers to keep the window open for noting
 unsaved changes. `desktop.log` rotates at about 2 MB with three older files;
 logs and the WebView profile remain private runtime data.
 
+Native messages use the editor language and retain it in `data/desktop-language.txt`
+for startup errors. Without a saved language they use the Windows display language,
+with English as the fallback. Windows supplies its own standard dialog button labels.
+
+Window size and maximization are saved on close in `data/desktop-window.json`.
+Startup adjusts the normal size for the monitor's DPI and available work area;
+missing or invalid settings use the automatic initial size. Window positions and
+minimization are not restored.
+
 An OS file lock protects each desktop data directory. Its file may remain after
 exit; Windows releases the lock when the process exits. The application does
 not delete a lock file to bypass a running instance. To share per-world locks,
@@ -116,6 +127,10 @@ The small pure-Python `proxy-tools` dependency publishes only a source archive.
 Its source hash is pinned; it is built using the already locked setuptools/wheel
 environment with build isolation disabled. Other packages use wheels. No build
 tool or package installation runs on the end user's machine.
+
+The EXE embeds `packaging/windows/app.ico` (16–256 px, including common DPI sizes).
+Its source image is `app-icon.png` in the same directory; changing the icon requires
+replacing these static assets and rebuilding, with no runtime image dependency.
 
 Generate changes with `scripts/compile_lockfiles.py --include-desktop` on
 Windows Python 3.12. Verify with `--check --include-desktop` and

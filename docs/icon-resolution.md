@@ -105,7 +105,13 @@ composites the layers in NBT order with their original alpha. The 1:2 preview
 uses nearest-neighbor scaling. Only a complete result is published to the UI;
 missing or unreadable images display a retry/download state and retain edits.
 Request generations discard stale compositions after changes or navigation.
-Images are cached with a fixed bound; failed loads can be retried.
+Images are cached with a fixed bound; failed loads can be retried. Inventory,
+contained-item and picker thumbnails use the same renderer. Before textures
+are available, a colored banner silhouette shows the base color; a question
+mark indicates an unavailable motif. Completed thumbnails replace matching
+images without rebuilding forms. Bedrock ominous banners (`tag.Type = 1`)
+use the already colored `banner_illager` base texture. Existing additional
+patterns are composited above it, matching stored hybrid banners.
 
 The preview represents the Vanilla banner cloth, without game lighting, cloth
 animation, or custom resource-pack entity materials. Minecraft artwork is

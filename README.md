@@ -57,6 +57,12 @@ That origin explains the scope: a reviewed set of player fields, edited with the
 | Mounts | Experimental creation of horses, donkeys, mules, skeleton horses, and camels |
 | Diagnostics | World status, runtime checks, reports, and private raw-player export |
 
+## Editing items and containers
+
+Items can be edited in the inventory and inside bundles and shulker boxes. The editors offer appropriate controls for wear and known variants.
+
+Unknown original values and untouched additional data are preserved. Containers enforce their capacity and nesting rules. Changes are applied to a draft first and written to the world only when the player is saved.
+
 ## Portable Windows app
 
 Extract the **entire** release archive ending in `_windows_x64.zip` into a writable directory and double-click `MCBEInventoryEditor.exe`. Keep the EXE and its accompanying `_internal` folder together. No separate Python installation is required.

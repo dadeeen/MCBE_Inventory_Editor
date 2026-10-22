@@ -57,6 +57,12 @@ Diese Herkunft erklärt den Zuschnitt: ein geprüfter Satz von Spielerfeldern, b
 | Mounts | Experimentelle Erzeugung von Pferden, Eseln, Maultieren, Skelettpferden und Kamelen |
 | Diagnose | Weltstatus, Runtime-Prüfungen, Berichte und privater Spieler-Rohdatenexport |
 
+## Items und Behälter bearbeiten
+
+Items lassen sich im Inventar sowie in Bündeln und Shulkerkisten bearbeiten. Die Editoren bieten passende Felder für Abnutzung und bekannte Varianten an.
+
+Unbekannte Originalwerte und nicht bearbeitete Zusatzdaten bleiben erhalten. Behälter berücksichtigen ihre Kapazität und erlaubte Verschachtelungen. Änderungen werden zunächst als Entwurf übernommen und erst beim Speichern des Spielers in die Welt geschrieben.
+
 ## Portable Windows-App
 
 Entpacke das **gesamte** Release-Archiv mit der Endung `_windows_x64.zip` in einen beschreibbaren Ordner und starte `MCBEInventoryEditor.exe` per Doppelklick. Die EXE und der mitgelieferte Ordner `_internal` gehören zusammen. Eine separate Python-Installation ist nicht erforderlich.

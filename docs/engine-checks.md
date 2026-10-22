@@ -152,10 +152,17 @@ backups, stale revision rejection, untouched typed player fields and every
 unrelated LevelDB record. Both results are independently checked; items then
 return to engine carriers for two real save/reload cycles.
 
-The 45 item cases include mixed-metadata bow and pickaxe profiles in both
-containers. Cross-container moves and deletion/recreation select these profiles;
+The 48 item cases include mixed-metadata bow and pickaxe profiles in both
+containers, a bundle at weight 63, a nested shulker/bundle/book and an
+engine-signed book with Unicode, blank and long pages. The special edits pass
+through the production player service. Independent typed-NBT checks verify the
+contents before intermediate results are frozen, and again after each engine
+save. This checks persisted contents, not opening or using the items.
+
+Cross-container moves and deletion/recreation select the mixed-metadata profiles;
 their typed NBT is checked after each operation. The real-client profile uses
-the same cases with three required connections.
+the same 48 container cases plus five equipment cases, with three connections by
+default. Equipment cases do not consume the container fixture's slot budget.
 
 Cross-container moves use items with different IDs or counts. The worker checks
 the exact occupied slots and typed item NBT after each move, deletion and
@@ -177,21 +184,50 @@ Vanilla limits, through two engine reloads. New custom items without originals
 must still be rejected. This is **not certification of arbitrary third-party
 packs**, pack combinations, overrides or migrations.
 
-## Real-client Inventory/Ender Chest suite
+## Real-client Inventory, Ender Chest and equipment suite
 
-`--suite client --client-port 19134 --timeout 900` requires three real client
+`--suite client --client-port 19134 --timeout 900` defaults to three real client
 connections to **127.0.0.1:19134**, using the same account each time. The runner
 always creates a fresh disposable world. The server stops after each observation,
-so disconnects are expected. Wait for `client-status.json` to say
-`waiting_for_client` before each join; do not change items while connected.
+so disconnects are expected. The console announces each ready join, detects the
+connection and explains the intentional save/disconnect and offline edit. Wait
+for **`Join 1/3 ready`**, then the next numbered invitation; do not change items
+while connected. The same progress is atomically available in
+`client-status.json`, including phase, connection number, required connections,
+address and port. World preparation/catalog measurement needs no join.
 
-The first connection seeds both actual player containers. After a clean server
+The first connection seeds both actual player containers and equipment. After a clean server
 stop, the offline worker discovers exactly one persisted player, checks the seed
 NBT, and performs the same production-service operations described above. Two
 more joins after server restarts observe the stored items without reconstructing
 them. Independent disk checks follow each save, including untouched controls and
 the exact occupied slot set. A timeout, missing connection or partial cycle is a
 failure, never a green result.
+
+All **53 cases share those same three joins**. The five equipment cases preserve
+a helmet, decorate a chestplate (damage, Unicode name/lore and Unbreaking III),
+clear leggings, create boots in an empty slot and decorate a shield in Offhand.
+Writes use the production service's explicit root-equipment edit gate. The
+Script API observes the actual equipped items; the independent disk observer
+checks dense Armor/Offhand lists, slot order, typed fields and empty positions.
+The editor must preserve other player fields, unrelated database records,
+untouched equipment and an optional fifth Armor entry byte for byte. An
+additional no-op must create neither writes nor a backup. This proves the tested
+equipment persistence, not armor protection, shield blocking or client visuals.
+
+For a quicker development check, add **`--client-reloads 1`**. It uses two joins:
+seed, offline edit, then one real-client load/save followed by the independent
+disk check. The default **`--client-reloads 2`** additionally checks the next
+client load after that engine save. The shorter result explicitly records one
+cycle, two required connections and the missing second reload in `not_covered`;
+it is not the full three-join result. This option is accepted only with
+`--suite client`. Neither mode automates the Minecraft menu or reuses old worlds.
+
+The public summary reports the selected/finished connection count and the
+roundtrip cycle count. `player_service.special_content_cases` counts the three
+selected special cases; `equipment` summarizes the offline equipment edit and
+no-op checks. The overall client result also requires all matching engine case
+events and independent disk checks for every selected reload.
 
 BDS also stores account-to-player index records under `player_` keys. Discovery
 excludes only the observed index schema (exactly two string fields, `MsaId` and
@@ -214,9 +250,11 @@ bridge profile does not provide the automated profiles' outbound network isolati
 Player record keys, account names/XUIDs in BDS logs, backups and the generated
 world stay private in the ignored run directory. Never share raw client logs or
 `private-player-key.json`; only the allowlisted summary is suitable for deliberate
-publication. Real-client results cover dedicated-server Inventory/Ender Chest
-persistence, not actual singleplayer `~local_player` saves, online authentication
-or UI editing flows. A Windows client may require its documented local-loopback
+publication. Real-client results cover the selected dedicated-server Inventory,
+Ender Chest, special-content and Armor/Offhand persistence cases, not actual
+singleplayer `~local_player` saves, online authentication or UI editing flows.
+Special contents are observed on disk; opening, placing, reading and using them
+remain separate gameplay checks. A Windows client may require its documented local-loopback
 access; the runner does not change system networking permissions.
 
 ## Specialized item editors and manual gameplay checks
@@ -240,7 +278,7 @@ between those cycles. The deterministic cases cover:
   to sign an engine-created writable book. It does not invent a creatable
   written-book registry entry. A missing component fails the profile.
 - Banner base colors and six ordered patterns, including complex motifs;
-  reordering and clearing patterns.
+  reordering and clearing patterns; the fixed ominous banner type.
 - Rocket flight durations, seven effects spanning all five shapes, colors,
   fade colors, trail and flicker; effect removal and a firework star color change.
 
@@ -275,7 +313,11 @@ browser tests check isolated drafts, direct container-search entry, cancel,
 Undo/Redo and editing gates. These checks can run without Minecraft; they cannot
 prove that a client opens or uses the resulting items correctly.
 `tests/test_engine_special.py` also injects corrupted results to verify that
-the harness detects failures; these synthetic unit checks are not BDS evidence.
+the harness detects failures. Each corruption test first verifies the complete
+unchanged fixture, so an unrelated pre-existing error cannot make the negative
+assertion pass. Signed-book doubles explicitly include the engine-owned signing
+metadata; the editor is not expected to synthesize it. These synthetic unit
+checks are not BDS evidence.
 
 Use a **separate disposable world** for the following manual checks. Do not
 modify an automated or real-client profile's world during its run: those
@@ -314,12 +356,17 @@ compare actual page contents and counts. The editor preserves existing blank
 pages until explicitly removed, and the engine checks require the requested
 page count, text and order, including blank pages.
 
-## Verified builds
+## Validation scope
 
-The automated and real-client profiles have been exercised with **BDS 1.26.52.3**
-and the editor's development version. Each local report identifies the tested
-editor revision and source hashes. Coverage is limited to the cases and operations
-described above; reports, screenshots and logs remain local.
+The 48-case player-service and 53-case equipment/special-content client profiles
+have synthetic regression coverage for their offline workers, observers and
+orchestration. Validation against the game requires a successful BDS/client run
+tied to the current editor revision and source hashes. Synthetic regressions do
+not replace that engine validation.
+
+Each local report identifies the tested editor revision and source hashes.
+Coverage is limited to that exact profile and run; reports, screenshots and logs
+remain local.
 The provenance of reviewed catalog values is documented in
 [item-stack-limits.md](item-stack-limits.md).
 

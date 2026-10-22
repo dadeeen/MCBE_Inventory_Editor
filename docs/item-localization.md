@@ -1,6 +1,6 @@
 # Item names and source comparisons
 
-The catalog uses German and English item names from the [Mojang Bedrock samples v1.26.50.4](https://github.com/Mojang/bedrock-samples/releases/tag/v1.26.50.4), with deliberate distinctions for legacy IDs and default data values. A direct `.name` comparison is a diagnostic, not an instruction to replace every different label.
+The catalog uses German and English item names from the [Mojang Bedrock samples v1.26.50.4](https://github.com/Mojang/bedrock-samples/releases/tag/v1.26.50.4), with deliberate distinctions for legacy IDs and default data values. Light levels, undyed containers, potion strength/duration and horn sounds retain identifying additions. Potion labels use item terminology rather than the sometimes different effect names. A direct `.name` comparison is a diagnostic, not an instruction to replace every different label.
 
 ## Incorrect inherited labels
 
@@ -36,9 +36,9 @@ The following old names identify the correct object, but the bundled catalog fol
 
 ## Shared migration policy
 
-`mcbe_editor/item_name_policy.py` contains the known obsolete pairs. Replacement names come from the bundled catalog; the policy does not duplicate a second replacement dictionary. Both runtime loading and the updater use the same helper. A replacement requires an exact match of both inherited language values and a complete reviewed replacement. Custom names, including a custom value in just one language, remain unchanged.
+`mcbe_editor/item_name_policy.py` contains the known obsolete pairs, including their English-only fallback form. Replacement names come from the bundled catalog; the policy does not duplicate a second replacement dictionary. Both runtime loading and the updater use the same helper. A replacement requires an exact match of both inherited language values and a complete reviewed replacement. Custom names, including a custom value in just one language, remain unchanged.
 
-The updater applies these repairs after resolving localization fallbacks, so a formerly English-only entry can receive both the German name and the corrected English name in one update. Repeating the update does not repeat the migration. The dry run previews it without writing the persistent database.
+The updater applies these repairs before and after resolving localization fallbacks, so a formerly English-only entry can receive both the German name and the corrected English name in one update. Generic fallback translation requires the existing English label to match the source; equal names in both languages alone do not identify an untranslated item. Repeating the update does not repeat the migration. The dry run previews it without writing the persistent database. These catalog repairs do not change an item's custom display name, lore or saved NBT.
 
 ## Effects and enchantments
 
