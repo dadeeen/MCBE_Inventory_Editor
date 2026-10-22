@@ -286,6 +286,7 @@
                         Array.isArray(variant?.names) ? variant.names : names,
                         {
                             damage: Number(variant?.damage),
+                            ...([0, 1].includes(variant?.banner_type) ? { banner_type: variant.banner_type } : {}),
                             searchIds: Array.isArray(variant?.searchIds) ? variant.searchIds : [],
                         },
                     ]);
@@ -338,6 +339,7 @@
             de: names[0],
             en: names[1],
             ...(Number.isInteger(metadata?.damage) ? { damage: metadata.damage } : {}),
+            ...([0, 1].includes(metadata?.banner_type) ? { banner_type: metadata.banner_type } : {}),
             searchIds: metadata?.searchIds || [],
         }));
         function matchesBaseId(item) {

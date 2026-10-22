@@ -144,7 +144,7 @@
                 }
                 if (data.items.length) {
                     const contents = el("ul", "", "inspector-contents");
-                    data.items.forEach(child => contents.append(el("li", t("Platz {slot}: {count} × {item}", { slot: child.slot + 1, count: child.count, item: itemLabel(child) }))));
+                    data.items.forEach(child => contents.append(el("li", t(kind === "bundle" ? "{count} × {item}" : "Platz {slot}: {count} × {item}", { slot: child.slot + 1, count: child.count, item: itemLabel(child) }))));
                     target.append(el("h3", t("Behälterinhalt")), contents);
                 }
             } else if (kind === "book") {
@@ -152,10 +152,11 @@
                 if (data.title) row(list, t("Buchtitel"), data.title);
                 if (data.author) row(list, t("Autor"), data.author);
             } else if (kind === "banner") {
-                row(list, t("Bannermuster"), data.patterns.length);
+                row(list, t("Bannerart"), t(data.type === 1 ? "Ominöses Banner" : "Normales Banner"));
+                if (data.type !== 1) row(list, t("Bannermuster"), data.patterns.length);
                 const preview = el("div", "", "inspector-banner"); target.append(preview);
                 const owner = session, baseColor = Number.isInteger(data.base_color) ? data.base_color : item.damage;
-                bannerRenderer.render(baseColor, data.patterns, deps.getBannerPatterns?.() || {}, special.schema.color_hex)
+                bannerRenderer.render(baseColor, data.patterns, deps.getBannerPatterns?.() || {}, special.schema.color_hex, data.type || 0)
                     .then(canvas => {
                         if (session !== owner) return;
                         if (canvas) { canvas.setAttribute("role", "img"); canvas.setAttribute("aria-label", t("Bannervorschau")); preview.append(canvas); }

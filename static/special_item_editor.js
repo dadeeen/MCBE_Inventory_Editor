@@ -34,6 +34,8 @@
         let refreshPreview = () => {};
         let inheritedDraft = false;
         let hasInputChanges = () => false;
+        let containerDrag = null;
+        let containerClipboard = null;
         const bannerRenderer = window.MCBEBannerPreview.createRenderer(doc);
         function el(tag, text = "", className = "") {
             const node = doc.createElement(tag);
@@ -70,22 +72,41 @@
             wrapper.append(label, input); parent.append(wrapper);
             return input;
         }
-        function rowActions(parent, rows, index, rerender) {
+        function rowActions(parent, rows, index, rerender, compact = false) {
+            parent.setAttribute("data-special-row", index);
             const actions = el("div", "", "special-actions");
             const move = direction => {
-                [rows[index], rows[index + direction]] = [rows[index + direction], rows[index]];
-                rerender();
+                const next = index + direction;
+                [rows[index], rows[next]] = [rows[next], rows[index]];
+                const action = next === 0 ? "down" : next === rows.length - 1 ? "up" : direction < 0 ? "up" : "down";
+                rerender(`[data-special-row="${next}"] [data-special-action="${action}"]`);
             };
             const up = button("Nach oben", () => move(-1)); up.disabled = index === 0;
             const down = button("Nach unten", () => move(1)); down.disabled = index === rows.length - 1;
-            actions.append(up, down, button("Entfernen", () => { rows.splice(index, 1); rerender(); }));
+            const remove = button("Entfernen", () => {
+                rows.splice(index, 1);
+                rerender(rows.length ? `[data-special-row="${Math.min(index, rows.length - 1)}"] [data-special-action="remove"]` : "[data-special-add-row]");
+            });
+            for (const [node, action] of [[up, "up"], [down, "down"], [remove, "remove"]]) node.setAttribute("data-special-action", action);
+            if (compact) {
+                actions.classList.add("special-layer-actions");
+                for (const [node, icon] of [[up, "↑"], [down, "↓"], [remove, "×"]]) {
+                    node.setAttribute("aria-label", node.textContent); node.title = node.textContent;
+                    node.textContent = icon;
+                }
+            }
+            actions.append(up, down, remove);
             parent.append(actions);
+            return actions;
+        }
+        function renderParent(frame) {
+            render(frame.type === "item" ? `[data-special-slot="${frame.originSlot}"]` : ".special-item-actions > button");
         }
         function finish(item) {
             const frame = frames.pop();
             if (frames.length) {
                 frame.done(item);
-                render();
+                renderParent(frame);
                 return;
             }
             const result = commit(context, item);
@@ -94,11 +115,12 @@
         }
         function close() {
             disposeAutocomplete?.(); disposeAutocomplete = null;
+            containerDrag = containerClipboard = null;
             frames = []; refreshPreview = () => {}; dialog.close();
             returnFocus?.focus?.();
         }
         function cancel() {
-            if (frames.length > 1) { frames.pop(); render(); }
+            if (frames.length > 1) renderParent(frames.pop());
             else close();
         }
         function specialDepth() { return frames.filter(frame => frame.type === "special").length - 1; }
@@ -114,7 +136,7 @@
         function childFrame(container, slot, renderNow = true) {
             const original = container.data.items.find(item => item.slot === slot);
             const frame = { type: "item", originSlot: slot, item: clone(original || { slot, name: "", count: 1, damage: 0, enchantments: [], lore: [] }), container,
-                done: item => { container.data = model.withChild(container.data, slot, item); } };
+                done: item => { container.data = model.withChild(container.data, slot, item, container.item); } };
             frame.initialItemState = JSON.stringify(frame.item);
             frames.push(frame);
             if (renderNow) render();
@@ -132,18 +154,21 @@
             }
             return true;
         }
-        function focusInitialControl() {
-            const target = body.querySelector(".special-item-name") || body.querySelector("input, textarea, select, button");
+        function focusInitialControl(selector = "") {
+            const target = (selector && body.querySelector(selector))
+                || body.querySelector(".special-item-name") || body.querySelector("input, textarea, select, button");
             target?.focus();
         }
-        function render() {
+        function render(focusSelector = "") {
             const frame = frames.at(-1);
+            containerDrag = null;
             refreshPreview = () => {};
             hasInputChanges = () => false;
             disposeAutocomplete?.(); disposeAutocomplete = null;
             body.replaceChildren(); message("");
             title.textContent = frame.type === "item" ? t(frame.item.name ? "Item bearbeiten" : "Item hinzufügen") : model.label(frame.item);
-            path.textContent = frames.map(entry => entry.item.name ? itemLabel(entry.item) : t("Leerer Slot")).join(" › ");
+            path.textContent = frames.map(entry => entry.item.name ? itemLabel(entry.item)
+                : t(model.kind(entry.container?.item) === "bundle" ? "Item hinzufügen" : "Leerer Slot")).join(" › ");
             path.title = path.textContent;
             accept.textContent = frames.length > 1 ? t("Übernehmen und zurück") : t("Übernehmen");
             accept.disabled = false;
@@ -163,7 +188,7 @@
                     finish(model.apply(frame.item, frame.data));
                 };
             }
-            focusInitialControl();
+            focusInitialControl(focusSelector);
         }
         function renderContainer(frame) {
             const isBundle = model.kind(frame.item) === "bundle";
@@ -179,30 +204,95 @@
             const slots = isBundle ? frame.data.items.map(item => item.slot) : Array.from({ length: capacity }, (_, i) => i);
             const empty = Array.from({ length: capacity }, (_, i) => i).find(slot => !frame.data.items.some(item => item.slot === slot));
             if (isBundle && empty !== undefined) slots.push(empty);
-            const grid = el("div", "", "special-grid");
+            const grid = el("div", "", `special-grid ${isBundle ? "special-bundle-grid" : "special-shulker-grid"}`);
+            const status = el("p", "", "special-note"); status.setAttribute("role", "status");
+            const current = source => source && dialog.open && frames.at(-1) === frame && source.frame === frame
+                && isCurrentContext(context) && frame.data.items.find(item => item.slot === source.slot) === source.item;
+            const transfer = (source, slot, copy) => {
+                if (!current(source) || !canEdit()) return;
+                const result = model.transferChild(frame.item, frame.data, source.slot, slot, copy, specialDepth(), source.count ?? null);
+                if (result.error) { message(result.error); return; }
+                frame.data = result.data;
+                if (!copy) containerClipboard = null;
+                else if (containerClipboard === source) containerClipboard = { ...source, item: frame.data.items.find(item => item.slot === source.slot) };
+                render(`[data-special-slot="${result.slot}"]`);
+            };
             slots.forEach(slot => {
                 const original = frame.data.items.find(item => item.slot === slot);
-                const label = original ? `${itemLabel(original)} × ${original.count}` : t("Leerer Slot");
+                const label = original ? `${itemLabel(original)} × ${original.count}` : t(isBundle ? "Item hinzufügen" : "Leerer Slot");
                 const slotButton = button(label, () => childFrame(frame, slot));
                 slotButton.className = "special-slot";
-                slotButton.setAttribute("aria-label", t("Slot {slot}: {item}", { slot: slot + 1, item: label }));
-                slotButton.replaceChildren(el("span", original ? catalog.getItemEmoji(original.name) : "+"), el("small", label));
+                slotButton.setAttribute("data-special-slot", slot);
+                slotButton.setAttribute("aria-label", isBundle ? label : t("Slot {slot}: {item}", { slot: slot + 1, item: label }));
+                slotButton.title = label;
+                slotButton.replaceChildren(el("span", original ? catalog.getItemEmoji(original.name) : "+"),
+                    el("small", original ? itemLabel(original) : label, "special-slot-label"));
                 const icon = original && catalog.getItemIconMeta(original);
                 if (icon?.url) {
-                    const img = el("img"); img.alt = ""; img.src = icon.url; img.width = img.height = 32;
+                    const img = el("img"); img.alt = ""; img.src = icon.url; img.width = img.height = 32; img.draggable = false;
                     img.addEventListener("error", () => img.replaceWith(el("span", catalog.getItemEmoji(original.name))), { once: true });
                     slotButton.firstChild.replaceWith(img);
                 }
                 if (original) slotButton.append(el("b", String(original.count), "special-slot-count"));
-                slotButton.append(el("small", String(slot + 1), "special-slot-number"));
+                if (!isBundle) slotButton.append(el("small", String(slot + 1), "special-slot-number"));
+                slotButton.draggable = Boolean(original);
+                slotButton.addEventListener("dragstart", event => {
+                    if (!original || !canEdit() || !isCurrentContext(context) || !event.dataTransfer) { event.preventDefault(); return; }
+                    containerDrag = { frame, slot, item: original, token: window.crypto.randomUUID() };
+                    event.dataTransfer.setData("application/x-mcbe-contained-item", containerDrag.token);
+                    event.dataTransfer.effectAllowed = isBundle ? "copy" : "copyMove";
+                    slotButton.classList.add("dragging");
+                });
+                slotButton.addEventListener("dragend", () => {
+                    containerDrag = null;
+                    grid.querySelectorAll(".dragging, .drag-over").forEach(node => node.classList.remove("dragging", "drag-over"));
+                });
+                slotButton.addEventListener("dragover", event => {
+                    if (!current(containerDrag) || isBundle && original) return;
+                    event.preventDefault();
+                    if (event.dataTransfer) event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? "copy" : isBundle ? "none" : "move";
+                    slotButton.classList.add("drag-over");
+                });
+                slotButton.addEventListener("dragleave", () => slotButton.classList.remove("drag-over"));
+                slotButton.addEventListener("drop", event => {
+                    event.preventDefault(); slotButton.classList.remove("drag-over");
+                    const source = containerDrag; containerDrag = null;
+                    if (isBundle && original || !source || event.dataTransfer?.getData("application/x-mcbe-contained-item") !== source.token) return;
+                    transfer(source, slot, Boolean(event.ctrlKey || event.metaKey));
+                });
+                slotButton.addEventListener("keydown", event => {
+                    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+                    const key = event.key.toLowerCase();
+                    if (["c", "x"].includes(key) && original && !(isBundle && key === "x")) {
+                        event.preventDefault();
+                        containerClipboard = { frame, slot, item: original, count: original.count, copy: key === "c" };
+                        status.textContent = t("Zielplatz wählen und mit Strg+V einfügen.");
+                    } else if (key === "v" && containerClipboard && !(isBundle && original)) {
+                        event.preventDefault(); transfer(containerClipboard, slot, containerClipboard.copy);
+                    }
+                });
                 grid.append(slotButton);
             });
-            body.append(grid);
+            if (isBundle) body.append(grid);
+            else {
+                const view = el("div", "", "special-container-view");
+                const scroll = el("div", "", "special-grid-scroll");
+                scroll.tabIndex = 0;
+                scroll.setAttribute("role", "region");
+                scroll.setAttribute("aria-label", t("Shulkerkisten-Inhalt"));
+                scroll.append(grid); view.append(scroll);
+                view.append(el("p", t("Bei wenig Platz kannst du die Slots seitlich scrollen."), "special-note special-grid-hint"));
+                body.append(view);
+            }
+            body.append(el("p", t(isBundle
+                ? "Zum Kopieren ein Item mit Strg auf „Item hinzufügen“ ziehen. Alternativ Strg+C und Strg+V."
+                : "Ziehen verschiebt oder tauscht Items. Strg+Ziehen kopiert auf einen freien Platz. Auch mit Strg+C/X und Strg+V möglich."), "special-note"), status);
         }
         function renderItem(frame) {
             const item = frame.item;
             const logic = window.MCBESlotDetailLogic;
             const browser = getItemBrowser();
+            if (model.kind(frame.container.item) !== "bundle") body.append(el("p", t("Ausgewählter Slot: {slot}", { slot: frame.originSlot + 1 }), "special-note special-selected-slot"));
             const fields = el("div", "", "special-fields special-item-primary"); body.append(fields);
             const searchField = el("div", "", "special-item-search"); fields.append(searchField);
             const heading = el("div", "", "item-picker-header");
@@ -216,7 +306,8 @@
             const choose = button("📖 Item-Browser", () => browser.openPicker({
                 onSelect: selectItem, selectionReason, isCurrent: current, focusTarget: choose,
             }));
-            heading.append(label, choose); searchField.append(heading, name, suggestions);
+            heading.append(label, choose); searchField.append(heading, name);
+            fields.append(suggestions);
             const count = field(fields, "Menge", item.count, { type: "number", min: 1 });
             const countHint = el("p", "", "special-note special-count-hint");
             countHint.id = `special-control-${++controlId}`; count.setAttribute("aria-describedby", countHint.id); body.append(countHint);
@@ -224,25 +315,35 @@
             properties.open = Boolean(frame.propertiesOpen);
             properties.append(el("summary", t("Weitere Eigenschaften")));
             properties.addEventListener("toggle", () => { frame.propertiesOpen = properties.open; });
-            const extraFields = el("div", "", "special-fields"); properties.append(extraFields); body.append(properties);
-            const damage = field(extraFields, "Abnutzung / Datenwert", item.damage, { type: "number", min: 0, max: 32767 });
-            const variant = select(extraFields, "Variante", item.damage, []);
-            const capacity = model.kind(frame.container.item) === "bundle" ? 64 : 27;
-            const destination = select(extraFields, "Zielslot", item.slot, Array.from({ length: capacity }, (_, slot) => slot)
-                .filter(slot => slot === frame.originSlot || !frame.container.data.items.some(child => child.slot === slot))
-                .map(slot => [slot, String(slot + 1)]));
+            body.append(properties);
+            const wearFields = el("div", "", "special-wear-fields"); properties.append(wearFields);
+            const damage = field(wearFields, "Abnutzung", item.damage, { type: "number", min: 0 });
+            const variant = select(wearFields, "Variante", item.damage, []);
+            const damageNote = el("p", "", "special-note special-damage-note");
+            damageNote.id = `special-control-${++controlId}`;
+            damage.setAttribute("aria-describedby", damageNote.id);
+            variant.setAttribute("aria-describedby", damageNote.id);
+            wearFields.append(damageNote);
+            const extraFields = el("div", "", "special-fields special-text-fields"); properties.append(extraFields);
             const custom = field(extraFields, "Anzeigename", item.display_name || "", { maxLength: textLimits.maxDisplayName });
             const lore = field(extraFields, "Beschreibung (eine Zeile je Eintrag)", (item.lore || []).join("\n"), { multiline: true });
-            const enchantments = clone(item.enchantments || []);
-            const enchBox = el("div", "", "special-card"); properties.append(enchBox);
+            custom.placeholder = t("Z.B. Drachentöter");
+            lore.placeholder = t("Z.B. Die legendäre Klinge...");
+            const loreNote = el("small", t("Wird in Minecraft angezeigt. Im normalen Spiel gibt es dafür kein Eingabefeld."), "lore-hint");
+            loreNote.id = `special-control-${++controlId}`;
+            lore.setAttribute("aria-describedby", loreNote.id);
+            const loreField = el("div", "", "special-lore-field");
+            extraFields.append(loreField); loreField.append(lore.parentElement, loreNote);
+            let enchantments = clone(item.enchantments || []);
+            const enchBox = el("section", "", "special-enchantments"); body.append(enchBox);
             enchBox.append(el("h3", t("Verzauberungen")));
             const enchRows = el("div"); enchBox.append(enchRows);
-            const enchSelect = select(enchBox, "Verzauberung hinzufügen", "", []);
             const normalizedName = () => logic.normalizedItemName(name.value);
             let formItemName = logic.normalizedItemName(item.name);
+            let selectedVariant = null;
             const current = () => dialog.open && frames.at(-1) === frame && isCurrentContext(context);
             const limitFor = id => model.childCountLimit(frame.container.item, frame.container.data, frame.originSlot,
-                id === item.name ? item : { name: id, count: 1 }, specialDepth());
+                id === logic.normalizedItemName(item.name) ? item : { name: id, count: 1 }, specialDepth());
             function selectionReason(id) {
                 const limit = limitFor(id);
                 return limit.error || (limit.maximum < 1 ? t("Für dieses Item ist im Bundle nicht genügend Platz.") : "");
@@ -252,63 +353,49 @@
                     previousName: formItemName, nextName, isValidItemId: catalog.isAddableItemId,
                 });
                 if (plan.shouldReset) {
+                    selectedVariant = null;
                     formItemName = plan.nextName;
-                    count.value = 1; damage.value = 0; custom.value = ""; lore.value = ""; enchantments.length = 0;
+                    count.value = 1;
+                    damage.value = logic.dataVariantSelectionPlan({
+                        itemName: plan.nextName, damageValue: 0, variants: catalog.dataValueVariantsForId(plan.nextName),
+                    }).selectedDamage;
+                    custom.value = ""; lore.value = ""; enchantments.length = 0;
                 }
             }
             function selectItem(selected) {
                 if (!current() || !canEdit()) return;
                 resetItemFields(selected.id);
                 name.value = selected.id;
+                selectedVariant = selected;
                 if (selected.damage !== null && selected.damage !== undefined && Number.isInteger(Number(selected.damage))) damage.value = Number(selected.damage);
                 syncFields();
             }
             function drawEnchantments() {
                 const id = normalizedName();
-                const db = getEnchantments();
-                const rows = window.MCBEEnchantmentEditorLogic.enchantmentRowsForItem({
-                    itemName: id, enchantmentsDb: db, activeEnchantments: enchantments,
-                    isCompatible: catalog.isEnchantmentCompatibleWithItem,
-                });
-                const available = rows.filter(row => row.compatible && !row.activeEnchantment);
                 enchBox.hidden = !catalog.isEnchantableItemForEditor(id) && !enchantments.length;
-                enchRows.replaceChildren();
-                enchantments.forEach((entry, index) => {
-                    const compatible = catalog.isEnchantmentCompatibleWithItem(entry.id, id);
-                    const data = db[entry.id];
-                    const row = el("div", "", "special-actions");
-                    row.append(el("span", logic.localizedEnchantmentName(data, entry.id)
-                        + (!compatible ? ` · ${t("unpassend, wird erhalten")}` : "")));
-                    const level = field(row, "Stufe", entry.lvl, { type: "number", min: 1, max: data?.max_lvl ?? 1 });
-                    level.readOnly = !compatible || !data;
-                    level.addEventListener("input", () => { entry.lvl = level.valueAsNumber; });
-                    row.append(button("Entfernen", () => { enchantments.splice(index, 1); drawEnchantments(); })); enchRows.append(row);
-                });
-                enchSelect.replaceChildren();
-                for (const [id, label] of [["", t("Bitte wählen")], ...available.map(row => [row.id, logic.localizedEnchantmentName(row.info, row.id)])]) {
-                    const option = el("option", label); option.value = id; enchSelect.append(option);
-                }
-                enchSelect.parentElement.hidden = !available.length;
+                enchRows.replaceChildren(window.MCBEEnchantmentsView.enchantmentEditorElement({
+                    itemName: id, enchantments, enchantmentsDb: getEnchantments(),
+                    isCompatible: catalog.isEnchantmentCompatibleWithItem,
+                    canChange: () => current() && canEdit(),
+                    onChange: entries => { enchantments = entries; },
+                }, doc));
             }
-            enchSelect.addEventListener("change", () => {
-                const id = Number(enchSelect.value);
-                if (enchSelect.value && catalog.isEnchantmentCompatibleWithItem(id, normalizedName())
-                    && !enchantments.some(entry => Number(entry.id) === id)) enchantments.push({ id, lvl: 1 });
-                drawEnchantments();
-            });
             function build() {
                 resetItemFields(normalizedName());
                 const result = logic.buildItemForm({ catalog, enchantmentsDb: getEnchantments(), countLimit: limitFor(normalizedName()),
-                    slotId: item.slot, previousItem: item.name ? item : null, rawName: name.value, rawCount: count.value,
+                    slotId: frame.originSlot, previousItem: item.name ? item : null, rawName: name.value, rawCount: count.value,
                     rawDamage: damage.value, rawCustomName: custom.value, rawLore: lore.value, enchantments,
                     maxDisplayName: textLimits.maxDisplayName, maxLoreLines: textLimits.maxLoreLines, maxLoreLineLength: textLimits.maxLoreLineLength,
                     enchantmentLabel: id => logic.localizedEnchantmentName(getEnchantments()[id], id),
                     detailItemLabel: id => itemLabel({ name: id }), specialItemNbtRequirement: catalog.specialItemNbtRequirement,
                 });
                 if (!result.ok || !result.item) { message(result.error || t("Wähle ein Item.")); return null; }
-                const built = model.cleanChild(result.item);
-                built.slot = Number(destination.value);
-                if (normalizedName() === item.name && item.source_index !== undefined) built.source_index = item.source_index;
+                let built = model.cleanChild(result.item);
+                built.slot = frame.originSlot;
+                if (normalizedName() === logic.normalizedItemName(item.name)) {
+                    for (const key of ["source_index", "copy_source_index", "stack_key"]) if (item[key] !== undefined) built[key] = item[key];
+                }
+                built = catalog.applyItemVariant?.(built, selectedVariant) || built;
                 if (window.MCBESpecialItemLogic.sameUserFields(item, built)) return model.cleanChild(item);
                 return built;
             }
@@ -316,6 +403,7 @@
                 const built = build();
                 if (built) {
                     frame.item = built;
+                    selectedVariant = null;
                     specialFrame(built, updated => { frame.item = updated; });
                 }
             });
@@ -324,24 +412,33 @@
                 const limit = limitFor(id);
                 const state = logic.itemFormModel({ catalog, rawName: id, rawCount: count.value, rawDamage: damage.value,
                     previousItem: item, countLimit: limit });
-                const validId = id === item.name && Boolean(id) || catalog.isAddableItemId(id);
+                const validId = id === logic.normalizedItemName(item.name) && Boolean(id) || catalog.isAddableItemId(id);
                 logic.applyItemFormConstraints(state, { count, damage });
+                damage.parentElement.hidden = state.damageMode !== "durability";
+                const banner = catalog.applyItemVariant?.({ ...item, name: id }, selectedVariant);
+                const ominous = id === "minecraft:banner" && catalog.bannerType?.(banner) === 1;
+                variant.parentElement.hidden = state.damageMode !== "variant" || ominous;
+                variant.setAttribute("aria-invalid", String(Boolean(state.damageError)));
+                damageNote.textContent = ominous ? t("Das ominöse Banner verwendet ein festes Motiv.") : state.damageNote;
+                damageNote.hidden = !damageNote.textContent;
                 countHint.textContent = !validId ? t("Wähle ein Item.") : state.preserved && (limit.error || Number(count.value) > limit.maximum)
                     ? t("Vorhandene Menge {count} bleibt unverändert erhalten.", { count: count.value })
                     : limit.error || t("Maximal {max} in diesem Behälter.", { max: limit.maximum });
-                accept.disabled = !validId || Boolean(state.countError);
+                accept.disabled = !validId || Boolean(state.countError || state.damageError);
                 special.disabled = accept.disabled;
                 special.hidden = !model.kind({ name: id }); special.textContent = model.label({ name: id });
-                message(validId ? state.countError : "");
+                message(validId ? state.countError || state.damageError : "");
             }
             function syncFields() {
                 const id = normalizedName();
-                const variants = catalog.dataValueVariantsForId(id);
-                damage.parentElement.hidden = variants.length > 0;
-                variant.parentElement.hidden = !variants.length;
+                const { variants } = logic.itemDamageEditorModel({ catalog, itemName: id, damageValue: damage.value, sourceItem: item });
                 variant.replaceChildren();
                 const options = variants.map(value => [value.damage, itemLabel({ name: id, damage: value.damage })]);
-                if (variants.length && !variants.some(value => value.damage === Number(damage.value))) options.unshift([damage.value, t("Datenwert {value}", { value: damage.value })]);
+                const originalDamage = Number(item.damage);
+                if (id === logic.normalizedItemName(item.name) && variants.length && Number.isInteger(originalDamage)
+                    && !variants.some(value => Number(value.damage) === originalDamage)) {
+                    options.unshift([originalDamage, t("Unbekannter Datenwert {value} (wird beibehalten)", { value: originalDamage })]);
+                }
                 options.forEach(([value, label]) => { const option = el("option", label); option.value = value; variant.append(option); });
                 variant.value = damage.value;
                 drawEnchantments(); syncQuantity();
@@ -351,23 +448,24 @@
             variant.addEventListener("change", () => { damage.value = variant.value; syncQuantity(); });
             damage.addEventListener("input", syncQuantity);
             disposeAutocomplete = browser.setupAutocomplete(name, suggestions, {
-                includeVariants: true, onSelect: selectItem, selectionReason, browserButton: choose,
+                includeVariants: true, inline: true, onSelect: selectItem, selectionReason, browserButton: choose,
                 onCommit: () => { resetItemFields(normalizedName()); syncFields(); },
             });
             syncFields();
-            const actions = el("div", "", "special-actions"); actions.append(special);
+            const actions = el("div", "", "special-actions special-item-actions"); actions.append(special);
             if (item.name) actions.append(button("Item entfernen", () => finish(null)));
             body.append(actions);
             saveFrame = () => {
                 const built = build();
                 if (!built) return;
-                const candidate = model.withChild(frame.container.data, frame.originSlot, built);
+                const candidate = model.withChild(frame.container.data, frame.originSlot, built, frame.container.item);
                 const validation = model.validate(frame.container.item, candidate, specialDepth());
                 if (validation) { message(validation); return; }
                 finish(built);
             };
             const formState = () => JSON.stringify({
-                controls: [name, count, damage, destination, custom, lore].map(input => input.value),
+                selectedVariant,
+                controls: [name, count, damage, custom, lore].map(input => input.value),
                 enchantments: enchantments.map(({ id, lvl }) => [id, lvl]).sort(([a], [b]) => a - b),
             });
             const initialFormState = formState();
@@ -391,7 +489,8 @@
                 text.addEventListener("input", () => { page.text = text.value; count.textContent = `${page.text.length} / ${limits.page_length}`; });
                 card.append(count); rowActions(card, data.pages, index, render); body.append(card);
             });
-            const add = button("Seite hinzufügen", () => { data.pages.push({ text: "" }); render(); body.querySelectorAll("textarea").item(data.pages.length - 1)?.focus(); });
+            const add = button("Seite hinzufügen", () => { data.pages.push({ text: "" }); render(`[data-special-row="${data.pages.length - 1}"] textarea`); });
+            add.setAttribute("data-special-add-row", "");
             add.disabled = data.pages.length >= limits.pages; body.append(add);
         }
         function colors(parent, label, values, onChange) {
@@ -428,12 +527,12 @@
                 }
                 rowActions(card, data.explosions, index, render); body.append(card);
             });
-            const add = button("Effekt hinzufügen", () => { data.explosions.push({ shape: 0, colors: [15], fade: [], trail: false, flicker: false }); render(); });
+            const add = button("Effekt hinzufügen", () => { data.explosions.push({ shape: 0, colors: [15], fade: [], trail: false, flicker: false }); render(`[data-special-row="${data.explosions.length - 1}"] select`); });
+            add.setAttribute("data-special-add-row", "");
             add.disabled = data.explosions.length >= (isStar ? 1 : model.schema.limits.explosions); body.append(add);
         }
         function renderBanner(frame) {
             const data = frame.data;
-            body.append(el("p", t("Ebene 1 liegt ganz unten. Jede weitere Ebene überlagert die vorherigen Muster."), "special-note"));
             const layout = el("div", "", "special-banner-layout");
             const preview = el("figure", "", "special-banner-preview");
             const stage = el("div", "", "special-banner-stage");
@@ -442,9 +541,7 @@
             const caption = el("figcaption");
             caption.append(el("strong", t("Vanilla-Vorschau")));
             const baseColor = Number(frame.item.damage ?? 15);
-            caption.append(el("p", t("Grundfarbe: {color} · {count} / {max} Ebenen", {
-                color: t(COLOR_NAMES[baseColor]), count: data.patterns.length, max: model.schema.limits.patterns,
-            }), "special-note"));
+            const summary = el("p", "", "special-note"); caption.append(summary);
             const status = el("p", "", "special-note"); status.setAttribute("role", "status");
             const downloadHint = el("p", t("Lädt das offizielle Minecraft-Texturpaket über die Vanilla-Icons. Danach ist die Vorschau auch offline verfügbar."), "special-note");
             const reload = button("Bannermuster laden", async () => {
@@ -462,17 +559,34 @@
             const retry = button("Erneut versuchen", () => draw());
             reload.hidden = true; retry.hidden = true; downloadHint.hidden = true;
             caption.append(status, downloadHint, reload, retry); preview.append(stage, caption);
+            const controls = el("div", "", "special-banner-controls");
+            const type = select(controls, "Bannerart", data.type || 0, [[0, t("Normales Banner")], [1, t("Ominöses Banner")]]);
+            type.setAttribute("data-special-banner-type", "");
+            const note = el("p", t(data.type === 1
+                ? "Vanilla-Design: weißes Banner mit festem Motiv, ohne zusätzliche Muster."
+                : "Ominöse Banner haben ein festes Motiv ohne eigene Muster."), "special-note special-banner-type-note");
+            controls.append(note);
+            const mixed = data.type === 1 && (data.patterns.length || baseColor !== 15);
+            if (mixed) {
+                const warning = el("section", "", "special-banner-warning");
+                warning.append(el("strong", t("Abweichendes Bannerdesign")),
+                    el("p", t("Dieses gespeicherte Banner enthält eine andere Grundfarbe oder zusätzliche Muster. Im Spiel können diese das ominöse Motiv überlagern."), "special-note"));
+                controls.append(warning);
+            }
             const layers = el("div", "", "special-banner-layers");
-            layout.append(preview, layers); body.append(layout);
+            controls.append(layers); layout.append(preview, controls); body.append(layout);
             let generation = 0;
             async function draw() {
+                summary.textContent = data.type === 1 ? t("Ominöses Banner") : t("Grundfarbe: {color} · {count} / {max} Ebenen", {
+                    color: t(COLOR_NAMES[baseColor]), count: data.patterns.length, max: model.schema.limits.patterns,
+                });
                 const current = ++generation;
                 const active = () => current === generation && preview.isConnected && frames.at(-1) === frame;
                 canvas.hidden = true; reload.hidden = true; retry.hidden = true; downloadHint.hidden = true;
                 preview.dataset.state = "loading";
                 status.textContent = t("Bannervorschau wird geladen …");
                 try {
-                    const rendered = await bannerRenderer.render(baseColor, data.patterns, getBannerPatterns(), COLOR_HEX);
+                    const rendered = await bannerRenderer.render(baseColor, data.patterns, getBannerPatterns(), COLOR_HEX, data.type || 0);
                     if (!active()) return;
                     if (!rendered) {
                         preview.dataset.state = "missing";
@@ -485,7 +599,8 @@
                     const description = data.patterns.map((entry, index) => t("Ebene {number}: {pattern}, {color}", {
                         number: index + 1, pattern: t(PATTERN_NAMES[entry.pattern]), color: t(COLOR_NAMES[entry.color]),
                     })).join("; ");
-                    canvas.setAttribute("aria-label", t("Bannervorschau, Grundfarbe {color}", { color: t(COLOR_NAMES[baseColor]) }) + (description ? "; " + description : ""));
+                    canvas.setAttribute("aria-label", (data.type === 1 ? t("Ominöses Banner")
+                        : t("Bannervorschau, Grundfarbe {color}", { color: t(COLOR_NAMES[baseColor]) })) + (description ? "; " + description : ""));
                     canvas.hidden = false; status.textContent = ""; preview.dataset.state = "ready";
                 } catch (_error) {
                     if (!active()) return;
@@ -495,17 +610,41 @@
                 }
             }
             refreshPreview = draw;
+            layers.hidden = data.type === 1;
+            type.addEventListener("change", () => {
+                if (Number(type.value) === 1) {
+                    frame.normalBannerDraft = { data: clone(data), damage: frame.item.damage };
+                    frame.item.damage = 15;
+                    frame.data = { ...clone(data), type: 1, patterns: [] };
+                } else {
+                    frame.data = { ...clone(frame.normalBannerDraft?.data || data), type: 0 };
+                    if (frame.normalBannerDraft) frame.item.damage = frame.normalBannerDraft.damage;
+                    if (model.data(frame.item).type === undefined) delete frame.data.type;
+                }
+                render("[data-special-banner-type]");
+            });
+            const heading = el("div", "", "special-banner-heading");
+            heading.append(el("h3", t("Muster")), el("span", `${data.patterns.length} / ${model.schema.limits.patterns}`, "special-note"));
+            const add = button("Muster hinzufügen", () => { data.patterns.push({ pattern: "bo", color: 0 }); render(`[data-special-row="${data.patterns.length - 1}"] select`); });
+            add.setAttribute("data-special-add-row", "");
+            add.disabled = data.patterns.length >= model.schema.limits.patterns;
+            heading.append(add); layers.append(heading);
+            layers.append(el("p", t("Ebene 1 liegt ganz unten. Jede weitere Ebene überlagert die vorherigen Muster."), "special-note special-banner-layer-note"));
+            if (!data.patterns.length) layers.append(el("p", t("Noch keine Muster. Füge eine Ebene hinzu, um dein Banner zu gestalten."), "special-note special-banner-empty"));
             data.patterns.forEach((pattern, index) => {
-                const card = el("section", "", "special-card"); card.append(el("h3", t("Ebene {number}", { number: index + 1 })));
+                const card = el("section", "", "special-card special-banner-row");
+                const header = el("div", "", "special-banner-row-header");
+                header.append(el("h3", t("Ebene {number}", { number: index + 1 })));
+                card.append(header);
+                header.append(rowActions(card, data.patterns, index, render, true));
                 const fields = el("div", "", "special-fields"); card.append(fields);
                 const type = select(fields, "Muster", pattern.pattern, model.schema.patterns.map(code => [code, t(PATTERN_NAMES[code] || code)]));
                 const color = select(fields, "Farbe", pattern.color, COLOR_NAMES.map((name, id) => [id, t(name)]));
                 type.addEventListener("change", () => { pattern.pattern = type.value; draw(); });
                 color.addEventListener("change", () => { pattern.color = Number(color.value); draw(); });
-                rowActions(card, data.patterns, index, render); layers.append(card);
+                layers.append(card);
             });
-            const add = button("Muster hinzufügen", () => { data.patterns.push({ pattern: "bo", color: 0 }); render(); });
-            add.disabled = data.patterns.length >= model.schema.limits.patterns; layers.append(add); draw();
+            draw();
         }
         accept.addEventListener("click", () => {
             if (canEdit()) saveFrame();
@@ -523,6 +662,11 @@
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") event.preventDefault();
         });
         return {
+            discard() {
+                returnFocus = null;
+                nativeReturnFocus = null;
+                close();
+            },
             refreshPreview() { refreshPreview(); },
             hasPendingChanges() {
                 if (!dialog.open) return false;

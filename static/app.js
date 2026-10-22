@@ -209,6 +209,8 @@ let lastPlayerExportDir = "";
 const WORLD_PRESENCE_SESSION_KEY = "mcbe-inventory-editor:presenceSession";
 const WORLD_PRESENCE_INTERVAL_MS = 8000;
 const itemCatalog = window.MCBEItemCatalog.createItemCatalog({
+    getBannerIcon: window.MCBEBannerPreview.createIconProvider(document, () => iconSourceSummary?.banner_patterns || {},
+        JSON.parse(document.getElementById("specialItemSchema").textContent).color_hex),
     getItemsDb: () => itemsDb,
     getCompatItemAliases: () => compatItemAliases,
     getAddableItems: () => addableItems,
@@ -339,7 +341,7 @@ function getInventoryGridController() {
                 getCurrentPlayerKey: () => currentPlayerKey,
             },
             renderer: {
-                itemLabel: item => detailItemLabel(item.name, item.display_name, item.damage),
+                itemLabel: item => detailItemLabel(item.name, item.display_name, item.damage, item),
                 buildSlotTooltipLines,
                 buildSlotTooltipEntries,
                 slotAreaLabel,
@@ -363,6 +365,9 @@ function getInventoryGridController() {
                 setDirty,
                 guardEditingAction,
                 getSpecialItemModel: () => specialItemModel,
+                guardSlotChanges: targets => slotDetailController.guardSlotChanges(targets),
+                confirmSlotSelection: () => slotDetailController.confirmDiscardChanges(),
+                reconcileSlotEditor: () => slotDetailController.reconcileCurrentSlot(),
                 openSpecialEditor,
                 canOpenSpecialEditor: () => !writeGateController.editingBlocked(),
             },
@@ -375,6 +380,7 @@ function updateGridVisuals() { return getInventoryGridController().updateGridVis
 function handleSlotClick(e, slotId) { return getInventoryGridController().handleSlotClick(e, slotId); }
 function handleEnderSlotClick(e, slotId) { return getInventoryGridController().handleEnderSlotClick(e, slotId); }
 function clearSelection() { return getInventoryGridController().clearSelection(); }
+function requestClearSelection() { return getInventoryGridController().requestClearSelection(); }
 function currentSelectionState() { return getInventoryGridController().currentSelectionState(); }
 function updateSelectionUI() { return getInventoryGridController().updateSelectionUI(); }
 
@@ -562,7 +568,7 @@ function getPlayerToolsController() {
             getInventoryViewPreferences,
             updateGridVisuals,
             renderPlayerInventorySummary,
-            getIsDirty: () => isDirty,
+            getIsDirty: hasUnsavedChanges,
             writeBlocked: () => writeBlocked(),
             guardEditingAction,
             getServerGuardEpoch: () => currentServerGuardEpoch,
@@ -802,15 +808,6 @@ function setDirty(dirty) {
     renderUndoRedoPanel();
 }
 
-// Read-only contract for the desktop close guard; the browser uses beforeunload.
-window.MCBEDesktop = Object.freeze({
-    closeState: () => ({
-        dirty: hasUnsavedChanges(),
-        title: t("Ungespeicherte Änderungen"),
-        message: t("Ungespeicherte Änderungen verwerfen und den Editor schließen?"),
-    }),
-});
-
 function currentPlayerLabel() {
     return currentPlayer ? currentPlayer.label : t("Spieler");
 }
@@ -849,7 +846,7 @@ const slotInspectorController = window.MCBENbtInspector.createInventorySlotInspe
     getEnderChestInventory: () => enderChestInventory,
     getCleanSnapshot: () => undoRedoAppController.getCleanSnapshot(),
     catalog: itemCatalog,
-    itemLabel: item => detailItemLabel(item.name, item.display_name || "", item.damage),
+    itemLabel: item => detailItemLabel(item.name, item.display_name || "", item.damage, item),
     getSpecialItemModel: () => specialItemModel,
     getEnchantments: () => enchDb,
     getBannerPatterns: () => iconSourceSummary?.banner_patterns || {},
@@ -964,6 +961,8 @@ function getPlayerLoadApp() {
             api: { withCsrf, parseJsonResponse, buildErrorMessage },
             feedback: { showConfirmDialog, showToast, showLoading, hideLoading },
             actions: {
+                hasUnsavedChanges,
+                discardEditorDrafts: () => specialItemEditor.discard(),
                 logStatus,
                 copyTextToClipboard,
                 buildPlayersDiagnosticsText,
@@ -1116,6 +1115,7 @@ const undoRedoAppController = window.MCBEUndoRedoController.createInventoryUndoR
     recordAction,
     editingBlocked: () => writeGateController.editingBlocked(),
     getEditingBlockedReason: () => writeGateController.editingBlockedReason(),
+    guardPendingChanges: guardPendingEditorChanges,
 });
 function markCleanState() { return undoRedoAppController.markCleanState(); }
 function pushUndo(label = t("Änderung")) { return undoRedoAppController.pushUndo(label); }
@@ -1138,7 +1138,7 @@ const specialItemEditor = window.MCBESpecialItemEditor.createEditor({
     getBannerPatterns: () => iconSourceSummary?.banner_patterns || {},
     loadBannerPatterns: () => iconSourcesController.updateVanillaIcons(),
     canLoadBannerPatterns: () => iconSourcesController.canWriteAppState(),
-    itemLabel: item => detailItemLabel(item.name || "", item.display_name || "", item.damage || 0),
+    itemLabel: item => detailItemLabel(item.name || "", item.display_name || "", item.damage || 0, item),
     canEdit: () => !guardEditingAction(),
     commit: (context, item) => {
         const source = context.container === "ender_chest" ? enderChestInventory : inventory;
@@ -1172,6 +1172,17 @@ function hasUnsavedChanges() {
         || statsFormController.hasPendingChanges();
 }
 
+function guardPendingEditorChanges() {
+    if (slotDetailController.guardSlotChanges()) return true;
+    const message = statsFormController.hasPendingChanges()
+        ? t("Bitte übernimm zuerst die offenen Spielerwerte. Die Aktion wurde nicht ausgeführt.")
+        : specialItemEditor.hasPendingChanges()
+            ? t("Bitte übernimm oder verwirf zuerst die Eingaben im Spezialeditor. Die Aktion wurde nicht ausgeführt.")
+            : "";
+    if (message) showToast(message, "warning", 4500);
+    return Boolean(message);
+}
+
 const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createConfiguredInventoryClipboardController({
     doc: document,
     win: window,
@@ -1184,7 +1195,10 @@ const inventoryClipboardController = window.MCBEInventoryClipboardLogic.createCo
     },
     selection: { currentSelectionState },
     slotHandlers: { handleSlotClick, handleEnderSlotClick },
-    helpers: { isProtectedKnownSlot, showProtectedSlotMessage, showSlotInspector, pushUndo, updateGridVisuals, setDirty, showToast, recordAction, guardEditingAction, openSpecialEditor, specialItemModel },
+    helpers: {
+        isProtectedKnownSlot, showProtectedSlotMessage, showSlotInspector, pushUndo, updateGridVisuals, setDirty, showToast, recordAction, guardEditingAction, openSpecialEditor, specialItemModel,
+        guardSlotChanges: targets => slotDetailController.guardSlotChanges(targets),
+    },
     renderer: { slotDisplayName },
 });
 inventoryClipboardController.bindContextMenu();
@@ -1198,7 +1212,7 @@ window.MCBEWorkflowState.createConfiguredAppKeyboardController({
     selection: {
         currentSelectionState,
         hasSelection: window.MCBESelectionState.hasSelection,
-        clearSelection,
+        clearSelection: requestClearSelection,
     },
     helpers: {
         isEditableTextTarget: window.MCBEInventoryClipboardLogic.isEditableTextTarget,
@@ -1334,6 +1348,7 @@ function createConfiguredSaveAppController() {
 }
 
 async function saveCurrentPlayer(options = {}) {
+    if (guardPendingEditorChanges()) return;
     return getSaveAppController().saveCurrentPlayer(options);
 }
 if (btnSave) btnSave.addEventListener("click", () => saveCurrentPlayer({ skipReview: false }));
@@ -1383,6 +1398,7 @@ const slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetai
         logStatus,
         recordAction,
         showToast,
+        showConfirmDialog,
     },
 });
 slotDetailController.wire();
@@ -1618,7 +1634,7 @@ const playerTransferController = window.MCBEPlayerTransferLogic.createInventoryP
         getCurrentPlayerKey: () => currentPlayerKey,
         getCurrentPlayer: () => currentPlayer,
         getCurrentPlayerRevision: () => currentPlayerRevision,
-        getIsDirty: () => isDirty,
+        getIsDirty: hasUnsavedChanges,
         getCurrentImportPreview: () => currentImportPreview,
         getCurrentPlayerLabel: currentPlayerLabel,
         getWorldPresenceSessionId,
@@ -1711,7 +1727,7 @@ itemBrowserController.wire();
 window.MCBEWorkflowState.createInventoryEditorBootController({
     doc: document,
     inventoryViewPreferences: getInventoryViewPreferences(),
-    clearSelection,
+    clearSelection: requestClearSelection,
     responsivePanelController,
     lifecycleController: window.MCBEWorkflowState.createAppLifecycleController({
         win: window,
@@ -1736,3 +1752,13 @@ window.MCBEWorkflowState.createInventoryEditorBootController({
 }).start();
 
 window.MCBEStartupGuard?.ready();
+
+// Publish the read-only desktop contract only after bootstrap succeeds. A
+// partial startup must not appear clean to the native close guard or diagnosis.
+window.MCBEDesktop = Object.freeze({
+    closeState: () => ({
+        dirty: hasUnsavedChanges(),
+        title: t("Ungespeicherte Änderungen"),
+        message: t("Ungespeicherte Änderungen verwerfen und den Editor schließen?"),
+    }),
+});

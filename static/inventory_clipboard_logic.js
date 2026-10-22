@@ -171,6 +171,7 @@
         showToast = () => {},
         recordAction = () => {},
         guardEditingAction = () => false,
+        guardSlotChanges = () => false,
         openSpecialEditor = () => {},
         specialItemModel = null,
         slotDisplayName = (slotId, containerName) => `${containerName}:${slotId}`,
@@ -236,7 +237,7 @@
                 const special = contextMenu.querySelector('[data-action="special"]');
                 if (special) {
                     special.hidden = protectedKnown || !specialItemModel?.kind(item);
-                    special.textContent = specialItemModel?.label(item) || "";
+                    special.querySelector(".context-item-label").textContent = specialItemModel?.label(item) || "";
                 }
                 contextMenu.style.display = "flex";
                 contextMenu.style.left = `${event.clientX}px`;
@@ -282,7 +283,7 @@
             });
         }
 
-        function handleContextAction(action) {
+        async function handleContextAction(action) {
             const slotId = ctxSlotId;
             hideContextMenu();
             if (slotId === null) return false;
@@ -294,9 +295,10 @@
                 return true;
             }
             if (action === "special") {
-                if (ctxSlotContainer === "ender_chest") handleEnderSlotClick(null, slotId);
-                else handleSlotClick(null, slotId);
-                openSpecialEditor(slotId, ctxSlotContainer);
+                const container = ctxSlotContainer;
+                const selected = await (container === "ender_chest" ? handleEnderSlotClick(null, slotId) : handleSlotClick(null, slotId));
+                if (selected === false) return true;
+                openSpecialEditor(slotId, container);
                 return true;
             }
             const isEnder = ctxSlotContainer === "ender_chest";
@@ -319,6 +321,9 @@
             }
             if (!plan.ok) return false;
 
+            // Copy/paste also select their context slot; protect any open form
+            // before changing that selection, even if another slot is modified.
+            if (guardSlotChanges(plan.selectSlot ? null : [{ slotId, containerName: ctxSlotContainer }])) return true;
             if (plan.operation === "copy") {
                 slotClipboard = cloneItemForClipboard(source[slotId], ctxSlotContainer);
                 showToast(t("📋 {name} kopiert", { name: slotClipboard.name }));
@@ -429,6 +434,10 @@
             if (plan.skippedNotWearable) {
                 showToast(t("Ausrüstungsslots wurden übersprungen: Item dort nicht tragbar."), "warning", 3000);
             }
+            const targets = plan.operation === "paste_ender"
+                ? [{ slotId: plan.target.slotId, containerName: "ender_chest" }]
+                : plan.writableSlots.map(slotId => ({ slotId, containerName: "inventory" }));
+            if (guardSlotChanges(targets)) return true;
             if (plan.operation === "paste_ender") {
                 const actionMessage = t("{name} in {slot} eingefügt", { name: slotClipboard.name, slot: slotDisplayName(plan.target.slotId, "ender_chest") });
                 pushUndo(actionMessage);
@@ -470,6 +479,7 @@
             }
             if (!plan.ok) return true;
 
+            if (guardSlotChanges([{ slotId: plan.target.slotId, containerName: plan.target.containerName }])) return true;
             const clipboardCandidate = cloneItemForClipboard(sourceItem, plan.target.containerName);
             if (!clipboardCandidate) return true;
 
@@ -534,6 +544,7 @@
             showToast: helpers.showToast,
             recordAction: helpers.recordAction,
             guardEditingAction: helpers.guardEditingAction,
+            guardSlotChanges: helpers.guardSlotChanges,
             openSpecialEditor: helpers.openSpecialEditor,
             specialItemModel: helpers.specialItemModel,
             slotDisplayName: renderer.slotDisplayName,

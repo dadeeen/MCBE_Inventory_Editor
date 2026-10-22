@@ -1082,18 +1082,19 @@
                         <div class="row">
                             <div class="field-group col">
                                 <label for="detailCount">{{ t("Menge") }}</label>
-                                <input type="number" id="detailCount" min="1" max="64" value="1" title="{{ t('Anzahl der Items (maximaler Stack bestimmt Obergrenze)') }}" />
+                                <input type="number" id="detailCount" min="1" max="64" value="1" aria-describedby="detailFormError" title="{{ t('Anzahl der Items (maximaler Stack bestimmt Obergrenze)') }}" />
                             </div>
-                            <div class="field-group col" id="detailDamageGroup">
+                            <div class="field-group col" id="detailDamageGroup" style="display:none;">
                                 <label for="detailDamage">{{ t("Abnutzung") }}</label>
-                                <input type="number" id="detailDamage" min="0" max="32767" value="0" title="{{ t('0 = neuwertig; höherer Wert = mehr Abnutzung. Verbleibende Haltbarkeit: Maximalwert minus Abnutzung.') }}" />
+                                <input type="number" id="detailDamage" min="0" step="1" value="0" aria-describedby="detailDamageNote detailFormError" />
                             </div>
                             <div class="field-group col" id="detailDataVariantGroup" style="display:none;">
-                                <label for="detailDataVariant" id="detailDataVariantLabel">{{ t("Itemvariante") }}</label>
-                                <select id="detailDataVariant" class="select-field"></select>
-                                <small class="field-note" id="detailDataVariantNote">{{ t("Minecraft speichert diese Variante als Bedrock-Datenwert.") }}</small>
+                                <label for="detailDataVariant" id="detailDataVariantLabel">{{ t("Variante") }}</label>
+                                <select id="detailDataVariant" class="select-field" aria-describedby="detailDamageNote detailFormError"></select>
                             </div>
                         </div>
+                        <small class="field-note" id="detailDamageNote" aria-live="polite" hidden></small>
+                        <p class="field-note" id="detailFormError" role="alert" hidden></p>
                         <div class="entity-variant-editor" id="detailEntityVariantPanel" style="display:none;" aria-live="polite">
                             <div class="entity-variant-editor-header">
                                 <div>
@@ -1137,7 +1138,8 @@
                         </div>
                         <div class="field-group">
                             <label for="detailLore">{{ t("Beschreibung (Lore – eine Zeile pro Eintrag)") }}</label>
-                            <textarea id="detailLore" rows="3" placeholder="{{ t('Z.B. Die legendäre Klinge...') }}"></textarea>
+                            <textarea id="detailLore" rows="3" aria-describedby="detailLoreHint" placeholder="{{ t('Z.B. Die legendäre Klinge...') }}"></textarea>
+                            <small id="detailLoreHint" class="lore-hint">{{ t("Wird in Minecraft angezeigt. Im normalen Spiel gibt es dafür kein Eingabefeld.") }}</small>
                         </div>
                         <div class="detail-preview-card" id="detailPreview" aria-live="polite">
                             <div class="detail-preview-icon" id="detailPreviewIcon">▫️</div>
@@ -1161,7 +1163,7 @@
                         </div>
                         <div class="ench-list-wrapper">
                             <div class="ench-list" id="enchantsContainer">
-                                <!-- JS will build list of enchants with sliders -->
+                                <!-- Shared enchantment editor -->
                             </div>
                         </div>
                         <button id="btnApplySingleEnch" class="btn btn-primary full-width mt-10">{{ t("Slot aktualisieren ✔️") }}</button>
@@ -1225,13 +1227,13 @@
     </dialog>
 
     <div id="slotContextMenu" class="context-menu" style="display:none;" role="menu" aria-label="{{ t('Item-Aktionen') }}">
-        <button class="context-item" data-action="special" hidden>{{ t("Inhalte bearbeiten") }}</button>
-        <button class="context-item" data-action="copy">{{ t("📋 Kopieren") }}</button>
-        <button class="context-item" data-action="paste">{{ t("📄 Einfügen") }}</button>
-        <button class="context-item" data-action="inspect" hidden>{{ t("NBT-Details") }}</button>
-        <button class="context-item" data-action="cut">{{ t("✂️ Ausschneiden") }}</button>
+        <button class="context-item" data-action="special" hidden><span class="context-item-icon" aria-hidden="true">✏️</span><span class="context-item-label">{{ t("Inhalte bearbeiten") }}</span></button>
+        <button class="context-item" data-action="copy"><span class="context-item-icon" aria-hidden="true">📋</span><span class="context-item-label">{{ t("Kopieren") }}</span></button>
+        <button class="context-item" data-action="paste"><span class="context-item-icon" aria-hidden="true">📄</span><span class="context-item-label">{{ t("Einfügen") }}</span></button>
+        <button class="context-item" data-action="inspect" hidden><span class="context-item-icon" aria-hidden="true">🔎</span><span class="context-item-label">{{ t("NBT-Details") }}</span></button>
+        <button class="context-item" data-action="cut"><span class="context-item-icon" aria-hidden="true">✂️</span><span class="context-item-label">{{ t("Ausschneiden") }}</span></button>
         <div class="context-separator"></div>
-        <button class="context-item" data-action="clear">{{ t("🗑️ Leeren") }}</button>
+        <button class="context-item" data-action="clear"><span class="context-item-icon" aria-hidden="true">🗑️</span><span class="context-item-label">{{ t("Leeren") }}</span></button>
     </div>
 
     <!-- Confirm Modal -->
@@ -1283,12 +1285,12 @@
         </div>
     </div>
 
-    <div id="saveReviewOverlay" class="modal-overlay save-review-overlay" style="display:none;">
+    <div id="saveReviewOverlay" class="modal-overlay save-review-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="saveReviewTitle">
         <div class="modal-box save-review-box">
             <div class="save-review-header">
                 <div>
                     <div class="eyebrow">{{ t("Speichern prüfen") }}</div>
-                    <h3>{{ t("Änderungsübersicht") }}</h3>
+                    <h3 id="saveReviewTitle">{{ t("Änderungsübersicht") }}</h3>
                     <p>{{ t("Prüfe kurz, was in die Welt geschrieben wird. Vorher wird automatisch ein ZIP-Backup erstellt.") }}</p>
                 </div>
                 <button id="btnSaveReviewClose" class="btn-text" type="button">{{ t("Schließen") }}</button>

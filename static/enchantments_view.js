@@ -61,34 +61,109 @@
             primaryName,
             secondaryName: secondaryCandidate === primaryName ? "" : secondaryCandidate,
             maxLevel,
-            sliderMax: maxLevel,
             currentLevel,
             isActive,
             controlsDisabled,
-            levelDisabled: !isActive || controlsDisabled,
+            levelDisabled: !isActive || controlsDisabled || !Number.isInteger(currentLevel) || currentLevel < 1 || currentLevel > maxLevel,
             compatibilitySuffix: controlsDisabled ? ` · ${t("unpassend, wird erhalten")}` : "",
         };
     }
 
     function enchantmentRowHtml(model = {}) {
+        const levels = Array.from({ length: model.maxLevel }, (_, i) => i + 1);
+        if (!levels.includes(model.currentLevel)) levels.unshift(model.currentLevel);
         return `
             <div class="ench-info">
                 <span class="ench-name">${escapeHtml(model.primaryName)}</span>
                 <span class="ench-name-en">${model.secondaryName ? `${escapeHtml(model.secondaryName)} · ` : ""}Max: ${escapeHtml(model.maxLevel)}${escapeHtml(model.compatibilitySuffix || "")}</span>
             </div>
-            <div class="ench-controls">
-                <input type="range" class="ench-slider" min="1" max="${escapeHtml(model.sliderMax)}" value="${escapeHtml(model.currentLevel)}" ${model.levelDisabled ? "disabled" : ""} />
-                <span class="ench-value">${escapeHtml(model.currentLevel)}</span>
-                <input type="checkbox" class="ench-checkbox" ${model.isActive ? "checked" : ""} ${model.controlsDisabled ? "disabled" : ""} />
-            </div>
+            <label class="ench-level-field">${escapeHtml(t("Stufe"))}
+                <select class="ench-level" aria-label="${escapeHtml(t("Stufe"))}" ${model.levelDisabled ? "disabled" : ""}>
+                    ${levels.map(level => `<option value="${escapeHtml(level)}" ${level === model.currentLevel ? "selected" : ""}>${escapeHtml(level)}</option>`).join("")}
+                </select>
+            </label>
+            <button type="button" class="btn btn-secondary btn-sm ench-remove" aria-label="${escapeHtml(t("{name} entfernen", { name: model.primaryName }))}">${escapeHtml(t("Entfernen"))}</button>
         `;
     }
 
     function enchantmentRowElement(model = {}, doc = document) {
         const row = doc.createElement("div");
         row.className = model.className;
+        row.dataset.enchantmentId = String(model.id);
+        row.setAttribute("role", "group");
+        row.setAttribute("aria-label", model.primaryName);
         row.innerHTML = enchantmentRowHtml(model);
         return row;
+    }
+
+    function enchantmentEditorElement({ itemName, enchantments = [], enchantmentsDb = {}, isCompatible,
+        canChange = () => true, onChange }, doc = document) {
+        const root = doc.createElement("div");
+        root.className = "ench-editor";
+        let entries = enchantments.map(entry => ({ ...entry }));
+        const rows = doc.createElement("div");
+        rows.className = "ench-rows";
+        const addLabel = doc.createElement("label");
+        addLabel.className = "ench-add";
+        const caption = doc.createElement("span");
+        caption.textContent = t("Verzauberung hinzufügen");
+        const add = doc.createElement("select");
+        add.setAttribute("aria-label", t("Verzauberung hinzufügen"));
+        addLabel.append(caption, add);
+        if (itemName === "minecraft:enchanted_book") root.append(enchantedBookInfoElement(doc));
+        root.append(rows, addLabel);
+        const publish = () => onChange(entries.map(entry => ({ ...entry })));
+        function draw() {
+            rows.replaceChildren();
+            if (!entries.length) {
+                const empty = doc.createElement("p");
+                empty.className = "ench-empty";
+                empty.textContent = t("Keine Verzauberungen.");
+                rows.append(empty);
+            }
+            entries.forEach((entry, index) => {
+                const info = enchantmentsDb[entry.id];
+                const model = enchantmentRowModel({ id: entry.id, info: info || {}, activeEnchantment: entry,
+                    compatible: Boolean(info) && isCompatible(entry.id, itemName) });
+                const row = enchantmentRowElement(model, doc);
+                const level = row.querySelector(".ench-level");
+                level.addEventListener("change", () => {
+                    const next = Number(level.value);
+                    if (model.levelDisabled || !Number.isInteger(next) || next < 1 || next > model.maxLevel || !canChange()) {
+                        level.value = String(entries[index].lvl); return;
+                    }
+                    entries[index] = { ...entries[index], lvl: next };
+                    publish();
+                });
+                row.querySelector(".ench-remove").addEventListener("click", () => {
+                    if (!canChange()) return;
+                    entries.splice(index, 1); publish(); draw();
+                    const remaining = rows.querySelectorAll(".ench-remove");
+                    const next = remaining[Math.min(index, remaining.length - 1)] || (!addLabel.hidden && add);
+                    if (next) next.focus();
+                    else { root.tabIndex = -1; root.focus(); }
+                });
+                rows.append(row);
+            });
+            const available = window.MCBEEnchantmentEditorLogic.enchantmentRowsForItem({
+                itemName, enchantmentsDb, activeEnchantments: entries, isCompatible,
+            }).filter(row => row.compatible && !row.activeEnchantment);
+            add.replaceChildren();
+            for (const [value, label] of [["", t("Bitte wählen")], ...available.map(row =>
+                [row.id, enchantmentRowModel({ id: row.id, info: row.info }).primaryName])]) {
+                const option = doc.createElement("option"); option.value = value; option.textContent = label; add.append(option);
+            }
+            addLabel.hidden = !available.length;
+        }
+        add.addEventListener("change", () => {
+            const id = Number(add.value);
+            if (!add.value || !enchantmentsDb[id] || !isCompatible(id, itemName)
+                || entries.some(entry => Number(entry.id) === id) || !canChange()) { add.value = ""; return; }
+            entries.push({ id, lvl: 1 }); publish(); draw();
+            rows.lastElementChild.querySelector(".ench-level").focus();
+        });
+        draw();
+        return root;
     }
 
     function enchantmentActionButtonsModel({
@@ -125,6 +200,7 @@
         enchantedBookInfoElement,
         enchantedBookInfoText,
         enchantmentActionButtonsModel,
+        enchantmentEditorElement,
         enchantmentRowElement,
         enchantmentRowHtml,
         enchantmentRowModel,

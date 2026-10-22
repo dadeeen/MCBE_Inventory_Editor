@@ -117,6 +117,7 @@
         recordAction = () => {},
         editingBlocked = () => false,
         getEditingBlockedReason = () => "",
+        guardPendingChanges = () => false,
     } = {}) {
         const stack = createUndoRedoController({ takeSnapshot, snapshotHash, maxUndo });
         let cleanSnapshot = null;
@@ -187,7 +188,7 @@
         }
 
         function undo() {
-            if (editingBlocked()) return false;
+            if (editingBlocked() || guardPendingChanges()) return false;
             const result = stack.undo();
             if (!result) return;
             applySnapshot(result.snapshot);
@@ -199,7 +200,7 @@
         }
 
         function redo() {
-            if (editingBlocked()) return false;
+            if (editingBlocked() || guardPendingChanges()) return false;
             const result = stack.redo();
             if (!result) return;
             applySnapshot(result.snapshot);

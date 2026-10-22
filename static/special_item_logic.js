@@ -116,6 +116,7 @@
         function apply(item, value) {
             const result = clone(item);
             if (JSON.stringify(data(item)) !== JSON.stringify(value)) {
+                if (kind(item) === "banner" && value.type === 1 && data(item).type !== 1) result.damage = 15;
                 result.special_edit = { kind: kind(item), data: clone(value) };
                 delete result.nbt_view;
                 delete result.special_nbt_defaulted;
@@ -128,15 +129,62 @@
             ORIGIN_FIELDS.forEach(key => delete result[key]);
             return result;
         }
-        function withChild(value, slot, child) {
+        function stackMatches(left, right) {
+            if (left.name !== right.name || catalog.getMaxStack(left.name) <= 1) return false;
+            const origin = item => item.source_index ?? item.copy_source_index;
+            const key = item => item.stack_key ?? (origin(item) === undefined
+                && !item.has_preserved_nbt && !item.has_protected_nbt && !item.has_unknown_enchantments ? "plain" : null);
+            if (!(origin(left) !== undefined && origin(left) === origin(right))
+                && (key(left) === null || key(left) !== key(right))) return false;
+            const fields = item => [item.name, item.damage || 0, item.display_name || "", item.lore || [], item.enchantments || [],
+                item.entity_variant_edit || null, kind(item) ? data(item) : null];
+            return JSON.stringify(fields(left)) === JSON.stringify(fields(right));
+        }
+        function withChild(value, slot, child, container = null) {
             const items = value.items.slice();
             const index = items.findIndex(entry => entry.slot === slot);
-            if (index < 0) { if (child) items.push(child); }
-            else if (child) items[index] = child;
+            const placed = child ? { ...child, slot } : null;
+            // Insertions and actual edits may join a compatible stack. Merely
+            // opening a legacy bundle must not rewrite its stored structure.
+            if (placed && kind(container) === "bundle" && (index < 0 || !sameUserFields(items[index], placed))) {
+                const match = items.findIndex(entry => entry.slot !== slot && stackMatches(entry, placed)
+                    && Number(entry.count) + Number(placed.count) <= catalog.getMaxStack(entry.name));
+                if (match >= 0) {
+                    items[match] = { ...items[match], count: Number(items[match].count) + Number(placed.count) };
+                    if (index >= 0) items.splice(index, 1);
+                    return { ...value, items };
+                }
+            }
+            if (index < 0) { if (placed) items.push(placed); }
+            else if (placed) items[index] = placed;
             else items.splice(index, 1);
             return { ...value, items };
         }
-        return { kind, label, data, editable, searchContents, weight, contentWeight, childCountLimit, validate, apply, cleanChild, withChild, schema };
+        function transferChild(container, value, fromSlot, toSlot, copyMode, depth = 0, copyCount = null) {
+            const capacity = kind(container) === "bundle" ? 64 : 27;
+            const source = value.items.find(entry => entry.slot === fromSlot);
+            const target = value.items.find(entry => entry.slot === toSlot);
+            if (!editable(container) || !["bundle", "shulker"].includes(kind(container)) || !source
+                || !Number.isInteger(toSlot) || toSlot < 0 || toSlot >= capacity || fromSlot === toSlot) return { error: t("Wähle einen anderen freien Platz.") };
+            if (kind(container) === "bundle" && !copyMode) return { error: t("Das Item ist bereits in diesem Bündel. Halte Strg zum Kopieren.") };
+            if (copyMode && target) return { error: t("Zum Kopieren muss der Zielplatz leer sein.") };
+            const placed = clone(source);
+            if (copyMode && copyCount !== null) {
+                if (!Number.isInteger(copyCount) || copyCount < 1) return { error: t("Ungültige Menge.") };
+                placed.count = copyCount;
+            }
+            if (copyMode && placed.source_index !== undefined) {
+                placed.copy_source_index = placed.source_index;
+                delete placed.source_index;
+            }
+            let changed = copyMode ? value : withChild(value, fromSlot, target || null);
+            changed = withChild(changed, toSlot, placed, container);
+            const error = validate(container, changed, depth);
+            const destination = changed.items.find(entry => entry.slot === toSlot)
+                || changed.items.find(entry => stackMatches(entry, placed));
+            return error ? { error } : { data: changed, slot: destination?.slot ?? toSlot };
+        }
+        return { kind, label, data, editable, searchContents, weight, contentWeight, childCountLimit, validate, apply, cleanChild, withChild, transferChild, schema };
     }
     window.MCBESpecialItemLogic = { createModel, clone, sameUserFields, changeLabel };
 }());

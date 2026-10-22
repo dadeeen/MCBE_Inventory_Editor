@@ -39,22 +39,56 @@
         if (!Array.isArray(variants) || variants.length === 0) {
             return { selectedDamage: 0, preserveUnknown: false };
         }
-        const damage = Number.parseInt(damageValue, 10);
+        const damage = String(damageValue ?? "").trim() === "" ? NaN : Number(damageValue);
         const knownDamage = Number.isInteger(damage)
             && variants.some(variant => Number(variant?.damage) === damage);
         const sourceDamage = Number(sourceItem?.damage);
         const preservesExisting = Number.isInteger(damage)
             && normalizedItemName(sourceItem?.name) === normalizedItemName(itemName)
             && Number.isInteger(sourceDamage)
-            && sourceDamage === damage
-            && typeof sourceItem?.source_item_digest === "string"
-            && sourceItem.source_item_digest.length > 0;
+            && sourceDamage === damage;
         return {
             selectedDamage: knownDamage || preservesExisting
                 ? damage
                 : Number(variants[0]?.damage) || 0,
             preserveUnknown: !knownDamage && preservesExisting,
         };
+    }
+
+    // The source item is the current slot's original, including container
+    // children. Their provenance is source_index, not source_item_digest.
+    // This model never rewrites a value just because its meaning is unknown.
+    function itemDamageEditorModel({ catalog, itemName = "", damageValue = 0, sourceItem = null }) {
+        const name = normalizedItemName(itemName);
+        const value = String(damageValue ?? "").trim() === "" ? NaN : Number(damageValue);
+        const variants = catalog.dataValueVariantsForId?.(name) || [];
+        const mode = variants.length ? "variant" : catalog.itemUsesDurabilityDamage?.(name) ? "durability" : "none";
+        const maxDamage = mode === "durability" ? catalog.getMaxDamage(name)
+            : Math.max(0, ...variants.map(variant => Number(variant.damage)));
+        const supported = Number.isInteger(value) && (mode === "durability"
+            ? value >= 0 && value <= maxDamage
+            : mode === "variant" ? variants.some(variant => Number(variant.damage) === value) : value === 0);
+        const preserved = normalizedItemName(sourceItem?.name) === name
+            && Number.isInteger(value) && value === Number(sourceItem?.damage);
+        const preserveUnknown = preserved && !supported;
+        const error = supported || preserved ? "" : mode === "none"
+            ? t("Für dieses Item ist kein bearbeitbarer Datenwert belegt. Der vorhandene Wert muss unverändert bleiben.")
+            : t("Der Abnutzungs- oder Datenwert liegt außerhalb des erlaubten Bereichs.");
+        const remaining = mode === "durability" && supported ? maxDamage - value : null;
+        let note = "";
+        if (mode === "durability") {
+            note = preserveUnknown
+                ? t("Gespeicherte Abnutzung {value}: unverändert beibehalten oder auf einen Wert von 0 bis {max} ändern.", { value, max: maxDamage })
+                : t("0 = neuwertig. Erlaubte Abnutzung: 0 bis {max}.", { max: maxDamage });
+            if (remaining !== null) note += " " + t("Verbleibende Haltbarkeit: {remaining} von {max}.", { remaining, max: maxDamage });
+        } else if (mode === "variant") {
+            note = preserveUnknown
+                ? t("Unbekannter Datenwert {value} bleibt erhalten, solange keine andere Variante gewählt wird.", { value })
+                : t("Minecraft speichert diese Variante als Bedrock-Datenwert.");
+        } else if (preserveUnknown) {
+            note = t("Gespeicherter Datenwert: {value}. Für dieses Item ist keine Bedeutung belegt; der Wert bleibt unverändert erhalten.", { value });
+        }
+        return { mode, value, maxDamage, variants, preserveUnknown, note, remaining, error };
     }
 
     function entityVariantMetadataForItem(previousItem, itemName) {
@@ -86,20 +120,16 @@
         const name = normalizedItemName(rawName);
         const sameItem = Boolean(previousItem) && normalizedItemName(previousItem.name) === name;
         const count = String(rawCount ?? "").trim() === "" ? NaN : Number(rawCount);
-        const damage = String(rawDamage ?? "").trim() === "" ? NaN : Number(rawDamage);
         const stack = Math.min(MAX_BEDROCK_STACK_COUNT, catalog.getMaxStack(name));
         const maximum = countLimit?.maximum ?? stack;
         const preserved = sameItem && count === Number(previousItem.count);
-        const variants = catalog.dataValueVariantsForId?.(name) || [];
-        const maxDamage = catalog.getMaxDamage(name);
+        const damage = itemDamageEditorModel({ catalog, itemName: name, damageValue: rawDamage, sourceItem: previousItem });
         const countError = !Number.isInteger(count) || count < 1 || count > MAX_BEDROCK_STACK_COUNT || !preserved && count > stack
             ? t("Die Menge liegt außerhalb des erlaubten Stacklimits.")
             : !preserved && (countLimit?.error || count > maximum)
                 ? countLimit?.error || t("Für dieses Item ist im Bundle nicht genügend Platz.") : "";
-        const damageError = !Number.isInteger(damage) || !(sameItem && damage === Number(previousItem.damage))
-            && (damage < 0 || damage > maxDamage || variants.length && !variants.some(variant => variant.damage === damage))
-            ? t("Der Abnutzungs- oder Datenwert liegt außerhalb des erlaubten Bereichs.") : "";
-        return { maximum, maxDamage, countError, damageError, preserved, variants,
+        return { maximum, maxDamage: damage.maxDamage, countError, damageError: damage.error, preserved, variants: damage.variants,
+            damageMode: damage.mode, damageNote: damage.note, damageRemaining: damage.remaining,
             readOnlyCount: maximum === 1 && count === 1 && !countLimit?.error };
     }
 
@@ -112,6 +142,7 @@
         }
         if (damage) {
             damage.max = String(model.maxDamage);
+            damage.readOnly = model.damageMode === "none";
             damage.setAttribute?.("aria-invalid", String(Boolean(model.damageError)));
         }
     }
@@ -428,6 +459,7 @@
         quickMaxStackPlan,
         quickRepairSlotPlan,
         stackCountFromForm,
+        itemDamageEditorModel,
     };
 }());
 
@@ -488,12 +520,14 @@
         logStatus,
         recordAction,
         showToast,
+        showConfirmDialog = async () => false,
     } = {}) {
         let currentEditingEnchantments = [];
         let currentEditingIsEnder = false;
         let lastDetailItemResetName = "";
         let currentEntityVariantModel = { visible: false, editable: false, kind: "" };
         let detailFormBaseline = null;
+        let selectedItemVariant = null;
 
         const maxDisplayName = constants.maxDisplayName ?? 64;
         const maxLoreLines = constants.maxLoreLines ?? 10;
@@ -527,6 +561,7 @@
                         ? [elements.detailTropicalFishPattern, elements.detailTropicalFishColor, elements.detailTropicalFishColor2]
                         : [];
             return JSON.stringify({
+                selectedItemVariant,
                 controls: [
                     elements.detailItemSearch, elements.detailCount, elements.detailDamage,
                     elements.detailCustomName, elements.detailLore, ...entityControls,
@@ -540,7 +575,20 @@
         }
 
         function captureDetailFormBaseline(slotId, containerName) {
-            detailFormBaseline = { context: detailContextKey(slotId, containerName), state: detailFormState() };
+            detailFormBaseline = {
+                context: detailContextKey(slotId, containerName), state: detailFormState(),
+                item: slotSnapshot(slotId, containerName),
+            };
+        }
+
+        function slotSnapshot(slotId, containerName) {
+            const source = containerName === "ender_chest" ? enderChestInventory() : inventory();
+            return JSON.stringify(source[slotId] || null);
+        }
+
+        function formSourceIsCurrent(slotId, containerName) {
+            return detailFormBaseline?.context === detailContextKey(slotId, containerName)
+                && detailFormBaseline.item === slotSnapshot(slotId, containerName);
         }
 
         function hasPendingChanges() {
@@ -551,6 +599,34 @@
                 && window.MCBESelectionState.selectedCount(getCurrentSelectionState?.()) === 1
                 && detailFormBaseline.context === detailContextKey(target.slotId, target.containerName)
                 && detailFormBaseline.state !== detailFormState());
+        }
+
+        function guardSlotChanges(targets = null) {
+            if (!hasPendingChanges()) return false;
+            const current = currentDetailTarget();
+            if (targets && !targets.some(target => target.slotId === current.slotId && target.containerName === current.containerName)) return false;
+            showToast?.(t("Bitte übernimm zuerst die offenen Eingaben im Slot-Editor. Die Aktion wurde nicht ausgeführt."), "warning", 4500);
+            return true;
+        }
+
+        async function confirmDiscardChanges() {
+            if (!hasPendingChanges()) return true;
+            const baseline = detailFormBaseline;
+            const discard = await showConfirmDialog(
+                t("Die Eingaben im Slot-Editor wurden noch nicht übernommen. Eingaben verwerfen?"),
+                { okLabel: t("Eingaben verwerfen"), cancelLabel: t("Weiter bearbeiten") },
+            );
+            const target = currentDetailTarget();
+            return discard && detailFormBaseline === baseline && target
+                && baseline.context === detailContextKey(target.slotId, target.containerName);
+        }
+
+        function reconcileCurrentSlot() {
+            const target = currentDetailTarget();
+            if (!target || detailFormBaseline?.context !== detailContextKey(target.slotId, target.containerName)
+                || formSourceIsCurrent(target.slotId, target.containerName) || hasPendingChanges()) return;
+            // Visual refreshes must not reset an unrelated, unaccepted draft.
+            loadSingleSlotEditor(target.slotId, target.isEnder, { preserveView: true });
         }
 
         function detailLoreLinesFromForm() {
@@ -583,12 +659,33 @@
             }
         }
 
+        function applyDamageEditorModel(model) {
+            if (elements.detailDamageGroup) elements.detailDamageGroup.style.display = model.mode === "durability" ? "" : "none";
+            if (elements.detailDataVariantGroup) elements.detailDataVariantGroup.style.display = model.mode === "variant" ? "" : "none";
+            if (elements.detailDamageLabel) elements.detailDamageLabel.textContent = t("Abnutzung");
+            if (elements.detailDamage) elements.detailDamage.title = model.note;
+            if (elements.detailDamageNote) {
+                elements.detailDamageNote.textContent = model.note;
+                elements.detailDamageNote.hidden = !model.note;
+            }
+            elements.detailDataVariant?.setAttribute?.("aria-invalid", String(Boolean(model.error)));
+        }
+
+        function damageEditorModel(itemName, damageValue, sourceItem) {
+            const model = logic.itemDamageEditorModel({ catalog: itemCatalog, itemName, damageValue, sourceItem });
+            const banner = itemCatalog.applyItemVariant?.({ ...sourceItem, name: itemName }, selectedItemVariant);
+            if (itemName === "minecraft:banner" && itemCatalog.bannerType?.(banner) === 1) {
+                model.mode = "none";
+                model.note = t("Das ominöse Banner verwendet ein festes Motiv.");
+            }
+            return model;
+        }
+
         function updateDataVariantEditor(itemName, damageValue = elements.detailDamage?.value, sourceItem = null) {
-            const variants = itemCatalog.dataValueVariantsForId?.(itemName) || [];
-            const visible = variants.length > 0;
-            if (elements.detailDamageGroup) elements.detailDamageGroup.style.display = visible ? "none" : "";
-            if (elements.detailDataVariantGroup) elements.detailDataVariantGroup.style.display = visible ? "" : "none";
-            if (!visible || !elements.detailDataVariant) return;
+            const model = damageEditorModel(itemName, damageValue, sourceItem);
+            applyDamageEditorModel(model);
+            const variants = model.variants;
+            if (model.mode !== "variant" || !elements.detailDataVariant) return;
 
             const selection = logic.dataVariantSelectionPlan({
                 itemName,
@@ -600,17 +697,18 @@
                 value: variant.damage,
                 label: localizedOptionLabel(variant.names?.[0], variant.names?.[1]),
             }));
-            if (selection.preserveUnknown) {
+            const original = logic.dataVariantSelectionPlan({ itemName, damageValue: sourceItem?.damage, variants, sourceItem });
+            if (original.preserveUnknown) {
                 options.push({
-                    value: selection.selectedDamage,
-                    label: t("Unbekannter Datenwert {value} (wird beibehalten)", { value: selection.selectedDamage }),
+                    value: original.selectedDamage,
+                    label: t("Unbekannter Datenwert {value} (wird beibehalten)", { value: original.selectedDamage }),
                 });
             }
             replaceSelectOptions(elements.detailDataVariant, options);
             elements.detailDataVariant.value = String(selection.selectedDamage);
             if (elements.detailDamage) elements.detailDamage.value = selection.selectedDamage;
             if (elements.detailDataVariantLabel) {
-                elements.detailDataVariantLabel.textContent = itemCatalog.itemDamageLabel(itemName);
+                elements.detailDataVariantLabel.textContent = t("Variante");
             }
         }
 
@@ -722,9 +820,24 @@
             const maxDmg = itemCatalog.getMaxDamage(itemId);
             const target = currentDetailTarget();
             const sourceItem = target?.source?.[target.slotId] || null;
-            logic.applyItemFormConstraints(logic.itemFormModel({ catalog: itemCatalog, rawName: itemId,
-                rawCount: elements.detailCount?.value, rawDamage: elements.detailDamage?.value, previousItem: sourceItem }),
-            { count: elements.detailCount, damage: elements.detailDamage });
+            const damageModel = damageEditorModel(itemId, elements.detailDamage?.value, sourceItem);
+            applyDamageEditorModel(damageModel);
+            const formModel = logic.itemFormModel({ catalog: itemCatalog, rawName: itemId,
+                rawCount: elements.detailCount?.value, rawDamage: elements.detailDamage?.value, previousItem: sourceItem });
+            logic.applyItemFormConstraints(formModel, { count: elements.detailCount, damage: elements.detailDamage });
+            const formError = isEmpty ? "" : formModel.countError || formModel.damageError;
+            if (elements.detailFormError) {
+                elements.detailFormError.textContent = formError;
+                elements.detailFormError.hidden = !formError;
+            }
+            for (const button of [elements.btnApplySingle, elements.btnApplySingleEnch]) {
+                window.MCBEWriteStatusView?.applyIntrinsicEditControlState(button, {
+                    disabled: Boolean(formError) || !target || Boolean(isProtectedKnownSlot?.(target.slotId, target.containerName)),
+                    title: formError,
+                    blocked: editingBlocked(),
+                    blockedTitle: getEditingBlockedReason(),
+                });
+            }
             const count = isEmpty
                 ? 0
                 : logic.stackCountFromForm({
@@ -734,17 +847,9 @@
                     previousItem: sourceItem,
                     itemName: itemId,
                 });
-            const damage = isEmpty ? 0 : itemCatalog.clampNumber(Number(elements.detailDamage?.value), 0, 0, maxDmg);
-            const usesDurability = !isEmpty && itemCatalog.itemUsesDurabilityDamage(itemId);
+            const damage = isEmpty ? 0 : damageModel.value;
+            const usesDurability = !isEmpty && damageModel.mode === "durability";
             const damageLabel = isEmpty ? t("Abnutzung") : itemCatalog.itemDamageLabel(itemId);
-            if (elements.detailDamageLabel) {
-                elements.detailDamageLabel.textContent = damageLabel;
-            }
-            if (elements.detailDamage) {
-                elements.detailDamage.title = usesDurability
-                    ? t("0 = neuwertig; höherer Wert = mehr Abnutzung. Verbleibende Haltbarkeit: Maximalwert minus Abnutzung.")
-                    : t("Bedrock-Datenwert für Varianten wie Potions, Farben oder Legacy-Subtypen");
-            }
             const loreLines = detailLoreLinesFromForm();
             const enchants = currentEditingEnchantments
                 .map(e => {
@@ -753,7 +858,10 @@
                     return `${name} ${e.lvl}`;
                 })
                 .slice(0, 4);
-            const iconMeta = itemCatalog.getItemIconMeta(itemId, damage);
+            const previewSource = sourceItem?.name === itemId ? sourceItem : {};
+            const previewItem = itemCatalog.applyItemVariant?.({ ...previewSource, name: itemId, damage }, selectedItemVariant)
+                || { ...previewSource, name: itemId, damage };
+            const iconMeta = itemCatalog.getItemIconMeta(previewItem);
             const enchantmentConflicts = (itemCatalog.vanillaExclusiveEnchantmentConflicts?.(currentEditingEnchantments, itemId) || [])
                 .map(ids => ids.map(id => localizedEnchantmentName(enchDb()[id], id)).join(" ↔ "));
             const variantSource = sourceItem && logic.normalizedItemName(sourceItem.name) === itemId
@@ -768,7 +876,7 @@
                 itemId,
                 displayName: customName
                     ? detailItemLabel(itemId, customName, damage)
-                    : entityDisplayName || detailItemLabel(itemId, "", damage),
+                    : entityDisplayName || detailItemLabel(itemId, "", damage, previewItem),
                 isEmpty,
                 known,
                 count,
@@ -799,7 +907,8 @@
             updateDetailQuickActions();
         }
 
-        function loadSingleSlotEditor(slotId, isEnderChest = false) {
+        function loadSingleSlotEditor(slotId, isEnderChest = false, { preserveView = false } = {}) {
+            selectedItemVariant = null;
             currentEditingIsEnder = isEnderChest;
             const source = isEnderChest ? enderChestInventory() : inventory();
             if (elements.detailSlotNum) elements.detailSlotNum.innerText = slotId + (isEnderChest ? " (Enderchest)" : "");
@@ -820,8 +929,10 @@
             updateDetailQuickActions();
             syncEditControls?.();
 
-            switchTab?.("tabGeneral");
-            if (!item.name) elements.detailItemSearch?.focus();
+            if (!preserveView) {
+                switchTab?.("tabGeneral");
+                if (!item.name) elements.detailItemSearch?.focus();
+            }
             captureDetailFormBaseline(slotId, isEnderChest ? "ender_chest" : "inventory");
         }
 
@@ -845,12 +956,15 @@
         }
 
         function buildDetailItemFromForm(slotId, containerName) {
+            if (!formSourceIsCurrent(slotId, containerName)) {
+                return { ok: false, error: t("Der Inhalt dieses Slots wurde inzwischen geändert. Deine Eingaben bleiben erhalten. Öffne den Slot erneut, bevor du Änderungen übernimmst.") };
+            }
             resetDetailFormForNewItem(elements.detailItemSearch?.value);
             const source = containerName === "ender_chest" ? enderChestInventory() : inventory();
             const name = logic.normalizedItemName(elements.detailItemSearch?.value);
             const previousItem = source[slotId];
             const entityState = selectedEntityVariantState(previousItem, name);
-            return logic.buildItemForm({
+            const result = logic.buildItemForm({
                 catalog: itemCatalog, enchantmentsDb: enchDb(),
                 slotId,
                 containerName,
@@ -873,6 +987,8 @@
                 entityVariantEdit: entityState.edit,
                 entityVariantMetadata: entityState.metadata,
             });
+            if (result.ok && result.item) result.item = itemCatalog.applyItemVariant?.(result.item, selectedItemVariant) || result.item;
+            return result;
         }
 
         function updateDetailQuickActions() {
@@ -882,12 +998,15 @@
             const name = String(elements.detailItemSearch?.value || "").trim().toLowerCase();
             const isEmpty = !name || name === "minecraft:air";
             const maxStack = itemCatalog.getMaxStack(name);
-            const damage = itemCatalog.clampNumber(Number(elements.detailDamage?.value), 0, 0, itemCatalog.getMaxDamage(name));
+            const damage = Number(elements.detailDamage?.value);
             const slotLabel = slotDisplayName(target.slotId, target.containerName);
+            const previewSource = sourceItem?.name === name ? sourceItem : {};
+            const previewItem = itemCatalog.applyItemVariant?.({ ...previewSource, name, damage }, selectedItemVariant)
+                || { ...previewSource, name, damage };
             const model = window.MCBESlotDisplay.slotQuickActionsModel({
                 slotLabel,
                 isEmpty,
-                itemLabel: detailItemLabel(name, elements.detailCustomName?.value || "", damage),
+                itemLabel: detailItemLabel(name, elements.detailCustomName?.value || "", damage, previewItem),
                 maxStack,
                 stackLimitVerified: itemCatalog.hasVerifiedStackLimit(name),
                 isValidItem: itemCatalog.isValidItemId(name),
@@ -953,56 +1072,18 @@
                 if (currentEditingEnchantments.length === 0) return;
             }
 
-            if (itemName === "minecraft:enchanted_book") {
-                container.appendChild(window.MCBEEnchantmentsView.enchantedBookInfoElement());
-            }
-
-            const sortedEnchs = window.MCBEEnchantmentEditorLogic.enchantmentRowsForItem({
+            container.appendChild(window.MCBEEnchantmentsView.enchantmentEditorElement({
                 enchantmentsDb: enchDb(),
                 itemName,
-                activeEnchantments: currentEditingEnchantments,
+                enchantments: currentEditingEnchantments,
                 isCompatible: itemCatalog.isEnchantmentCompatibleWithItem,
-            });
-
-            for (const { id, info, activeEnchantment, compatible } of sortedEnchs) {
-                const controlsDisabled = !compatible;
-                const model = window.MCBEEnchantmentsView.enchantmentRowModel({
-                    id,
-                    info,
-                    activeEnchantment,
-                    compatible,
-                });
-
-                const row = window.MCBEEnchantmentsView.enchantmentRowElement(model);
-                const slider = row.querySelector(".ench-slider");
-                const valSpan = row.querySelector(".ench-value");
-                const checkbox = row.querySelector(".ench-checkbox");
-
-                slider.addEventListener("input", (e) => {
-                    if (controlsDisabled || guardEditingAction()) return;
-                    const val = parseInt(e.target.value, 10);
-                    valSpan.innerText = val;
-                    currentEditingEnchantments = window.MCBEEnchantmentEditorLogic.updateEnchantmentLevel(currentEditingEnchantments, id, val);
+                canChange: () => !guardEditingAction(),
+                onChange: entries => {
+                    currentEditingEnchantments = entries;
                     updateEnchantmentActionButtons(itemName);
                     updateDetailPreview();
-                });
-
-                checkbox.addEventListener("change", (e) => {
-                    if (controlsDisabled || guardEditingAction()) return;
-                    if (e.target.checked) {
-                        slider.removeAttribute("disabled");
-                        const val = parseInt(slider.value, 10);
-                        currentEditingEnchantments = window.MCBEEnchantmentEditorLogic.toggleEnchantment(currentEditingEnchantments, { id, checked: true, level: val });
-                    } else {
-                        slider.setAttribute("disabled", "true");
-                        currentEditingEnchantments = window.MCBEEnchantmentEditorLogic.toggleEnchantment(currentEditingEnchantments, { id, checked: false });
-                    }
-                    updateEnchantmentActionButtons(itemName);
-                    updateDetailPreview();
-                });
-
-                container.appendChild(row);
-            }
+                },
+            }));
         }
 
         function resetDetailFormForNewItem(itemName) {
@@ -1016,6 +1097,7 @@
             });
             if (!plan.shouldReset) return;
             lastDetailItemResetName = plan.nextName;
+            selectedItemVariant = null;
             const maxStack = itemCatalog.getMaxStack(itemName);
             if (elements.detailCount) elements.detailCount.value = Math.min(1, maxStack);
             if (elements.detailDamage) elements.detailDamage.value = 0;
@@ -1033,7 +1115,9 @@
             const damage = Number(item?.damage);
             if (!Number.isInteger(damage) || damage < 0 || !elements.detailDamage) return;
             elements.detailDamage.value = damage;
-            updateDataVariantEditor(elements.detailItemSearch?.value, damage);
+            selectedItemVariant = [0, 1].includes(item?.banner_type) ? { banner_type: item.banner_type } : null;
+            const target = currentDetailTarget();
+            updateDataVariantEditor(elements.detailItemSearch?.value, damage, target?.source?.[target.slotId] || null);
             updateDetailPreview();
         }
 
@@ -1049,7 +1133,7 @@
                 updateDataVariantEditor(itemName, elements.detailDamage?.value, matchingSource);
             } else {
                 if (elements.detailDataVariantGroup) elements.detailDataVariantGroup.style.display = "none";
-                if (elements.detailDamageGroup) elements.detailDamageGroup.style.display = "";
+                if (elements.detailDamageGroup) elements.detailDamageGroup.style.display = "none";
             }
             // Search text can temporarily hide the controls, but must not
             // reload them from the original and discard an unaccepted edit.
@@ -1094,7 +1178,7 @@
                 ? t("{slot} geleert", { slot: slotLabel })
                 : t("{slot}: {count}× {item} aktualisiert", {
                     slot: slotLabel, count: plan.item.count,
-                    item: detailItemLabel(plan.item.name, plan.item.display_name, plan.item.damage),
+                    item: detailItemLabel(plan.item.name, plan.item.display_name, plan.item.damage, plan.item),
                 });
             pushUndo?.(actionMessage);
             if (plan.operation === "clear") {
@@ -1117,6 +1201,7 @@
         function applyQuickClearSlot() {
             if (guardEditingAction()) return;
             const target = currentDetailTarget();
+            if (guardSlotChanges()) return;
             const plan = logic.quickClearSlotPlan({
                 hasTarget: Boolean(target),
                 protectedKnown: Boolean(target && isProtectedKnownSlot(target.slotId, target.containerName)),
@@ -1172,7 +1257,7 @@
             if (guardEditingAction()) return;
             const target = currentDetailTarget();
             const name = logic.normalizedItemName(elements.detailItemSearch?.value);
-            const damage = target ? itemCatalog.clampNumber(Number(elements.detailDamage?.value), 0, 0, itemCatalog.getMaxDamage(name)) : 0;
+            const damage = target ? Number(elements.detailDamage?.value) : 0;
             const plan = logic.quickRepairSlotPlan({
                 hasTarget: Boolean(target),
                 repairableDamage: itemHasRepairableDamage({ name, count: 1, damage }),
@@ -1277,8 +1362,11 @@
             buildEnchantmentsList,
             currentDetailTarget,
             firstEmptyWritableSlot,
+            guardSlotChanges,
             hasPendingChanges,
+            confirmDiscardChanges,
             loadSingleSlotEditor,
+            reconcileCurrentSlot,
             resetDetailFormForNewItem,
             selectDetailItemVariant,
             updateDetailPreview,
@@ -1294,6 +1382,8 @@
             detailDamage: doc.getElementById("detailDamage"),
             detailDamageLabel: doc.querySelector('label[for="detailDamage"]'),
             detailDamageGroup: doc.getElementById("detailDamageGroup"),
+            detailDamageNote: doc.getElementById("detailDamageNote"),
+            detailFormError: doc.getElementById("detailFormError"),
             detailDataVariantGroup: doc.getElementById("detailDataVariantGroup"),
             detailDataVariantLabel: doc.getElementById("detailDataVariantLabel"),
             detailDataVariant: doc.getElementById("detailDataVariant"),
@@ -1372,6 +1462,7 @@
             logStatus: helpers.logStatus,
             recordAction: helpers.recordAction,
             showToast: helpers.showToast,
+            showConfirmDialog: helpers.showConfirmDialog,
         });
     }
 

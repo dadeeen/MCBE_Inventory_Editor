@@ -4,6 +4,102 @@ from mcbe_editor.special_items import editor_schema
 from tests.node_runner import run_node
 
 
+def test_container_transfer_preserves_sources_rejects_overwrites_and_checks_bundle_weight():
+    run_node(
+        "const schema = "
+        + json.dumps(editor_schema())
+        + ";\n"
+        + r"""
+        const assert = require('node:assert/strict');
+        global.window = global;
+        require('./static/special_item_logic.js');
+        const model = MCBESpecialItemLogic.createModel(schema, {
+            getMaxStack: () => 64, hasVerifiedStackLimit: () => true,
+        });
+        const first = {slot:0, source_index:2, name:'minecraft:diamond', count:20, damage:0, lore:['draft']};
+        const second = {slot:1, source_index:0, name:'minecraft:stone', count:1};
+        const value = {items:[first,second]}, before = JSON.stringify(value);
+        const shulker = {name:'minecraft:undyed_shulker_box'}, bundle = {name:'minecraft:bundle'};
+        const copy = model.transferChild(shulker,value,0,2,true).data.items[2];
+        assert.equal(copy.copy_source_index,2); assert.equal(copy.source_index,undefined);
+        copy.lore.push('independent'); assert.deepEqual(first.lore,['draft']);
+        assert(model.transferChild(shulker,value,0,1,true).error);
+        const swapped = model.transferChild(shulker,value,0,1,false).data;
+        assert.equal(swapped.items.find(x=>x.slot===1).source_index,2);
+        assert.equal(swapped.items.find(x=>x.slot===0).source_index,0);
+        const bundled = model.transferChild(bundle,value,0,2,true);
+        assert.equal(bundled.data.items.length,2);
+        assert.equal(bundled.data.items[0].count,40);
+        assert.equal(bundled.data.items[0].source_index,2);
+        assert.equal(bundled.slot,0);
+        assert(model.transferChild(bundle,value,0,2,false).error);
+        assert(model.transferChild(bundle,{items:[{...first,count:33}]},0,2,true).error);
+        assert.equal(JSON.stringify(value),before);
+        assert(model.transferChild(shulker,value,0,27,true).error);
+    """
+    )
+
+
+def test_bundle_insertions_merge_only_matching_visible_and_preserved_data():
+    run_node(
+        "const schema = "
+        + json.dumps(editor_schema())
+        + ";\n"
+        + r"""
+        const assert = require('node:assert/strict');
+        global.window = global;
+        require('./static/special_item_logic.js');
+        const model = MCBESpecialItemLogic.createModel(schema, {getMaxStack:()=>64});
+        const bundle = {name:'minecraft:bundle'};
+        const original = {slot:0,source_index:0,stack_key:'plain',name:'minecraft:torch',count:2,damage:0};
+        const fresh = {name:'minecraft:torch',count:2,damage:0};
+        const merge = (left,right) => model.withChild({items:[left]},1,right,bundle).items;
+        assert.equal(merge(original,fresh).length,1);
+        assert.equal(merge(original,fresh)[0].count,4);
+        assert.equal(merge(original,{...fresh,display_name:'Different'}).length,2);
+        assert.equal(merge(original,{...fresh,lore:['Different']}).length,2);
+        assert.equal(merge(original,{...fresh,damage:1}).length,2);
+        assert.equal(merge({...original,stack_key:'unknown-a'},fresh).length,2);
+        assert.equal(merge({...original,stack_key:'unknown-a'}, {...fresh,source_index:1,stack_key:'unknown-b'}).length,2);
+        assert.equal(merge({...original,stack_key:'unknown-a'}, {...fresh,source_index:1,stack_key:'unknown-a'})[0].count,4);
+        assert.equal(merge(original,{...fresh,source_index:1,stack_key:undefined}).length,2);
+        const duplicate = {...original,slot:1,source_index:1};
+        const legacy = {items:[original,duplicate]};
+        assert.deepEqual(model.withChild(legacy,1,{...duplicate},bundle),legacy,'unchanged legacy stacks survive');
+        assert.equal(original.count,2);
+        """
+    )
+
+
+def test_container_child_replacement_keeps_the_selected_slot_and_siblings():
+    run_node(
+        "const schema = "
+        + json.dumps(editor_schema())
+        + ";\n"
+        + r"""
+        const assert = require('node:assert/strict');
+        global.window = global;
+        require('./static/special_item_logic.js');
+        const model = MCBESpecialItemLogic.createModel(schema, {});
+        const original = {slot:3,source_index:7,name:'minecraft:diamond',count:8,damage:37,
+            special_item:{editable:false,reason:'opaque'},custom_marker:{keep:true}};
+        const neighbor = {slot:4,source_index:1,name:'minecraft:stone',count:2};
+        const contents = {items:[original,neighbor]};
+        const before = JSON.stringify(contents);
+        const edited = {...original,slot:4,count:9};
+        const changed = model.withChild(contents,3,edited);
+        assert.deepEqual(changed.items[0],{...edited,slot:3});
+        assert.deepEqual(changed.items[1],neighbor);
+        assert.equal(JSON.stringify(contents),before);
+        assert.equal(edited.slot,4,'placing a draft must not mutate its source');
+        const inserted = model.withChild(contents,6,{slot:4,name:'minecraft:apple',count:1});
+        assert.deepEqual(inserted.items.map(item=>item.slot),[3,4,6]);
+        assert.deepEqual(model.withChild(contents,3,null).items,[neighbor]);
+        assert.deepEqual(model.withChild(contents,9,null),contents);
+        """
+    )
+
+
 def test_container_count_limits_account_for_existing_slots_and_nested_bundle_weight():
     run_node(
         "const schema = "

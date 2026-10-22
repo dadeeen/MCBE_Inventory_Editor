@@ -62,13 +62,14 @@ def test_frontend_enchantments_view_row_model_and_html_escape_values() -> None:
 
             assert.strictEqual(model.className, "ench-row readonly");
             assert.strictEqual(model.currentLevel, 3);
-            assert.strictEqual(model.sliderMax, 5);
+            assert.strictEqual(model.maxLevel, 5);
             assert.strictEqual(model.levelDisabled, true);
             assert.ok(html.includes("Schärfe &lt;S&gt;"));
             assert.ok(html.includes("Sharpness &amp; More"));
             assert.ok(html.includes("unpassend, wird erhalten"));
             assert.ok(html.includes('value="3"'));
-            assert.ok(html.includes("checked"));
+            assert.ok(html.includes("selected"));
+            assert.ok(html.includes('ench-remove"'));
             assert.ok(html.includes("disabled"));
             assert.ok(!html.includes("Schärfe <S>"));
             """
@@ -134,7 +135,7 @@ def test_frontend_enchantments_view_row_element_uses_model_class_and_html() -> N
             const created = [];
             const doc = {
                 createElement(tagName) {
-                    const el = { tagName, className: "", innerHTML: "" };
+                    const el = { tagName, className: "", innerHTML: "", dataset: {}, setAttribute() {} };
                     created.push(el);
                     return el;
                 },

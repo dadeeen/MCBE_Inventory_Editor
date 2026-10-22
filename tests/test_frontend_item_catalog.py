@@ -327,6 +327,88 @@ def test_frontend_potion_damage_values_have_variant_names_and_data_label() -> No
     )
 
 
+def test_frontend_potion_selector_offers_only_documented_delivery_types_and_values() -> None:
+    run_node(
+        r"""
+        const assert = require('assert');
+        const fs = require('fs');
+        const vm = require('vm');
+        const context = {window: {}};
+        vm.runInNewContext(fs.readFileSync('static/item_catalog.js', 'utf8'), context);
+        const catalog = context.window.MCBEItemCatalog.createItemCatalog({
+            getItemsDb: () => ({}), getCompatItemAliases: () => ({}),
+            getItemIconIndex: () => ({}), getStackLimits: () => ({}), getMaxDamageMap: () => ({}),
+            itemIdRe: /^minecraft:[a-z0-9_.-]+$/, defaultMaxDamage: 32767, maxBedrockStackCount: 127,
+        });
+        const expected = Array.from({length: 47}, (_, index) => index);
+        const cases = [
+            ['minecraft:potion', ['Wasserflasche', 'Water Bottle'], ['Trank: Befallen', 'Potion of Infested']],
+            ['minecraft:splash_potion', ['Wurfwasserflasche', 'Splash Water Bottle'], ['Wurftrank: Befallen', 'Splash Potion of Infested']],
+            ['minecraft:lingering_potion', ['Verweilwasserflasche', 'Lingering Water Bottle'], ['Verweiltrank: Befallen', 'Lingering Potion of Infested']],
+        ];
+        for (const [name, water, last] of cases) {
+            const variants = catalog.dataValueVariantsForId(name);
+            assert.deepStrictEqual(Array.from(variants, entry => entry.damage), expected);
+            assert.deepStrictEqual(Array.from(variants[0].names), water);
+            assert.deepStrictEqual(Array.from(variants[46].names), last);
+            assert.deepStrictEqual(Array.from(catalog.addableItemVariantsForId(name), entry => entry.damage), expected);
+            assert.ok(variants.every(entry => entry.id === name
+                && entry.names.length === 2 && entry.names.every(label => typeof label === 'string' && label.length > 0)));
+            assert.strictEqual(catalog.itemUsesDurabilityDamage(name), false);
+        }
+        for (const name of ['minecraft:tipped_arrow', 'minecraft:arrow', 'minecraft:future_potion', 'minecraft:stone']) {
+            assert.strictEqual(catalog.dataValueVariantsForId(name).length, 0);
+        }
+        const original = {name: 'minecraft:potion', damage: 99};
+        assert.strictEqual(catalog.variantItemNamesForId(original), null);
+        assert.strictEqual(original.damage, 99);
+        for (const name of ['minecraft:potion', 'minecraft:splash_potion', 'minecraft:lingering_potion', 'minecraft:bed']) {
+            for (const damage of [-7, 99]) {
+                assert.strictEqual(catalog.variantItemNamesForId(name, damage), null);
+                assert.strictEqual(catalog.variantItemNamesForId({name, damage}), null);
+                assert.strictEqual(catalog.variantIconKey(name, damage), '');
+                assert.deepStrictEqual(Array.from(catalog.iconLookupCandidates({name, damage})), [name]);
+            }
+        }
+        """
+    )
+
+
+def test_frontend_durability_requires_an_explicit_item_entry_even_at_the_default_limit() -> None:
+    run_node(
+        r"""
+        const assert = require('assert');
+        const fs = require('fs');
+        const vm = require('vm');
+        const context = {window: {}};
+        vm.runInNewContext(fs.readFileSync('static/item_catalog.js', 'utf8'), context);
+        let limits = {__default__: 9000, 'addon:tool': 32767, 'minecraft:bow': 384};
+        const catalog = context.window.MCBEItemCatalog.createItemCatalog({
+            getItemsDb: () => ({}),
+            getCompatItemAliases: () => ({'addon:old_tool': 'addon:tool'}),
+            getItemIconIndex: () => ({}), getStackLimits: () => ({}), getMaxDamageMap: () => limits,
+            itemIdRe: /^[a-z0-9_.-]+:[a-z0-9_.-]+$/, defaultMaxDamage: 32767, maxBedrockStackCount: 127,
+        });
+        assert.strictEqual(catalog.getMaxDamage('minecraft:stone'), 9000);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage('minecraft:stone'), false);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage('addon:missing'), false);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage(''), false);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage('addon:tool'), true);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage('addon:old_tool'), true);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage(' Minecraft:Bow '), true);
+        assert.strictEqual(catalog.itemDamageLabel('addon:old_tool'), 'Abnutzung');
+
+        // A runtime catalog replacement changes evidence, not the fallback's meaning.
+        limits = {__default__: 384};
+        assert.strictEqual(catalog.getMaxDamage('minecraft:bow'), 384);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage('minecraft:bow'), false);
+        assert.strictEqual(catalog.itemUsesDurabilityDamage('addon:tool'), false);
+        limits = {...limits, 'minecraft:bow': 384};
+        assert.strictEqual(catalog.itemUsesDurabilityDamage('minecraft:bow'), true);
+        """
+    )
+
+
 def test_frontend_item_icon_tint_marks_grayscale_leather_sprites() -> None:
     run_node(
         textwrap.dedent(

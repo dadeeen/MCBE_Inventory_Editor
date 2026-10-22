@@ -83,14 +83,18 @@
         itemDamageLabel = () => t("Datenwert"),
         itemUsesDurabilityDamage = () => false,
     ) {
-        const value = Math.max(0, Number(damage || 0));
+        const value = Number(damage ?? 0);
+        const shownValue = Number.isFinite(value) ? value : "—";
         const label = itemDamageLabel(itemName);
         if (itemUsesDurabilityDamage(itemName)) {
             const maximum = Math.max(0, Number(maxDamage || 0));
-            const remaining = Math.max(0, maximum - value);
+            if (!Number.isInteger(value) || value < 0 || value > maximum) {
+                return `${t("Abnutzung")}: ${shownValue} · ${t("außerhalb des bekannten Bereichs")}`;
+            }
+            const remaining = maximum - value;
             return `${t("Haltbarkeit")}: ${remaining} / ${maximum} · ${t("Abnutzung")}: ${value}`;
         }
-        return `${label}: ${value}`;
+        return `${label}: ${shownValue}`;
     }
 
     function entityVariantDisplayName(item) {
@@ -121,7 +125,7 @@
 
     function itemDisplayName(item, detailItemLabel = value => value, itemDamageLabel = () => t("Datenwert"), options = {}) {
         if (!item || !item.name || item.name === "minecraft:air") return t("Leer");
-        const base = detailItemLabel(item.name, item.display_name || "", item.damage);
+        const base = detailItemLabel(item.name, item.display_name || "", item.damage, item);
         const variant = entityVariantDisplayName(item);
         const count = Number.isFinite(Number(item.count)) ? Number(item.count) : 1;
         const label = itemDamageLabel(item.name);
@@ -260,6 +264,7 @@
         iconTint = "",
         enchantmentConflicts = [],
     } = {}) {
+        const shownDamage = Number.isFinite(damage) ? damage : "—";
         const enchantmentSuffix = enchantmentTotal > enchantments.length ? ` +${enchantmentTotal - enchantments.length}` : "";
         // Nicht-blockierender Hinweis: Per NBT gesetzte Kombinationen
         // funktionieren im Spiel und bleiben speicherbar; Amboss/Zaubertisch
@@ -276,8 +281,10 @@
                 ? t("Dieser Slot wird beim Anwenden geleert.")
                 : `${itemId}${known ? "" : ` · ${t("unbekannt/future")}`} · ${count}x · ${
                     usesDurability
-                        ? `${t("Haltbarkeit")} ${Math.max(0, Number(maxDamage || 0) - Number(damage || 0))}/${Math.max(0, Number(maxDamage || 0))} · ${t("Abnutzung")} ${Math.max(0, Number(damage || 0))}`
-                        : `${damageLabel} ${damage}`
+                        ? Number.isInteger(damage) && damage >= 0 && damage <= maxDamage
+                            ? `${t("Haltbarkeit")} ${maxDamage - damage}/${maxDamage} · ${t("Abnutzung")} ${damage}`
+                            : `${t("Abnutzung")} ${shownDamage} · ${t("außerhalb des bekannten Bereichs")}`
+                        : `${damageLabel} ${shownDamage}`
                 }`,
             loreText: loreLines.length ? loreLines.join(" · ") : t("Keine Lore"),
             loreVisible: loreLines.length > 0,
@@ -412,10 +419,10 @@
 
 
     function createInventorySlotDisplayFacade({ itemCatalog = {} } = {}) {
-        function detailItemLabel(itemName, customName = "", damage = null) {
+        function detailItemLabel(itemName, customName = "", damage = null, item = null) {
             const custom = String(customName || "").trim();
             if (custom) return custom;
-            const variantNames = itemCatalog.variantItemNamesForId?.(itemName, damage);
+            const variantNames = itemCatalog.variantItemNamesForId?.(item || itemName, damage);
             const names = variantNames || itemCatalog.itemNamesForId?.(itemName);
             return localizedPair(names?.[0], names?.[1]).primary || itemName || t("Unbekanntes Item");
         }

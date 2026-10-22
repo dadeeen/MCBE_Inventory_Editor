@@ -24,6 +24,8 @@
             elements = {},
             getState = () => ({}),
             setState = () => {},
+            hasUnsavedChanges = () => getState().isDirty,
+            discardEditorDrafts = () => {},
             withCsrf = () => ({}),
             parseJsonResponse = async response => response.json(),
             buildErrorMessage = (data, fallback = t("Fehler")) => data?.error || fallback,
@@ -164,6 +166,7 @@
         function resetLoadedPlayerState({ showEmptyState = true } = {}) {
             invalidatePlayerLoad();
             const state = getState();
+            discardEditorDrafts();
             // Clearing mounts may notify the dirty-state observer. Finish by
             // assigning the unloaded state so that notification cannot keep it dirty.
             clearPendingMounts();
@@ -229,7 +232,7 @@
             const requestedWorldPath = getState().worldPath;
             const isCurrent = () => requestId === playerLoadRequestId && requestedWorldPath === getState().worldPath;
             return whileLoading(isCurrent, async () => {
-                if (getState().isDirty) {
+                if (hasUnsavedChanges()) {
                     const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Fortfahren?"));
                     if (!ok) return false;
                 }
@@ -291,8 +294,7 @@
             const requestedWorldPath = getState().worldPath;
             const requestedPlayerContextId = playerLoadRequestId;
             if (!requestedWorldPath) return false;
-            const state = getState();
-            if (state.isDirty) {
+            if (hasUnsavedChanges()) {
                 const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Fortfahren?"));
                 if (!ok) {
                     logLoadStatus(t("Aktualisierung der Spielerliste abgebrochen."), "warning");
@@ -361,7 +363,7 @@
 
         async function performPlayerLoad(playerKey, skipDirtyCheck, options, requestId, requestedWorldPath) {
             const { showLoadingOverlay = true } = options || {};
-            if (!skipDirtyCheck && getState().isDirty) {
+            if (!skipDirtyCheck && hasUnsavedChanges()) {
                 const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Spieler trotzdem wechseln?"));
                 if (!ok) {
                     logLoadStatus(t("Spielerwechsel abgebrochen."), "warning");
@@ -389,6 +391,7 @@
                 // Vorgemerkte Mounts gehören zu dem zuvor geladenen Spieler und dürfen
                 // weder als sauberer Zustand des neuen Spielers übernommen noch später
                 // relativ zu dessen Position geschrieben werden.
+                discardEditorDrafts();
                 clearPendingMounts();
                 const state = getState();
                 const responseServerEpoch = normalizeServerGuardEpoch(data.server_guard_epoch);
@@ -543,7 +546,7 @@
             playerListRequestId += 1;
             clearLoadError();
             const state = getState();
-            if (state.isDirty) {
+            if (hasUnsavedChanges()) {
                 const ok = await showConfirmDialog(t("Es gibt ungespeicherte Änderungen. Welt trotzdem wechseln?"));
                 if (!ok) {
                     logLoadStatus(t("Weltwechsel abgebrochen."), "warning");

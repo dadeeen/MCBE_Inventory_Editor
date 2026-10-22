@@ -75,6 +75,29 @@ for (const brokenScript of ["blocked", "empty", "syntax"]) {
   });
 }
 
+test("a late bootstrap failure cannot report a clean native desktop startup", async ({ page }) => {
+  await page.route("**/static/app.js", async route => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const marker = "itemBrowserController.wire();";
+    expect(source).toContain(marker);
+    await route.fulfill({
+      response,
+      headers: { ...response.headers(), "cache-control": "no-store" },
+      body: source.replace(marker, `${marker}\nthrow new Error("Synthetic late bootstrap failure");`),
+    });
+  });
+  await page.goto("/");
+  await expect(page.locator("#startupFailure")).toBeVisible();
+  expect(await page.locator(".app-container").evaluate(node => node.inert)).toBe(true);
+  expect(await page.evaluate(() => typeof window.MCBEDesktop)).toBe("undefined");
+
+  await page.unroute("**/static/app.js");
+  await page.reload();
+  await expect(page.locator("#startupNotice")).toBeHidden();
+  expect(await page.evaluate(() => window.MCBEDesktop.closeState().dirty)).toBe(false);
+});
+
 test("a duplicate start explains reuse, removes its URL marker and remains dismissible", async ({ page }) => {
   await page.goto("/?already_running=1&test=value#world");
   await expect(page.locator("#startupExisting")).toBeVisible();

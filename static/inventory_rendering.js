@@ -23,7 +23,7 @@
         if (protectedKnown) return "<span>🔒</span>";
         const tintAttr = iconTint ? ` data-icon-tint="${escapeAttr(iconTint)}"` : "";
         return iconUrl
-            ? `<img src="${escapeAttr(iconUrl)}" alt="" loading="lazy" data-icon-fallback="${escapeAttr(fallbackIcon || "□")}"${tintAttr}>`
+            ? `<img src="${escapeAttr(iconUrl)}" alt="" draggable="false" loading="lazy" data-icon-fallback="${escapeAttr(fallbackIcon || "□")}"${tintAttr}>`
             : `<span>${escapeHtml(fallbackIcon || "□")}</span>`;
     }
 
@@ -90,7 +90,7 @@
             }
 
             if (item && item.name && item.name !== "minecraft:air" && item.count > 0) {
-                renderItemSlot(slotEl, slotId, containerName, item);
+                renderItemSlot(slotEl, slotId, containerName, item, protectedKnown);
             } else {
                 renderEmptySlot(slotEl, slotId, containerName, item);
             }
@@ -120,7 +120,7 @@
             applyTooltip(slotEl, slotId, containerName, item, true);
         }
 
-        function renderItemSlot(slotEl, slotId, containerName, item) {
+        function renderItemSlot(slotEl, slotId, containerName, item, protectedKnown = false) {
             const unknownItem = !isKnownItemId(item.name);
             const hasUnknownEnchantments = item.has_unknown_enchantments === true;
             const hasProtectedNbt = item.has_protected_nbt === true;
@@ -128,6 +128,7 @@
             if (unknownItem) slotEl.classList.add("unknown-item");
             if (hasUnknownEnchantments) slotEl.classList.add("unknown-enchants");
             if (hasProtectedNbt) slotEl.classList.add("protected-nbt");
+            if (protectedKnown) slotEl.classList.add("protected-known-slot");
 
             const visualEl = document.createElement("div");
             visualEl.className = "item-visual";
@@ -142,11 +143,13 @@
             }
             slotEl.appendChild(visualEl);
 
-            if (unknownItem || hasUnknownEnchantments || hasProtectedNbt) {
+            if (protectedKnown || unknownItem || hasUnknownEnchantments || hasProtectedNbt) {
                 const badgeEl = document.createElement("div");
                 badgeEl.className = "item-unknown-badge";
-                badgeEl.textContent = unknownItem ? "?" : (hasProtectedNbt ? "NBT" : "!");
-                const badgeLabel = unknownItem
+                badgeEl.textContent = protectedKnown ? "NBT" : unknownItem ? "?" : (hasProtectedNbt ? "NBT" : "!");
+                const badgeLabel = protectedKnown
+                    ? t("Geschützter NBT-Eintrag")
+                    : unknownItem
                     ? t("Item-ID ist nicht in der lokalen Datenbank bekannt")
                     : hasProtectedNbt
                         ? t("Enthält zusätzliche NBT-Daten, die nicht vollständig im Formular angezeigt werden, aber erhalten bleiben")
@@ -180,7 +183,7 @@
                 slotEl.classList.add("enchanted");
             }
 
-            applyTooltip(slotEl, slotId, containerName, item, false);
+            applyTooltip(slotEl, slotId, containerName, item, protectedKnown);
         }
 
         function renderEmptySlot(slotEl, slotId, containerName, item) {
@@ -259,6 +262,9 @@
             recordAction = () => {},
             setDirty = () => {},
             guardEditingAction = () => false,
+            guardSlotChanges = () => false,
+            confirmSlotSelection = async () => true,
+            reconcileSlotEditor = () => {},
             getSpecialItemModel = () => null,
             openSpecialEditor = () => {},
             canOpenSpecialEditor = () => true,
@@ -330,6 +336,10 @@
                 return false;
             }
             if (!plan.ok) return false;
+
+            const changedSlots = [{ slotId: toSlot, containerName: toContainerName }];
+            if (!copyMode) changedSlots.push({ slotId: fromSlot, containerName: fromContainerName });
+            if (guardSlotChanges(changedSlots)) return false;
 
             const itemText = item => t("{count}× {item}", { count: item.count, item: itemLabel(item) });
             const from = slotDisplayName(fromSlot, fromContainerName);
@@ -456,7 +466,7 @@
             }
             if (plan.action === "clear") {
                 if (plan.ok) {
-                    if (guardEditingAction()) return;
+                    if (guardEditingAction() || guardSlotChanges()) return;
                     event.preventDefault();
                     const actionMessage = t("{slot} geleert", { slot: slotDisplayName(slotId, containerName) });
                     pushUndo(actionMessage);
@@ -632,13 +642,14 @@
                 label.textContent = `${itemLabel(item)} × ${item.count}`;
                 const location = doc.createElement("span");
                 location.textContent = [slotDisplayName(slot, container), itemLabel(root), ...path.map((child, index) =>
-                    t("Slot {slot}", { slot: child.slot + 1 }) + (index < path.length - 1 ? `: ${itemLabel(child)}` : ""))].join(" → ");
+                    (getSpecialItemModel()?.kind(index === 0 ? root : path[index - 1]) === "bundle" ? itemLabel(child)
+                        : t("Slot {slot}", { slot: child.slot + 1 }) + (index < path.length - 1 ? `: ${itemLabel(child)}` : "")))].join(" → ");
                 entry.append(label, location);
                 entry.disabled = isProtectedKnownSlot(slot, container) || !canOpenSpecialEditor();
                 entry.title = entry.disabled ? t("Bearbeitung ist aktuell gesperrt.") : t("Inhalt im Editor öffnen");
-                entry.addEventListener("click", () => {
-                    if (container === "ender_chest") handleEnderSlotClick(null, slot);
-                    else { applySelectionState({ selectedSlots: [slot], selectedEnderSlot: -1 }); updateSelectionUI(); }
+                entry.addEventListener("click", async () => {
+                    const selected = await (container === "ender_chest" ? handleEnderSlotClick(null, slot) : handleSlotClick(null, slot));
+                    if (!selected) return;
                     openSpecialEditor(slot, container, null, path.map(child => child.slot));
                 });
                 list.append(entry);
@@ -675,24 +686,34 @@
             });
             renderContainerSearch(matches, incomplete, filterLower);
             renderPlayerInventorySummary();
+            reconcileSlotEditor();
         }
 
         function handleSlotClick(e, slotId) {
             if (isProtectedKnownSlot(slotId, "inventory")) {
                 showProtectedSlotMessage(slotId, "inventory");
-                return;
+                return false;
             }
-            applySelectionState(window.MCBESelectionState.selectInventorySlot(currentSelectionState(), slotId, Boolean(e && (e.ctrlKey || e.metaKey))));
-            updateSelectionUI();
+            return requestSelection(window.MCBESelectionState.selectInventorySlot(currentSelectionState(), slotId, Boolean(e && (e.ctrlKey || e.metaKey))));
         }
 
         function handleEnderSlotClick(e, slotId) {
             if (isProtectedKnownSlot(slotId, "ender_chest")) {
                 showProtectedSlotMessage(slotId, "ender_chest");
-                return;
+                return false;
             }
-            applySelectionState(window.MCBESelectionState.selectEnderSlot(currentSelectionState(), slotId));
+            return requestSelection(window.MCBESelectionState.selectEnderSlot(currentSelectionState(), slotId));
+        }
+
+        async function requestSelection(selection) {
+            if (!await confirmSlotSelection()) return false;
+            applySelectionState(selection);
             updateSelectionUI();
+            return true;
+        }
+
+        function requestClearSelection() {
+            return requestSelection(window.MCBESelectionState.clearSelection());
         }
 
         function clearSelection() {
@@ -740,7 +761,7 @@
 
         function wireControls() {
             wireStaticSlots();
-            btnClearSelection?.addEventListener("click", clearSelection);
+            btnClearSelection?.addEventListener("click", requestClearSelection);
             gridSearch?.addEventListener("input", () => {
                 setGridFilter(gridSearch.value.trim());
                 updateGridVisuals();
@@ -752,6 +773,7 @@
             attachSlotHover,
             buildGrids,
             clearSelection,
+            requestClearSelection,
             createEnderSlotElement,
             createSlotElement,
             currentSelectionState,
@@ -846,6 +868,9 @@
             recordAction: helpers.recordAction,
             setDirty: helpers.setDirty,
             guardEditingAction: helpers.guardEditingAction,
+            guardSlotChanges: helpers.guardSlotChanges,
+            confirmSlotSelection: helpers.confirmSlotSelection,
+            reconcileSlotEditor: helpers.reconcileSlotEditor,
             getSpecialItemModel: helpers.getSpecialItemModel,
             openSpecialEditor: helpers.openSpecialEditor,
             canOpenSpecialEditor: helpers.canOpenSpecialEditor,

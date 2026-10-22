@@ -10,6 +10,7 @@
         "#detailEditorPanel input",
         "#detailEditorPanel select",
         "#detailEditorPanel textarea",
+        "#detailEditorPanel .ench-remove",
         "#dashStats input",
         "#dashStats select",
         "#dashStats textarea",

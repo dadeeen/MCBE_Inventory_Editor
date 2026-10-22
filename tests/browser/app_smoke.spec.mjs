@@ -18,7 +18,390 @@ async function openSpecialFixture(page, inventory, overrides = {}) {
     items_db: Object.fromEntries(ids.map(id => [`minecraft:${id}`, [id, id]])),
     addable_items: ids.map(id => `minecraft:${id}`),
     stack_limits: { __default__: 64, "minecraft:bundle": 1, "minecraft:undyed_shulker_box": 1, "minecraft:diamond": 64, "minecraft:diamond_sword": 1, "minecraft:writable_book": 1, "minecraft:written_book": 16, "minecraft:firework_rocket": 64, "minecraft:firework_star": 64, "minecraft:banner": 16 },
+    max_damage: { __default__: 32767, "minecraft:diamond_sword": 1561 },
     ...overrides,
+  });
+}
+
+test("contained drag copies preserve drafts, reject overwrite and undo as one edit", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [
+      { slot: 0, source_index: 3, name: "minecraft:diamond", count: 2, damage: 0, lore: ["Keep"], has_preserved_nbt: true },
+    ] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#detailCustomName").fill("Parent draft");
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const slot = n => dialog.locator(`[data-special-slot="${n}"]`);
+  await slot(0).click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("3");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await page.keyboard.down("Control");
+  await slot(0).dragTo(slot(1));
+  await page.keyboard.up("Control");
+  await expect(slot(1)).toContainText("3");
+  await page.keyboard.down("Control"); await slot(0).dragTo(slot(1)); await page.keyboard.up("Control");
+  await expect(dialog.getByRole("alert")).toContainText("Zielplatz leer");
+  await slot(1).dragTo(slot(2));
+  await expect(slot(1)).toContainText("Leerer Slot");
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  const result = await page.evaluate(() => inventory[0]);
+  expect(result.display_name).toBe("Parent draft");
+  expect(result.special_edit.data.items).toMatchObject([
+    { slot: 0, source_index: 3, count: 3, lore: ["Keep"] },
+    { slot: 2, copy_source_index: 3, count: 3, lore: ["Keep"] },
+  ]);
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  expect(errors).toEqual([]);
+});
+
+test("bundle contents hide positions and keyboard copies enforce total capacity", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:bundle", count: 1, damage: 0,
+    special_item: { kind: "bundle", editable: true, data: { items: [
+      { slot: 9, source_index: 0, name: "minecraft:diamond", count: 32, damage: 0 },
+    ] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').focus();
+  await page.keyboard.press("Shift+F10");
+  await page.locator('#slotContextMenu [data-action="special"]').click();
+  const dialog = page.locator("#specialItemDialog");
+  await expect(dialog.locator(".special-slot-number")).toHaveCount(0);
+  if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/bundle-copy-mobile.png` });
+  await dialog.locator('[data-special-slot="9"]').focus(); await page.keyboard.press("Control+c");
+  await dialog.getByRole("button", { name: "Item hinzufügen", exact: true }).focus(); await page.keyboard.press("Control+v");
+  await expect(dialog).toContainText("64 / 64 Gewichtseinheiten");
+  await dialog.getByRole("button", { name: "Item hinzufügen", exact: true }).focus(); await page.keyboard.press("Control+v");
+  await expect(dialog.getByRole("alert")).toContainText("zu voll");
+  await expect(dialog.locator(".special-slot-count")).toHaveCount(1);
+  await expect(dialog.locator(".special-slot-count")).toHaveText("64");
+  await dialog.locator('[data-special-slot="9"]').click();
+  await expect(dialog.locator(".special-selected-slot")).toHaveCount(0);
+  await page.keyboard.press("Escape"); await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+});
+
+test("bundle additions merge after quantity edits and repeated paste keeps its original amount", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:bundle", count: 1, damage: 0,
+    special_item: { kind: "bundle", editable: true, data: { items: [
+      { slot: 9, source_index: 0, stack_key: "plain", name: "minecraft:diamond", count: 2, damage: 0 },
+    ] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.locator('[data-special-slot="9"]').click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("3");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await dialog.getByRole("button", { name: "Item hinzufügen", exact: true }).click();
+  await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
+  await dialog.getByLabel("Item-ID", { exact: true }).press("Tab");
+  await dialog.getByLabel("Menge", { exact: true }).fill("2");
+  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+  await expect(dialog.locator(".special-slot-count")).toHaveCount(1);
+  await expect(dialog.locator(".special-slot-count")).toHaveText("5");
+  await dialog.locator('[data-special-slot="9"]').focus();
+  await page.keyboard.press("Control+c");
+  for (const total of [10, 15]) {
+    await dialog.getByRole("button", { name: "Item hinzufügen", exact: true }).focus();
+    await page.keyboard.press("Control+v");
+    await expect(dialog.locator(".special-slot-count")).toHaveText(String(total));
+  }
+  await dialog.locator('[data-special="accept"]').click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items)).toMatchObject([
+    { slot: 9, source_index: 0, name: "minecraft:diamond", count: 15 },
+  ]);
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  expect(errors).toEqual([]);
+});
+
+test("banner type round trip is a no-op and the detail heading uses the actual motif", async ({ page }) => {
+  await openSpecialFixture(page, {
+    0: { slot: 0, name: "minecraft:banner", count: 1, damage: 4,
+      special_item: { kind: "banner", editable: true, data: { patterns: [] } } },
+    1: { slot: 1, name: "minecraft:banner", count: 1, damage: 15,
+      special_item: { kind: "banner", editable: true, data: { type: 1, patterns: [] } } },
+  });
+  const before = await page.evaluate(() => JSON.stringify(inventory[0]));
+  await page.locator('.inventory-slot[data-slot="1"]').click();
+  await expect(page.locator("#slotQuickTitle")).toHaveText("Ominöses Banner");
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("0");
+  await dialog.locator('[data-special="accept"]').click();
+  expect(await page.evaluate(() => JSON.stringify(inventory[0]))).toBe(before);
+  await page.locator('.inventory-slot[data-slot="1"]').click();
+  await expect(page.locator("#slotQuickTitle")).toHaveText("Ominöses Banner");
+});
+
+test("copied container children stay editable independently and can be copied again", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+    special_item: { kind: "shulker", editable: true, data: { items: [
+      { slot: 0, source_index: 3, name: "minecraft:diamond", count: 2, damage: 0, lore: ["Keep"], has_preserved_nbt: true },
+    ] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const slot = n => dialog.locator(`[data-special-slot="${n}"]`);
+  await slot(0).focus(); await page.keyboard.press("Control+c");
+  await slot(1).focus(); await page.keyboard.press("Control+v");
+  await slot(1).click();
+  await dialog.getByLabel("Menge", { exact: true }).fill("3");
+  await openSpecialProperties(dialog);
+  await dialog.getByLabel("Anzeigename", { exact: true }).fill("Independent copy");
+  await dialog.locator('[data-special="accept"]').click();
+  await slot(1).focus(); await page.keyboard.press("Control+c");
+  await slot(2).focus(); await page.keyboard.press("Control+v");
+  await slot(1).click();
+  await dialog.getByRole("button", { name: "Item entfernen", exact: true }).click();
+  await dialog.locator('[data-special="accept"]').click();
+  const children = await page.evaluate(() => inventory[0].special_edit.data.items);
+  expect(children).toMatchObject([
+    { slot: 0, source_index: 3, count: 2, lore: ["Keep"] },
+    { slot: 2, copy_source_index: 3, count: 3, display_name: "Independent copy", lore: ["Keep"], has_preserved_nbt: true },
+  ]);
+  expect(children[1].source_index).toBeUndefined();
+  expect(errors).toEqual([]);
+});
+
+for (const locale of ["de", "en"]) {
+  test(`ominous banner picker and shared icons retain draft fields ${locale}`, async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+    await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 4, lore: ["Keep"],
+      special_item: { kind: "banner", editable: true, data: { patterns: [] } } } });
+    const root = page.locator('.inventory-slot[data-slot="0"]');
+    await expect(root.locator("img")).toHaveAttribute("src", /^data:image\/svg/);
+    const blue = await root.locator("img").getAttribute("src");
+    expect(decodeURIComponent(blue)).toContain("#3c44aa");
+    await root.click(); await page.locator("#detailCustomName").fill("Draft name");
+    await page.locator("#detailItemSearch").fill(locale === "de" ? "ominöses" : "ominous banner");
+    await page.locator("#detailItemAutocomplete .autocomplete-item").first().click();
+    await expect(page.locator("#detailCustomName")).toHaveValue("Draft name");
+    await expect(page.locator("#detailDataVariant")).toBeHidden();
+    await page.locator("#btnSpecialItem").click();
+    const dialog = page.locator("#specialItemDialog");
+    await expect(dialog.getByLabel(locale === "de" ? "Bannerart" : "Banner type")).toHaveValue("1");
+    await expect(dialog.locator(".special-banner-layers")).toBeHidden();
+    await dialog.locator('[data-special="accept"]').click();
+    const result = await page.evaluate(() => inventory[0]);
+    expect(result.special_edit.data.type).toBe(1);
+    expect(result.damage).toBe(15); expect(result.lore).toEqual(["Keep"]);
+    expect(result.display_name).toBe("Draft name");
+    expect(errors).toEqual([]);
+  });
+}
+
+test("contained banner selection and type conversion preserve pending name and lore", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0 } });
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.locator('[data-special-slot="0"]').click();
+  await dialog.locator(".special-item-name").fill("ominöses");
+  await dialog.locator(".special-item-suggestions .autocomplete-item").first().click();
+  await openSpecialProperties(dialog);
+  await dialog.getByLabel("Anzeigename", { exact: true }).fill("Contained draft");
+  await dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true }).fill("Keep this lore");
+  await expect(dialog.getByLabel("Variante", { exact: true })).toBeHidden();
+  await dialog.getByRole("button", { name: "Banner bearbeiten", exact: true }).click();
+  await expect(dialog.getByLabel("Bannerart", { exact: true })).toHaveValue("1");
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("0");
+  await dialog.getByRole("button", { name: "Muster hinzufügen", exact: true }).click();
+  await dialog.getByLabel("Farbe", { exact: true }).selectOption("4");
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("1");
+  await dialog.locator('[data-special="accept"]').click();
+  await expect(dialog.getByLabel("Anzeigename", { exact: true })).toHaveValue("Contained draft");
+  await expect(dialog.getByLabel("Variante", { exact: true })).toBeHidden();
+  await dialog.locator('[data-special="accept"]').click();
+  await dialog.locator('[data-special="accept"]').click();
+  const child = await page.evaluate(() => inventory[0].special_edit.data.items[0]);
+  expect(child).toMatchObject({ name: "minecraft:banner", damage: 15, display_name: "Contained draft", lore: ["Keep this lore"],
+    special_edit: { kind: "banner", data: { type: 1, patterns: [] } } });
+  expect(errors).toEqual([]);
+});
+
+for (const locale of ["de", "en"]) {
+  test.describe(`item damage policy ${locale}`, () => {
+    test.use({ viewport: { width: 1440, height: 1000 } });
+
+    const names = {
+      "minecraft:stone": ["Stein", "Stone"],
+      "minecraft:diamond_sword": ["Diamantschwert", "Diamond Sword"],
+      "minecraft:goat_horn": ["Ziegenhorn", "Goat Horn"],
+      "minecraft:potion": ["Trank", "Potion"],
+      "minecraft:undyed_shulker_box": ["Shulkerkiste", "Shulker Box"],
+    };
+    const catalog = {
+      items_db: names, addable_items: Object.keys(names),
+      stack_limits: { "minecraft:stone": 64, "minecraft:diamond_sword": 1, "minecraft:goat_horn": 1,
+        "minecraft:potion": 1, "minecraft:undyed_shulker_box": 1 },
+      max_damage: { __default__: 32767, "minecraft:diamond_sword": 1561 },
+    };
+    const parent = items => ({ slot: 4, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+      special_item: { kind: "shulker", editable: true, data: { items } } });
+
+    test("both editors offer only meaningful wear and named variant controls", async ({ page }) => {
+      const errors = collectBrowserErrors(page);
+      await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+      const samples = [
+        { slot: 0, name: "minecraft:stone", count: 1, damage: 0 },
+        { slot: 1, name: "minecraft:diamond_sword", count: 1, damage: 37 },
+        { slot: 2, name: "minecraft:potion", count: 1, damage: 21 },
+      ];
+      await openSpecialFixture(page, { ...Object.fromEntries(samples.map(item => [item.slot, item])),
+        4: parent(samples.map((item, source_index) => ({ ...item, source_index }))) }, catalog);
+      const before = await page.evaluate(() => JSON.stringify(inventory));
+      const dialog = page.locator("#specialItemDialog");
+      for (const contained of [false, true]) {
+        if (contained) {
+          await page.locator('.inventory-slot[data-slot="4"]').click();
+          await page.locator("#btnSpecialItem").click();
+        }
+        for (const sample of samples) {
+          if (contained) {
+            await dialog.getByRole("button", { name: new RegExp(`^Slot ${sample.slot + 1}:`) }).click();
+            await openSpecialProperties(dialog);
+            await expect(dialog.getByLabel(locale === "de" ? "Zielslot" : "Target slot", { exact: true })).toHaveCount(0);
+          } else await page.locator(`.inventory-slot[data-slot="${sample.slot}"]`).click();
+          const wear = contained ? dialog.getByLabel(locale === "de" ? "Abnutzung" : "Wear", { exact: true }) : page.locator("#detailDamage");
+          const variant = contained ? dialog.getByLabel(locale === "de" ? "Variante" : "Variant", { exact: true }) : page.locator("#detailDataVariant");
+          const note = contained ? dialog.locator(".special-damage-note") : page.locator("#detailDamageNote");
+          if (sample.slot === 0) {
+            await expect(wear).toBeHidden();
+            await expect(variant).toBeHidden();
+            await expect(note).toBeHidden();
+          } else if (sample.slot === 1) {
+            await expect(wear).toBeVisible();
+            await expect(wear).toHaveValue("37");
+            await expect(wear).toHaveAttribute("max", "1561");
+            await expect(variant).toBeHidden();
+            await expect(note).toContainText(locale === "de" ? "Verbleibende Haltbarkeit: 1524 von 1561" : "Remaining durability: 1524 of 1561");
+            await wear.fill("38");
+            await expect(note).toContainText("1523");
+            await wear.fill("37");
+          } else {
+            await expect(wear).toBeHidden();
+            await expect(variant).toBeVisible();
+            await expect(variant.locator("option")).toHaveCount(47);
+            await expect(variant).toHaveValue("21");
+            await expect(variant.locator('option[value="46"]')).toContainText(locale === "de" ? "Befallen" : "Infested");
+            await variant.selectOption("46");
+            await expect(wear).toHaveValue("46");
+            await variant.selectOption("21");
+          }
+          if (contained) await dialog.locator('footer [data-special="cancel"]').click();
+        }
+        if (contained) await dialog.locator('footer [data-special="cancel"]').click();
+      }
+      expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+      expect(errors).toEqual([]);
+    });
+
+    test("both editors preserve unknown originals and allow undoing a variant selection", async ({ page }) => {
+      test.setTimeout(60_000);
+      const errors = collectBrowserErrors(page);
+      await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+      const samples = [
+        { slot: 0, name: "minecraft:stone", count: 1, damage: -7 },
+        { slot: 1, name: "minecraft:stone", count: 1, damage: 40000 },
+        { slot: 2, name: "minecraft:goat_horn", count: 1, damage: 99 },
+        { slot: 3, name: "minecraft:diamond_sword", count: 1, damage: 2000 },
+      ].map(item => ({ ...item, display_name: "Original", lore: ["Keep lore"],
+        has_preserved_nbt: true, preserved_nbt_summary: ["Keep custom data"] }));
+      const children = samples.map((item, source_index) => ({ ...item, source_index }));
+      await openSpecialFixture(page, { ...Object.fromEntries(samples.map(item => [item.slot, item])), 4: parent(children) }, catalog);
+      const dialog = page.locator("#specialItemDialog");
+      for (const contained of [false, true]) {
+        if (contained) {
+          await page.locator('.inventory-slot[data-slot="4"]').click();
+          await page.locator("#btnSpecialItem").click();
+        }
+        for (const sample of samples) {
+          if (contained) {
+            await dialog.getByRole("button", { name: new RegExp(`^Slot ${sample.slot + 1}:`) }).click();
+            await openSpecialProperties(dialog);
+          } else await page.locator(`.inventory-slot[data-slot="${sample.slot}"]`).click();
+          const wear = contained ? dialog.getByLabel(locale === "de" ? "Abnutzung" : "Wear", { exact: true }) : page.locator("#detailDamage");
+          const variant = contained ? dialog.getByLabel(locale === "de" ? "Variante" : "Variant", { exact: true }) : page.locator("#detailDataVariant");
+          const note = contained ? dialog.locator(".special-damage-note") : page.locator("#detailDamageNote");
+          await expect(note).toContainText(String(sample.damage));
+          if (sample.slot < 2) {
+            await expect(wear).toBeHidden();
+            await expect(variant).toBeHidden();
+            await expect(note).toContainText(locale === "de" ? "unverändert erhalten" : "preserved unchanged");
+          } else if (sample.slot === 2) {
+            await expect(variant).toHaveValue("99");
+            await expect(variant.locator('option[value="99"]')).toContainText(locale === "de" ? "Unbekannter Datenwert" : "Unknown data value");
+            await variant.selectOption("5");
+            await expect(wear).toHaveValue("5");
+            await variant.selectOption("99");
+            await expect(wear).toHaveValue("99");
+            await expect(variant).toHaveAttribute("aria-invalid", "false");
+          } else {
+            await expect(wear).toBeVisible();
+            await expect(wear).toHaveValue("2000");
+            await expect(wear).toHaveAttribute("aria-invalid", "false");
+            await expect(note).not.toContainText(locale === "de" ? "Verbleibende Haltbarkeit" : "Remaining durability");
+          }
+          const custom = contained ? dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", { exact: true }) : page.locator("#detailCustomName");
+          await custom.fill(`Renamed ${sample.slot}`);
+          if (contained) await dialog.locator('[data-special="accept"]').click();
+          else {
+            await page.locator("#btnApplySingle").click();
+            expect(await page.evaluate(slot => inventory[slot], sample.slot)).toMatchObject({ ...sample, display_name: `Renamed ${sample.slot}` });
+          }
+        }
+        if (contained) {
+          // Editing children is isolated until the parent is accepted.
+          expect(await page.evaluate(() => inventory[4].special_edit)).toBeUndefined();
+          await dialog.locator('[data-special="accept"]').click();
+          const actual = await page.evaluate(() => inventory[4].special_edit.data.items);
+          expect(actual).toHaveLength(children.length);
+          for (const sample of children) expect(actual.find(item => item.slot === sample.slot)).toMatchObject({ ...sample, display_name: `Renamed ${sample.slot}` });
+          await page.locator("#btnUndo").click();
+          expect(await page.evaluate(() => inventory[4].special_edit)).toBeUndefined();
+          expect(await page.evaluate(() => inventory[4].special_item.data.items)).toEqual(children);
+        }
+      }
+      expect(errors).toEqual([]);
+    });
+
+    test("the clicked container slot is fixed and neighbouring originals survive creation and undo", async ({ page }) => {
+      const errors = collectBrowserErrors(page);
+      await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+      const neighbour = { slot: 7, source_index: 0, name: "minecraft:stone", count: 17, damage: 40000,
+        display_name: "Keep neighbour", lore: ["Keep metadata"], has_preserved_nbt: true };
+      await openSpecialFixture(page, { 4: parent([neighbour]) }, catalog);
+      await page.locator('.inventory-slot[data-slot="4"]').click();
+      await page.locator("#btnSpecialItem").click();
+      const dialog = page.locator("#specialItemDialog");
+      await dialog.locator('[data-special-slot="5"]').click();
+      await expect(dialog.locator(".special-selected-slot")).toHaveText(locale === "de" ? "Ausgewählter Slot: 6" : "Selected slot: 6");
+      await dialog.locator(".special-item-name").fill("minecraft:stone");
+      await dialog.getByLabel(locale === "de" ? "Menge" : "Count", { exact: true }).fill("7");
+      await openSpecialProperties(dialog);
+      await expect(dialog.getByLabel(locale === "de" ? "Zielslot" : "Target slot", { exact: true })).toHaveCount(0);
+      await expect(dialog.getByLabel(locale === "de" ? "Abnutzung" : "Wear", { exact: true })).toBeHidden();
+      await expect(dialog.getByLabel(locale === "de" ? "Variante" : "Variant", { exact: true })).toBeHidden();
+      await dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", { exact: true }).fill("New stone");
+      await dialog.locator('[data-special="accept"]').click();
+      await expect(dialog.locator('[data-special-slot="5"]')).toContainText("New stone");
+      await dialog.locator('[data-special="accept"]').click();
+      const actual = await page.evaluate(() => inventory[4].special_edit.data.items);
+      expect(actual).toHaveLength(2);
+      expect(actual.find(item => item.slot === 5)).toMatchObject({ slot: 5, name: "minecraft:stone", count: 7, damage: 0, display_name: "New stone" });
+      expect(actual.find(item => item.slot === 7)).toEqual(neighbour);
+      await page.locator("#btnUndo").click();
+      expect(await page.evaluate(() => inventory[4].special_edit)).toBeUndefined();
+      expect(await page.evaluate(() => inventory[4].special_item.data.items)).toEqual([neighbour]);
+      expect(errors).toEqual([]);
+    });
   });
 }
 
@@ -32,17 +415,17 @@ test("special contained data values validate registered variants and preserve un
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByLabel("Menge", { exact: true }).fill("2");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   for (const [slot, invalid, valid] of [[2, "16", "15"], [3, "1", "2"]]) {
     await dialog.getByRole("button", { name: new RegExp(`Slot ${slot}:`) }).click();
     await openSpecialProperties(dialog);
     // A forged value must still be rejected behind the registered variant picker.
-    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).evaluate((input, value) => {
+    await dialog.getByLabel("Abnutzung", { exact: true }).evaluate((input, value) => {
       input.value = value; input.dispatchEvent(new Event("input", { bubbles: true }));
     }, invalid);
-    await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+    await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
     await expect(dialog.getByRole("alert")).toContainText("Datenwert");
     await openSpecialProperties(dialog);
     await dialog.getByLabel("Variante", { exact: true }).selectOption(valid);
@@ -64,13 +447,13 @@ test("special contained text preserves untouched raw strings and rejects silent 
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByLabel("Menge", { exact: true }).fill("2");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
   expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ ...original, count: 2 });
   await page.locator("#btnSpecialItem").click();
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await openSpecialProperties(dialog);
   const lore = dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true });
   for (const text of [Array(51).fill("Zeile").join("\n"), "x".repeat(511) + "🦜"]) {
@@ -80,7 +463,7 @@ test("special contained text preserves untouched raw strings and rejects silent 
     await expect(lore).toHaveValue(text);
   }
   await page.keyboard.press("Escape");
-  await dialog.getByRole("button", { name: /Slot 2:/ }).click();
+  await dialog.locator('[data-special-slot="1"]').click();
   await openSpecialProperties(dialog);
   // Programmatic input also reaches the builder's limit check; maxlength
   // alone must not permit oversized replacement text.
@@ -90,7 +473,7 @@ test("special contained text preserves untouched raw strings and rejects silent 
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await expect(dialog.getByRole("alert")).toContainText("Anzeigename");
   await page.keyboard.press("Escape");
-  await dialog.getByRole("button", { name: /Slot 2:/ }).click();
+  await dialog.locator('[data-special-slot="1"]').click();
   await dialog.getByLabel("Menge", { exact: true }).fill("2");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
@@ -109,10 +492,10 @@ test("special bundles inside a shulker enforce their absolute nesting depth", as
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
   for (let depth = 0; depth < 7; depth++) {
-    await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+    await dialog.locator('[data-special-slot="0"]').click();
     await dialog.getByRole("button", { name: "Inhalte bearbeiten", exact: true }).click();
   }
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
   await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
   await expect(dialog.getByRole("alert")).toContainText("Verschachtelungstiefe");
@@ -134,7 +517,7 @@ test("special editor text remains readable in the light theme", async ({ page })
     color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor,
   })));
   for (const sample of samples) expect(contrastRatio(sample.color, sample.background)).toBeGreaterThanOrEqual(4.5);
-  const slot = dialog.getByRole("button", { name: /Slot 1:/ });
+  const slot = dialog.locator('[data-special-slot="0"]');
   await slot.hover();
   const hover = await slot.evaluate(node => ({ color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor }));
   expect(contrastRatio(hover.color, hover.background)).toBeGreaterThanOrEqual(4.5);
@@ -172,11 +555,12 @@ test("special nested editor cancellation preserves the parent item draft", async
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
   await page.setViewportSize({ width: 320, height: 568 });
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="5"]').click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:written_book");
   await dialog.getByLabel("Menge", { exact: true }).fill("3");
   await openSpecialProperties(dialog);
-  await dialog.getByLabel("Zielslot", { exact: true }).selectOption({ value: "5" });
+  await expect(dialog.getByLabel("Zielslot", { exact: true })).toHaveCount(0);
+  await expect(dialog.locator(".special-selected-slot")).toHaveText("Ausgewählter Slot: 6");
   await openSpecialProperties(dialog);
   await dialog.getByLabel("Anzeigename", { exact: true }).fill("Mein Entwurf");
   await openSpecialProperties(dialog);
@@ -187,7 +571,7 @@ test("special nested editor cancellation preserves the parent item draft", async
   await expect(dialog.getByLabel("Item-ID", { exact: true })).toHaveValue("minecraft:written_book");
   await expect(dialog.getByLabel("Menge", { exact: true })).toHaveValue("3");
   await openSpecialProperties(dialog);
-  await expect(dialog.getByLabel("Zielslot", { exact: true })).toHaveValue("5");
+  await expect(dialog.locator(".special-selected-slot")).toHaveText("Ausgewählter Slot: 6");
   await openSpecialProperties(dialog);
   await expect(dialog.getByLabel("Anzeigename", { exact: true })).toHaveValue("Mein Entwurf");
   await openSpecialProperties(dialog);
@@ -213,13 +597,14 @@ test("special contained enchantments retain levels and enforce the catalog bound
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await openSpecialProperties(dialog);
   const levels = dialog.getByLabel("Stufe", { exact: true });
   await expect(levels.first()).toHaveValue("2");
-  await levels.first().fill("6");
-  await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
-  await expect(dialog.getByRole("alert")).toContainText("Verzauberungsstufe");
+  await expect(levels.first().locator("option")).toHaveText(["1", "2", "3", "4", "5"]);
+  await dialog.getByLabel("Anzeigename", { exact: true }).fill("Mein Schwert");
+  await dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true }).fill("Erste Zeile\nZweite Zeile");
+  await dialog.getByLabel("Abnutzung", { exact: true }).fill("37");
   for (const [name, width, height] of [["desktop", 1440, 1000], ["mobile", 390, 844], ["narrow", 320, 568]]) {
     await page.setViewportSize({ width, height });
     await levels.first().scrollIntoViewIfNeeded();
@@ -228,16 +613,116 @@ test("special contained enchantments retain levels and enforce the catalog bound
     expect(header.closeTop - header.top).toBeLessThan(30);
     if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/enchantments-${name}.png`, animations: "disabled" });
   }
-  await levels.first().fill("5");
+  await levels.first().selectOption("5");
   await openSpecialProperties(dialog);
   await dialog.getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("17");
   await expect(levels.nth(1)).toHaveValue("1");
-  await levels.nth(1).fill("3");
+  await levels.nth(1).selectOption("3");
+  await expect(dialog.getByLabel("Anzeigename", { exact: true })).toHaveValue("Mein Schwert");
+  await expect(dialog.getByLabel("Beschreibung (eine Zeile je Eintrag)", { exact: true })).toHaveValue("Erste Zeile\nZweite Zeile");
+  await expect(dialog.getByLabel("Abnutzung", { exact: true })).toHaveValue("37");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
   expect(await page.evaluate(() => inventory[0].special_edit.data.items[0].enchantments)).toEqual([{ id: 9, lvl: 5 }, { id: 17, lvl: 3 }]);
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({
+    display_name: "Mein Schwert", lore: ["Erste Zeile", "Zweite Zeile"], damage: 37,
+  });
   expect(errors).toEqual([]);
 });
+
+for (const locale of ["de", "en"]) {
+  test(`container layout keeps slot positions and open inputs in ${locale}`, async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+    const sword = { slot: 0, source_index: 0, name: "minecraft:diamond_sword", count: 1, damage: 7,
+      display_name: "Original", lore: ["Original lore"], enchantments: [{ id: 9, lvl: 2 }] };
+    const neighbor = { slot: 8, source_index: 1, name: "minecraft:diamond", count: 12, damage: 0 };
+    await openSpecialFixture(page, {
+      0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
+        special_item: { kind: "shulker", editable: true, data: { items: [sword, neighbor] } } },
+      1: { slot: 1, name: "minecraft:bundle", count: 1, damage: 0,
+        special_item: { kind: "bundle", editable: true, data: { items: [
+          { slot: 0, source_index: 0, name: "minecraft:diamond", count: 8, damage: 0 },
+          { slot: 1, source_index: 1, name: "minecraft:firework_rocket", count: 4, damage: 0 },
+        ] } } },
+      2: { ...sword, slot: 2 },
+    }, {
+      ench_db: { 9: { name_de: "Schärfe", name_en: "Sharpness", max_lvl: 5 }, 17: { name_de: "Haltbarkeit", name_en: "Unbreaking", max_lvl: 3 } },
+      enchantment_compatibility: { item_slots: { "minecraft:diamond_sword": ["sword"] }, compatible_slots: { 9: ["sword"], 17: ["sword"] } },
+    });
+    await selectSetting(page, "themeSelect", locale === "en" ? "light" : "dark");
+    const original = await page.evaluate(() => JSON.stringify(inventory));
+    const dialog = page.locator("#specialItemDialog");
+    const capture = async name => {
+      if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/${name}-${locale}.png`, animations: "disabled" });
+    };
+    await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+    for (const [width, height] of [[1440, 1000], [1024, 768], [390, 844], [320, 568]]) {
+      await page.setViewportSize({ width, height });
+      const grid = dialog.locator(".special-shulker-grid");
+      await expect(grid.locator("button")).toHaveCount(27);
+      expect(await grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(9);
+      expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await capture(`shulker-${width}`);
+      const last = grid.getByRole("button", { name: /^Slot 27:/ });
+      await last.focus(); await last.press("Enter");
+      await expect(dialog.locator(".special-selected-slot")).toContainText("27");
+      await dialog.locator('footer [data-special="cancel"]').click();
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await dialog.locator('[data-special-slot="0"]').click(); await openSpecialProperties(dialog);
+    const name = dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", { exact: true });
+    const lore = dialog.locator("textarea");
+    const wear = dialog.getByLabel(locale === "de" ? "Abnutzung" : "Wear", { exact: true });
+    const add = dialog.getByLabel(locale === "de" ? "Verzauberung hinzufügen" : "Add enchantment", { exact: true });
+    await name.fill("Entwurf 世界"); await lore.fill("Line one\nLine two"); await wear.fill("");
+    await add.selectOption("17");
+    await dialog.locator('[data-enchantment-id="9"] .ench-level').selectOption("4");
+    for (const [width, height] of [[1440, 1000], [1024, 768], [390, 844], [320, 568]]) {
+      await page.setViewportSize({ width, height });
+      await expect(name).toHaveValue("Entwurf 世界"); await expect(lore).toHaveValue("Line one\nLine two");
+      await expect(wear).toHaveValue(""); await expect(dialog.locator('[data-special="accept"]')).toBeDisabled();
+      await expect(dialog.locator(".lore-hint")).not.toHaveText("");
+      await dialog.locator(".ench-editor").scrollIntoViewIfNeeded();
+      const columns = await dialog.locator(".ench-row").evaluateAll(rows => rows.map(row => ({
+        level: row.querySelector(".ench-level").getBoundingClientRect().x,
+        remove: row.querySelector(".ench-remove").getBoundingClientRect().x,
+      })));
+      expect(Math.abs(columns[0].level - columns[1].level)).toBeLessThan(1);
+      expect(Math.abs(columns[0].remove - columns[1].remove)).toBeLessThan(1);
+      expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await capture(`item-${width}`);
+    }
+    expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(original);
+    await page.setViewportSize({ width: 1440, height: 1000 }); await wear.fill("11");
+    await dialog.locator('[data-special="accept"]').click(); await dialog.locator('[data-special="accept"]').click();
+    const children = await page.evaluate(() => inventory[0].special_edit.data.items);
+    expect(children[0]).toMatchObject({ slot: 0, source_index: 0, display_name: "Entwurf 世界", lore: ["Line one", "Line two"], damage: 11,
+      enchantments: [{ id: 9, lvl: 4 }, { id: 17, lvl: 1 }] });
+    expect(children[1]).toEqual(neighbor);
+    await page.locator('.inventory-slot[data-slot="1"]').click(); await page.locator("#btnSpecialItem").click();
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(dialog.locator(".special-bundle-grid .special-slot")).toHaveCount(3);
+      expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await capture(`bundle-${width}`);
+    }
+    await dialog.locator('footer [data-special="cancel"]').click();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator('.inventory-slot[data-slot="2"]').click();
+    await page.locator("#detailCustomName").fill("Slot draft"); await page.locator("#detailLore").fill("Kept\nTogether");
+    await page.locator('[data-tab="tabEnchants"]').click();
+    await page.locator("#enchantsContainer .ench-add select").selectOption("17");
+    await page.locator('#enchantsContainer [data-enchantment-id="9"] .ench-level').selectOption("5");
+    if (process.env.MCBE_QA_SPECIAL_DIR) await page.locator("#tabEnchants").screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/ordinary-enchantments-${locale}.png` });
+    await page.locator('[data-tab="tabGeneral"]').click();
+    await expect(page.locator("#detailCustomName")).toHaveValue("Slot draft");
+    await expect(page.locator("#detailLore")).toHaveValue("Kept\nTogether");
+    expect(await page.evaluate(() => inventory[2].display_name)).toBe("Original");
+    expect(errors).toEqual([]);
+  });
+}
 
 test("special unchanged child editing preserves unsorted original container contents", async ({ page }) => {
   await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
@@ -248,7 +733,7 @@ test("special unchanged child editing preserves unsorted original container cont
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
-  await dialog.getByRole("button", { name: /Slot 21:/ }).click();
+  await dialog.locator('[data-special-slot="20"]').click();
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
   expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
@@ -264,10 +749,10 @@ test("special contained type changes detach the original before returning to the
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:writable_book");
   await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
   await expect(dialog).toContainText("0 / 50 Seiten");
@@ -438,6 +923,8 @@ for (const [locale, width, height] of [["de", 1440, 1000], ["en", 1024, 768], ["
     await expect(accept).toBeDisabled();
     await name.fill("minecraft:diamond");
     await expect(count).toHaveAttribute("max", "4");
+    await openSpecialProperties(dialog);
+    await dialog.locator('.special-properties input[maxlength="512"]').fill("Separate stack");
     await count.fill("5"); await expect(accept).toBeDisabled();
     await count.fill("4"); await accept.click();
     await dialog.locator(".special-slot").first().click();
@@ -487,7 +974,7 @@ test("special contained numeric edits reject invalid input without silently clam
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByLabel("Menge", { exact: true }).fill("65");
   await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
   await expect(dialog.getByRole("alert")).toContainText("Stacklimits");
@@ -497,12 +984,12 @@ test("special contained numeric edits reject invalid input without silently clam
   await expect(dialog.getByLabel("Menge", { exact: true })).toHaveAttribute("readonly");
   for (const value of ["", "0.5", "101"]) {
     await openSpecialProperties(dialog);
-    await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill(value);
-    await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
+    await dialog.getByLabel("Abnutzung", { exact: true }).fill(value);
+    await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
     await expect(dialog.getByRole("alert")).toContainText("Datenwert");
   }
   await openSpecialProperties(dialog);
-  await dialog.getByLabel("Abnutzung / Datenwert", { exact: true }).fill("1e1");
+  await dialog.getByLabel("Abnutzung", { exact: true }).fill("1e1");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
   expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({ name: "minecraft:diamond_sword", count: 1, damage: 10 });
@@ -550,7 +1037,7 @@ test("special editors isolate nested drafts, cancel, undo and preserve origins",
   const dialog = page.locator("#specialItemDialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("7 / 64 Gewichtseinheiten");
-  await dialog.getByRole("button", { name: /Slot 3:/ }).click();
+  await dialog.locator('[data-special-slot="2"]').click();
   await dialog.getByLabel("Menge", { exact: true }).fill("23");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await expect(dialog).toContainText("23 / 64 Gewichtseinheiten");
@@ -562,7 +1049,7 @@ test("special editors isolate nested drafts, cancel, undo and preserve origins",
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
   await expect(page.locator("#btnUndo")).toBeDisabled();
   await page.locator("#btnSpecialItem").click();
-  await dialog.getByRole("button", { name: /Slot 3:/ }).click();
+  await dialog.locator('[data-special-slot="2"]').click();
   await dialog.getByLabel("Menge", { exact: true }).fill("23");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
@@ -623,7 +1110,7 @@ test("special editors validate bundle capacity and keyboard focus at mobile widt
   const dialog = page.locator("#specialItemDialog");
   expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + "/bundle-mobile.png" });
-  await dialog.getByRole("button", { name: /Slot 2:/ }).click();
+  await dialog.locator('[data-special-slot="1"]').click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
   await expect(dialog.getByRole("button", { name: "Übernehmen und zurück" })).toBeDisabled();
   await expect(dialog.getByRole("alert")).toContainText("nicht genügend Platz");
@@ -679,10 +1166,10 @@ test("special book firework banner and shulker forms produce independent edits",
   await open(3); await expect(dialog.locator(".special-slot")).toHaveCount(27);
   if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: process.env.MCBE_QA_SPECIAL_DIR + "/shulker-desktop.png" });
   await checkMobile("shulker");
-  await dialog.getByRole("button", { name: /Slot 27:/ }).click();
+  await dialog.locator('[data-special-slot="26"]').click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:bundle");
   await dialog.getByRole("button", { name: "Inhalte bearbeiten" }).click();
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByLabel("Item-ID", { exact: true }).fill("minecraft:diamond");
   await dialog.getByLabel("Menge", { exact: true }).fill("12");
   await dialog.getByRole("button", { name: "Übernehmen und zurück" }).click();
@@ -701,7 +1188,7 @@ test("special book firework banner and shulker forms produce independent edits",
 
 async function prepareBannerTextures(page, { synthetic = false, publish = true } = {}) {
   const generated = await page.evaluate(() => {
-    const codes = ["base", ...JSON.parse(document.getElementById("specialItemSchema").textContent).patterns];
+    const codes = ["base", "illager", ...JSON.parse(document.getElementById("specialItemSchema").textContent).patterns];
     return Object.fromEntries(codes.map((code, index) => {
       const canvas = document.createElement("canvas"); canvas.width = 20; canvas.height = 40;
       const ctx = canvas.getContext("2d");
@@ -710,6 +1197,7 @@ async function prepareBannerTextures(page, { synthetic = false, publish = true }
         const offset = (y * 20 + x) * 4;
         image.data.set([255, 255, 255, 0], offset);
         if (code === "base") image.data.set([200, 200, 200, 255], offset);
+        else if (code === "illager") image.data.set([25, 155, 170, 255], offset);
         else if (code === "cre") image.data[offset + 3] = x < 10 ? 255 : 0;
         else if (code === "glb") image.data[offset + 3] = y < 20 ? 128 : 0;
         else if (code === "gra") image.data[offset + 3] = Math.round(255 * y / 39);
@@ -733,6 +1221,144 @@ async function prepareBannerTextures(page, { synthetic = false, publish = true }
   return { assets, response, generated };
 }
 
+test("shared banner icons render color and fixed motifs without replacing pending forms", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  const banner = (slot, damage, type = 0) => ({ slot, name: "minecraft:banner", count: 1, damage,
+    special_item: { kind: "banner", editable: true, data: { type, patterns: [] } } });
+  await openSpecialFixture(page, { 0: banner(0, 4), 1: banner(1, 15, 1) });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#detailCustomName").fill("Keep pending name");
+  const { assets } = await prepareBannerTextures(page, { synthetic: true });
+  const pixels = await page.evaluate(async assets => {
+    const colors = JSON.parse(document.getElementById("specialItemSchema").textContent).color_hex;
+    const renderer = window.MCBEBannerPreview.createRenderer(document);
+    const normal = await renderer.render(4, [], assets, colors);
+    const ominous = await renderer.render(0, [], assets, colors, 1);
+    return [normal, ominous].map(canvas => Array.from(canvas.getContext("2d").getImageData(8, 8, 1, 1).data));
+  }, assets);
+  expect(pixels).toEqual([[47, 53, 133, 255], [25, 155, 170, 255]]);
+  for (const slot of [0, 1]) await expect(page.locator(`.inventory-slot[data-slot="${slot}"] img`)).toHaveAttribute("src", /^data:image\/png/);
+  await expect(page.locator("#detailCustomName")).toHaveValue("Keep pending name");
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+  // A late picture must not overwrite an element that already shows another item.
+  await page.evaluate(async assets => {
+    const colors = JSON.parse(document.getElementById("specialItemSchema").textContent).color_hex;
+    const getIcon = window.MCBEBannerPreview.createIconProvider(document, () => assets, colors);
+    const delayed = getIcon({ name: "minecraft:banner", damage: 4 });
+    const image = document.createElement("img"); image.id = "qa-stale-banner"; image.src = delayed.url;
+    document.body.append(image); image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"/>');
+    window.qaBannerIcon = delayed;
+  }, assets);
+  await expect.poll(() => page.evaluate(() => window.qaBannerIcon.url.startsWith("data:image/png"))).toBe(true);
+  await expect(page.locator("#qa-stale-banner")).toHaveAttribute("src", /^data:image\/svg/);
+  expect(errors).toEqual([]);
+});
+
+test("banner conversion restores the pending normal design until accepted", async ({ page }) => {
+  const original = { slot: 0, name: "minecraft:banner", count: 1, damage: 4, display_name: "Keep name", lore: ["Keep lore"],
+    special_item: { kind: "banner", editable: true, data: { patterns: [{ pattern: "bri", color: 1, source_index: 0 }] } } };
+  await openSpecialFixture(page, { 0: original });
+  await prepareBannerTextures(page);
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await dialog.getByLabel("Farbe", { exact: true }).selectOption("5");
+  await dialog.getByRole("button", { name: "Muster hinzufügen" }).click();
+  await dialog.getByLabel("Muster", { exact: true }).nth(1).selectOption("mc");
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("1");
+  await expect(dialog.locator(".special-banner-layers")).toBeHidden();
+  await expect(dialog.locator(".special-banner-warning")).toHaveCount(0);
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("0");
+  await expect(dialog.locator(".special-banner-preview")).toContainText("Grundfarbe: Blau");
+  await expect(dialog.getByLabel("Farbe", { exact: true }).first()).toHaveValue("5");
+  await expect(dialog.getByLabel("Muster", { exact: true }).nth(1)).toHaveValue("mc");
+  await dialog.locator('[data-special-row="1"] [data-special-action="up"]').click();
+  await expect(dialog.getByLabel("Muster", { exact: true }).first()).toHaveValue("mc");
+  for (const [name, width, height] of [["desktop", 1440, 1000], ["mobile", 390, 844]]) {
+    await page.setViewportSize({ width, height });
+    expect(await dialog.locator(".special-body").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/banner-controls-${name}.png` });
+  }
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("1");
+  await expect(dialog.locator(".special-banner-warning")).toHaveCount(0);
+  await dialog.locator('[data-special="accept"]').click();
+  expect(await page.evaluate(() => inventory[0])).toMatchObject({ damage: 15, display_name: "Keep name", lore: ["Keep lore"],
+    special_edit: { kind: "banner", data: { type: 1, patterns: [] } } });
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_item.data)).toEqual(original.special_item.data);
+  expect(await page.evaluate(() => inventory[0].damage)).toBe(4);
+});
+
+test("existing ominous hybrids show their overlay and stay unchanged on cancel and accept", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 4,
+    display_name: "Keep name", lore: ["Keep lore"],
+    special_item: { kind: "banner", editable: true, data: { type: 1, patterns: [{ pattern: "bri", color: 1, source_index: 0 }] } } } });
+  const before = await page.evaluate(() => JSON.stringify(inventory[0]));
+  await prepareBannerTextures(page, { synthetic: true });
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  const preview = dialog.locator(".special-banner-preview");
+  await expect(preview).toHaveAttribute("data-state", "ready");
+  await expect(dialog).toContainText("Abweichendes Bannerdesign");
+  await expect(preview.locator("canvas")).toHaveAccessibleName(/Ominöses Banner; Ebene 1/);
+  await expect(dialog.getByRole("button", { name: "Vanilla-Design wiederherstellen" })).toHaveCount(0);
+  await expect(dialog.locator(".special-banner-layers")).toBeHidden();
+  const mixed = await preview.locator("canvas").evaluate(el => el.toDataURL());
+  await dialog.locator('[data-special="cancel"]').last().click();
+  expect(await page.evaluate(() => JSON.stringify(inventory[0]))).toBe(before);
+  await page.locator("#btnSpecialItem").click();
+  await expect(dialog).toContainText("Abweichendes Bannerdesign");
+  await expect(preview).toHaveAttribute("data-state", "ready");
+  expect(await preview.locator("canvas").evaluate(el => el.toDataURL())).toBe(mixed);
+  if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/ominous-hybrid.png` });
+  await dialog.locator('[data-special="accept"]').click();
+  expect(await page.evaluate(() => JSON.stringify(inventory[0]))).toBe(before);
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
+test("a colored ominous banner is preserved on open and normalized by an explicit type conversion", async ({ page }) => {
+  const original = { slot: 0, name: "minecraft:banner", count: 1, damage: 4,
+    special_item: { kind: "banner", editable: true, data: { type: 1, patterns: [] } } };
+  await openSpecialFixture(page, { 0: original });
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await expect(dialog.locator(".special-banner-warning")).toBeVisible();
+  await dialog.locator('[data-special="accept"]').click();
+  expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  await page.locator("#btnSpecialItem").click();
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("0");
+  await expect(dialog.locator(".special-banner-preview")).toContainText("Grundfarbe: Blau");
+  await dialog.getByRole("button", { name: "Muster hinzufügen" }).click();
+  await dialog.getByLabel("Farbe", { exact: true }).selectOption("5");
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("1");
+  await expect(dialog.locator(".special-banner-warning")).toHaveCount(0);
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("0");
+  await expect(dialog.locator(".special-banner-preview")).toContainText("Grundfarbe: Blau");
+  await expect(dialog.getByLabel("Farbe", { exact: true })).toHaveValue("5");
+  await dialog.getByLabel("Bannerart", { exact: true }).selectOption("1");
+  await dialog.locator('[data-special="accept"]').click();
+  expect(await page.evaluate(() => inventory[0].damage)).toBe(15);
+  expect(await page.evaluate(() => inventory[0].special_item.data)).toEqual(original.special_item.data);
+});
+
+test("ominous banner preview stays usable at desktop and mobile sizes", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 15,
+    special_item: { kind: "banner", editable: true, data: { type: 1, patterns: [] } } } });
+  await prepareBannerTextures(page);
+  await page.locator('.inventory-slot[data-slot="0"]').click(); await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await expect(dialog.locator(".special-banner-preview")).toHaveAttribute("data-state", "ready");
+  await expect(dialog.locator(".special-banner-layers")).toBeHidden();
+  for (const [name, width, height] of [["desktop", 1440, 1000], ["mobile", 390, 844]]) {
+    await page.setViewportSize({ width, height });
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect(dialog.locator('footer [data-special="accept"]')).toBeInViewport();
+    if (process.env.MCBE_QA_SPECIAL_DIR) await dialog.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/ominous-${name}.png` });
+  }
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#btnUndo")).toBeDisabled();
+});
+
 test("banner preview renders all motifs and keeps desktop and mobile layouts usable", async ({ page }) => {
   const errors = collectBrowserErrors(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -745,7 +1371,7 @@ test("banner preview renders all motifs and keeps desktop and mobile layouts usa
   await dialog.getByRole("button", { name: "Muster hinzufügen" }).click();
   await dialog.getByLabel("Farbe", { exact: true }).selectOption("4");
   const images = [];
-  for (const pattern of Object.keys(assets).filter(code => code !== "base")) {
+  for (const pattern of Object.keys(assets).filter(code => !["base", "illager"].includes(code))) {
     await dialog.getByLabel("Muster", { exact: true }).selectOption(pattern);
     await expect(preview).toHaveAttribute("data-state", "ready");
     images.push({ pattern, url: await canvas.evaluate(el => el.toDataURL()) });
@@ -1158,6 +1784,48 @@ async function openChangeHistory(page) {
   await page.locator('[data-tab-dash="dashSession"]').click();
   await expect(page.locator('#dashSession')).toBeVisible();
 }
+
+test("dragging an item icon moves and swaps the whole stack in the desktop host", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 1440, height: 1280 });
+  const iconUrl = "/api/icons/drag-fixture";
+  await page.route("**/api/icons/drag-fixture", route => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><path fill="#aaa" d="M0 0h32v32H0z"/></svg>',
+  }));
+  await page.route("**/api/icons/status*", route => route.fulfill({ json: {
+    success: true, count: 2, sources: [], warnings: [],
+    icons: { "minecraft:stone": { url: iconUrl }, "minecraft:carrot": { url: iconUrl } },
+  } }));
+  await openDragFixture(page, { inventory: {
+    9: { slot: 9, name: "minecraft:stone", count: 12, damage: 0, custom_name: "Keep me" },
+    11: { slot: 11, name: "minecraft:carrot", count: 5, damage: 0 },
+  } });
+  await page.evaluate(async () => {
+    await loadLocalIconIndex({ rescan: false });
+    // pywebview's default host cancels image/link drags. Item images must defer
+    // to the draggable slot so a drag from the icon behaves like its border.
+    document.addEventListener("dragstart", event => {
+      if (["IMG", "A"].includes(event.target.tagName)) event.preventDefault();
+    });
+  });
+  const slot = id => page.locator(`.main-inventory-grid [data-slot="${id}"]`);
+  const icon = id => slot(id).locator(".item-visual img");
+  await expect(icon(9)).toBeVisible();
+  await expect.poll(() => icon(9).evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+  const original = await page.evaluate(() => JSON.stringify(inventory));
+  await icon(9).dragTo(slot(10));
+  await expect.poll(() => page.evaluate(() => inventory[10]?.name)).toBe("minecraft:stone");
+  expect(await page.evaluate(() => inventory[9])).toBeUndefined();
+  expect(await page.evaluate(() => inventory[10])).toMatchObject({ count: 12, custom_name: "Keep me", source_slot: 9 });
+  await icon(10).dragTo(icon(11));
+  expect(await page.evaluate(() => inventory[10])).toMatchObject({ name: "minecraft:carrot", count: 5, source_slot: 11 });
+  expect(await page.evaluate(() => inventory[11])).toMatchObject({ name: "minecraft:stone", count: 12, custom_name: "Keep me", source_slot: 9 });
+  await page.locator("#btnUndo").click();
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(original);
+  expect(errors).toEqual([]);
+});
 
 test("change history records each drag once and retains opposite same-second actions", async ({ page }) => {
   const errors = collectBrowserErrors(page);
@@ -1684,8 +2352,13 @@ test("unverified stack limits preserve amounts and disable maximum actions", asy
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.locator("#detailCount").fill("8");
-  await page.locator("#btnApplySingle").click();
+  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await expect(page.locator("#detailCount")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#detailFormError")).toBeVisible();
   await expect(page.locator('[data-slot="0"] .item-count')).toHaveText("16");
+  await page.locator("#detailCount").fill("16");
+  await expect(page.locator("#btnApplySingle")).toBeEnabled();
+  await expect(page.locator("#detailFormError")).toBeHidden();
   await page.locator('[data-slot="1"]').click();
   await expect(page.locator("#btnQuickMaxStack")).toBeEnabled();
   await page.locator("#btnQuickMaxStack").click();
@@ -1822,6 +2495,7 @@ test(`equipment browser filters by slot and resets for ordinary inventory (${vie
       await page.locator(`.inventory-slot[data-slot="${slot}"]`).click();
       const editorToggle = page.locator('.btn-toggle[data-panel="right"]');
       if (await editorToggle.isVisible()) await editorToggle.click();
+      const originalItem = await page.locator('#detailItemSearch').inputValue();
       await page.locator('#detailItemSearch').fill('minecraft:');
       const suggestions = await page.locator('#detailItemAutocomplete .autocomplete-item').count();
       expect(suggestions).toBe(expected.length);
@@ -1833,6 +2507,7 @@ test(`equipment browser filters by slot and resets for ordinary inventory (${vie
       await page.locator('#browserSearchInput').fill('stone');
       await expect(page.locator('#browserGrid .browser-item')).toHaveCount(slot === 0 ? 1 : 0);
       await page.locator('#btnBrowserClose').click();
+      await page.locator('#detailItemSearch').fill(originalItem);
     }
   }
 });
@@ -2305,7 +2980,7 @@ test.describe("item variant editors", () => {
     await bannerSlot.click();
     await expect(page.locator("#detailDataVariantGroup")).toBeVisible();
     await expect(page.locator("#detailDamageGroup")).toBeHidden();
-    await expect(page.locator("#detailDataVariantLabel")).toHaveText("Banner color");
+    await expect(page.locator("#detailDataVariantLabel")).toHaveText("Variant");
     await expect(page.locator("#detailDataVariant")).toHaveValue("14");
     await expect(page.locator("#detailDataVariant option:checked")).toHaveText("Orange Banner");
 
@@ -3119,7 +3794,7 @@ test("item browser shows restrained availability labels including potion variant
     await expect(card.locator(".item-availability-badge")).toHaveText(badgeLabel);
   }
   await expect(cardFor(/^minecraft:apple$/).locator(".item-availability-badge")).toHaveCount(0);
-  await expect(cardFor(/^minecraft:potion$/).locator(".item-availability-badge")).toHaveCount(0);
+  await expect(cardFor(/^minecraft:potion · Datenwert 0$/).locator(".item-availability-badge")).toHaveCount(0);
   await expect(cardFor(/^minecraft:black_wool_double_slab$/)).toHaveCount(0);
   await expect(cardFor(/^minecraft:bedrock$/).locator(".item-availability-badge")).toHaveAttribute(
     "title",
@@ -3130,13 +3805,13 @@ test("item browser shows restrained availability labels including potion variant
     unreviewedDescription,
   );
 
-  await cardFor(/^minecraft:potion$/).click();
+  await cardFor(/^minecraft:potion · Datenwert 0$/).click();
   await expect(page.locator("#itemBrowserOverlay")).toBeHidden();
   await expect(page.locator("#detailPreviewAvailability")).toBeHidden();
-  await page.locator("#detailDamage").fill("36");
+  await page.locator("#detailDataVariant").selectOption("36");
   await expect(page.locator("#detailPreviewAvailability")).toBeVisible();
   await expect(page.locator("#detailPreviewAvailability")).toHaveText("Kreativ");
-  await page.locator("#detailDamage").fill("0");
+  await page.locator("#detailDataVariant").selectOption("0");
   await expect(page.locator("#detailPreviewAvailability")).toBeHidden();
 
   await page.locator("#btnBrowserDetail").click();
@@ -3321,6 +3996,7 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   // Bulk autocomplete exposes the same later matches, but choosing one only
   // fills the bulk form; it must not immediately overwrite selected slots.
   await page.locator('[data-slot="0"]').click();
+  await page.locator('#confirmOk').click();
   await page.locator('[data-slot="1"]').click({ modifiers: ["Control"] });
   const bulkSearch = page.locator("#bulkItemSearch");
   const bulkList = page.locator("#bulkItemAutocomplete");
@@ -3776,6 +4452,28 @@ test("keyboard focus returns to its element after loading and saving", async ({ 
   expect(await page.evaluate(() => isDirty)).toBe(true);
   const slot = page.locator('[data-slot="1"]');
   await slot.focus();
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("#btnSaveReviewConfirm")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#btnSaveReviewClose")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator("#btnSaveReviewConfirm")).toBeFocused();
+  await expect(page.getByRole("dialog", { name: "Änderungsübersicht", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#saveReviewOverlay")).toBeHidden();
+  await expect(slot).toBeFocused();
+  expect(saves).toBe(0);
+  // A blocked review still has a reachable initial control and skips its
+  // disabled save button while cycling through the available actions.
+  await page.evaluate(() => { void openSaveReview(buildChangeSummary(), { errors: 1 }); });
+  await expect(page.locator("#btnSaveReviewConfirm")).toBeDisabled();
+  await expect(page.locator("#btnSaveReviewCancel")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#btnSaveReviewClose")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator("#btnSaveReviewCancel")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(slot).toBeFocused();
   await page.keyboard.press("Control+s");
   await expect(page.locator("#btnSaveReviewConfirm")).toBeFocused();
   await page.keyboard.press("Enter");
@@ -5180,9 +5878,9 @@ test("catalog conflicts lock effect editing while preserving other editor contro
   expect(errors).toEqual([]);
 });
 
-test("main workflows retain their content across responsive breakpoints", async ({ page }) => {
-  await openDragFixture(page);
-  for (const layout of ['classic', 'studio', 'focus']) {
+for (const layout of ['classic', 'studio', 'focus']) {
+  test(`main workflows retain their content across responsive breakpoints (${layout})`, async ({ page }) => {
+    await openDragFixture(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await selectSetting(page, 'layoutSelect', layout);
     for (const [view, content] of [['world', '#worldPicker'], ['player', '#playerManager'], ['inventory', '#inventoryContainer'], ['save', '#saveWorkflowPanel'], ['tools', '#dashboardPanel'], ['mounts', '#mountsPanel']]) {
@@ -5194,8 +5892,8 @@ test("main workflows retain their content across responsive breakpoints", async 
         await expect(page.locator(content), `${layout}/${view}/${width}`).toBeVisible();
       }
     }
-  }
-});
+  });
+}
 
 test("compact inventory preserves the chosen editor panel through resizes and navigation", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 900 });
@@ -5909,7 +6607,7 @@ test("container search opens nested current drafts and retains cancel undo and f
     await search.fill(query);
     await expect(hit).toHaveCount(1);
     await expect(hit).toContainText("Mein Fund");
-    await expect(hit).toContainText("Enderchest 1 → Shulkerkiste → Slot 3: Bundle → Slot 4");
+    await expect(hit).toContainText("Enderchest 1 → Shulkerkiste → Slot 3: Bundle → Mein Fund");
     await expect(page.locator('[data-ender-slot="0"]')).toHaveCSS("opacity", "1");
   }
   if (process.env.MCBE_QA_SPECIAL_DIR) await results.screenshot({ path: `${process.env.MCBE_QA_SPECIAL_DIR}/container-search-desktop.png` });
@@ -6008,7 +6706,7 @@ test("special unaccepted drafts warn before closing the browser or desktop", asy
     })).toEqual({ desktop: expected, browser: expected, inventory: false });
   };
   await pending(false);
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await pending(false);
   const count = dialog.getByLabel("Menge", { exact: true });
   await count.fill("2");
@@ -6023,7 +6721,7 @@ test("special unaccepted drafts warn before closing the browser or desktop", asy
   await pending(true);
   await page.keyboard.press("Escape");
   await pending(false); // Cancelling that parent discards only its draft.
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click();
+  await dialog.locator('[data-special-slot="0"]').click();
   await dialog.getByRole("button", { name: "Buch bearbeiten", exact: true }).click();
   await pending(false);
   const title = dialog.getByLabel("Titel", { exact: true });
@@ -6104,16 +6802,18 @@ test("ordinary unaccepted slot drafts warn before closing without changing save 
   }
   await page.locator('[data-tab="tabEnchants"]').click();
   const sharpness = page.locator(".ench-row").filter({ hasText: "Schärfe" });
-  await sharpness.locator(".ench-checkbox").uncheck(); await pending(true);
-  await sharpness.locator(".ench-checkbox").check(); await pending(false);
-  await sharpness.locator(".ench-slider").press("ArrowRight"); await pending(true);
-  await sharpness.locator(".ench-slider").press("ArrowLeft"); await pending(false);
+  await sharpness.getByRole("button", { name: "Schärfe entfernen" }).click(); await pending(true);
+  await page.locator("#enchantsContainer").getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("9"); await pending(true);
+  await sharpness.getByLabel("Stufe", { exact: true }).selectOption("2"); await pending(false);
+  await sharpness.getByLabel("Stufe", { exact: true }).selectOption("3"); await pending(true);
+  await sharpness.getByLabel("Stufe", { exact: true }).selectOption("2"); await pending(false);
   await page.locator('[data-tab="tabGeneral"]').click();
   await page.locator("#detailItemSearch").fill("minecraft:");
-  await page.locator("#btnApplySingle").click();
+  await expect(page.locator("#btnApplySingle")).toBeDisabled();
   await pending(true);
   await expect(page.locator("#btnUndo")).toBeDisabled();
-  await page.locator('.inventory-slot[data-slot="0"]').click(); await pending(false);
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#confirmOk").click(); await pending(false);
 
   await page.locator('.inventory-slot[data-slot="2"]').click(); await pending(false);
   await page.locator("#detailCount").fill(""); await pending(true);
@@ -6125,7 +6825,8 @@ test("ordinary unaccepted slot drafts warn before closing without changing save 
   await page.locator("#detailAxolotlColor").selectOption("4"); await pending(true);
   await page.locator("#detailAxolotlColor").selectOption("1"); await pending(false);
   await page.locator("#detailAxolotlAge").selectOption("baby"); await pending(true);
-  await page.locator("#btnCloseDetail").click(); await pending(false);
+  await page.locator("#btnCloseDetail").click();
+  await page.locator("#confirmOk").click(); await pending(false);
   await page.locator('.inventory-slot[data-slot="1"]').click(); await pending(false);
 
   await page.locator('.inventory-slot[data-ender-slot="0"]').click(); await pending(false);
@@ -6161,12 +6862,12 @@ test("special contained enchantment replacements count as unaccepted drafts", as
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#btnSpecialItem").click();
   const dialog = page.locator("#specialItemDialog");
-  await dialog.getByRole("button", { name: /Slot 1:/ }).click(); await pending(false);
+  await dialog.locator('[data-special-slot="0"]').click(); await pending(false);
   await openSpecialProperties(dialog);
-  await dialog.getByRole("button", { name: "Entfernen", exact: true }).click();
+  await dialog.getByRole("button", { name: "Schärfe entfernen", exact: true }).click();
   await openSpecialProperties(dialog);
   await dialog.getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("17"); await pending(true);
-  await dialog.getByRole("button", { name: "Entfernen", exact: true }).click();
+  await dialog.getByRole("button", { name: "Haltbarkeit entfernen", exact: true }).click();
   await openSpecialProperties(dialog);
   await dialog.getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("9"); await pending(false);
   await expect(page.locator("#btnUndo")).toBeDisabled();
@@ -6240,7 +6941,17 @@ test("unaccepted player stats and dimension conversions warn before closing", as
   await page.locator("#statHealth").fill("12"); await pending(true);
   await page.locator('.layout-context-chip[data-workflow-view="player"]').click();
   await page.locator('.player-row[data-player-key="stats-other"]').click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await page.locator("#confirmCancel").click();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  await expect(page.locator("#statHealth")).toHaveValue("12"); await pending(true);
+  expect(await page.evaluate(() => currentPlayerKey)).toBe("drag-player");
+  await page.locator('.player-row[data-player-key="stats-other"]').click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await page.locator("#confirmOk").click();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
   await expect(page.locator("#statHealth")).toHaveValue("10.0"); await pending(false);
+  expect(await page.evaluate(() => currentPlayerKey)).toBe("stats-other");
   await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
   await page.locator("#statHealth").fill("9"); await pending(true);
   await page.locator("#statHealth").fill("10"); await pending(false);
@@ -6302,7 +7013,7 @@ for (const [locale, width, height] of [["de", 1440, 1000], ["en", 1024, 768], ["
       await expect(dialog.getByLabel(locale === "de" ? "Menge" : "Count", {exact: true})).toHaveAttribute("readonly");
       await activate(dialog.locator("summary"));
       await expect(dialog.getByLabel(locale === "de" ? "Variante" : "Variant", {exact: true})).toHaveValue("5");
-      await expect(dialog.locator(".special-card")).toBeHidden();
+      await expect(dialog.locator(".special-enchantments")).toBeHidden();
       // Selection alone leaves the original inventory untouched.
       expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
       await activate(choose); await search.fill("diamond_sword"); await activate(card(/^minecraft:diamond_sword$/));
@@ -6310,7 +7021,7 @@ for (const [locale, width, height] of [["de", 1440, 1000], ["en", 1024, 768], ["
       await expect(ench.locator('option[value="9"]')).toHaveCount(1);
       await expect(ench.locator('option[value="15"]')).toHaveCount(0);
       await ench.selectOption("9");
-      await expect(dialog.getByLabel(locale === "de" ? "Stufe" : "Level", {exact: true})).toHaveAttribute("max", "5");
+      await expect(dialog.getByLabel(locale === "de" ? "Stufe" : "Level", {exact: true}).locator("option")).toHaveText(["1", "2", "3", "4", "5"]);
       await activate(accept); await activate(accept);
       expect(await page.evaluate(() => inventory[0].special_edit.data.items[0])).toMatchObject({name: "minecraft:diamond_sword", count: 1, enchantments: [{id: 9, lvl: 1}]});
       await open(1); await activate(dialog.locator(".special-slot").last());
@@ -6402,7 +7113,7 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
         }
         const name = contained ? dialog.locator(".special-item-name") : page.locator("#detailItemSearch");
         const custom = contained ? dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", {exact: true}) : page.locator("#detailCustomName");
-        const damage = contained ? dialog.getByLabel(locale === "de" ? "Abnutzung / Datenwert" : "Wear / data value", {exact: true}) : page.locator("#detailDamage");
+        const damage = contained ? dialog.getByLabel(locale === "de" ? "Abnutzung" : "Wear", {exact: true}) : page.locator("#detailDamage");
         const lore = contained ? dialog.locator("textarea") : page.locator("#detailLore");
         await custom.fill("Pending name");
         await name.fill("");
@@ -6493,3 +7204,458 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
     });
   });
 }
+
+
+for (const [locale, width, height] of [["de", 1440, 800], ["en", 390, 844]]) {
+  test(`special editor contains background scrolling and restores it after dialog changes (${locale}/${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+    await openSpecialFixture(page, { 0: {
+      slot: 0, name: "minecraft:writable_book", count: 1, damage: 0,
+      special_item: { kind: "book", editable: true, data: { pages: [
+        { source_index: 0, text: "A long unchanged page.\n".repeat(70) },
+        { source_index: 1, text: "Another unchanged page.\n".repeat(70) },
+      ] } },
+    } });
+    await page.locator('.inventory-slot[data-slot="0"]').click();
+    if (!(await page.locator("#btnSpecialItem").isVisible())) await page.locator('.btn-toggle[data-panel="right"]').click();
+    // A tall underlying workspace makes scroll chaining observable at both sizes.
+    await page.evaluate(() => { document.body.style.minHeight = "2400px"; window.scrollTo(0, 0); });
+    const before = await page.evaluate(() => JSON.stringify(inventory));
+    await page.locator("#btnSpecialItem").click();
+    const dialog = page.locator("#specialItemDialog");
+    const body = dialog.locator(".special-body");
+    await expect(dialog).toBeVisible();
+    const top = await page.evaluate(() => window.scrollY);
+    await body.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await dialog.locator(".special-header").hover();
+    await page.mouse.wheel(0, 650);
+    await page.waitForTimeout(250); // Browser wheel delivery is asynchronous.
+    expect(await page.evaluate(() => window.scrollY)).toBe(top);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("#btnSpecialItem")).toBeFocused();
+    await page.locator("#btnInspectSlotNbt").click();
+    await expect(page.locator("#slotInspectorPanel")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#slotInspectorPanel")).toBeHidden();
+    await page.locator("#btnSpecialItem").click();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.mouse.move(width / 2, height - 20);
+    await page.mouse.wheel(0, 400);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  });
+
+  test(`unaccepted slot drafts survive cancelled player reloads (${locale}/${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
+    await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:diamond", count: 1, damage: 0 } });
+    let loads = 0;
+    page.on("request", request => { if (request.url().endsWith("/api/player/load")) loads++; });
+    await page.locator('.inventory-slot[data-slot="0"]').click();
+    if (!(await page.locator("#detailCount").isVisible())) await page.locator('.btn-toggle[data-panel="right"]').click();
+    await page.locator("#detailCount").fill("7");
+    expect(await page.evaluate(() => isDirty)).toBe(false);
+    await page.locator('.app-workflow-nav [data-workflow-view="player"]').click();
+    const player = page.locator('.player-row[data-player-key="drag-player"]');
+    await player.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#confirmOverlay")).toBeVisible();
+    await expect(page.locator("#confirmOverlay")).toContainText(locale === "en" ? "unsaved changes" : "ungespeicherte Änderungen");
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#confirmOverlay")).toBeHidden();
+    expect(loads).toBe(0);
+    await page.locator('.app-workflow-nav [data-workflow-view="inventory"]').click();
+    if (!(await page.locator("#detailCount").isVisible())) await page.locator('.btn-toggle[data-panel="right"]').click();
+    await expect(page.locator("#detailCount")).toHaveValue("7");
+    expect(await page.evaluate(() => inventory[0].count)).toBe(1);
+    await page.locator('.app-workflow-nav [data-workflow-view="player"]').click();
+    await player.click();
+    await page.locator("#confirmOk").click();
+    await expect.poll(() => loads).toBe(1);
+    await expect(page.locator("#loadingOverlay")).toBeHidden();
+    expect(await page.evaluate(() => ({ pending: window.MCBEDesktop.closeState().dirty, count: inventory[0].count }))).toEqual({ pending: false, count: 1 });
+  });
+}
+
+async function openSlotSyncFixture(page) {
+  await page.setViewportSize({ width: 1440, height: 1280 });
+  await page.route('**/api/world/presence', route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await openDragFixture(page, {
+    inventory: {
+      9: { slot: 9, name: 'minecraft:stone', count: 12, damage: 0, display_name: 'Stone', lore: ['Keep me'], enchantments: [] },
+      11: { slot: 11, name: 'minecraft:carrot', count: 5, damage: 0, display_name: '', lore: [], enchantments: [] },
+      13: { slot: 13, name: 'minecraft:diamond', count: 4, damage: 0, display_name: '', lore: [], enchantments: [] },
+    },
+    ender_chest: { 0: { slot: 0, name: 'minecraft:carrot', count: 3, damage: 0 } },
+    stack_limits: { 'minecraft:stone': 64, 'minecraft:carrot': 64, 'minecraft:diamond': 64 },
+    addable_items: ['minecraft:stone', 'minecraft:carrot', 'minecraft:diamond'],
+  });
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => getPlayerLoadApp().isLoading())).toBe(false);
+}
+
+async function dragSlot(page, from, to) {
+  await from.scrollIntoViewIfNeeded();
+  const a = await from.boundingBox(), b = await to.boundingBox();
+  await page.mouse.move(a.x + 8, a.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 8, b.y + 8, { steps: 20 });
+  await page.mouse.up();
+}
+
+for (const pending of [false, true]) {
+  for (const action of ['move', 'swap', 'cut', 'paste', 'context-cut', 'context-clear', 'context-paste', 'delete', 'quick-clear']) {
+    test(`slot form synchronization: ${action} with ${pending ? 'pending' : 'unchanged'} inputs`, async ({ page }) => {
+      const errors = collectBrowserErrors(page);
+      await openSlotSyncFixture(page);
+      const slot = id => page.locator(`.main-inventory-grid [data-slot="${id}"]`);
+      if (action.includes('paste')) {
+        await slot(11).click();
+        await page.keyboard.press('Control+c');
+      }
+      const selected = action === 'swap' ? 11 : 9;
+      await slot(selected).click();
+      if (pending) {
+        await page.locator('#detailCount').fill('7');
+        await page.locator('#detailCustomName').fill('Pending name');
+        await page.locator('#detailLore').fill('Pending lore');
+        await page.locator('#detailSlotNum').click(); // Blur without selecting/resetting the slot.
+      }
+      const before = await page.evaluate(() => JSON.stringify(inventory));
+      if (action === 'move' || action === 'swap') await dragSlot(page, slot(9), slot(action === 'move' ? 10 : 11));
+      else if (action.startsWith('context-')) {
+        await slot(9).click({ button: 'right' });
+        await page.locator(`#slotContextMenu [data-action="${action.slice(8)}"]`).click();
+      } else if (action === 'quick-clear') await page.locator('#btnQuickClearSlot').click();
+      else {
+        await slot(selected).focus();
+        await page.keyboard.press({ cut: 'Control+x', paste: 'Control+Shift+v', delete: 'Delete' }[action]);
+      }
+      if (pending) {
+        expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+        await expect(page.locator('#detailCount')).toHaveValue('7');
+        await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
+        await expect(page.locator('#detailLore')).toHaveValue('Pending lore');
+        expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(true);
+        await expect(page.locator('.toast').filter({ hasText: 'Bitte übernimm zuerst' }).last()).toBeVisible();
+        await page.locator('#btnApplySingle').click();
+        expect(await page.evaluate(id => inventory[id].display_name, selected)).toBe('Pending name');
+        expect(await page.evaluate(id => inventory[id].count, selected)).toBe(7);
+      } else {
+        expect(await page.evaluate(() => JSON.stringify(inventory))).not.toBe(before);
+        const after = await page.evaluate(() => JSON.stringify(inventory));
+        const currentName = await page.evaluate(id => inventory[id]?.name || '', selected);
+        await expect(page.locator('#detailItemSearch')).toHaveValue(currentName);
+        expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+        await page.locator('#btnApplySingle').click();
+        expect(await page.evaluate(() => inventory)).toEqual(JSON.parse(after));
+      }
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test('slot form synchronization preserves unrelated drafts and rejects a stale source', async ({ page }) => {
+  await openSlotSyncFixture(page);
+  const slot = id => page.locator(`.main-inventory-grid [data-slot="${id}"]`);
+  await slot(9).click();
+  await page.locator('#detailCustomName').fill('Keep this draft');
+  await page.locator('#detailLore').fill('Two\nlines');
+  await dragSlot(page, slot(11), slot(12));
+  expect(await page.evaluate(() => inventory[12]?.count)).toBe(5);
+  await page.locator('#gridSearch').fill('stone');
+  await expect(page.locator('#detailCustomName')).toHaveValue('Keep this draft');
+  await expect(page.locator('#detailLore')).toHaveValue('Two\nlines');
+  // A missed mutation notification must still never let an old form overwrite a newer item.
+  await page.evaluate(() => { inventory[9] = { slot: 9, name: 'minecraft:diamond', count: 4, damage: 0 }; updateGridVisuals(); });
+  await page.locator('#btnApplySingle').click();
+  expect(await page.evaluate(() => inventory[9])).toEqual({ slot: 9, name: 'minecraft:diamond', count: 4, damage: 0 });
+  await expect(page.locator('#detailCustomName')).toHaveValue('Keep this draft');
+  await expect(page.locator('#detailLore')).toHaveValue('Two\nlines');
+  await expect(page.locator('.toast').filter({ hasText: 'Der Inhalt dieses Slots wurde inzwischen geändert' }).last()).toBeVisible();
+});
+
+test('slot form synchronization protects drafts during undo redo and context selection', async ({ page }) => {
+  await openSlotSyncFixture(page);
+  const slot = id => page.locator(`.main-inventory-grid [data-slot="${id}"]`);
+  await slot(9).click();
+  await page.locator('#detailCount').fill('13');
+  await page.locator('#btnApplySingle').click();
+  await page.locator('#btnUndo').click();
+  expect(await page.evaluate(() => inventory[9].count)).toBe(12);
+  await page.locator('#detailCount').fill('7');
+  await page.locator('#btnRedo').click();
+  expect(await page.evaluate(() => inventory[9].count)).toBe(12);
+  await expect(page.locator('#detailCount')).toHaveValue('7');
+  await slot(11).click({ button: 'right' });
+  await page.locator('#slotContextMenu [data-action="copy"]').click();
+  expect(await page.evaluate(() => selectedSlots)).toEqual([9]);
+  await expect(page.locator('#detailCount')).toHaveValue('7');
+  await page.locator('#btnApplySingle').click();
+  await page.locator('#detailCount').fill('8');
+  await page.locator('#btnUndo').click();
+  expect(await page.evaluate(() => inventory[9].count)).toBe(7);
+  await expect(page.locator('#detailCount')).toHaveValue('8');
+});
+
+test('slot form synchronization also refreshes and protects the ender chest editor', async ({ page }) => {
+  await openSlotSyncFixture(page);
+  const ender = page.locator('.inventory-slot[data-ender-slot="0"]');
+  await ender.click();
+  await page.keyboard.press('Control+x');
+  await expect(page.locator('#detailItemSearch')).toHaveValue('');
+  await page.keyboard.press('Control+Shift+v');
+  await expect(page.locator('#detailCount')).toHaveValue('3');
+  await page.locator('#detailCount').fill('8');
+  await page.keyboard.press('Control+Shift+v');
+  expect(await page.evaluate(() => enderChestInventory[0].count)).toBe(3);
+  await expect(page.locator('#detailCount')).toHaveValue('8');
+  await page.locator('#btnApplySingle').click();
+  expect(await page.evaluate(() => enderChestInventory[0].count)).toBe(8);
+});
+
+for (const locale of ['de', 'en']) {
+  test(`pending form guards: slot navigation requires explicit discard (${locale})`, async ({ page }) => {
+    await page.context().addCookies([{ name: 'mcbe_locale', value: locale, url: NORMAL_BASE_URL }]);
+    await openSlotSyncFixture(page);
+    if (locale === 'en') await page.setViewportSize({ width: 1366, height: 768 });
+    const slot = id => page.locator(`.inventory-slot[data-slot="${id}"]`);
+    await slot(9).click();
+    await page.locator('#detailCount').fill('8');
+    await page.locator('#btnApplySingle').click();
+    await page.locator('#detailCustomName').fill('Pending name');
+    const before = await page.evaluate(() => JSON.stringify(inventory));
+    const actions = [
+      () => slot(11).click(),
+      () => slot(11).click({ modifiers: ['Control'] }),
+      () => slot(9).click(),
+      () => page.locator('[data-ender-slot="0"]').click(),
+      () => page.locator('#btnCloseDetail').click(),
+      () => page.keyboard.press('Escape'),
+    ];
+    for (const action of actions) {
+      await action();
+      await expect(page.locator('#confirmOverlay')).toBeVisible();
+      await expect(page.locator('#confirmCancel')).toHaveText(locale === 'en' ? 'Keep editing' : 'Weiter bearbeiten');
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#confirmOverlay')).toBeHidden();
+      await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
+      expect(await page.evaluate(() => selectedSlots)).toEqual([9]);
+      expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+      await expect(page.locator('#btnUndo')).toBeEnabled();
+    }
+    // Keyboard focus can move independently of the selected editor.
+    await slot(11).focus();
+    await page.keyboard.press('Delete');
+    expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+    await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
+    await page.locator('[data-ender-slot="0"]').click();
+    await page.locator('#confirmOk').click();
+    await expect(page.locator('#detailCount')).toHaveValue('3');
+    expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+    await page.locator('#detailCustomName').fill('Ender draft');
+    await page.locator('#btnCloseDetail').click();
+    await page.locator('#confirmCancel').click();
+    await expect(page.locator('#detailCustomName')).toHaveValue('Ender draft');
+    await page.locator('#btnCloseDetail').click();
+    await page.locator('#confirmOk').click();
+    expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+    await page.locator('#btnUndo').click();
+    expect(await page.evaluate(() => inventory[9].count)).toBe(12);
+  });
+}
+
+for (const form of ['slot', 'stats']) {
+  test(`pending form guards: save waits for ${form} inputs to be applied`, async ({ page }) => {
+    await page.route('**/api/server_status', route => route.fulfill({ json: {
+      success: true, server_status: { status: 'offline' }, write_gate: { allowed: true, read_allowed: true },
+    } }));
+    await openSlotSyncFixture(page);
+    const saves = [];
+    await page.route('**/api/player/save', async route => {
+      saves.push(route.request().postDataJSON());
+      const savedItems = await page.evaluate(() => ({ inventory, ender_chest: enderChestInventory }));
+      await route.fulfill({ json: { success: true, write_committed: true, player_revision: 'after-save', saved_items: savedItems } });
+    });
+    await page.locator('[data-slot="9"]').click();
+    await page.locator('#detailCount').fill('8');
+    await page.locator('#btnApplySingle').click();
+    if (form === 'slot') {
+      await page.locator('#detailCount').fill('7');
+      await page.locator('#detailCustomName').fill('Pending name');
+    } else {
+      await selectLayout(page, 'studio');
+      await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
+      await page.locator('#statHealth').fill('13');
+    }
+    await page.keyboard.press('Control+s');
+    await expect(page.locator('.toast').filter({ hasText: 'Bitte übernimm zuerst' }).last()).toBeVisible();
+    await expect(page.locator('#btnSaveReviewConfirm')).toBeHidden();
+    expect(saves).toEqual([]);
+    await expect(page.locator('#btnUndo')).toBeEnabled();
+    if (form === 'slot') {
+      await expect(page.locator('#detailCount')).toHaveValue('7');
+      await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
+      expect(await page.evaluate(() => inventory[9].count)).toBe(8);
+      await page.locator('#btnApplySingle').click();
+    } else {
+      await expect(page.locator('#statHealth')).toHaveValue('13');
+      expect(await page.evaluate(() => playerStats.health)).toBe(20);
+      await page.locator('#btnApplyStats').click();
+    }
+    await page.keyboard.press('Control+s');
+    await page.locator('#btnSaveReviewConfirm').click();
+    await expect.poll(() => saves.length).toBe(1);
+    await expect.poll(() => page.evaluate(() => getSaveAppController().isSaving())).toBe(false);
+    expect(await page.evaluate(() => hasUnsavedChanges())).toBe(false);
+    if (form === 'slot') expect(saves[0].inventory.find(item => item.slot === 9)).toMatchObject({ count: 7, display_name: 'Pending name' });
+    else expect(saves[0].stats).toMatchObject({ health: 13 });
+  });
+}
+
+test('pending form guards: undo and redo retain unaccepted player stats', async ({ page }) => {
+  await openSlotSyncFixture(page);
+  await page.locator('[data-slot="9"]').click();
+  await page.locator('#detailCount').fill('8');
+  await page.locator('#btnApplySingle').click();
+  await selectLayout(page, 'studio');
+  await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
+  const health = page.locator('#statHealth');
+  const original = await health.inputValue();
+  for (const [action, count, restored] of [['Undo', 8, 12], ['Redo', 12, 8]]) {
+    await health.fill('13');
+    await page.locator(`#btn${action}`).click();
+    await expect(health).toHaveValue('13');
+    expect(await page.evaluate(() => statsFormController.hasPendingChanges())).toBe(true);
+    expect(await page.evaluate(() => inventory[9].count)).toBe(count);
+    expect(await page.evaluate(() => playerStats.health)).toBe(20);
+    await health.fill(original);
+    await page.locator(`#btn${action}`).click();
+    expect(await page.evaluate(() => inventory[9].count)).toBe(restored);
+  }
+});
+
+test('pending form guards: context and container search cannot discard a slot draft implicitly', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1280 });
+  await openSpecialFixture(page, { 0: { slot: 0, name: 'minecraft:undyed_shulker_box', count: 1, damage: 0,
+    display_name: 'Original', special_item: { kind: 'shulker', editable: true, data: { items: [
+      { slot: 3, source_index: 0, name: 'minecraft:diamond', count: 7, damage: 0 },
+    ] } } } });
+  const dialog = page.locator('#specialItemDialog');
+  const slot = page.locator('[data-slot="0"]');
+  await slot.click();
+  for (const source of ['context', 'search']) {
+    await page.locator('#detailCustomName').fill('Pending name');
+    const open = async () => {
+      if (source === 'context') {
+        await slot.click({ button: 'right' });
+        await page.locator('#slotContextMenu [data-action="special"]').click();
+      } else {
+        await page.locator('#gridSearch').fill('diamond');
+        await page.locator('#gridSearchResults button').click();
+      }
+    };
+    await open();
+    await page.locator('#confirmCancel').click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
+    await open();
+    await page.locator('#confirmOk').click();
+    await expect(dialog).toBeVisible();
+    if (source === 'search') await expect(dialog.getByLabel('Menge', { exact: true })).toHaveValue('7');
+    await dialog.locator('footer [data-special="cancel"]').click();
+    if (source === 'search') await dialog.locator('footer [data-special="cancel"]').click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('#detailCustomName')).toHaveValue('Original');
+    expect(await page.evaluate(() => isDirty)).toBe(false);
+  }
+});
+
+test('special editor returns keyboard focus to the container slot being edited', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openSpecialFixture(page, { 0: { slot: 0, name: 'minecraft:undyed_shulker_box', count: 1, damage: 0,
+    special_item: { kind: 'shulker', editable: true, data: { items: [
+      { slot: 26, source_index: 0, name: 'minecraft:diamond', count: 7, damage: 0 },
+    ] } } } });
+  const rootSlot = page.locator('.inventory-slot[data-slot="0"]');
+  await rootSlot.focus(); await rootSlot.press('Shift+F10');
+  await page.locator('#slotContextMenu [data-action="special"]').press('Enter');
+  const dialog = page.locator('#specialItemDialog');
+  const childSlot = dialog.getByRole('button', { name: /^Slot 27:/ });
+  await childSlot.focus(); await childSlot.press('Enter');
+  await dialog.getByLabel('Menge', { exact: true }).fill('8');
+  await dialog.locator('[data-special="accept"]').press('Enter');
+  await expect(childSlot).toBeFocused();
+  await expect(childSlot).toBeInViewport();
+  await childSlot.press('Enter');
+  await expect(dialog.getByLabel('Menge', { exact: true })).toHaveValue('8');
+  await page.keyboard.press('Escape');
+  await expect(childSlot).toBeFocused();
+  await expect(childSlot).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(rootSlot).toBeFocused();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+});
+
+test('special editor keeps keyboard focus with reordered and removed book pages', async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: 'minecraft:written_book', count: 1, damage: 0,
+    special_item: { kind: 'book', editable: true, data: { title: 'Focus test', author: 'Author',
+      pages: [{ text: 'First' }, { text: 'Second' }, { text: 'Third' }] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator('#btnSpecialItem').click();
+  const dialog = page.locator('#specialItemDialog');
+  const pages = dialog.locator('.special-card');
+  await pages.nth(1).getByRole('button', { name: 'Nach oben', exact: true }).press('Enter');
+  await expect(pages.nth(0).locator('textarea')).toHaveValue('Second');
+  await expect(pages.nth(0).getByRole('button', { name: 'Nach unten', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(pages.nth(1).locator('textarea')).toHaveValue('Second');
+  await expect(pages.nth(1).getByRole('button', { name: 'Nach unten', exact: true })).toBeFocused();
+  await pages.nth(1).getByRole('button', { name: 'Entfernen', exact: true }).press('Enter');
+  await expect(pages).toHaveCount(2);
+  await expect(pages.nth(1).getByRole('button', { name: 'Entfernen', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(pages).toHaveCount(1);
+  await expect(pages.nth(0).getByRole('button', { name: 'Entfernen', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: 'Seite hinzufügen', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(pages.nth(0).locator('textarea')).toBeFocused();
+  await pages.nth(0).locator('textarea').fill('Replacement');
+  await dialog.locator('[data-special="accept"]').press('Enter');
+  expect(await page.evaluate(() => inventory[0].special_edit.data.pages)).toEqual([{ text: 'Replacement' }]);
+});
+
+test('write protection disables and restores every enchantment action', async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: 'minecraft:diamond_sword', count: 1, damage: 0,
+    enchantments: [{ id: 9, lvl: 2 }] } }, {
+    ench_db: { 9: { name_de: 'Schärfe', name_en: 'Sharpness', max_lvl: 5 }, 17: { name_de: 'Haltbarkeit', name_en: 'Unbreaking', max_lvl: 3 } },
+    enchantment_compatibility: { item_slots: { 'minecraft:diamond_sword': ['sword'] }, compatible_slots: { 9: ['sword'], 17: ['sword'] } },
+  });
+  await page.locator('[data-slot="0"]').click();
+  await page.locator('[data-tab="tabEnchants"]').click();
+  const remove = page.locator('#enchantsContainer .ench-remove');
+  const level = page.locator('#enchantsContainer .ench-level');
+  const add = page.locator('#enchantsContainer .ench-add select');
+  await expect(remove).toBeEnabled();
+  let allowed = false;
+  await page.route('**/api/server_status', route => route.fulfill({ json: {
+    success: true, server_status: { status: allowed ? 'offline' : 'online' },
+    write_gate: { allowed, read_allowed: true, reason: allowed ? '' : 'Server läuft noch. Bitte Server stoppen.' },
+  } }));
+  await page.evaluate(() => refreshServerStatus());
+  for (const control of [level, add, remove]) await expect(control).toBeDisabled();
+  await expect(remove).toHaveAttribute('title', 'Server läuft noch. Bitte Server stoppen.');
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+  allowed = true;
+  await page.evaluate(() => refreshServerStatus());
+  for (const control of [level, add, remove]) await expect(control).toBeEnabled();
+  await remove.press('Enter');
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(true);
+  await page.locator('#btnApplySingleEnch').click();
+  expect(await page.evaluate(() => inventory[0].enchantments)).toEqual([]);
+});

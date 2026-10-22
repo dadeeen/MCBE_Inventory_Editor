@@ -441,6 +441,37 @@ def test_ominous_banner_rejects_new_custom_pattern_combinations(already_ominous)
     assert original.save_to() == before
 
 
+def test_bundle_copy_merges_through_browser_model_and_preserves_typed_original_data():
+    from mcbe_editor.special_items import editor_schema
+
+    child = item("minecraft:torch", slot=7, count=2, addon=nbt.LongTag(91))
+    child["Count"] = nbt.ShortTag(2)
+    original = item("minecraft:bundle", storage_item_component_content=nbt.ListTag([child], 10))
+    payload = parsed(original)
+    result = run_node(
+        "const schema = "
+        + json.dumps(editor_schema())
+        + "; const item = "
+        + json.dumps(payload)
+        + ";\n"
+        + r"""
+        global.window = global;
+        require('./static/special_item_logic.js');
+        const model = MCBESpecialItemLogic.createModel(schema, {getMaxStack:()=>64,hasVerifiedStackLimit:()=>true});
+        console.log(JSON.stringify(model.transferChild(item,model.data(item),7,0,true).data));
+        """
+    )
+    merged = json.loads(result.stdout)
+    assert len(merged["items"]) == 1
+    stored = save(original, merged)["tag"]["storage_item_component_content"]
+    occupied = [entry for entry in stored if entry["Count"].py_data]
+    assert len(occupied) == 1
+    assert type(occupied[0]["Count"]) is nbt.ShortTag
+    assert occupied[0]["Count"].py_data == 4
+    assert occupied[0]["tag"]["addon"].save_to() == child["tag"]["addon"].save_to()
+    assert child["Count"].py_data == 2
+
+
 def test_bundle_stack_keys_distinguish_typed_hidden_data_and_ignore_quantity_and_slot():
     children = [item("minecraft:torch", slot=index, count=index + 1, addon=nbt.IntTag(9)) for index in range(3)]
     children[2]["tag"]["addon"] = nbt.LongTag(9)

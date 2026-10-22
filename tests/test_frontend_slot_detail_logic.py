@@ -365,7 +365,7 @@ def test_frontend_slot_detail_logic_carries_only_explicit_entity_variant_edits()
     )
 
 
-def test_frontend_data_variant_unknown_values_are_only_preserved_from_a_verified_source() -> None:
+def test_frontend_data_variant_unknown_values_are_only_preserved_from_the_current_item() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -402,10 +402,20 @@ def test_frontend_data_variant_unknown_values_are_only_preserved_from_a_verified
                     sourceItem: {
                         name: "minecraft:empty_map",
                         damage: 99,
+                        source_index: 3,
                     },
                 }))),
-                { selectedDamage: 0, preserveUnknown: false },
+                { selectedDamage: 99, preserveUnknown: true },
             );
+            for (const sourceItem of [null, { name: 'minecraft:stone', damage: 99 },
+                { name: 'minecraft:empty_map', damage: 98 }]) {
+                assert.deepStrictEqual(
+                    JSON.parse(JSON.stringify(plan({
+                        itemName: 'minecraft:empty_map', damageValue: 99, variants, sourceItem,
+                    }))),
+                    { selectedDamage: 0, preserveUnknown: false },
+                );
+            }
             assert.deepStrictEqual(
                 JSON.parse(JSON.stringify(plan({
                     itemName: "minecraft:empty_map",
@@ -748,6 +758,7 @@ def test_shared_item_form_validates_capacity_variants_and_preserves_originals() 
         const catalog = {
             getMaxStack: name => name === 'minecraft:diamond_sword' ? 1 : 64,
             getMaxDamage: () => 100,
+            itemUsesDurabilityDamage: name => name === 'minecraft:diamond_sword',
             hasVerifiedStackLimit: () => true,
             isValidItemId: () => true, isAddableItemId: () => true,
             isEnchantableItemForEditor: name => name === 'minecraft:diamond_sword',
@@ -759,7 +770,8 @@ def test_shared_item_form_validates_capacity_variants_and_preserves_originals() 
             assert.strictEqual(logic.buildItemForm({...base, rawCount}).ok, false);
         }
         assert.strictEqual(logic.buildItemForm({...base, rawCount: 64}).item.count, 64);
-        assert.strictEqual(logic.buildItemForm({...base, rawCount: '1e1', rawDamage: '1e1'}).item.damage, 10);
+        assert.strictEqual(logic.buildItemForm({...base, rawCount: '1e1', rawDamage: '1e1'}).ok, false);
+        assert.strictEqual(logic.buildItemForm({...base, rawName: 'minecraft:diamond_sword', rawDamage: '1e1'}).item.damage, 10);
         assert.strictEqual(logic.buildItemForm({...base, rawCount: '1e1'}).item.count, 10);
         const limit = { maximum: 4, error: '' };
         assert.strictEqual(logic.buildItemForm({...base, countLimit: limit, rawCount: 5}).ok, false);
@@ -787,5 +799,106 @@ def test_shared_item_form_validates_capacity_variants_and_preserves_originals() 
         assert.notStrictEqual(unchanged.item, original);
         unchanged.item.lore.push('Only the draft');
         assert.strictEqual(original.lore.length, 1);
+        """
+    )
+
+
+def test_shared_damage_editor_distinguishes_modes_and_preserves_unknown_original_values() -> None:
+    run_node(
+        r"""
+        const assert = require('assert');
+        const vm = require('vm');
+        const fs = require('fs');
+        const context = {window: {}};
+        for (const file of ['item_catalog.js', 'slot_detail_logic.js']) {
+            vm.runInNewContext(fs.readFileSync('static/' + file, 'utf8'), context);
+        }
+        const db = JSON.parse(fs.readFileSync('mcbe_editor/resources/item_db.json', 'utf8'));
+        const catalog = context.window.MCBEItemCatalog.createItemCatalog({
+            getItemsDb: () => db.items,
+            getCompatItemAliases: () => db.compat_item_aliases,
+            getAddableItems: () => new Set(db.addable_items),
+            getItemIconIndex: () => ({}),
+            getStackLimits: () => db.stack_limits,
+            getMaxDamageMap: () => db.durability,
+            itemIdRe: /^[a-z0-9_.-]+:[a-z0-9_.-]+$/,
+            defaultMaxDamage: 32767,
+            maxBedrockStackCount: 127,
+        });
+        const logic = context.window.MCBESlotDetailLogic;
+        const describe = (itemName, damageValue, sourceItem = null) =>
+            logic.itemDamageEditorModel({catalog, itemName, damageValue, sourceItem});
+        const plain = describe('minecraft:stone', 0);
+        assert.strictEqual(plain.mode, 'none');
+        assert.strictEqual(plain.note, '');
+        assert.strictEqual(plain.remaining, null);
+        assert.strictEqual(plain.error, '');
+        const tool = describe('minecraft:diamond_sword', 100);
+        assert.strictEqual(tool.mode, 'durability');
+        assert.strictEqual(tool.maxDamage, 1561);
+        assert.strictEqual(tool.remaining, 1461);
+        assert.strictEqual(tool.error, '');
+        const map = describe('minecraft:empty_map', 2);
+        assert.strictEqual(map.mode, 'variant');
+        assert.strictEqual(map.remaining, null);
+        assert.strictEqual(map.error, '');
+        assert.deepStrictEqual(Array.from(map.variants, value => value.damage), [0, 2]);
+
+        for (const [name, damage, mode] of [
+            ['minecraft:stone', -7, 'none'],
+            ['minecraft:stone', 40000, 'none'],
+            ['minecraft:empty_map', -7, 'variant'],
+            ['minecraft:potion', 99, 'variant'],
+            ['minecraft:diamond_sword', -7, 'durability'],
+            ['minecraft:diamond_sword', 2000, 'durability'],
+        ]) {
+            // A contained child has a parent-bound index, not an inventory digest.
+            const original = {slot: 6, source_index: 3, name, count: 1, damage,
+                display_name: 'Keep', lore: ['Original'], enchantments: [],
+                has_protected_nbt: true, nbt_view: {extra: {bytes: [0, -1, 127]}}};
+            const snapshot = JSON.stringify(original);
+            const state = describe(name, damage, original);
+            assert.strictEqual(state.mode, mode);
+            assert.strictEqual(state.value, damage);
+            assert.strictEqual(state.preserveUnknown, true);
+            assert.strictEqual(state.error, '');
+            assert.strictEqual(state.remaining, null);
+            assert.ok(state.note.includes(String(damage)));
+            assert.strictEqual(JSON.stringify(original), snapshot);
+
+            const fields = {catalog, slotId: 6, previousItem: original, rawName: name,
+                rawCount: 1, rawDamage: String(damage), rawCustomName: 'Keep', rawLore: 'Original'};
+            const echoed = logic.buildItemForm(fields);
+            assert.strictEqual(echoed.ok, true);
+            assert.strictEqual(JSON.stringify(echoed.item), snapshot);
+            assert.notStrictEqual(echoed.item, original);
+            const renamed = logic.buildItemForm({...fields, rawCustomName: 'Renamed'});
+            assert.strictEqual(renamed.ok, true);
+            assert.strictEqual(renamed.item.damage, damage);
+            assert.strictEqual(renamed.item.display_name, 'Renamed');
+            assert.strictEqual(renamed.item.has_protected_nbt, true);
+            assert.strictEqual(JSON.stringify(original), snapshot);
+
+            for (const foreign of [null, {...original, name: 'minecraft:diamond'}, {...original, damage: damage + 1}]) {
+                const rejected = describe(name, damage, foreign);
+                assert.strictEqual(rejected.preserveUnknown, false);
+                assert.ok(rejected.error);
+                assert.strictEqual(logic.buildItemForm({...fields, previousItem: foreign}).ok, false);
+            }
+        }
+
+        const original = {slot: 0, name: 'minecraft:diamond_sword', count: 1, damage: 2000};
+        const fields = {catalog, slotId: 0, previousItem: original,
+            rawName: original.name, rawCount: 1};
+        for (const value of [0, 10, 1561]) {
+            const corrected = logic.buildItemForm({...fields, rawDamage: value});
+            assert.strictEqual(corrected.ok, true);
+            assert.strictEqual(corrected.item.damage, value);
+            assert.strictEqual(describe(original.name, value, original).remaining, 1561 - value);
+        }
+        for (const value of ['', '2.5', '20px', -8, 1562, 2001]) {
+            assert.strictEqual(logic.buildItemForm({...fields, rawDamage: value}).ok, false);
+        }
+        assert.strictEqual(original.damage, 2000);
         """
     )

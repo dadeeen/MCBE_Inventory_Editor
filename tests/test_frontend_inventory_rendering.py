@@ -107,7 +107,7 @@ def test_frontend_inventory_rendering_escapes_icon_and_fallback_visuals() -> Non
             assert.ok(iconSlot.classList.contains("local-icon-item"));
             assert.strictEqual(
                 iconSlot.querySelector(".item-visual").innerHTML,
-                '<img src="textures/&lt;stone&gt;.png?x=&quot;y&quot;" alt="" loading="lazy" data-icon-fallback="&lt;&gt;">',
+                '<img src="textures/&lt;stone&gt;.png?x=&quot;y&quot;" alt="" draggable="false" loading="lazy" data-icon-fallback="&lt;&gt;">',
             );
 
             const axolotlSlot = new FakeElement();
@@ -169,11 +169,11 @@ def test_frontend_inventory_rendering_escapes_icon_and_fallback_visuals() -> Non
             assert.ok(unknownIconSlot.classList.contains("local-icon-item"));
             assert.strictEqual(
                 unknownIconSlot.querySelector(".item-visual").innerHTML,
-                '<img src="textures/potion.png" alt="" loading="lazy" data-icon-fallback="❓">',
+                '<img src="textures/potion.png" alt="" draggable="false" loading="lazy" data-icon-fallback="❓">',
             );
 
             const protectedRenderer = context.window.MCBEInventoryRendering.createInventoryRenderer({
-                buildSlotTooltipLines: () => ["Geschützt", "Technik"],
+                buildSlotTooltipLines: (_slot, _container, _item, protectedKnown) => [protectedKnown ? "Geschützt" : "Bearbeitbar", "Technik"],
                 currentSelectionState: () => ({}),
                 getItemEmoji: () => "<>",
                 getItemIconMeta: () => null,
@@ -191,6 +191,18 @@ def test_frontend_inventory_rendering_escapes_icon_and_fallback_visuals() -> Non
             protectedRenderer.renderSlot(protectedSlot, 3, null);
             assert.ok(protectedSlot.classList.contains("protected-known-slot"));
             assert.strictEqual(protectedSlot.querySelector(".item-visual").innerHTML, "<span>🔒</span>");
+
+            // A visible first item does not make a duplicate original slot safe
+            // to edit. Keep its item preview, with the same explicit protection.
+            const duplicateSlot = new FakeElement();
+            duplicateSlot.attributes["data-slot"] = "3";
+            protectedRenderer.renderSlot(duplicateSlot, 3, { name: "minecraft:diamond", count: 12, damage: 0 });
+            assert.equal(duplicateSlot.getAttribute("draggable"), "false");
+            assert.ok(duplicateSlot.classList.contains("protected-known-slot"));
+            assert.equal(duplicateSlot.querySelector(".item-visual").innerHTML, "<span>&lt;&gt;</span>");
+            assert.equal(duplicateSlot.querySelector(".item-count").innerText, 12);
+            assert.equal(duplicateSlot.querySelector(".item-unknown-badge").textContent, "NBT");
+            assert.match(duplicateSlot.getAttribute("aria-label"), /Geschützt/);
 
             const potionRenderer = context.window.MCBEInventoryRendering.createInventoryRenderer({
                 buildSlotTooltipLines: () => ["Trank", "Technik"],

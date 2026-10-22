@@ -117,6 +117,7 @@
         }
 
         function open(summary, validation = {}) {
+            const opener = doc.activeElement;
             render(summary, validation);
             return new Promise(resolve => {
                 if (!elements.overlay) {
@@ -124,12 +125,16 @@
                     return;
                 }
                 const cleanup = (value) => {
+                    // The save lock is lifted immediately after cancellation.
+                    // Release this control before the app restores its opener.
+                    if (elements.overlay.contains(doc.activeElement)) doc.activeElement.blur();
                     elements.overlay.style.display = "none";
                     elements.confirmButton?.removeEventListener("click", onConfirm);
                     elements.cancelButton?.removeEventListener("click", onCancel);
                     elements.closeButton?.removeEventListener("click", onCancel);
                     elements.overlay.removeEventListener("click", onOverlayClick);
-                    doc.removeEventListener("keydown", onKeyDown);
+                    elements.overlay.removeEventListener("keydown", onKeyDown);
+                    window.MCBEUiFeedback?.returnFocus?.(opener, elements.overlay, doc);
                     resolve(value);
                 };
                 const onConfirm = () => {
@@ -141,14 +146,30 @@
                 };
                 const onCancel = () => cleanup(false);
                 const onOverlayClick = (event) => { if (event.target === elements.overlay) cleanup(false); };
-                const onKeyDown = (event) => { if (event.key === "Escape") cleanup(false); };
+                const onKeyDown = (event) => {
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        cleanup(false);
+                    } else if (event.key === "Tab") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const controls = Array.from(elements.overlay.querySelectorAll("button, a[href], input, select, textarea, summary, [tabindex]"))
+                            .filter(control => !control.disabled && control.tabIndex >= 0 && control.getClientRects().length > 0);
+                        if (!controls.length) return;
+                        const index = controls.indexOf(doc.activeElement);
+                        const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0)
+                            : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+                        controls[next].focus();
+                    }
+                };
                 elements.confirmButton?.addEventListener("click", onConfirm);
                 elements.cancelButton?.addEventListener("click", onCancel);
                 elements.closeButton?.addEventListener("click", onCancel);
                 elements.overlay.addEventListener("click", onOverlayClick);
-                doc.addEventListener("keydown", onKeyDown);
+                elements.overlay.addEventListener("keydown", onKeyDown);
                 elements.overlay.style.display = "flex";
-                elements.confirmButton?.focus();
+                [elements.confirmButton, elements.cancelButton, elements.closeButton].find(button => button && !button.disabled)?.focus();
             });
         }
 

@@ -41,6 +41,7 @@
         const autocompleteOptions = new WeakMap();
         const autocompletes = new Map();
         const pendingInputs = new WeakSet();
+        const deferredAutocompleteHides = new Set();
         let returnFocusElement = null;
         let selectingAutocompleteItem = false;
         let pageScrollLocked = false;
@@ -78,10 +79,12 @@
             ).filter(item => allowedForInput(item.id, inputEl)).slice(0, limit);
         }
 
-        function itemIconTarget(id, damage) {
-            return Number.isInteger(Number(damage)) && damage !== null && damage !== undefined && damage !== ""
+        function itemIconTarget(id, damage, metadata = null) {
+            const item = Number.isInteger(Number(damage)) && damage !== null && damage !== undefined && damage !== ""
                 ? { name: id, damage: Number(damage) }
                 : id;
+            if (id === "minecraft:banner" && metadata?.banner_type === 1) return { name: id, damage: 15, special_edit: { kind: "banner", data: { type: 1, patterns: [] } } };
+            return item;
         }
 
         function dispatchInput(inputEl, options = {}) {
@@ -93,6 +96,7 @@
             if (!allowedForInput(item.id, inputEl)) return;
             if (options.selectionReason?.(item.id, item)) return;
             pendingInputs.delete(inputEl);
+            deferredAutocompleteHides.delete(listEl);
             listEl.style.display = "none";
             listEl.innerHTML = "";
             if (options.onSelect) {
@@ -141,6 +145,7 @@
             }
             listEl.addEventListener?.("keydown", dismissAutocomplete);
             inputEl.addEventListener("input", event => {
+                deferredAutocompleteHides.delete(listEl);
                 if (!selectingAutocompleteItem) pendingInputs.add(inputEl);
                 const query = event.target.value.toLowerCase().trim();
                 listEl.innerHTML = "";
@@ -159,7 +164,7 @@
                         let firstRow = null;
                         matches.slice(start, end).forEach(item => {
                             const fallbackIcon = getItemEmoji(item.id) || "□";
-                            const iconMeta = getItemIconMeta(itemIconTarget(item.id, item.damage));
+                            const iconMeta = getItemIconMeta(itemIconTarget(item.id, item.damage, item));
                             const row = itemBrowserLogic.autocompleteItemElement(
                                 item,
                                 {
@@ -231,15 +236,22 @@
                 event.preventDefault();
                 selectAutocompleteItem(inputEl, listEl, selected, options);
             });
-            return () => { autocompletes.delete(inputEl); autocompleteOptions.delete(inputEl); pendingInputs.delete(inputEl); };
+            return () => { autocompletes.delete(inputEl); autocompleteOptions.delete(inputEl); pendingInputs.delete(inputEl); deferredAutocompleteHides.delete(listEl); };
         }
 
         function hideAutocompleteLists(event) {
             autocompletes.forEach((list, input) => {
                 if (!input || !list) return;
                 if (event.target !== input && !list.contains(event.target)) {
-                    list.style.display = "none";
                     const options = autocompleteOptions.get(input);
+                    // Keep inline results in the layout until the pointer click
+                    // completes, so hiding them cannot move its target button.
+                    if (options?.inline && (event.type === "pointerdown" || event.type === "focusin" && deferredAutocompleteHides.has(list))) {
+                        deferredAutocompleteHides.add(list);
+                    } else {
+                        list.style.display = "none";
+                        deferredAutocompleteHides.delete(list);
+                    }
                     // A valid ID can still be a prefix of the item being
                     // searched for. Commit only when leaving the picker;
                     // suggestion and browser selections commit their own ID.
@@ -250,6 +262,15 @@
                     }
                 }
             });
+        }
+
+        function finishAutocompletePointer() {
+            if (!deferredAutocompleteHides.size) return;
+            // A released/cancelled pointer need not produce a click (e.g. a drag).
+            setTimeout(() => {
+                deferredAutocompleteHides.forEach(list => { list.style.display = "none"; });
+                deferredAutocompleteHides.clear();
+            }, 0);
         }
 
         function categoryLabel() {
@@ -319,7 +340,7 @@
                     onDetailItemChanged(id);
                 }
                 if (isDetailInput(browserActiveInput) && Number.isInteger(Number(metadata?.damage))) {
-                    onDetailItemVariantSelected({ id, damage: Number(metadata.damage) });
+                    onDetailItemVariantSelected({ ...metadata, id, damage: Number(metadata.damage) });
                 }
                 dispatchInput(browserActiveInput);
                 if (isDetailInput(browserActiveInput)) {
@@ -365,7 +386,7 @@
             function appendCards(start, end) {
                 let firstCard = null;
                 items.slice(start, end).forEach(([id, names, metadata]) => {
-                    const iconMeta = getItemIconMeta(itemIconTarget(id, metadata?.damage));
+                    const iconMeta = getItemIconMeta(itemIconTarget(id, metadata?.damage, metadata));
                     const card = itemBrowserLogic.browserItemCardElement({
                         id,
                         names,
@@ -459,6 +480,8 @@
             });
             setupAutocomplete(bulkInput, bulkAutocomplete);
             documentObj.addEventListener("pointerdown", hideAutocompleteLists, true);
+            documentObj.addEventListener("pointerup", finishAutocompletePointer, true);
+            documentObj.addEventListener("pointercancel", finishAutocompletePointer, true);
             documentObj.addEventListener("click", hideAutocompleteLists);
             documentObj.addEventListener("focusin", hideAutocompleteLists);
             detailBrowserButton?.addEventListener("click", () => openItemBrowser(detailInput, detailBrowserButton));

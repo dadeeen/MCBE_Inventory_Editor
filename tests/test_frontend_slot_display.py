@@ -3,6 +3,37 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_unknown_damage_is_shown_without_clamping_or_invented_remaining_durability() -> None:
+    run_node(r"""
+        const assert = require('node:assert/strict');
+        global.window = global;
+        require('./static/slot_display.js');
+        const display = MCBESlotDisplay;
+        for (const damage of [-7, 40000]) {
+            const preview = display.detailPreviewModel({
+                itemId: 'minecraft:diamond_sword', known: true, count: 1,
+                damage, maxDamage: 1561, usesDurability: true,
+            });
+            assert(preview.metaText.includes(`Abnutzung ${damage}`));
+            assert(preview.metaText.includes('außerhalb des bekannten Bereichs'));
+            assert(!preview.metaText.includes('Haltbarkeit'));
+            const tooltip = display.buildSlotTooltipEntries(0, 'inventory', {
+                name: 'minecraft:diamond_sword', count: 1, damage,
+            }, false, {
+                getMaxDamage: () => 1561, itemDamageLabel: () => 'Abnutzung', itemUsesDurabilityDamage: () => true,
+            }).find(entry => entry.kind === 'damage').text;
+            assert(tooltip.includes(`Abnutzung: ${damage}`));
+            assert(!tooltip.includes('Haltbarkeit'));
+            const stone = display.buildSlotTooltipEntries(0, 'inventory', {
+                name: 'minecraft:stone', count: 1, damage,
+            }, false).find(entry => entry.kind === 'damage').text;
+            assert.strictEqual(stone, `Datenwert: ${damage}`);
+        }
+        const invalidDraft = display.detailPreviewModel({ damage: NaN, usesDurability: true });
+        assert(!invalidDraft.metaText.includes('NaN'));
+    """)
+
+
 def test_frontend_slot_display_tooltip_html_and_hover_position() -> None:
     run_node(
         textwrap.dedent(

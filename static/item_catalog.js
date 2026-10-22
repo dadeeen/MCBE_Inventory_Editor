@@ -343,7 +343,7 @@
 
         function damageKey(value) {
             const parsed = parseInt(value, 10);
-            return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+            return Number.isFinite(parsed) ? parsed : 0;
         }
 
         function itemBlockNameFromNbt(item) {
@@ -371,6 +371,7 @@
         }
 
         function variantItemNamesForId(itemOrId, damageArg = null) {
+            if (itemOrId?.name === "minecraft:banner" && bannerType(itemOrId) === 1) return ["Ominöses Banner", "Ominous Banner"];
             const potionNames = potionVariantNamesForItem(itemOrId, damageArg);
             if (potionNames) return potionNames;
             const item = typeof itemOrId === "object" && itemOrId ? itemOrId : null;
@@ -384,6 +385,17 @@
         function dataValueVariantsForId(itemId) {
             const normalized = String(itemId || "").trim().toLowerCase();
             const canonical = canonicalItemId(normalized);
+            // The three potion item IDs share the documented Bedrock values.
+            // tipped_arrow is only an existing display/icon compatibility ID;
+            // its presence in that table is not evidence for editable variants.
+            if (Object.hasOwn(POTION_WATER_NAMES, canonical)) {
+                return Object.keys(POTION_VARIANT_BY_DAMAGE).map(rawDamage => ({
+                    id: normalized,
+                    damage: Number(rawDamage),
+                    names: potionVariantNamesForItem(canonical, Number(rawDamage)),
+                    searchIds: [],
+                }));
+            }
             const variants = DATA_VALUE_VARIANTS_BY_ITEM[normalized] || DATA_VALUE_VARIANTS_BY_ITEM[canonical];
             if (!variants) return [];
             return Object.entries(variants)
@@ -403,12 +415,30 @@
         }
 
         function addableItemVariantsForId(itemId) {
-            return dataValueVariantsForId(itemId);
+            const variants = dataValueVariantsForId(itemId);
+            if (canonicalItemId(itemId) !== "minecraft:banner") return variants;
+            return [...variants.map(variant => ({ ...variant, banner_type: 0 })), {
+                id: itemId, damage: 15, banner_type: 1, names: ["Ominöses Banner", "Ominous Banner"], searchIds: ["ominous_banner", "illager_banner"],
+            }];
+        }
+        function bannerType(item) {
+            return (item?.special_edit?.kind === "banner" ? item.special_edit.data?.type : item?.special_item?.data?.type) === 1 ? 1 : 0;
+        }
+        function applyItemVariant(item, variant) {
+            if (item?.name !== "minecraft:banner" || ![0, 1].includes(variant?.banner_type) || bannerType(item) === variant.banner_type) return item;
+            if (item.special_item?.editable === false || item.item_tag_opaque) return item;
+            const data = item.special_edit?.kind === "banner" ? item.special_edit.data : item.special_item?.data || { patterns: [] };
+            return { ...item, damage: variant.banner_type === 1 ? 15 : item.damage,
+                special_edit: { kind: "banner", data: { ...JSON.parse(JSON.stringify(data)), type: variant.banner_type,
+                    patterns: variant.banner_type === 1 ? [] : JSON.parse(JSON.stringify(data.patterns)) } } };
         }
 
         function itemUsesDurabilityDamage(itemName) {
             const normalized = String(itemName || "").trim().toLowerCase();
-            return Boolean(normalized) && !POTION_ICON_ITEMS.has(normalized) && getMaxDamage(normalized) !== defaultMaxDamage;
+            const durability = getMaxDamageMap();
+            const maximum = durability[normalized] ?? durability[canonicalItemId(normalized)];
+            return Boolean(normalized) && !POTION_ICON_ITEMS.has(normalized)
+                && Number.isInteger(maximum) && maximum > 0;
         }
 
         function itemDamageLabel(itemName) {
@@ -499,6 +529,9 @@
         }
 
         function getItemIconMeta(itemOrId, damageArg = null) {
+            const item = typeof itemOrId === "object" && itemOrId ? itemOrId : { name: itemOrId, damage: damageArg ?? 0 };
+            const banner = deps.getBannerIcon?.(item);
+            if (banner) return banner;
             const itemIconIndex = getItemIconIndex();
             for (const candidate of iconLookupCandidates(itemOrId, damageArg)) {
                 if (itemIconIndex[candidate]) return itemIconIndex[candidate];
@@ -672,6 +705,8 @@
             expandEnchantmentSlotGroups,
             finiteNumber,
             getItemEmoji,
+            applyItemVariant,
+            bannerType,
             getItemIconMeta,
             getItemIconTint,
             getMaxDamage,

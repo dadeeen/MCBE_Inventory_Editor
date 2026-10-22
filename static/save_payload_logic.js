@@ -7,6 +7,7 @@
         "preserved_nbt_summary",
         "nbt_view",
         "special_item",
+        "stack_key",
         "protected_nbt_dropped",
         "previous_name",
         "special_nbt_defaulted",

@@ -43,6 +43,8 @@
             doc,
             getState: state.getPlayerLoadState,
             setState: state.assignAppState,
+            hasUnsavedChanges: actions.hasUnsavedChanges,
+            discardEditorDrafts: actions.discardEditorDrafts,
             withCsrf: api.withCsrf,
             parseJsonResponse: api.parseJsonResponse,
             buildErrorMessage: api.buildErrorMessage,
