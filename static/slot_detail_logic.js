@@ -310,7 +310,8 @@
             builtItem.previous_name = previousItem.name || "";
         }
         if (sameItem && previousItem) {
-            const visibleUnchanged = ["slot", "name", "count", "damage", "display_name"].every(key => previousItem[key] === builtItem[key])
+            const visibleUnchanged = ["slot", "name", "count", "damage"].every(key => previousItem[key] === builtItem[key])
+                && (previousItem.display_name || "") === builtItem.display_name
                 && JSON.stringify(previousItem.lore || []) === JSON.stringify(builtItem.lore || [])
                 && JSON.stringify(previousItem.enchantments || []) === JSON.stringify(builtItem.enchantments || [])
                 && !entityVariantEdit;
@@ -517,6 +518,7 @@
         editingBlocked = () => false,
         getEditingBlockedReason = () => "",
         syncEditControls = () => {},
+        onFormStateChanged = () => {},
         logStatus,
         recordAction,
         showToast,
@@ -565,7 +567,15 @@
                 controls: [
                     elements.detailItemSearch, elements.detailCount, elements.detailDamage,
                     elements.detailCustomName, elements.detailLore, ...entityControls,
-                ].map(control => control?.value ?? ""),
+                ].map((control, index) => {
+                    const value = control?.value ?? "";
+                    if (index === 0) {
+                        const name = logic.normalizedItemName(value);
+                        return name === "minecraft:air" ? "" : name;
+                    }
+                    return [1, 2].includes(index) && String(value).trim() !== "" && Number.isFinite(Number(value))
+                        ? Number(value) : value;
+                }),
                 enchantments: currentEditingEnchantments.map(({ id, lvl }) => [id, lvl]).sort(([a], [b]) => a - b),
             });
         }
@@ -579,6 +589,7 @@
                 context: detailContextKey(slotId, containerName), state: detailFormState(),
                 item: slotSnapshot(slotId, containerName),
             };
+            refreshDetailFormState();
         }
 
         function slotSnapshot(slotId, containerName) {
@@ -591,14 +602,51 @@
                 && detailFormBaseline.item === slotSnapshot(slotId, containerName);
         }
 
-        function hasPendingChanges() {
+        function detailDraftState() {
             const target = currentDetailTarget();
-            // Inspect the current rendered draft without validating it, setting
-            // dirty state or counting stale controls from a closed editor.
-            return Boolean(detailFormBaseline && target
+            const changed = Boolean(detailFormBaseline && target
                 && window.MCBESelectionState.selectedCount(getCurrentSelectionState?.()) === 1
                 && detailFormBaseline.context === detailContextKey(target.slotId, target.containerName)
                 && detailFormBaseline.state !== detailFormState());
+            if (!changed) return { pending: false, canApply: false, error: "" };
+            // Validate a projected draft without resetting fields or changing
+            // the accepted inventory. Compare with what the form loaded, so
+            // equivalent input cannot become a stale draft after an undo.
+            const previousItem = JSON.parse(detailFormBaseline.item);
+            const plan = logic.applySingleSlotPlan({
+                buildResult: buildDetailItemFromForm(target.slotId, target.containerName, { preview: true }),
+                previousItem,
+                containerName: target.containerName,
+            });
+            // An empty slot can contain a partial draft (for example a name
+            // entered before choosing an item). Keep that input guarded too.
+            const pending = plan.reason !== "unchanged" || !previousItem;
+            if (pending && !formSourceIsCurrent(target.slotId, target.containerName)) {
+                return { pending: true, canApply: false, error: staleDetailFormError() };
+            }
+            return { pending, canApply: plan.ok && !isProtectedKnownSlot?.(target.slotId, target.containerName),
+                error: plan.toast?.message || "" };
+        }
+
+        function hasPendingChanges() {
+            return detailDraftState().pending;
+        }
+
+        function refreshDetailFormState() {
+            const draft = detailDraftState();
+            if (elements.detailFormError) {
+                elements.detailFormError.textContent = draft.error;
+                elements.detailFormError.hidden = !draft.error;
+            }
+            for (const button of [elements.btnApplySingle, elements.btnApplySingleEnch]) {
+                window.MCBEWriteStatusView?.applyIntrinsicEditControlState(button, {
+                    disabled: !draft.canApply,
+                    title: draft.error,
+                    blocked: editingBlocked(),
+                    blockedTitle: getEditingBlockedReason(),
+                });
+            }
+            onFormStateChanged(draft);
         }
 
         function guardSlotChanges(targets = null) {
@@ -624,7 +672,11 @@
         function reconcileCurrentSlot() {
             const target = currentDetailTarget();
             if (!target || detailFormBaseline?.context !== detailContextKey(target.slotId, target.containerName)
-                || formSourceIsCurrent(target.slotId, target.containerName) || hasPendingChanges()) return;
+                || formSourceIsCurrent(target.slotId, target.containerName)) return;
+            if (hasPendingChanges()) {
+                refreshDetailFormState();
+                return;
+            }
             // Visual refreshes must not reset an unrelated, unaccepted draft.
             loadSingleSlotEditor(target.slotId, target.isEnder, { preserveView: true });
         }
@@ -825,19 +877,6 @@
             const formModel = logic.itemFormModel({ catalog: itemCatalog, rawName: itemId,
                 rawCount: elements.detailCount?.value, rawDamage: elements.detailDamage?.value, previousItem: sourceItem });
             logic.applyItemFormConstraints(formModel, { count: elements.detailCount, damage: elements.detailDamage });
-            const formError = isEmpty ? "" : formModel.countError || formModel.damageError;
-            if (elements.detailFormError) {
-                elements.detailFormError.textContent = formError;
-                elements.detailFormError.hidden = !formError;
-            }
-            for (const button of [elements.btnApplySingle, elements.btnApplySingleEnch]) {
-                window.MCBEWriteStatusView?.applyIntrinsicEditControlState(button, {
-                    disabled: Boolean(formError) || !target || Boolean(isProtectedKnownSlot?.(target.slotId, target.containerName)),
-                    title: formError,
-                    blocked: editingBlocked(),
-                    blockedTitle: getEditingBlockedReason(),
-                });
-            }
             const count = isEmpty
                 ? 0
                 : logic.stackCountFromForm({
@@ -905,6 +944,7 @@
                 isEmpty ? null : getItemAvailability?.(itemId, damage),
             );
             updateDetailQuickActions();
+            refreshDetailFormState();
         }
 
         function loadSingleSlotEditor(slotId, isEnderChest = false, { preserveView = false } = {}) {
@@ -955,26 +995,34 @@
             });
         }
 
-        function buildDetailItemFromForm(slotId, containerName) {
-            if (!formSourceIsCurrent(slotId, containerName)) {
-                return { ok: false, error: t("Der Inhalt dieses Slots wurde inzwischen geändert. Deine Eingaben bleiben erhalten. Öffne den Slot erneut, bevor du Änderungen übernimmst.") };
+        function staleDetailFormError() {
+            return t("Der Inhalt dieses Slots wurde inzwischen geändert. Deine Eingaben bleiben erhalten. Öffne den Slot erneut, bevor du Änderungen übernimmst.");
+        }
+
+        function buildDetailItemFromForm(slotId, containerName, { preview = false } = {}) {
+            if (!preview && !formSourceIsCurrent(slotId, containerName)) {
+                return { ok: false, error: staleDetailFormError() };
             }
-            resetDetailFormForNewItem(elements.detailItemSearch?.value);
+            if (!preview) resetDetailFormForNewItem(elements.detailItemSearch?.value);
             const source = containerName === "ender_chest" ? enderChestInventory() : inventory();
             const name = logic.normalizedItemName(elements.detailItemSearch?.value);
-            const previousItem = source[slotId];
-            const entityState = selectedEntityVariantState(previousItem, name);
+            const previousItem = preview ? JSON.parse(detailFormBaseline.item) : source[slotId];
+            const reset = preview && window.MCBEEnchantmentEditorLogic.manualItemResetPlan({
+                previousName: previousItem?.name || "", nextName: name,
+                lastResetName: lastDetailItemResetName, isValidItemId: itemCatalog.isAddableItemId,
+            }).shouldReset;
+            const entityState = reset ? { edit: null, metadata: null } : selectedEntityVariantState(previousItem, name);
             const result = logic.buildItemForm({
                 catalog: itemCatalog, enchantmentsDb: enchDb(),
                 slotId,
                 containerName,
                 previousItem,
                 rawName: name,
-                rawCount: elements.detailCount?.value,
-                rawDamage: elements.detailDamage?.value,
-                rawCustomName: elements.detailCustomName?.value,
-                rawLore: elements.detailLore?.value,
-                enchantments: currentEditingEnchantments,
+                rawCount: reset ? 1 : elements.detailCount?.value,
+                rawDamage: reset ? 0 : elements.detailDamage?.value,
+                rawCustomName: reset ? "" : elements.detailCustomName?.value,
+                rawLore: reset ? "" : elements.detailLore?.value,
+                enchantments: reset ? [] : currentEditingEnchantments,
                 currentPlayerKey: getCurrentPlayerKey?.(),
                 worldPath: getWorldPath?.(),
                 maxDisplayName,
@@ -987,7 +1035,7 @@
                 entityVariantEdit: entityState.edit,
                 entityVariantMetadata: entityState.metadata,
             });
-            if (result.ok && result.item) result.item = itemCatalog.applyItemVariant?.(result.item, selectedItemVariant) || result.item;
+            if (result.ok && result.item) result.item = itemCatalog.applyItemVariant?.(result.item, reset ? null : selectedItemVariant) || result.item;
             return result;
         }
 
@@ -1459,6 +1507,7 @@
             editingBlocked: helpers.editingBlocked,
             getEditingBlockedReason: helpers.getEditingBlockedReason,
             syncEditControls: helpers.syncEditControls,
+            onFormStateChanged: helpers.onFormStateChanged,
             logStatus: helpers.logStatus,
             recordAction: helpers.recordAction,
             showToast: helpers.showToast,

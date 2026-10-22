@@ -640,6 +640,7 @@
   "Im Docker-/LAN-Modus kann der Browser keinen Host-Explorer öffnen.": "In Docker/LAN mode, the browser cannot open a host file explorer.",
   "Ausgewählten Weltordner im Dateimanager öffnen": "Open the selected world folder in the file manager",
   "1 Änderung": "1 change",
+  "Eingaben offen": "Unapplied input",
   "{count} Änderungen": "{count} changes",
   "Änderungen": "Changes",
   "{player} · {changes} · Backup automatisch vor dem Schreiben.": "{player} · {changes} · backup runs automatically before writing.",

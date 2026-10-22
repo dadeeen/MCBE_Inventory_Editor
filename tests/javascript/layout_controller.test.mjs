@@ -53,7 +53,7 @@ function editorHarness(initial = {}, { blockStorage = false, missingElements = f
         getElementById(id) { return missingElements ? null : elements[id] ?? null; },
     };
     const window = {
-        t: value => `[translated] ${value}`,
+        t: (value, params) => `[translated] ${value.replace(/\{(\w+)\}/g, (match, key) => params?.[key] ?? match)}`,
         innerWidth: 430,
         requestAnimationFrame: handler => handler(),
         matchMedia: () => ({ matches: false }),
@@ -173,6 +173,27 @@ test("returning to Classic from player data restores the original player view", 
     assert.equal(h.root.dataset.layout, "classic");
     assert.equal(h.body.dataset.workflowView, "player");
     assert.equal(redirected, 1);
+});
+
+test("existing save status distinguishes drafts from accepted change counts", () => {
+    const h = editorHarness({ "mcbe-inventory-editor:layout": "focus" });
+    const observer = h.observers.find(o => o.target === h.body);
+    assert(observer.options.attributeFilter.includes("data-slot-draft-pending"));
+    assert(observer.options.attributeFilter.includes("data-change-count"));
+    assert.equal(h.saveStatus.textContent, "[translated] Keine Änderungen");
+    h.body.dataset.slotDraftPending = "true";
+    observer.trigger();
+    assert.equal(h.saveStatus.textContent, "[translated] Eingaben offen");
+    h.body.classList.toggle("app-dirty", true);
+    h.body.dataset.changeCount = "2";
+    observer.trigger();
+    assert.equal(h.saveStatus.textContent, "[translated] Eingaben offen", "new input keeps the accepted changes pending");
+    h.body.dataset.slotDraftPending = "false";
+    observer.trigger();
+    assert.equal(h.saveStatus.textContent, "[translated] 2 Änderungen");
+    h.body.dataset.changeCount = "1";
+    observer.trigger();
+    assert.equal(h.saveStatus.textContent, "[translated] 1 Änderung");
 });
 
 test("Classic player editing maps to the alternative editor without resetting forms", () => {

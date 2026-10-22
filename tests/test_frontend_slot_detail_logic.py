@@ -77,6 +77,24 @@ def test_frontend_slot_detail_logic_builds_and_preserves_same_item_nbt() -> None
     )
 
 
+def test_frontend_slot_detail_logic_keeps_absent_optional_fields_on_noop() -> None:
+    run_node(r"""
+        const assert = require("assert"), fs = require("fs"), vm = require("vm");
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/slot_detail_logic.js", "utf8"), context);
+        const previousItem = { slot: 0, name: "minecraft:banner", count: 1, damage: 4,
+            special_item: { kind: "banner", editable: true, data: { patterns: [] } } };
+        const result = context.window.MCBESlotDetailLogic.buildDetailItemFromForm({
+            slotId: 0, previousItem, rawName: previousItem.name, rawCount: "1.0", rawDamage: "4",
+            rawCustomName: "", rawLore: "", enchantments: [], maxStack: 16, maxDamage: 15,
+            isValidItemId: () => true,
+        });
+        assert.equal(result.ok, true);
+        assert.equal(JSON.stringify(result.item), JSON.stringify(previousItem));
+        assert.notEqual(result.item, previousItem);
+    """)
+
+
 def test_frontend_slot_detail_logic_scopes_entity_metadata_and_preserves_only_existing_overstacks() -> None:
     run_node(
         textwrap.dedent(

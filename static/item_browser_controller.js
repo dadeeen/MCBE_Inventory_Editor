@@ -17,7 +17,6 @@
         equipmentRules = window.MCBEEquipmentRules,
         onDetailItemChanged = () => {},
         onDetailItemVariantSelected = () => {},
-        onApplyDetailItem = () => {},
         documentObj = document,
     } = {}) {
         const {
@@ -125,9 +124,6 @@
                 selectingAutocompleteItem = false;
             }
             inputEl.focus?.({ preventScroll: true });
-            if (options.applyOnSelect && isDetailInput(inputEl)) {
-                onApplyDetailItem();
-            }
         }
 
         function setupAutocomplete(inputEl, listEl, options = {}) {
@@ -343,9 +339,6 @@
                     onDetailItemVariantSelected({ ...metadata, id, damage: Number(metadata.damage) });
                 }
                 dispatchInput(browserActiveInput);
-                if (isDetailInput(browserActiveInput)) {
-                    onApplyDetailItem();
-                }
             }
         }
 
@@ -476,7 +469,7 @@
 
         function wire() {
             setupAutocomplete(detailInput, detailAutocomplete, {
-                applyOnSelect: true, onCommit: onDetailItemChanged, browserButton: detailBrowserButton,
+                onCommit: onDetailItemChanged, browserButton: detailBrowserButton,
             });
             setupAutocomplete(bulkInput, bulkAutocomplete);
             documentObj.addEventListener("pointerdown", hideAutocompleteLists, true);
@@ -539,7 +532,6 @@
         getEquipmentTargets = () => [],
         onDetailItemChanged = () => {},
         onDetailItemVariantSelected = () => {},
-        onApplyDetailItem = () => {},
     } = {}) {
         return createItemBrowserController({
             documentObj: doc,
@@ -556,7 +548,6 @@
             getEquipmentTargets,
             onDetailItemChanged,
             onDetailItemVariantSelected,
-            onApplyDetailItem,
         });
     }
 

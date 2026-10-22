@@ -3,7 +3,7 @@ import textwrap
 from tests.node_runner import run_node
 
 
-def test_frontend_item_browser_controller_autocomplete_selects_and_applies_detail_item() -> None:
+def test_frontend_item_browser_controller_autocomplete_selects_detail_draft_without_applying() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -69,7 +69,7 @@ def test_frontend_item_browser_controller_autocomplete_selects_and_applies_detai
 
             assert.strictEqual(detailInput.value, "minecraft:apple");
             assert.strictEqual(detailList.style.display, "none");
-            assert.deepStrictEqual(calls, [{ changed: "minecraft:apple" }, { applied: true }]);
+            assert.deepStrictEqual(calls, [{ changed: "minecraft:apple" }]);
             assert.strictEqual(detailInput.dispatched[0].type, "input");
             assert.strictEqual(detailInput.dispatched[0].options.bubbles, true);
             """
@@ -129,7 +129,7 @@ def test_frontend_item_browser_controller_enter_resolves_names_without_guessing(
                 target.listeners.keydown({ key: "Enter", preventDefault() { prevented = true; } });
                 assert.strictEqual(target.value, expected || query, query);
                 assert.strictEqual(prevented, Boolean(expected), query);
-                assert.strictEqual(applied.length - before, expected && target === detailInput ? 1 : 0);
+                assert.strictEqual(applied.length - before, 0);
             }
             for (const query of ["Stein", "  StEiN  ", "stone", "minecraft:stone"]) {
                 enter(query, "minecraft:stone");
@@ -226,7 +226,7 @@ def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selecti
             assert.strictEqual(detailInput.value, "minecraft:stone");
             assert.strictEqual(detailList.style.display, "none");
             assert.strictEqual(detailList.rows.length, 0);
-            assert.deepStrictEqual(applied, ["minecraft:stone"]);
+            assert.deepStrictEqual(applied, []);
 
             type("stein");
             assert.strictEqual(detailList.style.display, "block");
@@ -234,7 +234,7 @@ def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selecti
             assert.strictEqual(detailInput.value, "minecraft:stone_stairs");
             assert.strictEqual(detailList.style.display, "none");
             assert.strictEqual(detailList.rows.length, 0);
-            assert.deepStrictEqual(applied, ["minecraft:stone", "minecraft:stone_stairs"]);
+            assert.deepStrictEqual(applied, []);
 
             // Later input still opens the list again.
             type("stein");
@@ -245,7 +245,7 @@ def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selecti
     )
 
 
-def test_frontend_item_browser_controller_applies_selected_bed_damage_before_save() -> None:
+def test_frontend_item_browser_controller_selects_bed_damage_without_applying_the_draft() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -279,12 +279,11 @@ def test_frontend_item_browser_controller_applies_selected_bed_damage_before_sav
                 detailInput,
                 detailList,
                 { id: "minecraft:bed", damage: 15 },
-                { applyOnSelect: true },
             );
 
-            // The controller commits the selected ID even when it equals the
+            // The controller selects the ID even when it equals the
             // query; only the item form knows the identity of its draft.
-            assert.deepStrictEqual(calls, [["changed", "minecraft:bed"], ["variant", 15], ["apply"]]);
+            assert.deepStrictEqual(calls, [["changed", "minecraft:bed"], ["variant", 15]]);
             assert.strictEqual(detailInput.value, "minecraft:bed");
             assert.strictEqual(detailInput.dispatched.length, 1);
             """
@@ -292,7 +291,7 @@ def test_frontend_item_browser_controller_applies_selected_bed_damage_before_sav
     )
 
 
-def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bulk_item() -> None:
+def test_frontend_item_browser_controller_browser_selects_main_and_bulk_drafts_without_applying() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -327,6 +326,10 @@ def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bu
             overlay.close = function () { this.open = false; };
             const bulkInput = element();
             const bulkButton = element();
+            const detailInput = element();
+            const detailButton = element();
+            const changed = [];
+            const applied = [];
             const searchInput = element();
             const grid = {
                 innerHTML: "old",
@@ -350,7 +353,8 @@ def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bu
                 defaultView: { scrollY: 320, scrollTo(x, y) { scrollCalls.push([x, y]); } },
             };
             const controller = context.window.MCBEItemBrowserController.createItemBrowserController({
-                elements: { overlay, grid, searchInput, categorySelect, sortSelect, count, bulkInput, bulkBrowserButton: bulkButton },
+                elements: { overlay, grid, searchInput, categorySelect, sortSelect, count,
+                    bulkInput, bulkBrowserButton: bulkButton, detailInput, detailBrowserButton: detailButton },
                 itemBrowserLogic: {
                     autocompleteMatches: () => [],
                     browserItems: (_itemsDb, options) => {
@@ -368,6 +372,8 @@ def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bu
                 getItemEmoji: () => "🍎",
                 getItemIconMeta: () => ({ url: "/icons/apple.png" }),
                 getItemAvailability: id => id === "minecraft:apple" ? { key: "creative", label: "Kreativ" } : null,
+                onDetailItemChanged: id => changed.push(id),
+                onApplyDetailItem: () => applied.push(detailInput.value),
                 documentObj: fakeDocument,
             });
 
@@ -396,6 +402,17 @@ def test_frontend_item_browser_controller_browser_renders_filters_and_selects_bu
             assert.strictEqual(fakeDocument.body.style.top, "");
             assert.deepStrictEqual(scrollCalls, [[0, 320]]);
             assert.strictEqual(bulkInput.dispatched[0].type, "input");
+            assert.deepStrictEqual(changed, []);
+            assert.deepStrictEqual(applied, []);
+
+            detailButton.listeners.click();
+            cards.at(-1).click();
+            assert.strictEqual(detailInput.value, "minecraft:apple");
+            assert.strictEqual(overlay.style.display, "none");
+            assert.strictEqual(detailButton.focused, true);
+            assert.strictEqual(detailInput.dispatched[0].type, "input");
+            assert.deepStrictEqual(changed, ["minecraft:apple"]);
+            assert.deepStrictEqual(applied, []);
             """
         )
     )

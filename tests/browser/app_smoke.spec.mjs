@@ -184,6 +184,8 @@ for (const locale of ["de", "en"]) {
     await page.locator("#detailItemAutocomplete .autocomplete-item").first().click();
     await expect(page.locator("#detailCustomName")).toHaveValue("Draft name");
     await expect(page.locator("#detailDataVariant")).toBeHidden();
+    expect(await page.evaluate(() => inventory[0].display_name)).toBeUndefined();
+    await page.locator("#btnApplySingle").click();
     await page.locator("#btnSpecialItem").click();
     const dialog = page.locator("#specialItemDialog");
     await expect(dialog.getByLabel(locale === "de" ? "Bannerart" : "Banner type")).toHaveValue("1");
@@ -2030,8 +2032,8 @@ test("main item editor rejects oversized text without changing the item or losin
     ["detailLore", "x".repeat(511) + "🦜", "Beschreibung"],
   ]) {
     await page.locator(`#${id}`).fill(value);
-    await page.locator("#btnApplySingle").click();
-    await expect(page.locator(".toast-warning").last()).toContainText(message);
+    await expect(page.locator("#btnApplySingle")).toBeDisabled();
+    await expect(page.locator("#detailFormError")).toContainText(message);
     await expect(page.locator(`#${id}`)).toHaveValue(value);
     expect(await page.evaluate(() => inventory[0])).toEqual(original);
     await expect(page.locator("#btnUndo")).toBeDisabled();
@@ -2359,7 +2361,7 @@ test("unverified stack limits preserve amounts and disable maximum actions", asy
   await expect(page.locator("#detailFormError")).toBeVisible();
   await expect(page.locator('[data-slot="0"] .item-count')).toHaveText("16");
   await page.locator("#detailCount").fill("16");
-  await expect(page.locator("#btnApplySingle")).toBeEnabled();
+  await expect(page.locator("#btnApplySingle")).toBeDisabled();
   await expect(page.locator("#detailFormError")).toBeHidden();
   await page.locator('[data-slot="1"]').click();
   await expect(page.locator("#btnQuickMaxStack")).toBeEnabled();
@@ -2368,7 +2370,7 @@ test("unverified stack limits preserve amounts and disable maximum actions", asy
   await expect(page.locator('[data-slot="1"] .item-count')).toHaveText("16");
   await page.locator('[data-slot="0"]').click();
   await expect(page.locator("#detailCount")).toHaveValue("16");
-  await page.locator("#btnApplySingle").click();
+  await expect(page.locator("#btnApplySingle")).toBeDisabled();
   await expect(page.locator('[data-slot="0"] .item-count')).toHaveText("16");
   await expect(page.locator("#slotQuickSubtitle")).toContainText("Stacklimit ungeprüft");
   await expect(page.locator("#btnQuickMaxStack")).toBeDisabled();
@@ -3815,6 +3817,9 @@ test("item browser shows restrained availability labels including potion variant
   await expect(page.locator("#detailPreviewAvailability")).toHaveText("Kreativ");
   await page.locator("#detailDataVariant").selectOption("0");
   await expect(page.locator("#detailPreviewAvailability")).toBeHidden();
+  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:apple");
+  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:potion");
 
   await page.locator("#btnBrowserDetail").click();
   await page.setViewportSize({ width: 429, height: 897 });
@@ -3931,7 +3936,7 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   await expect(autocomplete.locator(".autocomplete-item")).toHaveCount(5);
   await expect(autocomplete.locator(".autocomplete-item").first().locator(".item-id")).toHaveText("minecraft:stone");
 
-  // Enter applies the exact match and leaves the suggestion list closed.
+  // Enter selects the exact match and leaves the suggestion list closed.
   await page.locator("#detailItemSearch").press("Enter");
   await expect(page.locator("#detailItemSearch")).toHaveValue("minecraft:stone");
   await expect(autocomplete).toBeHidden();
@@ -3983,6 +3988,10 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   await expect(autocomplete.locator(".autocomplete-item").first().locator(".item-id")).toHaveText("minecraft:dark_oak_fence");
   await page.locator("#detailItemSearch").press("Enter");
   await expect(autocomplete).toBeHidden();
+
+  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:cobblestone");
+  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:dark_oak_fence");
 
   await page.locator("#detailItemSearch").fill("Zaun");
   await page.locator("#detailItemSearch").press("Escape");
@@ -6773,6 +6782,7 @@ test("item dialogs and menus suppress the browser save shortcut without changing
 
 
 test("ordinary unaccepted slot drafts warn before closing without changing save or undo state", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await openSpecialFixture(page, {
     0: { slot: 0, name: "minecraft:diamond_sword", count: 1, damage: 3,
       display_name: "Erste\nZweite", lore: ["Erste\r\nZweite"], enchantments: [{ id: 9, lvl: 2 }, { id: 17, lvl: 1 }] },
@@ -6786,6 +6796,9 @@ test("ordinary unaccepted slot drafts warn before closing without changing save 
     ench_db: { 9: { name_de: "Schärfe", name_en: "Sharpness", max_lvl: 5 }, 17: { name_de: "Haltbarkeit", name_en: "Unbreaking", max_lvl: 3 } },
     enchantment_compatibility: { item_slots: { "minecraft:diamond_sword": ["sword"] }, compatible_slots: { 9: ["sword"], 17: ["sword"] } },
   });
+  await selectLayout(page, "focus");
+  const apply = page.locator("#btnApplySingle");
+  const status = page.locator("#layoutSaveStatus");
   const pending = async (expected, committed = false) => {
     expect(await page.evaluate(() => {
       const event = new Event("beforeunload", { cancelable: true });
@@ -6795,12 +6808,19 @@ test("ordinary unaccepted slot drafts warn before closing without changing save 
   };
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await pending(false);
+  await expect(status).toBeVisible();
+  await expect(status).toHaveText("Keine Änderungen");
+  await expect(apply).toBeDisabled();
   await expect(page.locator("#detailCount")).toHaveAttribute("readonly");
   for (const [id, value] of [["detailDamage", "8"], ["detailCustomName", "Entwurf"], ["detailLore", "Neue Beschreibung"]]) {
     const field = page.locator(`#${id}`);
     const original = await field.inputValue();
     await field.fill(value); await pending(true);
+    await expect(status).toHaveText("Eingaben offen");
+    await expect(apply).toBeEnabled();
     await field.fill(original); await pending(false);
+    await expect(status).toHaveText("Keine Änderungen");
+    await expect(apply).toBeDisabled();
   }
   await page.locator('[data-tab="tabEnchants"]').click();
   const sharpness = page.locator(".ench-row").filter({ hasText: "Schärfe" });
@@ -6811,7 +6831,8 @@ test("ordinary unaccepted slot drafts warn before closing without changing save 
   await sharpness.getByLabel("Stufe", { exact: true }).selectOption("2"); await pending(false);
   await page.locator('[data-tab="tabGeneral"]').click();
   await page.locator("#detailItemSearch").fill("minecraft:");
-  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await expect(apply).toBeDisabled();
+  await expect(status).toHaveText("Eingaben offen");
   await pending(true);
   await expect(page.locator("#btnUndo")).toBeDisabled();
   await page.locator('.inventory-slot[data-slot="0"]').click();
@@ -6833,12 +6854,86 @@ test("ordinary unaccepted slot drafts warn before closing without changing save 
 
   await page.locator('.inventory-slot[data-ender-slot="0"]').click(); await pending(false);
   await page.locator("#detailCustomName").fill("Ender-Entwurf"); await pending(true);
-  await page.locator("#btnApplySingle").click(); await pending(false, true);
+  await expect(status).toHaveText("Eingaben offen");
+  await apply.click(); await pending(false, true);
+  await expect(status).toHaveText("1 Änderung");
+  await expect(apply).toBeDisabled();
   expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
   await page.locator("#detailCount").fill("2.0");
-  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(true);
-  await page.locator("#btnApplySingle").click();
   expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+  await expect(apply).toBeDisabled();
+  await expect(status).toHaveText("1 Änderung");
+  await page.locator("#btnUndo").click();
+  await expect(page.locator("#detailCustomName")).toHaveValue("");
+  await expect(status).toHaveText("Keine Änderungen");
+  await expect(page.locator("#detailFormError")).toBeHidden();
+  await page.locator("#btnRedo").click();
+  await expect(page.locator("#detailCustomName")).toHaveValue("Ender-Entwurf");
+  await expect(status).toHaveText("1 Änderung");
+
+  // Partial inputs on a still-empty slot remain guarded until chosen or discarded.
+  await page.locator('.inventory-slot[data-slot="3"]').click();
+  await page.locator("#detailCustomName").fill("Name vor Itemwahl");
+  await page.locator("#detailLore").fill("Beschreibung vor Itemwahl");
+  await pending(true, true);
+  await expect(status).toHaveText("Eingaben offen");
+  await expect(apply).toBeDisabled();
+  await page.locator('.inventory-slot[data-slot="2"]').click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await page.locator("#confirmCancel").click();
+  await expect(page.locator("#detailCustomName")).toHaveValue("Name vor Itemwahl");
+  await expect(page.locator("#detailLore")).toHaveValue("Beschreibung vor Itemwahl");
+  await page.locator("#detailCustomName").fill("");
+  await page.locator("#detailLore").fill("");
+  await pending(false, true);
+  await expect(status).toHaveText("1 Änderung");
+
+  // A second, still unaccepted form must retain the first applied change.
+  await page.locator('.inventory-slot[data-slot="2"]').click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (!(await page.locator("#detailCustomName").isVisible())) {
+    await page.locator('.btn-toggle[data-panel="right"]').click();
+  }
+  await expect(apply).toBeVisible();
+  await expect(apply).toBeDisabled();
+  const applyAppearance = () => apply.evaluate(button => {
+    const style = getComputedStyle(button);
+    return { opacity: style.opacity, color: style.color, backgroundColor: style.backgroundColor };
+  });
+  const disabledAppearance = await applyAppearance();
+  await page.locator("#detailCustomName").fill("Zweiter Entwurf");
+  await pending(true, true);
+  await expect(status).toHaveText("Eingaben offen");
+  await expect(apply).toBeEnabled();
+  await expect.poll(applyAppearance).not.toEqual(disabledAppearance);
+  expect(await page.evaluate(() => enderChestInventory[0].display_name)).toBe("Ender-Entwurf");
+  expect(await page.evaluate(() => inventory[2].display_name)).toBeUndefined();
+  await expect(page.locator("#layoutSaveAction")).toBeDisabled();
+  await page.evaluate(() => setWorkflowView("save", { user: true }));
+  await expect(page.locator("body")).toHaveAttribute("data-workflow-view", "inventory");
+  await expect(page.locator(".toast").filter({ hasText: "Bitte übernimm zuerst" }).last()).toBeVisible();
+  await expect(page.locator("#detailCustomName")).toHaveValue("Zweiter Entwurf");
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("#saveReviewOverlay")).toBeHidden();
+  await expect(page.locator("#confirmOverlay")).toBeHidden();
+  expect(await page.evaluate(() => inventory[2].display_name)).toBeUndefined();
+  await page.locator("#detailCustomName").fill("");
+  await pending(false, true);
+  await expect(status).toHaveText("1 Änderung");
+  await expect(apply).toBeDisabled();
+  await page.locator("#detailCustomName").fill("Zweiter Entwurf");
+  await apply.click();
+  await pending(false, true);
+  await expect(apply).toBeDisabled();
+  await expect(status).toHaveText("2 Änderungen");
+  expect(await page.evaluate(() => inventory[2].display_name)).toBe("Zweiter Entwurf");
+  expect(await page.evaluate(() => enderChestInventory[0].display_name)).toBe("Ender-Entwurf");
+  await page.locator("#layoutSaveAction").click();
+  await expect(page.locator("body")).toHaveAttribute("data-workflow-view", "save");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator('.app-workflow-nav [data-workflow-view="inventory"]').click();
+  await page.locator('.inventory-slot[data-ender-slot="0"]').click();
   await page.locator("#btnQuickClearSlot").click();
   expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
   await page.locator("#btnUndo").click();
@@ -7075,6 +7170,8 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
         // A temporary search query does not replace the item represented by the form.
         await page.locator("#detailItemSearch").fill(ids[slot].slice(10));
         await activate(page.locator("#detailItemAutocomplete .autocomplete-item").filter({has: page.locator(".item-id", {hasText: ids[slot]})}));
+        expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toBeUndefined();
+        await activate(page.locator("#btnApplySingle"));
         expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual(edit);
         for (const [id, value] of controls) await expect(page.locator(`#${id}`)).toHaveValue(value);
         // The catalogue also preserves a subsequent unaccepted change.
@@ -7085,6 +7182,8 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
         await page.locator("#browserSearchInput").fill(ids[slot]);
         await activate(page.locator("#browserGrid .browser-item").filter({has: page.locator(".browser-item-id", {hasText: ids[slot]})}));
         await expect(page.locator(`#${control}`)).toHaveValue(nextValue);
+        expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual(edit);
+        await activate(page.locator("#btnApplySingle"));
         expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual({...edit, ...(slot === 0 ? {variant: 2} : {mark_variant: 4})});
       }
       expect(errors).toEqual([]);
@@ -7148,6 +7247,9 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
         if (contained) {
           await activate(dialog.locator('[data-special="accept"]'));
           await activate(dialog.locator('[data-special="accept"]'));
+        } else {
+          expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
+          await activate(page.locator("#btnApplySingle"));
         }
         expect(await page.evaluate(contained => contained ? inventory[0].special_edit.data.items[0] : inventory[0], contained))
           .toMatchObject({...original, display_name: "Browser draft"});
@@ -7174,12 +7276,15 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
       await page.locator("#detailItemSearch").fill("diam");
       await activate(page.locator("#detailItemAutocomplete .autocomplete-item").filter({has: page.locator(".item-id", {hasText: /^minecraft:diamond$/})}));
       expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
+      await expect(page.locator("#btnApplySingle")).toBeDisabled();
       await expect(page.locator("#btnUndo")).toBeDisabled();
       await expect(page.locator("#detailCustomName")).toHaveValue("Keep name");
       await page.locator("#detailItemSearch").fill("minecraft:diamond_sword");
       await page.locator("#detailItemSearch").press("Enter");
       await expect(page.locator("#detailCount")).toHaveValue("1");
       await expect(page.locator("#detailCustomName")).toHaveValue("");
+      expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
+      await activate(page.locator("#btnApplySingle"));
       await selectSlot(1);
       await activate(page.locator("#btnSpecialItem"));
       const dialog = page.locator("#specialItemDialog");
@@ -7353,13 +7458,27 @@ for (const pending of [false, true]) {
         const currentName = await page.evaluate(id => inventory[id]?.name || '', selected);
         await expect(page.locator('#detailItemSearch')).toHaveValue(currentName);
         expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
-        await page.locator('#btnApplySingle').click();
+        await expect(page.locator('#btnApplySingle')).toBeDisabled();
         expect(await page.evaluate(() => inventory)).toEqual(JSON.parse(after));
       }
       expect(errors).toEqual([]);
     });
   }
 }
+
+test("slot form synchronization refreshes a semantically unchanged catalog variant", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:banner", count: 1, damage: 4,
+    special_item: { kind: "banner", editable: true, data: { patterns: [] } } } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.evaluate(() => slotDetailController.selectDetailItemVariant({ damage: 4, banner_type: 0 }));
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await page.evaluate(() => { inventory[0].count = 2; updateGridVisuals(); });
+  await expect(page.locator("#detailCount")).toHaveValue("2");
+  await expect(page.locator("#detailFormError")).toBeHidden();
+  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
+});
 
 test('slot form synchronization preserves unrelated drafts and rejects a stale source', async ({ page }) => {
   await openSlotSyncFixture(page);
@@ -7374,11 +7493,11 @@ test('slot form synchronization preserves unrelated drafts and rejects a stale s
   await expect(page.locator('#detailLore')).toHaveValue('Two\nlines');
   // A missed mutation notification must still never let an old form overwrite a newer item.
   await page.evaluate(() => { inventory[9] = { slot: 9, name: 'minecraft:diamond', count: 4, damage: 0 }; updateGridVisuals(); });
-  await page.locator('#btnApplySingle').click();
+  await expect(page.locator('#btnApplySingle')).toBeDisabled();
   expect(await page.evaluate(() => inventory[9])).toEqual({ slot: 9, name: 'minecraft:diamond', count: 4, damage: 0 });
   await expect(page.locator('#detailCustomName')).toHaveValue('Keep this draft');
   await expect(page.locator('#detailLore')).toHaveValue('Two\nlines');
-  await expect(page.locator('.toast').filter({ hasText: 'Der Inhalt dieses Slots wurde inzwischen geändert' }).last()).toBeVisible();
+  await expect(page.locator('#detailFormError')).toContainText('Der Inhalt dieses Slots wurde inzwischen geändert');
 });
 
 test('slot form synchronization protects drafts during undo redo and context selection', async ({ page }) => {

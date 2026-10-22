@@ -59,6 +59,7 @@ let itemComponents = {}; // From Mojang behavior items: enchantable/repairable/w
 let stackLimits = {};    // Explicit per-item limits; missing values use the safe bound 1.
 let maxDamage = {};      // From backend: item_name -> max_damage (or __default__ = 32767)
 let isDirty = false;
+let slotDetailController = null;
 let players = [];
 let currentPlayerKey = "";
 let currentPlayer = null;
@@ -266,10 +267,12 @@ const workflowShell = window.MCBEWorkflowState.createConfiguredInventoryEditorWo
         getCurrentPlayer: () => currentPlayer,
         getCurrentPlayerKey: () => currentPlayerKey,
         getIsDirty: () => isDirty,
+        getHasPendingSlotDraft: () => Boolean(slotDetailController?.hasPendingChanges()),
         getWorldPath: () => worldPath,
     },
     helpers: { showToast },
     actions: {
+        guardSaveView: () => guardPendingEditorChanges(),
         onPlayerView: () => {
             switchDashTab("dashStats");
             renderEffectsList();
@@ -287,7 +290,17 @@ const workflowShell = window.MCBEWorkflowState.createConfiguredInventoryEditorWo
 });
 const responsivePanelController = workflowShell.responsivePanelController;
 function setWorkflowView(view, options = {}) { return workflowShell.setWorkflowView(view, options); }
-function updateAppMode() { const result = workflowShell.updateAppMode(); window.MCBEFocusWorkspace?.sync(); return result; }
+function updateAppMode() {
+    const result = workflowShell.updateAppMode();
+    document.body.dataset.changeCount = String(isDirty ? buildChangeSummary({ limit: 0, includeSections: true }).total : 0);
+    syncSlotDraftStatus();
+    window.MCBEFocusWorkspace?.sync();
+    return result;
+}
+function syncSlotDraftStatus(draft = null) {
+    document.body.dataset.slotDraftPending = String(draft?.pending ?? Boolean(slotDetailController?.hasPendingChanges()));
+    workflowShell.refreshNavigation();
+}
 
 const statsFormController = window.MCBEEffectsLogic.createConfiguredStatsFormController({
     doc: document,
@@ -333,8 +346,8 @@ function getInventoryGridController() {
                 getEnderChestInventory: () => enderChestInventory,
                 getSelectedSlots: () => selectedSlots,
                 getSelectedEnderSlot: () => selectedEnderSlot,
-                setSelectedSlots: value => { selectedSlots = value; },
-                setSelectedEnderSlot: value => { selectedEnderSlot = value; },
+                setSelectedSlots: value => { selectedSlots = value; queueMicrotask(syncSlotDraftStatus); },
+                setSelectedEnderSlot: value => { selectedEnderSlot = value; queueMicrotask(syncSlotDraftStatus); },
                 getGridFilter: () => gridFilter,
                 setGridFilter: value => { gridFilter = value; },
                 getWorldPath: () => worldPath,
@@ -1358,7 +1371,7 @@ let gridFilter = "";
 getInventoryGridController().wireControls();
 
 // Single Slot Editor logic
-const slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetailController({
+slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetailController({
     doc: document,
     itemCatalog,
     constants: {
@@ -1395,6 +1408,7 @@ const slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetai
         editingBlocked: () => writeGateController.editingBlocked(),
         getEditingBlockedReason: () => writeGateController.editingBlockedReason(),
         syncEditControls: updateWriteControls,
+        onFormStateChanged: syncSlotDraftStatus,
         logStatus,
         recordAction,
         showToast,
@@ -1719,7 +1733,6 @@ const itemBrowserController = window.MCBEItemBrowserController.createInventoryIt
             .map(slotId => ({ slotId, container: "inventory" })),
     onDetailItemChanged: resetDetailFormForNewItem,
     onDetailItemVariantSelected: selectDetailItemVariant,
-    onApplyDetailItem: applyCurrentSingleSlot,
 });
 
 itemBrowserController.wire();

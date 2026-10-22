@@ -1123,7 +1123,6 @@
     white-space: nowrap;
 }
 :root[data-layout="focus"] .focus-inline-status .status-stack-button:is(.warning, .error)::after { color: currentColor; }
-:root[data-layout="focus"] body:not(.app-dirty) .focus-save-mount .layout-save-status { display: none; }
 @media (max-width: 600px) {
     :root[data-layout="focus"] .focus-save-mount .layout-save-status { display: none; }
 }

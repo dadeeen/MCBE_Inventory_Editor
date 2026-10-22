@@ -43,6 +43,7 @@
         if (view === "tools") return t("Diagnose, Icons, Backups und technische Details öffnen.");
         if ((view === "inventory" || view === "player-edit" || view === "save") && !hasLoadedEditablePlayer(context)) return t("Lade zuerst einen bearbeitbaren Spieler.");
         if (view === "mounts" && !hasLoadedMountReferencePlayer(context)) return t("Lade zuerst einen Spieler.");
+        if (view === "save" && context.hasPendingSlotDraft) return t("Eingaben offen");
         if (view === "save" && !context.isDirty) return t("Keine ungespeicherten Änderungen.");
         return viewTitle(view);
     }
@@ -64,7 +65,7 @@
         return {
             active,
             ariaCurrent: active ? "page" : "false",
-            disabled: !viewAllowed(view, context),
+            disabled: !viewAllowed(view, context) || view === "save" && Boolean(context.hasPendingSlotDraft),
             title: disabledReason(view, context),
         };
     }
@@ -152,6 +153,7 @@
         renderSaveWorkflowPanel = () => {},
         renderToolsDashboard = () => {},
         renderMountsPanel = () => {},
+        guardSaveView = () => false,
     } = {}) {
         const buttons = Array.from(navButtons || []);
 
@@ -168,8 +170,14 @@
             const toolsDetails = doc.getElementById("toolsSettingsDetails");
             if (toolsDetails && activeView === "tools") toolsDetails.open = true;
             responsivePanels?.activateForWorkflow?.(activeView);
+            refreshNavigation();
+        }
+
+        function refreshNavigation() {
+            const activeView = getActiveView();
+            const context = currentContext();
             buttons.forEach(btn => {
-                const model = navButtonModel(btn.dataset.workflowView, activeView, currentContext());
+                const model = navButtonModel(btn.dataset.workflowView, activeView, context);
                 btn.classList.toggle("active", model.active);
                 btn.disabled = model.disabled;
                 btn.title = model.title;
@@ -189,6 +197,7 @@
 
         function setWorkflowView(view, { scroll = true, user = false, preserveEditor = false } = {}) {
             const requested = String(view || "world");
+            if (requested === "save" && guardSaveView()) return;
             if (user && !viewAllowed(requested, currentContext())) showToast(unavailableMessage(requested), "warning", 2600);
             const activeView = resolvedView(requested, currentContext());
             setActiveView(activeView);
@@ -214,7 +223,7 @@
             });
         }
 
-        return { applyShellState, setWorkflowView, updateAppMode, wireNav };
+        return { applyShellState, refreshNavigation, setWorkflowView, updateAppMode, wireNav };
     }
 
 
@@ -234,6 +243,7 @@
         onSaveView = () => {},
         onToolsView = () => {},
         onMountsView = () => {},
+        guardSaveView = () => false,
     } = {}) {
         const responsivePanelController = createResponsivePanelController({
             win,
@@ -261,6 +271,7 @@
             renderSaveWorkflowPanel: onSaveView,
             renderToolsDashboard: onToolsView,
             renderMountsPanel: onMountsView,
+            guardSaveView,
         });
         workflowShellController.wireNav();
         return {
@@ -268,6 +279,7 @@
             workflowShellController,
             setWorkflowView: (view, options = {}) => workflowShellController.setWorkflowView(view, options),
             updateAppMode: () => workflowShellController.updateAppMode(),
+            refreshNavigation: () => workflowShellController.refreshNavigation(),
         };
     }
 
@@ -293,6 +305,7 @@
                 currentPlayerKey: state.getCurrentPlayerKey?.() || "",
                 inventoryVisible: Boolean(inventoryContainer && inventoryContainer.style.display !== "none"),
                 isDirty: Boolean(state.getIsDirty?.()),
+                hasPendingSlotDraft: Boolean(state.getHasPendingSlotDraft?.()),
                 worldPath: state.getWorldPath?.() || "",
             }),
             targets: {
@@ -308,6 +321,7 @@
             onSaveView: actions.onSaveView,
             onToolsView: actions.onToolsView,
             onMountsView: actions.onMountsView,
+            guardSaveView: actions.guardSaveView,
         });
     }
 

@@ -210,6 +210,40 @@ def test_main_workflow_navigation_does_not_change_scroll_position() -> None:
     )
 
 
+def test_review_navigation_keeps_unaccepted_editor_input_in_place() -> None:
+    run_node(r"""
+        const assert = require("assert"), fs = require("fs"), vm = require("vm");
+        const context = { window: {}, setTimeout: callback => callback() };
+        vm.runInNewContext(fs.readFileSync("static/workflow_state.js", "utf8"), context);
+        let activeView = "inventory", pending = true, rendered = 0, click;
+        const button = {
+            dataset: { workflowView: "save" }, classList: { toggle() {} },
+            setAttribute() {}, addEventListener(name, handler) { click = handler; },
+        };
+        const controller = context.window.MCBEWorkflowState.createWorkflowShellController({
+            doc: { body: {}, getElementById: () => null },
+            body: { dataset: {}, classList: { toggle() {} } }, navButtons: [button],
+            getActiveView: () => activeView, setActiveView: value => { activeView = value; },
+            getContext: () => ({ currentPlayer: {}, currentPlayerKey: "fixture", worldPath: "fixture",
+                inventoryVisible: true, isDirty: true, hasPendingSlotDraft: pending }),
+            guardSaveView: () => pending, renderSaveWorkflowPanel: () => { rendered += 1; },
+        });
+        controller.wireNav();
+        controller.refreshNavigation();
+        assert.equal(button.disabled, true);
+        click();
+        controller.setWorkflowView("save", { scroll: false, user: true });
+        assert.equal(activeView, "inventory");
+        assert.equal(rendered, 0);
+        pending = false;
+        controller.refreshNavigation();
+        assert.equal(button.disabled, false);
+        click();
+        assert.equal(activeView, "save");
+        assert.equal(rendered, 1);
+    """)
+
+
 def test_dirty_state_resolves_its_status_key_when_clean() -> None:
     run_node(
         textwrap.dedent(

@@ -53,12 +53,14 @@
     }
 
     function editingContextModel({ worldLoaded = false, playerLoaded = false, isDirty = false,
-        worldLabel = "", playerLabel = "" } = {}) {
+        pendingSlotDraft = false, changeCount = 0, worldLabel = "", playerLabel = "" } = {}) {
         // The labels are presentation-only. Never use them for API/world/player identity.
         return {
             world: worldLoaded && worldLabel.trim() ? worldLabel.trim() : "Welt auswählen",
             player: playerLoaded && playerLabel.trim() ? playerLabel.trim() : "Spieler auswählen",
-            saveStatus: isDirty ? "Ungespeicherte Änderungen" : "Keine Änderungen",
+            saveStatus: pendingSlotDraft ? "Eingaben offen" : isDirty
+                ? changeCount === 1 ? "1 Änderung" : changeCount > 1 ? "{count} Änderungen" : "Ungespeicherte Änderungen"
+                : "Keine Änderungen",
         };
     }
 
@@ -106,6 +108,8 @@
                 worldLoaded: Boolean(classes?.contains("app-world-loaded")),
                 playerLoaded: Boolean(classes?.contains("app-player-loaded")),
                 isDirty: Boolean(classes?.contains("app-dirty")),
+                pendingSlotDraft: resolve(body)?.dataset?.slotDraftPending === "true",
+                changeCount: Number(resolve(body)?.dataset?.changeCount || 0),
                 worldLabel: String(resolve(worldSource)?.textContent || ""),
                 playerLabel: String(resolve(playerSource)?.textContent || ""),
             });
@@ -115,7 +119,7 @@
                 ? state.world : translate("Welt auswählen"));
             setText(resolve(contextPlayer), playerReady && String(resolve(playerSource)?.textContent || "").trim()
                 ? state.player : translate("Spieler auswählen"));
-            setText(resolve(saveStatus), translate(state.saveStatus));
+            setText(resolve(saveStatus), translate(state.saveStatus, { count: Number(resolve(body)?.dataset?.changeCount || 0) }));
         }
 
         function applyLayout(value) {
@@ -154,7 +158,7 @@
                     refreshWorkflow(resolve(body)?.dataset?.workflowView);
                     refreshContext();
                 });
-                observer.observe(resolve(body), { attributes: true, attributeFilter: ["data-workflow-view", "class"] });
+                observer.observe(resolve(body), { attributes: true, attributeFilter: ["data-workflow-view", "class", "data-slot-draft-pending", "data-change-count"] });
                 for (const source of [resolve(worldSource), resolve(playerSource)]) {
                     if (!source) continue;
                     const labelObserver = observerFactory(refreshContext);
@@ -216,7 +220,7 @@
                     });
                 });
             },
-            translate: value => window.t ? window.t(value) : value,
+            translate: (value, params) => window.t ? window.t(value, params) : value,
             observerFactory: callback => new MutationObserver(callback),
         });
     }
