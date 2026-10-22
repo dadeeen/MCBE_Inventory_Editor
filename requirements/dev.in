@@ -10,5 +10,5 @@ certifi>=2026.10.19
 # CVE-2026-97688 and CVE-2026-97689.
 urllib3>=2.8.0
 # pip-tools 7.6.1 is the first release compatible with pip 26.2.
-pip==26.2.1
+pip==26.2.2
 pip-tools>=7.6.1,<8

@@ -21,7 +21,7 @@ def test_ci_and_docker_bootstrap_pip_from_a_hash_locked_file():
         "pip install --no-cache-dir --no-index --only-binary=:all: --find-links=/wheelhouse/bootstrap --require-hashes -r requirements/bootstrap.lock"
     )
     assert docker_bootstrap in dockerfile
-    assert "pip==26.2.1" in bootstrap_source
+    assert "pip==26.2.2" in bootstrap_source
     assert bootstrap_source.count("--hash=sha256:") == 2
     assert bootstrap_wrapper == "-r bootstrap.txt\n"
     check_script = _base._read("scripts/check_lockfiles.py")

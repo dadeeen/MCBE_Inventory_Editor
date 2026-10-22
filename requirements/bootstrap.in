@@ -1,2 +1,2 @@
 # Reproducible installer for setup, CI and offline Docker wheel installation.
-pip==26.2.1
+pip==26.2.2
