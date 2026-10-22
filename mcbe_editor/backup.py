@@ -26,6 +26,7 @@ from .backup_types import BackupDescriptor, BackupListEntry, BackupPath, Restore
 from .config import load_config
 from .i18n import t
 from .path_safety import is_linklike
+from .path_safety import is_unsafe_windows_name as _is_unsafe_windows_name
 from .runtime_data import atomic_write_private_text
 from .service_errors import UserFacingError, UserFacingRuntimeError, log_error_detail, public_error_text
 from .world import get_world_name
@@ -1258,17 +1259,6 @@ def snapshot_backup_for_restore(world_path: str, backup_path: str, *, expected_t
 # On POSIX they are ordinary names that Linux/Docker worlds may contain, so
 # applying the rules there would block every backup of such a world.
 _WINDOWS_PATH_RULES = os.name == "nt"
-_WINDOWS_DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"})
-
-
-def _is_unsafe_windows_name(part: str) -> bool:
-    device = part.split(".", 1)[0].rstrip(" ").upper()
-    return (
-        part.endswith((".", " "))
-        or any(ord(char) < 32 or char in '<>:"|?*' for char in part)
-        or device in _WINDOWS_DEVICE_NAMES
-        or re.fullmatch(r"(?:COM|LPT)[1-9¹²³]", device) is not None
-    )
 
 
 def _safe_zip_member_name(name: str) -> str:

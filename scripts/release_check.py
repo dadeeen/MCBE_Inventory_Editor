@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import stat
 import sys
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -17,6 +18,7 @@ try:
         BLOCKED_RELEASE_SUFFIXES,
         is_blocked_release_dir_name,
         is_generated_world_work_dir,
+        is_rotated_log_name,
     )
     from scripts.runtime_layout import REQUIRED_RUNTIME_FILES, is_runtime_relative_path, iter_runtime_files
 except ModuleNotFoundError:  # Direct execution from the scripts directory.
@@ -26,14 +28,18 @@ except ModuleNotFoundError:  # Direct execution from the scripts directory.
         BLOCKED_RELEASE_SUFFIXES,
         is_blocked_release_dir_name,
         is_generated_world_work_dir,
+        is_rotated_log_name,
     )
     from runtime_layout import REQUIRED_RUNTIME_FILES, is_runtime_relative_path, iter_runtime_files  # type: ignore[no-redef]
 
 BAD_SUFFIXES = set(BLOCKED_RELEASE_SUFFIXES)
-BAD_FILE_NAMES = set(BLOCKED_RELEASE_FILE_NAMES)
+BAD_FILE_NAMES = {name.casefold() for name in BLOCKED_RELEASE_FILE_NAMES}
 BAD_FILE_PREFIXES = BLOCKED_RELEASE_FILE_PREFIXES
 RELEASE_MANIFEST_NAME = "RELEASE_MANIFEST.json"
 MANIFEST_FORMAT = "mcbe-inventory-editor-release-manifest"
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def _manifest_name(names: list[str]) -> str | None:
@@ -79,6 +85,40 @@ def _relative_archive_name(name: str, root_prefix: str) -> str:
     return "" if str(rel) == "." else str(rel)
 
 
+def _check_archive_members(infos: list[zipfile.ZipInfo], root_prefix: str) -> list[str]:
+    """Validate physical members before path normalization or name-based reads."""
+    from mcbe_editor.path_safety import is_unsafe_windows_name
+
+    failures = []
+    seen = set()
+    files = set()
+    for info in infos:
+        # ZipInfo.filename has already truncated NULs (and on Windows normalized
+        # backslashes); only orig_filename retains the physical member name.
+        name = info.orig_filename
+        raw = name.removesuffix("/")
+        parts = raw.split("/")
+        if not raw or any(part in {"", ".", ".."} or is_unsafe_windows_name(part) for part in parts) or "\\" in raw:
+            failures.append(f"unsafe or noncanonical archive path: {name}")
+        if root_prefix and (not parts or parts[0] != root_prefix):
+            failures.append(f"archive member outside release root: {name}")
+        key = raw.casefold()
+        if key in seen:
+            failures.append(f"duplicate or case-colliding archive member: {name}")
+        seen.add(key)
+        if not info.is_dir():
+            files.add(key)
+        file_type = stat.S_IFMT(info.external_attr >> 16)
+        expected_type = stat.S_IFDIR if info.is_dir() else stat.S_IFREG
+        # Some ZIP writers store only permissions, with no Unix file type.
+        if file_type not in {0, expected_type}:
+            failures.append(f"non-regular or inconsistent archive member: {name}")
+    for name in seen:
+        if any(str(parent) in files for parent in PurePosixPath(name).parents):
+            failures.append(f"archive file is also used as a directory: {name}")
+    return failures
+
+
 def _check_member_hygiene(name: str, rel: str) -> list[str]:
     failures: list[str] = []
     rel_posix = PurePosixPath(rel)
@@ -94,13 +134,14 @@ def _check_member_hygiene(name: str, rel: str) -> list[str]:
         failures.append(f"forbidden path part: {name}")
     if any(is_generated_world_work_dir(part) for part in rel_posix.parts):
         failures.append(f"forbidden generated world work directory: {name}")
-    if rel_posix.suffix.casefold() in BAD_SUFFIXES:
-        failures.append(f"forbidden bytecode file: {name}")
-    if rel_posix.name in BAD_FILE_NAMES or any(rel_posix.name == prefix or rel_posix.name.startswith(prefix + ".") for prefix in BAD_FILE_PREFIXES):
+    if rel_posix.suffix.casefold() in BAD_SUFFIXES or is_rotated_log_name(rel_posix.name):
+        failures.append(f"forbidden generated or log file: {name}")
+    basename = rel_posix.name.casefold()
+    if basename in BAD_FILE_NAMES or any(basename == prefix or basename.startswith(prefix + ".") for prefix in BAD_FILE_PREFIXES):
         failures.append(f"forbidden local/generated file: {name}")
     if rel_posix.name.endswith("~"):
         failures.append(f"forbidden editor backup file: {name}")
-    if rel_posix.name == ".env" or (rel_posix.name.startswith(".env.") and rel_posix.name != ".env.example"):
+    if basename == ".env" or (basename.startswith(".env.") and basename != ".env.example"):
         failures.append(f"forbidden environment file: {name}")
     if rel_posix.name.endswith((".mcbe-player.zip", ".mcbe-player-bundle.zip")):
         failures.append(f"forbidden player export: {name}")
@@ -123,6 +164,8 @@ def _validate_manifest(names: list[str], read_file, root_prefix: str, manifest_n
         manifest = json.loads(read_file(manifest_name).decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         return [f"RELEASE_MANIFEST.json invalid: {exc}"]
+    if not isinstance(manifest, dict):
+        return ["RELEASE_MANIFEST.json must contain an object"]
     if manifest.get("format") != MANIFEST_FORMAT:
         failures.append("RELEASE_MANIFEST.json has unknown format")
     entries = manifest.get("files")
@@ -139,13 +182,20 @@ def _validate_manifest(names: list[str], read_file, root_prefix: str, manifest_n
         if not isinstance(rel, str) or not rel:
             failures.append("RELEASE_MANIFEST.json contains entry without path")
             continue
+        relative = PurePosixPath(rel)
+        if relative.is_absolute() or relative.as_posix() != rel or any(part in {".", ".."} for part in relative.parts):
+            failures.append(f"noncanonical or unsafe manifest path: {rel}")
+            continue
+        if rel in by_path:
+            failures.append(f"duplicate manifest path: {rel}")
+            continue
         by_path[rel] = entry
         archive_name = str(PurePosixPath(root_prefix) / rel) if root_prefix else rel
         if archive_name not in name_set:
             failures.append(f"manifest file missing from archive: {rel}")
             continue
         data = read_file(archive_name)
-        if entry.get("size") != len(data):
+        if type(entry.get("size")) is not int or entry["size"] != len(data):
             failures.append(f"manifest size mismatch: {rel}")
         if entry.get("sha256") != _sha256(data):
             failures.append(f"manifest sha256 mismatch: {rel}")
@@ -158,7 +208,7 @@ def _validate_manifest(names: list[str], read_file, root_prefix: str, manifest_n
         rel = _relative_archive_name(name, root_prefix)
         if rel and rel not in by_path:
             failures.append(f"archive file missing from manifest: {rel}")
-    if entries and manifest.get("content_sha256") != _content_hash(entries):
+    if entries and all(isinstance(entry, dict) for entry in entries) and manifest.get("content_sha256") != _content_hash(entries):
         failures.append("RELEASE_MANIFEST.json content_sha256 mismatch")
     return failures
 
@@ -187,11 +237,17 @@ def _print_result(label: str, failures: list[str]) -> int:
 def check_archive(path: str) -> int:
     failures: list[str] = []
     with zipfile.ZipFile(path) as archive:
+        infos = archive.infolist()
         names = archive.namelist()
         file_names = [name for name in names if name and not name.endswith("/")]
         root_prefix = _common_root_prefix(file_names)
         if file_names and not root_prefix:
             failures.append("release archive must contain exactly one top-level root directory")
+        failures.extend(_check_archive_members(infos, root_prefix))
+        # A ZIP lookup by name resolves duplicate members to just one payload.
+        # Never use that lookup to attest the bytes of an ambiguous archive.
+        if failures:
+            return _print_result(path, failures)
         manifest_name = _manifest_name(file_names)
         for name in names:
             rel = _relative_archive_name(name, root_prefix)

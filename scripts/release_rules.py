@@ -20,6 +20,7 @@ BLOCKED_RELEASE_DIR_NAMES = frozenset(
         ".venv",
         ".vscode",
         "__pycache__",
+        "data",
         "diagnostics",
         "dist",
         "htmlcov",
@@ -57,7 +58,13 @@ BLOCKED_RELEASE_FILE_NAMES = frozenset(
 
 
 def is_generated_world_work_dir(part: str) -> bool:
+    part = part.casefold()
     return part.endswith("_backups") or part.endswith("_restoring") or "_restoring_" in part or "_rollback_" in part
+
+
+def is_rotated_log_name(name: str) -> bool:
+    normalized = name.casefold()
+    return ".log." in normalized or ".jsonl." in normalized
 
 
 def is_blocked_release_dir_name(part: str) -> bool:

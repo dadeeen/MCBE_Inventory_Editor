@@ -27,6 +27,7 @@ try:
         BLOCKED_RELEASE_SUFFIXES,
         is_blocked_release_dir_name,
         is_generated_world_work_dir,
+        is_rotated_log_name,
     )
     from scripts.runtime_layout import REQUIRED_RUNTIME_FILES, is_runtime_relative_path, iter_runtime_files
 except ModuleNotFoundError:  # Direct execution from the scripts directory.
@@ -36,6 +37,7 @@ except ModuleNotFoundError:  # Direct execution from the scripts directory.
         BLOCKED_RELEASE_SUFFIXES,
         is_blocked_release_dir_name,
         is_generated_world_work_dir,
+        is_rotated_log_name,
     )
     from runtime_layout import REQUIRED_RUNTIME_FILES, is_runtime_relative_path, iter_runtime_files  # type: ignore[no-redef]
 
@@ -47,7 +49,7 @@ RELEASE_MANIFEST_NAME = "RELEASE_MANIFEST.json"
 
 EXCLUDED_SUFFIXES = set(BLOCKED_RELEASE_SUFFIXES)
 EXCLUDED_FILE_PREFIXES = BLOCKED_RELEASE_FILE_PREFIXES
-EXCLUDED_FILE_NAMES = set(BLOCKED_RELEASE_FILE_NAMES) | {RELEASE_MANIFEST_NAME}
+EXCLUDED_FILE_NAMES = {name.casefold() for name in BLOCKED_RELEASE_FILE_NAMES} | {RELEASE_MANIFEST_NAME.casefold()}
 
 
 def should_include(path: Path, *, root: Path = ROOT) -> bool:
@@ -65,13 +67,14 @@ def should_include(path: Path, *, root: Path = ROOT) -> bool:
         return False
     if any(is_generated_world_work_dir(part) for part in rel.parts):
         return False
-    if path.suffix.casefold() in EXCLUDED_SUFFIXES:
+    if path.suffix.casefold() in EXCLUDED_SUFFIXES or is_rotated_log_name(path.name):
         return False
-    if path.name in EXCLUDED_FILE_NAMES or any(path.name == prefix or path.name.startswith(prefix + ".") for prefix in EXCLUDED_FILE_PREFIXES):
+    name = path.name.casefold()
+    if name in EXCLUDED_FILE_NAMES or any(name == prefix or name.startswith(prefix + ".") for prefix in EXCLUDED_FILE_PREFIXES):
         return False
     if path.name.endswith("~"):
         return False
-    if path.name == ".env" or (path.name.startswith(".env.") and path.name != ".env.example"):
+    if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
         return False
     if path.name.endswith((".mcbe-player.zip", ".mcbe-player-bundle.zip")):
         return False
