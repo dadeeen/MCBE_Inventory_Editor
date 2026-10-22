@@ -57,10 +57,12 @@ def make_cases(item_ids: list[str], observations: dict, limits: dict) -> list[di
 
 
 def expected_snapshot(case: dict, *, seed: bool = False) -> dict | None:
+    if not seed and case.get("mode") == "clear":
+        return None
     if seed and case["mode"] == "create":
         return None
     if seed and "seed_item" in case:
-        return expected_snapshot({**case, **case["seed_item"]})
+        return expected_snapshot({**case, **case["seed_item"], "mode": "preserve"})
     seeded = seed and not case.get("seeded_metadata")
     # Signing an engine-created book sets its display name to the title.
     seed_name = case["seed_book"]["title"] if "seed_book" in case else ""

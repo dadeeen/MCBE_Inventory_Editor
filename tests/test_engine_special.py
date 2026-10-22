@@ -31,13 +31,13 @@ def special_cases(special_inputs):
 
 def test_profile_covers_all_special_kinds_and_revises_only_selected_cases(special_cases):
     assert {case["special_edit"]["kind"] for case in special_cases} == {"bundle", "shulker", "book", "banner", "fireworks", "firework_star"}
-    assert len(special_cases) == 16
+    assert len(special_cases) == 18
     assert len({(case["carrier"], case["slot"]) for case in special_cases}) == len(special_cases)
     assert all(case["slot"] != 26 for case in special_cases)
     original = deepcopy(special_cases)
     revised = revision_cases(special_cases)
     assert special_cases == original
-    assert sum(case["mode"] == "decorate" for case in revised) == 12
+    assert sum(case["mode"] == "decorate" for case in revised) == 14
     assert sum(case["mode"] == "preserve" for case in revised) == 4
 
 
@@ -120,11 +120,11 @@ def test_signed_book_seed_expects_engine_title_and_reload_expects_edited_name(sp
 def test_special_requests_use_production_builder_and_independent_oracle(special_cases):
     records = synthetic_carriers(special_cases)
     records.update(build_item_writes(records, special_cases))
-    assert verify_saved_items(records, special_cases)["cases"] == 16
+    assert verify_saved_items(records, special_cases)["cases"] == 18
     before = deepcopy(records)
     revised = revision_cases(special_cases)
     records.update(build_item_writes(records, revised))
-    assert verify_saved_items(records, revised)["cases"] == 16
+    assert verify_saved_items(records, revised)["cases"] == 18
     assert records[b"unrelated"] == before[b"unrelated"]
     assert verify_special_rejections() == 15
     # Checking against the old manifest must not bless the revised contents.
@@ -154,6 +154,7 @@ def test_special_requests_use_production_builder_and_independent_oracle(special_
         ("banner_patterns", ("tag", "Patterns", 0, "Color"), nbt.ByteTag(0)),
         ("banner_patterns", ("tag", "Patterns", 0, "Pattern"), nbt.StringTag("ts")),
         ("banner_patterns", ("Damage",), nbt.ShortTag(0)),
+        ("banner_ominous", ("tag", "Type"), nbt.IntTag(0)),
         ("rocket_effects", ("tag", "Fireworks", "Flight"), nbt.ByteTag(1)),
         ("rocket_effects", ("tag", "Fireworks", "Explosions", 1, "FireworkFade"), nbt.ByteArrayTag([])),
         ("rocket_effects", ("tag", "Fireworks", "Explosions", 1, "FireworkTrail"), nbt.ByteTag(0)),
@@ -163,6 +164,9 @@ def test_special_requests_use_production_builder_and_independent_oracle(special_
 def test_disk_oracle_rejects_special_corruption_even_if_script_snapshot_passes(special_cases, profile, path, replacement):
     records = synthetic_carriers(special_cases)
     records.update(build_item_writes(records, special_cases))
+    # First prove this fixture passes. Otherwise an unrelated malformed item
+    # could satisfy every negative assertion and hide a broken observer.
+    assert verify_saved_items(records, special_cases)["cases"] == len(special_cases)
     case = next(case for case in special_cases if case["profile"] == profile)
     key, actor, field = carriers(records, {case["carrier"]})[case["carrier"]]
     target = indexed_items(actor.tag[field])[case["slot"]]

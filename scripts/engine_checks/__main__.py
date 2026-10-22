@@ -14,11 +14,14 @@ def main() -> int:
     parser.add_argument("--server-version", required=True, help="Exact version printed by BDS, e.g. 1.26.50.5")
     parser.add_argument("--image", default="mcbe-engine-check:local", help="Locally built developer image")
     parser.add_argument("--suite", choices=("all", "catalog", "items", "extended", "special", "addons", "service", "client"), default="all")
-    parser.add_argument("--client-port", type=int, default=19134, help="Client suite only: IPv4 loopback TCP+UDP port; three real client joins required")
+    parser.add_argument("--client-port", type=int, default=19134, help="Client suite only: IPv4 loopback TCP+UDP port")
+    parser.add_argument("--client-reloads", type=int, choices=(1, 2), help="Client suite only: 2 reloads (default, 3 joins) or 1 limited reload (2 joins)")
     parser.add_argument("--catalog", type=Path, help="Optional candidate item database; does not modify the bundled catalog")
     parser.add_argument("--work-root", type=Path, default=ROOT / ".engine-tests", help="Local generated artifacts; use an ignored directory")
     parser.add_argument("--timeout", type=float, default=300, help="Seconds per bounded engine phase")
     args = parser.parse_args()
+    if args.client_reloads is not None and args.suite != "client":
+        parser.error("--client-reloads requires --suite client")
     statuses = []
     try:
         for suite in ("extended", "special", "service", "addons") if args.suite == "all" else (args.suite,):
@@ -32,6 +35,7 @@ def main() -> int:
                 args.timeout,
                 args.catalog,
                 client_port=args.client_port,
+                client_reloads=2 if args.client_reloads is None else args.client_reloads,
             )
             statuses.append(report["status"])
             print(f"Engine check ({suite}): {report['status']}\nLocal report: {directory / 'run.json'}", flush=True)

@@ -186,7 +186,9 @@ def disk_snapshot(item, case: dict) -> dict:
         raise ProbeError("Saved NBT has an invalid item name")
     tag = compound(item, "tag")
     display = compound(tag, "display")
-    name = display.get("Name", nbt.StringTag(""))
+    # Signed books can store only a title, which the engine exposes as nameTag.
+    default_name = tag.get("title", nbt.StringTag("")) if value(item, "Name") == "minecraft:written_book" else nbt.StringTag("")
+    name = display.get("Name", default_name)
     lore = display.get("Lore", nbt.ListTag([]))
     if not isinstance(name, nbt.StringTag) or not isinstance(lore, nbt.ListTag) or any(not isinstance(line, nbt.StringTag) for line in lore):
         raise ProbeError("Saved NBT has invalid display text")

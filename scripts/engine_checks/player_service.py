@@ -9,6 +9,7 @@ from .cases import expected_snapshot
 from .extended import ENCHANTMENT_IDS
 from .protocol import ProbeError
 from .service_profile import assignments
+from .special import resolve_special_edit, verify_special
 
 
 def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: list[dict]) -> tuple[list, dict]:
@@ -27,6 +28,29 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
     service = BedrockEditorService(ITEMS, ENCHANTMENTS)
     saves = no_ops = stale_rejections = intermediate_checks = mixed_moves = mixed_recreations = 0
     results = []
+
+    def load(key):
+        loaded = service.load_player(str(world), key)
+        # The editor also presents root Armor/Offhand through virtual inventory
+        # slots. This flow edits only real Inventory slots; the separate client
+        # equipment profile owns root-list edits and their explicit write gate.
+        loaded["inventory"] = {slot: item for slot, item in loaded["inventory"].items() if 0 <= slot <= 35}
+        return loaded
+
+    def payload(case, slot, existing=None, original=None):
+        item = {
+            **(existing or {}),
+            "slot": slot,
+            "name": case["id"],
+            "count": case["amount"],
+            "damage": case["damage"],
+            "display_name": case["name"],
+            "lore": case["lore"],
+            "enchantments": [{"id": ENCHANTMENT_IDS[value["id"]], "lvl": value["level"]} for value in case["enchantments"]],
+        }
+        if "special_edit" in case:
+            item["special_edit"] = resolve_special_edit(case["special_edit"], original)
+        return item
 
     def containers(root):
         return {field: player_items(root, field) for field in ("Inventory", "EnderChestInventory")}
@@ -62,22 +86,14 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
             return root
 
         key = encode_player_key(raw_key)
-        loaded = service.load_player(str(world), key)
+        loaded = load(key)
         original_revision = loaded["player_revision"]
         payloads = {"Inventory": deepcopy(loaded["inventory"]), "EnderChestInventory": deepcopy(loaded["ender_chest"])}
+        originals = containers(original)
         for case in cases:
             field, slot = locations[case["case_id"]]
             if case["mode"] != "preserve":
-                payloads[field][slot] = {
-                    **payloads[field].get(slot, {}),
-                    "slot": slot,
-                    "name": case["id"],
-                    "count": case["amount"],
-                    "damage": case["damage"],
-                    "display_name": case["name"],
-                    "lore": case["lore"],
-                    "enchantments": [{"id": ENCHANTMENT_IDS[value["id"]], "lvl": value["level"]} for value in case["enchantments"]],
-                }
+                payloads[field][slot] = payload(case, slot, payloads[field].get(slot), originals[field].get(slot))
         save(key, loaded, payloads["Inventory"], payloads["EnderChestInventory"])
         edited = containers(load_player_nbt(read_records(world)[raw_key]).tag)
         for field, items in containers(original).items():
@@ -91,9 +107,11 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
             field, slot = locations[case["case_id"]]
             if slot not in edited[field] or disk_snapshot(edited[field][slot], case) != expected_snapshot(case):
                 raise ProbeError("Player service changed item semantics in its initial intermediate state")
+            if "special_edit" in case:
+                verify_special(edited[field][slot], case["special_edit"])
         edited_bytes = frozen(edited)
         verify_intermediate(edited_bytes)
-        loaded = service.load_player(str(world), key)
+        loaded = load(key)
         before = read_records(world)
         response = service.save_player(
             str(world),
@@ -146,7 +164,7 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
             ender[ender_slot] = {**left, "slot": ender_slot}
             save(key, loaded, inventory, ender)
             verify_intermediate(expected_bytes)
-            loaded = service.load_player(str(world), key)
+            loaded = load(key)
         # Delete and recreate one new item, preserving all other slots.
         created = next(
             case
@@ -161,17 +179,9 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         del expected_deleted["Inventory"][slot]
         save(key, loaded, inventory, loaded["ender_chest"])
         verify_intermediate(expected_deleted)
-        loaded = service.load_player(str(world), key)
+        loaded = load(key)
         inventory = deepcopy(loaded["inventory"])
-        inventory[slot] = {
-            "slot": slot,
-            "name": created["id"],
-            "count": created["amount"],
-            "damage": created["damage"],
-            "display_name": created["name"],
-            "lore": created["lore"],
-            "enchantments": [{"id": ENCHANTMENT_IDS[value["id"]], "lvl": value["level"]} for value in created["enchantments"]],
-        }
+        inventory[slot] = payload(created, slot)
         save(key, loaded, inventory, loaded["ender_chest"])
         final = verify_intermediate(edited_bytes)
         results.append(final)
@@ -187,4 +197,5 @@ def exercise_player_service(world: Path, raw_keys: tuple[bytes, ...], cases: lis
         "intermediate_state_checks": intermediate_checks,
         "mixed_metadata_moves": mixed_moves,
         "mixed_metadata_recreations": mixed_recreations,
+        "special_content_cases": sum("special_edit" in case for case in cases),
     }

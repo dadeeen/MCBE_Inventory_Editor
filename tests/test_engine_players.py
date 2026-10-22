@@ -60,10 +60,10 @@ def test_player_profile_fits_both_containers_and_has_mixed_new_and_preserved_ite
     observations = {item: {"max_amount": limit, "max_durability": catalog["durability"].get(item)} for item, limit in catalog["stack_limits"].items()}
     cases = make_service_cases(observations, catalog["stack_limits"], catalog["enchantments"])
     locations = assignments(cases)
-    assert len(cases) == 45
+    assert len(cases) == 48
     for field, last_slot in (("Inventory", 35), ("EnderChestInventory", 26)):
         local = [case for case in cases if locations[case["case_id"]][0] == field]
-        assert len(local) <= 24
+        assert len(local) == 24
         assert any(locations[case["case_id"]][1] == last_slot for case in local)
         assert {case["mode"] for case in local if case.get("coverage") == "mixed-metadata"} == {"create", "preserve", "decorate"}
         assert any(case.get("coverage") == "mixed-clear" for case in local)

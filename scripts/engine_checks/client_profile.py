@@ -70,25 +70,37 @@ def verify_player_items(raw: bytes, cases: list[dict], *, seed: bool = False) ->
     from .nbt_roundtrip import disk_snapshot
 
     root = load_player_nbt(raw).tag
-    locations = assignments(cases)
+    container_cases = [case for case in cases if "equipment_slot" not in case]
+    equipment_cases = [case for case in cases if "equipment_slot" in case]
+    locations = assignments(container_cases)
     containers = {field: player_items(root, field) for field in CONTROL_SLOTS}
     for field, items in containers.items():
         expected = {CONTROL_SLOTS[field]} | {
-            locations[case["case_id"]][1] for case in cases if locations[case["case_id"]][0] == field and (not seed or case["mode"] != "create")
+            locations[case["case_id"]][1] for case in container_cases if locations[case["case_id"]][0] == field and (not seed or case["mode"] != "create")
         }
         if set(items) != expected:
             raise ProbeError("Client persistence lost items or contains unexpected slots")
         control = control_case(field)
         if disk_snapshot(items[CONTROL_SLOTS[field]], control) != expected_snapshot(control):
             raise ProbeError("Client persistence changed an untouched control")
-    for case in cases:
+    for case in container_cases:
         field, slot = locations[case["case_id"]]
         expected = expected_snapshot(case, seed=seed)
         item = containers[field].get(slot)
         actual = None if item is None else disk_snapshot(item, case)
         if actual != expected:
             raise ProbeError("Client persistence changed tested item semantics: " + case["case_id"])
-    return {"status": "pass", "cases": len(cases), "containers": len(containers)}
+        if not seed and "special_edit" in case:
+            from .special import verify_special
+
+            verify_special(item, case["special_edit"])
+    result = {"status": "pass", "cases": len(cases), "containers": len(containers)}
+    if equipment_cases:
+        from .equipment import verify_equipment
+
+        verify_equipment(root, equipment_cases, seed=seed)
+        result["equipment_cases"] = len(equipment_cases)
+    return result
 
 
 def find_client_player_key(records: dict[bytes, bytes]) -> bytes:
@@ -141,14 +153,21 @@ def client_worker(run_dir: Path, world: Path, records: dict, cases: list[dict], 
     key = find_client_player_key(records)
     verify_player_items(records[key], cases, seed=True)
     before = load_player_nbt(records[key]).tag
-    locations = assignments(cases)
+    container_cases = [case for case in cases if "equipment_slot" not in case]
+    equipment_cases = [case for case in cases if "equipment_slot" in case]
+    locations = assignments(container_cases)
     keep = [(field, slot) for field, slot in CONTROL_SLOTS.items()]
-    keep.extend(locations[case["case_id"]] for case in cases if case["mode"] == "preserve")
+    keep.extend(locations[case["case_id"]] for case in container_cases if case["mode"] == "preserve")
     frozen = {(field, slot): player_items(before, field)[slot].save_to() for field, slot in keep}
-    results, checks = exercise_player_service(world, (key,), cases)
+    results, checks = exercise_player_service(world, (key,), container_cases)
     if any(player_items(results[0], field)[slot].save_to() != original for (field, slot), original in frozen.items()):
         raise ProbeError("Player service changed an untouched real-client item")
+    equipment = {}
+    if equipment_cases:
+        from .equipment import exercise_equipment_service
+
+        equipment = {"equipment": exercise_equipment_service(world, key, equipment_cases)}
     verified = verify_player_items(read_records(world)[key], cases)
     # Never include this record key in summaries, status files or public fixtures.
     write_json(identity_file, {"key": key.hex()})
-    return {**verified, "player_service": {**checks, "real_players": 1, "client_login_verified": False}}
+    return {**verified, **equipment, "player_service": {**checks, "real_players": 1, "client_login_verified": False}}

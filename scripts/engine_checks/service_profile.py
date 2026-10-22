@@ -12,6 +12,7 @@ from pathlib import Path
 from .cases import append_case, make_cases
 from .extended import ENCHANTMENT_IDS, MIXED_ITEM_ENCHANTMENTS, append_mixed_cases
 from .protocol import ProbeError
+from .special import make_special_cases
 
 PLAYER_KEYS = (b"~local_player", b"player_server_mcbe_engine_probe")
 SERVICE_IDS = (
@@ -25,6 +26,7 @@ SERVICE_IDS = (
     "minecraft:compass",
     "minecraft:shield",
 )
+SERVICE_SPECIAL_PROFILES = ("bundle_mixed_63", "shulker_nested", "book_signed")
 
 
 def make_service_cases(observations: dict, limits: dict, enchantments: dict) -> list[dict]:
@@ -50,13 +52,22 @@ def make_service_cases(observations: dict, limits: dict, enchantments: dict) -> 
         )
     levels = {name: enchantments[str(numeric_id)][2] for name, numeric_id in ENCHANTMENT_IDS.items()}
     append_mixed_cases(cases, observations, levels, item_ids=[item for item in SERVICE_IDS if item in MIXED_ITEM_ENCHANTMENTS])
+    special_cases = {case["profile"]: case for case in make_special_cases(observations, limits)}
+    for profile in SERVICE_SPECIAL_PROFILES:
+        special = special_cases[profile]
+        seed_id = "minecraft:writable_book" if "seed_book" in special else special["id"]
+        append_case(cases, observations, seed_id, special["mode"], special["amount"])
+        # Keep the shared special oracle's independent expectations, but give
+        # these cases fresh IDs and carrier slots in the service manifest.
+        cases[-1].update({key: deepcopy(value) for key, value in special.items() if key not in {"case_id", "carrier", "slot", "revision"}})
     return cases
 
 
 def assignments(cases: list[dict]) -> dict:
     result = {}
+    container_cases = [case for case in cases if "equipment_slot" not in case]
     for parity, field, last_slot in ((0, "Inventory", 35), (1, "EnderChestInventory", 26)):
-        selected = cases[parity::2]
+        selected = container_cases[parity::2]
         if len(selected) > 24:
             raise ProbeError("Service profile exceeds its explicit fixture slot budget")
         for slot, case in enumerate(selected):

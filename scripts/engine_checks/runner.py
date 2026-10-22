@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 from .addon import ADDON_LIMITS, DATA_MODULE_ID, make_addon_cases, prepare_addon
 from .cases import make_cases, validate_case_events
 from .client_profile import CLIENT_API_VERSION, CONTROL_NAME, CONTROL_SLOTS, enable_client_experiment
+from .equipment import make_equipment_cases
 from .extended import enchantment_registry_result, extend_cases, matrix_result, validate_behavior_events
 from .protocol import ProbeError, Transcript, catalog_result
 from .service_profile import assignments, make_service_cases
@@ -213,8 +214,36 @@ def container_arguments(server: Path, name: str, image_id: str, owner: str | Non
     ]
 
 
+def client_progress(run_dir: Path, phase: str, status: str, port: int, connections: int) -> None:
+    """Expose only runner-owned progress; never log player identity or raw NBT."""
+    connection = {"seed": 1, "reload1": 2, "reload2": 3}[phase]
+    messages = {
+        "starting": "Starting the test server. Please wait before joining.",
+        "waiting_for_client": f"Join {connection}/{connections} ready: connect to 127.0.0.1:{port} with the same account.",
+        "client_connected": "Connected. Automatic checks are running; please do not change items.",
+        "saving": "Checks observed. The server will save and disconnect you intentionally.",
+        "stopped": "Server stopped cleanly. Checking the saved data; please wait.",
+        "editing": "Applying offline editor changes. Please wait for the next join invitation.",
+    }
+    message = messages[status]
+    write_json(
+        run_dir / "client-status.json",
+        {"phase": phase, "status": status, "connection": connection, "required_connections": connections, "address": "127.0.0.1", "port": port},
+    )
+    print(f"[Client] {message}", flush=True)
+
+
 def run_phase(
-    server: Path, run_dir: Path, phase: str, run_id: str, version: str, image_id: str, timeout: float, *, client_port: int | None = None
+    server: Path,
+    run_dir: Path,
+    phase: str,
+    run_id: str,
+    version: str,
+    image_id: str,
+    timeout: float,
+    *,
+    client_port: int | None = None,
+    client_connections: int = 3,
 ) -> list[dict]:
     name = f"mcbe-engine-{uuid.uuid4().hex}"
     owner = uuid.uuid4().hex
@@ -224,6 +253,8 @@ def run_phase(
     lines: queue.Queue[str | None] = queue.Queue()
     failure = None
     try:
+        if client_port is not None:
+            client_progress(run_dir, phase, "starting", client_port, client_connections)
         created_id = docker_command(container_arguments(server, name, image_id, owner, client_port=client_port))
         if not re.fullmatch(r"[0-9a-f]{64}", created_id):
             raise ProbeError("Docker did not return an owned container ID")
@@ -269,11 +300,13 @@ def run_phase(
                 log.flush()
                 previous_events = len(transcript.events)
                 transcript.feed(line)
-                if client_port is not None and len(transcript.events) > previous_events and transcript.events[-1].get("stage") == "waiting_for_client":
-                    write_json(run_dir / "client-status.json", {"phase": phase, "status": "waiting_for_client", "address": "127.0.0.1", "port": client_port})
+                if client_port is not None and len(transcript.events) > previous_events:
+                    event = transcript.events[-1]
+                    if event["kind"] == "checkpoint" and event.get("stage") in {"waiting_for_client", "client_connected"}:
+                        client_progress(run_dir, phase, event["stage"], client_port, client_connections)
                 if transcript.done and not stop_sent:
                     if client_port is not None:
-                        write_json(run_dir / "client-status.json", {"phase": phase, "status": "saving"})
+                        client_progress(run_dir, phase, "saving", client_port, client_connections)
                     assert process.stdin is not None
                     process.stdin.write("stop\n")
                     process.stdin.flush()
@@ -284,7 +317,10 @@ def run_phase(
         state = json.loads(docker_command(["inspect", "--format", "{{json .State}}", container_id]))
         if exit_code != 0 or state.get("Running") is not False or state.get("ExitCode") != 0 or state.get("OOMKilled"):
             raise ProbeError(f"{phase}: server did not stop cleanly")
-        return transcript.finish()
+        events = transcript.finish()
+        if client_port is not None:
+            client_progress(run_dir, phase, "stopped", client_port, client_connections)
+        return events
     except BaseException as exc:
         failure = exc
         raise
@@ -386,6 +422,7 @@ def public_summary(report: dict) -> dict:
     catalog = report.get("catalog", {})
     player_service = report.get("nbt_edit", {}).get("player_service", {"status": "not_selected"})
     client = report.get("client", {"status": "not_selected"})
+    equipment = report.get("nbt_edit", {}).get("equipment", {"status": "not_selected"})
     return {
         "format": "mcbe-engine-summary-v1",
         "status": report["status"],
@@ -456,10 +493,12 @@ def public_summary(report: dict) -> dict:
                 "client_login_verified",
                 "mixed_metadata_moves",
                 "mixed_metadata_recreations",
+                "special_content_cases",
             )
             if key in player_service
         },
         "client": {key: client[key] for key in ("status", "required_connections", "completed_connections", "profile") if key in client},
+        "equipment": {key: equipment[key] for key in ("status", "cases", "backed_up_saves", "no_op_checks") if key in equipment},
     }
 
 
@@ -474,6 +513,7 @@ def run_probe(
     catalog_path: Path | None = None,
     *,
     client_port: int = 19134,
+    client_reloads: int = 2,
 ) -> tuple[Path, dict]:
     if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version):
         raise ProbeError("An exact four-part Bedrock server version is required")
@@ -483,6 +523,9 @@ def run_probe(
         raise ProbeError("Unknown engine check suite")
     if suite == "client" and (type(client_port) is not int or not 1024 <= client_port <= 65535):
         raise ProbeError("Client port must be an integer between 1024 and 65535")
+    if type(client_reloads) is not int or client_reloads not in (1, 2) or (suite != "client" and client_reloads != 2):
+        raise ProbeError("Client reloads must be 1 or 2 and may only be changed for the client suite")
+    reload_cycles = client_reloads if suite == "client" else 2
     resolved_work = work_root.resolve()
     run_id = uuid.uuid4().hex
     run_dir = resolved_work / (datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ-") + run_id[:12])
@@ -545,6 +588,8 @@ def run_probe(
         ],
     }
     write_json(run_dir / "run.json", report)
+    if suite == "client":
+        print(f"[Client] Preparing a fresh world and catalog. {reload_cycles + 1} joins will be needed; wait for each invitation.", flush=True)
     try:
         server = run_dir / "server"
         extract_server(archive, server, expected_hash)
@@ -557,7 +602,7 @@ def run_probe(
             report["phases"][name] = "running"
             prepare_pack(server, config)
             write_json(run_dir / "run.json", report)
-            options = {"client_port": client_port} if config.get("client_profile") else {}
+            options = {"client_port": client_port, "client_connections": reload_cycles + 1} if config.get("client_profile") else {}
             events = run_phase(server, run_dir, name, run_id, version, image_id, timeout, **options)
             write_json(run_dir / f"{name}-events.json", events)
             report["phases"][name] = "observed"
@@ -584,6 +629,7 @@ def run_probe(
             if suite in {"service", "client"}:
                 cases = make_service_cases(catalog["observations"], db["stack_limits"], db["enchantments"])
             if suite == "client":
+                cases.extend(make_equipment_cases(catalog["observations"], db["stack_limits"]))
                 enable_client_experiment(server)
                 configure_server(server, client_port=client_port)
                 config.update(
@@ -594,10 +640,12 @@ def run_probe(
                 )
                 report["client"] = {
                     "status": "incomplete",
-                    "required_connections": 3,
+                    "required_connections": reload_cycles + 1,
                     "completed_connections": 0,
                     "profile": "real client; offline local dedicated server; Beta API Ender Chest observer",
                 }
+                if reload_cycles == 1:
+                    report["not_covered"].append("second real-client reload after the first engine save (limited client run)")
             if suite == "addons":
                 config["controlled_addon"] = True
                 config["addon_ids"] = sorted(ADDON_LIMITS)
@@ -644,8 +692,10 @@ def run_probe(
             if suite == "client":
                 report["client"]["completed_connections"] += 1
             write_json(run_dir / "run.json", report)
+            if suite == "client":
+                client_progress(run_dir, "seed", "editing", client_port, reload_cycles + 1)
             report["nbt_edit"] = nbt_worker(run_dir, "edit")
-            for name in ("reload1", "reload2"):
+            for name in ("reload1", "reload2")[:reload_cycles]:
                 if name == "reload2" and suite == "special":
                     report["phases"]["revision"] = "running"
                     write_json(run_dir / "run.json", report)
@@ -661,7 +711,7 @@ def run_probe(
                 "status": "pass",
                 "cases": len(cases),
                 "item_ids": len({case["id"] for case in cases}),
-                "save_reload_cycles": 2,
+                "save_reload_cycles": reload_cycles,
                 "write_path": "production item builder, codec, backup and pure-Python WAL batch; test carrier adapter",
             }
             if suite == "extended":
@@ -680,7 +730,10 @@ def run_probe(
             if suite in {"service", "client"}:
                 report["roundtrip"]["write_path"] = "production player service, codec, backup and pure-Python WAL batch"
                 report["not_covered"].remove("complete player service")
-                report["not_covered"].append("player service fields outside Inventory and EnderChestInventory editing")
+                fields = "Inventory, EnderChestInventory, Armor and Offhand" if suite == "client" else "Inventory and EnderChestInventory"
+                report["not_covered"].append(f"player service fields outside {fields} editing")
+                report["not_covered"].remove("special-editor contents persistence")
+                report["not_covered"].append("special-editor contents outside the selected player-service special cases")
             if suite == "client":
                 report["client"]["status"] = "pass"
                 report["nbt_edit"]["player_service"]["client_login_verified"] = True
@@ -706,6 +759,11 @@ def run_probe(
         write_json(run_dir / "summary.json", public_summary(report))
         if suite == "client":
             write_json(
-                run_dir / "client-status.json", {"status": report["status"], "completed_connections": report.get("client", {}).get("completed_connections", 0)}
+                run_dir / "client-status.json",
+                {
+                    "status": report["status"],
+                    "required_connections": reload_cycles + 1,
+                    "completed_connections": report.get("client", {}).get("completed_connections", 0),
+                },
             )
     return run_dir, report

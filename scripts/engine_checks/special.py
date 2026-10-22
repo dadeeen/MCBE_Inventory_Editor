@@ -169,6 +169,22 @@ def make_special_cases(observations: dict, limits: dict) -> list[dict]:
         revision={"special_edit": edit("banner", patterns=[{**patterns[i], "source_index": i} for i in (5, 0, 3)])},
     )
     add("banner_clear", "banner", edit("banner", patterns=patterns), damage=15, data_value=15, revision={"special_edit": edit("banner", patterns=[])})
+    add(
+        "banner_to_ominous",
+        "banner",
+        edit("banner", patterns=[{"pattern": "bri", "color": 1}]),
+        damage=4,
+        data_value=4,
+        revision={"special_edit": edit("banner", patterns=[], type=1), "damage": 15, "data_value": 15},
+    )
+    add(
+        "banner_ominous",
+        "banner",
+        edit("banner", patterns=[], type=1),
+        damage=15,
+        data_value=15,
+        revision={"special_edit": edit("banner", patterns=[{"pattern": "bo", "color": 4}], type=0)},
+    )
     explosions = [
         {"shape": i % 5, "colors": [1, 4, 15], "fade": [0, 11] if i % 2 else [], "trail": bool(i % 2), "flicker": bool((i + 1) % 2)} for i in range(7)
     ]
@@ -300,7 +316,7 @@ def verify_special(item, request: dict) -> None:
         if "title" in data:
             equal(field(tag, "generation", nbt.IntTag), 0, "book generation")
     elif kind == "banner":
-        equal(field(tag, "Type", nbt.IntTag, 0), 0, "banner type")
+        equal(field(tag, "Type", nbt.IntTag, 0), data.get("type", 0), "banner type")
         for actual, expected in zip(rows(tag, "Patterns", data["patterns"]), data["patterns"], strict=True):
             equal(field(actual, "Pattern", nbt.StringTag), expected["pattern"], "pattern")
             equal(field(actual, "Color", nbt.IntTag), expected["color"], "pattern color")

@@ -241,6 +241,19 @@ def synthetic_carriers(cases):
                     }
                 )
             )
+            if "seed_book" in case:
+                # Model the signed reference supplied by Minecraft, including
+                # engine-owned generation. The editor must not manufacture it.
+                book = case["seed_book"]
+                items[-1]["tag"].update(
+                    {
+                        "generation": nbt.IntTag(0),
+                        "title": nbt.StringTag(book["title"]),
+                        "author": nbt.StringTag(book["author"]),
+                        "display": nbt.CompoundTag({"Name": nbt.StringTag(book["title"])}),
+                        "pages": nbt.ListTag([nbt.CompoundTag({"text": nbt.StringTag(page), "photoname": nbt.StringTag("")}) for page in book["pages"]]),
+                    }
+                )
         actor = nbt.NamedTag(
             nbt.CompoundTag(
                 {
