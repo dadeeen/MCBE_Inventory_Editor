@@ -114,7 +114,8 @@ jobs:
 
   browser-smoke:
     name: Browser smoke tests
-    runs-on: ubuntu-latest
+    # Playwright 1.57 supports Ubuntu 24.04; keep its browser dependencies on a supported runner.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
