@@ -280,6 +280,16 @@
                 if (data.write_outcome_unknown === true) {
                     throw new Error(data.error || t("Ob die Änderungen bereits geschrieben wurden, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen."));
                 }
+                if (data.reload_required === true && !data.success && data.write_committed !== true) {
+                    throw new Error(data.error || t("Die Spieleransicht muss vor weiteren Schreibaktionen neu geladen werden."));
+                }
+                // Record the storage result before warning/render callbacks.
+                // Those callbacks can fail, but cannot make a known commit
+                // retryable again.
+                const responseHasMounts = Array.isArray(data.mounts) && data.mounts.length > 0;
+                if (data.write_committed === true || (data.success && (data.no_op !== true || responseHasMounts))) {
+                    writeCommitted = true;
+                }
                 return data;
             };
 
@@ -297,7 +307,8 @@
                     reportChangedSaveContext(data);
                     return;
                 }
-                if (!data.success && data.write_gate?.requires_unknown_server_confirmation && payload.confirm_unknown_server_status !== true) {
+                if (!data.success && data.write_committed !== true && data.reload_required !== true
+                    && data.write_gate?.requires_unknown_server_confirmation && payload.confirm_unknown_server_status !== true) {
                     const proceed = await confirmUnknownServerStatus(data.write_gate);
                     if (!proceed) {
                         logSaveOutcome(t("Speichern abgebrochen: Serverstatus wurde nicht bestätigt."), "warning");
@@ -318,7 +329,7 @@
                         return;
                     }
                 }
-                if (!data.success && data.presence_conflict) {
+                if (!data.success && data.write_committed !== true && data.reload_required !== true && data.presence_conflict) {
                     hideLoading();
                     const proceed = await confirmPresenceConflict(data);
                     if (!proceed) {
@@ -376,7 +387,7 @@
                         : { complete: true, reloadRequired: false };
                     showLoading(t("Speichern abschließen: Antwort prüfen und UI aktualisieren..."));
                     updateCurrentPlayerRevision(data.player_revision);
-                    if (mountFinalization.reloadRequired === true) {
+                    if (mountFinalization.reloadRequired === true || data.reload_required === true) {
                         if (hasPlayerChanges) {
                             applyCreatedTagState(payload);
                             normalizeOriginsToCurrentSavedState(data.item_source_digests, data.saved_items);
@@ -388,7 +399,9 @@
                             return;
                         }
                         loadBackupsList();
-                        const message = mountFinalization.reason === "count_mismatch"
+                        const message = data.reload_required === true
+                            ? data.error || t("Die Spieleransicht muss vor weiteren Schreibaktionen neu geladen werden.")
+                            : mountFinalization.reason === "count_mismatch"
                             ? t("Änderungen wurden geschrieben, aber die Mount-Antwort des Servers ist unvollständig. Nicht erneut speichern; Welt neu laden und Backup prüfen.")
                             : t("Änderungen wurden geschrieben, aber die Mount-Nachbearbeitung ist fehlgeschlagen. Nicht erneut speichern; Welt neu laden und Backup prüfen.");
                         enterReloadRequiredState(message);
@@ -456,7 +469,7 @@
                     enterReloadRequiredState(message);
                     logSaveOutcome(message, "error");
                     showToast(message, "error", 8000);
-                } else if (lastSaveResponse?.write_outcome_unknown === true) {
+                } else if (lastSaveResponse?.write_outcome_unknown === true || lastSaveResponse?.reload_required === true) {
                     const message = e.message;
                     enterReloadRequiredState(message);
                     logSaveOutcome(message, "error");

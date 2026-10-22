@@ -3357,5 +3357,6 @@
   "{label}-Slot {slot}: Für {name} ist Datenwert {damage} nicht belegt. Erlaubt sind 0 oder der unveränderte Originalwert.": "{label} slot {slot}: Data value {damage} is not documented for {name}. Use 0 or keep the original value unchanged.",
   "Ein Item darf nur eine Originalquelle haben.": "An item may have only one original source.",
   "Ein leerer Eintrag ist keine kopierbare Originalquelle.": "An empty entry cannot be used as a copy source.",
-  "Ein ominöses Banner verwendet das feste Vanilla-Design ohne zusätzliche Muster.": "An ominous banner uses the fixed vanilla design without additional patterns."
+  "Ein ominöses Banner verwendet das feste Vanilla-Design ohne zusätzliche Muster.": "An ominous banner uses the fixed vanilla design without additional patterns.",
+  "Die Spieleransicht muss vor weiteren Schreibaktionen neu geladen werden.": "Reload the player before making further writes."
 }
