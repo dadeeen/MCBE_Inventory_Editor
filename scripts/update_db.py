@@ -1749,7 +1749,7 @@ def _base_name_for_variant_label(
     ]
     if len({en for _de, en in variants}) < 2:
         return None
-    if not any(current_en == en or (de and current_de == de) for de, en in variants):
+    if not any((current_de, current_en) == (de, en) or current_de == current_en == en for de, en in variants):
         return None
     return _normalize_display_name(base[0], base[1]), _normalize_display_name(base[1], item_id)
 
@@ -1855,6 +1855,8 @@ def merge_items(
     keys that older catalogs took for items are dropped.
     """
     merged = {item_id: names for item_id, names in old.items() if not is_non_item_lang_key_id(item_id)}
+    # Repair exact shipped pairs before a fallback changes only one language.
+    merged.update(reviewed_item_label_repairs(merged, _bundled_limits.get("items", {})))
     microsoft_items = microsoft_items or {}
     serialization_aliases = serialization_aliases or {}
     item_localizations = item_localizations or {}
@@ -1879,13 +1881,21 @@ def merge_items(
         existing = merged.get(full_id)
         if existing:
             old_de, old_en = existing
-            has_authoritative_derived_name = item_id == "bed" and _localized_names_for_item_key(item_id, item_localizations) is not None
+            has_authoritative_derived_name = (
+                item_id == "bed"
+                and _localized_names_for_item_key(item_id, item_localizations) is not None
+                and any(
+                    (old_de, old_en) == pair or old_de == old_en == pair[1]
+                    for key, pair in item_localizations.items()
+                    if key == "bed" or key.startswith("bed.")
+                )
+            )
             base_name = _base_name_for_variant_label(item_id, existing, item_localizations)
             if has_authoritative_derived_name and (old_de, old_en) != (de_name, en_name):
                 merged[full_id] = (de_name, en_name)
             elif base_name is not None:
                 merged[full_id] = base_name
-            elif _looks_like_fallback_name(old_de, old_en) and not _looks_like_fallback_name(de_name, en_name):
+            elif _looks_like_fallback_name(old_de, old_en) and old_en == en_name and not _looks_like_fallback_name(de_name, en_name):
                 merged[full_id] = (de_name, old_en or en_name)
             continue
         merged[full_id] = (de_name, en_name)

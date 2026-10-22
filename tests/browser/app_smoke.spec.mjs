@@ -252,7 +252,7 @@ for (const locale of ["de", "en"]) {
       const samples = [
         { slot: 0, name: "minecraft:stone", count: 1, damage: 0 },
         { slot: 1, name: "minecraft:diamond_sword", count: 1, damage: 37 },
-        { slot: 2, name: "minecraft:potion", count: 1, damage: 21 },
+        { slot: 2, name: "minecraft:potion", count: 1, damage: 21, display_name: "Personal label", lore: ["Keep lore"] },
       ];
       await openSpecialFixture(page, { ...Object.fromEntries(samples.map(item => [item.slot, item])),
         4: parent(samples.map((item, source_index) => ({ ...item, source_index }))) }, catalog);
@@ -290,9 +290,11 @@ for (const locale of ["de", "en"]) {
             await expect(variant).toBeVisible();
             await expect(variant.locator("option")).toHaveCount(47);
             await expect(variant).toHaveValue("21");
-            await expect(variant.locator('option[value="46"]')).toContainText(locale === "de" ? "Befallen" : "Infested");
+            await expect(variant.locator('option[value="46"]')).toContainText(locale === "de" ? "Verseuchung" : "Infestation");
             await variant.selectOption("46");
             await expect(wear).toHaveValue("46");
+            const custom = contained ? dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", { exact: true }) : page.locator("#detailCustomName");
+            await expect(custom).toHaveValue("Personal label");
             await variant.selectOption("21");
           }
           if (contained) await dialog.locator('footer [data-special="cancel"]').click();

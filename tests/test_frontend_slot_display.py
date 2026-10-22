@@ -236,7 +236,7 @@ def test_frontend_slot_display_detail_preview_model_and_applier() -> None:
 
             const potionModel = display.detailPreviewModel({
                 itemId: "minecraft:potion",
-                displayName: "Trank: Wasseratmung (verlängert)",
+                displayName: "Trank: Unterwasseratmung (verlängert)",
                 isEmpty: false,
                 known: true,
                 count: 1,
@@ -276,7 +276,7 @@ def test_frontend_slot_display_uses_item_specific_damage_label() -> None:
             const display = context.window.MCBESlotDisplay;
             const potion = { name: "minecraft:potion", count: 1, damage: 20 };
             const label = (itemName, _customName, damage) => itemName === "minecraft:potion" && damage === 20
-                ? "Trank: Wasseratmung (verlängert)"
+                ? "Trank: Unterwasseratmung (verlängert)"
                 : itemName;
             const damageLabel = itemName => itemName === "minecraft:potion" ? "Potion-Datenwert" : "Abnutzung";
 
@@ -284,12 +284,12 @@ def test_frontend_slot_display_uses_item_specific_damage_label() -> None:
             // Änderungsübersichten unverändert bleiben.
             assert.strictEqual(
                 display.itemDisplayName(potion, label, damageLabel),
-                "Trank: Wasseratmung (verlängert) x1 · Potion-Datenwert 20",
+                "Trank: Unterwasseratmung (verlängert) x1 · Potion-Datenwert 20",
             );
             // Mit includeDamage:false entfällt Abnutzung/Datenwert im Titel.
             assert.strictEqual(
                 display.itemDisplayName(potion, label, damageLabel, { includeDamage: false }),
-                "Trank: Wasseratmung (verlängert) x1",
+                "Trank: Unterwasseratmung (verlängert) x1",
             );
             // Der Tooltip-Titel enthält nur Name/Variante/Menge; der Datenwert
             // erscheint ausschließlich in der Detailzeile.
@@ -302,7 +302,7 @@ def test_frontend_slot_display_uses_item_specific_damage_label() -> None:
                     isKnownItemId: () => true,
                 }).slice(0, 6)),
                 [
-                    "Trank: Wasseratmung (verlängert) x1",
+                    "Trank: Unterwasseratmung (verlängert) x1",
                     "minecraft:potion",
                     "Inventar 27",
                     "Technischer Slot: 35",
@@ -499,7 +499,7 @@ def test_frontend_slot_display_slot_quick_actions_model_and_applier() -> None:
             const potionDataValue = display.slotQuickActionsModel({
                 slotLabel: "Hotbar 1",
                 isEmpty: false,
-                itemLabel: "Trank: Wasseratmung (verlängert)",
+                itemLabel: "Trank: Unterwasseratmung (verlängert)",
                 maxStack: 1,
                 isValidItem: true,
                 damage: 20,

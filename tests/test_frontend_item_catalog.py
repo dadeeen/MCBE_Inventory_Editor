@@ -305,7 +305,7 @@ def test_frontend_potion_damage_values_have_variant_names_and_data_label() -> No
 
             assert.deepStrictEqual(
                 Array.from(catalog.variantItemNamesForId({ name: "minecraft:potion", damage: 20 })),
-                ["Trank: Wasseratmung (verlängert)", "Potion of Water Breathing (Long)"],
+                ["Trank: Unterwasseratmung (verlängert)", "Potion of Water Breathing (Long)"],
             );
             assert.deepStrictEqual(
                 Array.from(catalog.variantItemNamesForId({ name: "minecraft:splash_potion", damage: 25 })),
@@ -342,9 +342,10 @@ def test_frontend_potion_selector_offers_only_documented_delivery_types_and_valu
         });
         const expected = Array.from({length: 47}, (_, index) => index);
         const cases = [
-            ['minecraft:potion', ['Wasserflasche', 'Water Bottle'], ['Trank: Befallen', 'Potion of Infested']],
-            ['minecraft:splash_potion', ['Wurfwasserflasche', 'Splash Water Bottle'], ['Wurftrank: Befallen', 'Splash Potion of Infested']],
-            ['minecraft:lingering_potion', ['Verweilwasserflasche', 'Lingering Water Bottle'], ['Verweiltrank: Befallen', 'Lingering Potion of Infested']],
+            ['minecraft:potion', ['Wasserflasche', 'Water Bottle'], ['Trank: Verseuchung', 'Potion of Infestation']],
+            ['minecraft:splash_potion', ['Werfbare Wasserflasche', 'Splash Water Bottle'], ['Wurftrank: Verseuchung', 'Splash Potion of Infestation']],
+            ['minecraft:lingering_potion', ['Verweilende Wasserflasche', 'Lingering Water Bottle'],
+                ['Verweiltrank: Verseuchung', 'Lingering Potion of Infestation']],
         ];
         for (const [name, water, last] of cases) {
             const variants = catalog.dataValueVariantsForId(name);
@@ -372,6 +373,61 @@ def test_frontend_potion_selector_offers_only_documented_delivery_types_and_valu
         }
         """
     )
+
+
+def test_potion_names_use_item_terms_and_keep_variant_details_and_custom_names() -> None:
+    run_node(r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        global.window = global;
+        require('./static/item_catalog.js');
+        require('./static/slot_display.js');
+        const db = JSON.parse(fs.readFileSync('mcbe_editor/resources/item_db.json', 'utf8'));
+        const catalog = MCBEItemCatalog.createItemCatalog({
+            getItemsDb: () => db.items, getCompatItemAliases: () => ({}),
+            getItemIconIndex: () => ({}), getStackLimits: () => ({}), getMaxDamageMap: () => ({}),
+            itemIdRe: /^minecraft:[a-z0-9_.-]+$/, defaultMaxDamage: 32767, maxBedrockStackCount: 127,
+        });
+        const display = MCBESlotDisplay.createInventorySlotDisplayFacade({itemCatalog: catalog});
+        for (const [id, dePrefix, enPrefix] of [
+            ['minecraft:potion', 'Trank', ''],
+            ['minecraft:splash_potion', 'Wurftrank', 'Splash '],
+            ['minecraft:lingering_potion', 'Verweiltrank', 'Lingering '],
+        ]) {
+            for (const [damage, de, en] of [
+                [1, 'Gewöhnlich', 'Mundane Potion'],
+                [2, 'Gewöhnlich (verlängert)', 'Mundane Potion (Long)'],
+                [3, 'Dickflüssig', 'Thick Potion'],
+                [4, 'Seltsam', 'Awkward Potion'],
+                [20, 'Unterwasseratmung (verlängert)', 'Potion of Water Breathing (Long)'],
+                [36, 'Verfall', 'Potion of Decay'],
+                [37, 'Schildkrötenmeister', 'Potion of the Turtle Master'],
+                [39, 'Schildkrötenmeister (verstärkt)', 'Potion of the Turtle Master (Strong)'],
+                [42, 'Langsamkeit IV', 'Potion of Slowness IV'],
+                [43, 'Windladen', 'Potion of Wind Charging'],
+                [45, 'Sickern', 'Potion of Oozing'],
+                [46, 'Verseuchung', 'Potion of Infestation'],
+            ]) {
+                const expected = [`${dePrefix}: ${de}`, `${enPrefix}${en}`];
+                const item = {name: id, damage, display_name: 'Personal label', lore: ['Keep this'],
+                    nbt_view: {value: {tag: {value: {custom: {value: 7}}}}}};
+                const before = JSON.stringify(item);
+                assert.deepEqual(catalog.variantItemNamesForId(item), expected);
+                for (const locale of ['de', 'en']) {
+                    window.MCBEI18n = {localizedPair: (de, en) => ({primary: locale === 'de' ? de : en})};
+                    assert.equal(display.detailItemLabel(id, '', damage, item), expected[locale === 'de' ? 0 : 1]);
+                    assert.equal(display.detailItemLabel(id, item.display_name, damage, item), 'Personal label');
+                }
+                assert.equal(JSON.stringify(item), before);
+            }
+        }
+        assert.deepEqual(catalog.variantItemNamesForId('minecraft:suspicious_stew', 10),
+            ['Verdächtige Suppe: Nachtsicht (Fackelblume)', 'Suspicious Stew: Night Vision (Torchflower)']);
+        assert.deepEqual(catalog.variantItemNamesForId('minecraft:tipped_arrow', 43),
+            ['Getränkter Pfeil: Windladen', 'Arrow of Wind Charging']);
+        assert.equal(catalog.variantItemNamesForId('minecraft:tipped_arrow', 1)[1], 'Tipped Arrow (Mundane)');
+        assert.equal(catalog.variantItemNamesForId('minecraft:tipped_arrow', 0)[1], 'Arrow of Splashing');
+    """)
 
 
 def test_frontend_durability_requires_an_explicit_item_entry_even_at_the_default_limit() -> None:

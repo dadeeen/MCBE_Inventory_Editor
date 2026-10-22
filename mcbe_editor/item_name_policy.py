@@ -99,6 +99,37 @@ SUPERSEDED_ITEM_LABELS: dict[str, tuple[str, str]] = {
     "minecraft:redstone": ("Redstone-Staub", "Redstone"),
     "minecraft:redstone_block": ("Redstone-Block", "Redstone Block"),
     "minecraft:warped_fungus_on_a_stick": ("Wirrpilzrute", "Warped Fungus on a Stick"),
+    # Reviewed Bedrock names and previously untranslated catalog fallbacks.
+    "minecraft:axolotl_bucket": ("Axolotl Bucket", "Axolotl Bucket"),
+    "minecraft:camera": ("Camera", "Camera"),
+    "minecraft:cod_bucket": ("Cod Bucket", "Cod Bucket"),
+    "minecraft:infested_chiseled_stone_bricks": ("Infested Chiseled Stone Bricks", "Infested Chiseled Stone Bricks"),
+    "minecraft:infested_cracked_stone_bricks": ("Infested Cracked Stone Bricks", "Infested Cracked Stone Bricks"),
+    "minecraft:infested_mossy_stone_bricks": ("Infested Mossy Stone Bricks", "Infested Mossy Stone Bricks"),
+    "minecraft:lily_of_the_valley": ("Maiglöckchen", "Lily Of The Valley"),
+    "minecraft:lingering_potion": ("Lingering Potion", "Lingering Potion"),
+    "minecraft:music_disc_11": ("Music Disc 11", "Music Disc 11"),
+    "minecraft:music_disc_13": ("Music Disc 13", "Music Disc 13"),
+    "minecraft:music_disc_bounce": ("Music Disc Bounce", "Music Disc Bounce"),
+    "minecraft:music_disc_creator": ("Music Disc Creator", "Music Disc Creator"),
+    "minecraft:music_disc_creator_music_box": ("Music Disc Creator Music Box", "Music Disc Creator Music Box"),
+    "minecraft:music_disc_precipice": ("Music Disc Precipice", "Music Disc Precipice"),
+    "minecraft:normal_stone_slab": ("Normal Stone Slab", "Normal Stone Slab"),
+    "minecraft:npc_spawn_egg": ("NPC-Spawn-Ei", "Npc Spawn Egg"),
+    "minecraft:pufferfish_bucket": ("Pufferfish Bucket", "Pufferfish Bucket"),
+    "minecraft:record_bounce": ("Fingerspit - Bounce", "Fingerspit - Bounce"),
+    "minecraft:salmon_bucket": ("Salmon Bucket", "Salmon Bucket"),
+    "minecraft:smooth_quartz": ("Smooth Quartz", "Smooth Quartz"),
+    "minecraft:splash_potion": ("Splash Potion", "Splash Potion"),
+    "minecraft:stone_brick_slab": ("Stone Brick Slab", "Stone Brick Slab"),
+    "minecraft:sulfur_cube_bucket": ("Sulfur Cube Bucket", "Sulfur Cube Bucket"),
+    "minecraft:tadpole_bucket": ("Tadpole Bucket", "Tadpole Bucket"),
+    "minecraft:trip_wire": ("Trip Wire", "Trip Wire"),
+    "minecraft:silver_glazed_terracotta": ("Silver Glazed Terracotta", "Silver Glazed Terracotta"),
+    "minecraft:tropical_fish_bucket": ("Tropical Fish Bucket", "Tropical Fish Bucket"),
+    "minecraft:undyed_shulker_box": ("Undyed Shulker Box", "Undyed Shulker Box"),
+    "minecraft:zombie_pigman_spawn_egg": ("Zombifizierter-Piglin-Spawn-Ei", "Zombie Pigman Spawn Egg"),
+    **{f"minecraft:light_block_{level}": (f"Light Block {level}", f"Light Block {level}") for level in range(16)},
 }
 
 
@@ -107,7 +138,9 @@ def reviewed_item_label_repairs(current: Mapping, reviewed: Mapping) -> dict[str
     for item_id, superseded_pair in SUPERSEDED_ITEM_LABELS.items():
         names = current.get(item_id)
         replacement = reviewed.get(item_id)
-        if not isinstance(names, (list, tuple)) or tuple(names) != superseded_pair:
+        # Generators without the German key shipped the old English name twice.
+        known_pairs = (superseded_pair, (superseded_pair[1], superseded_pair[1]))
+        if not isinstance(names, (list, tuple)) or tuple(names) not in known_pairs:
             continue
         if not isinstance(replacement, (list, tuple)) or len(replacement) != 2:
             continue

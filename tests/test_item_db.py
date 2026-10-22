@@ -468,6 +468,19 @@ class TestAddableItemIds(unittest.TestCase):
             "minecraft:carrot_on_a_stick": ("Karottenangel", "Carrot on a Stick"),
             "minecraft:cod": ("Roher Kabeljau", "Raw Cod"),
             "minecraft:comparator": ("Komparator", "Comparator"),
+            "minecraft:axolotl_bucket": ("Axolotleimer", "Bucket of Axolotl"),
+            "minecraft:cod_bucket": ("Eimer voll Kabeljau", "Bucket of Cod"),
+            "minecraft:sulfur_cube_bucket": ("Eimer voll Schwefelwürfel", "Bucket of Sulfur Cube"),
+            "minecraft:infested_chiseled_stone_bricks": ("Befallener gemeißelter Steinziegel", "Infested Chiseled Stone Brick"),
+            "minecraft:stone_brick_slab": ("Steinziegelstufe", "Stone Brick Slab"),
+            "minecraft:normal_stone_slab": ("Steinstufe", "Stone Slab"),
+            "minecraft:smooth_quartz": ("Glatter Quarzblock", "Smooth Quartz Block"),
+            "minecraft:zombie_pigman_spawn_egg": ("Zombifizierter-Piglin-Spawn-Ei", "Zombified Piglin Spawn Egg"),
+            "minecraft:undyed_shulker_box": ("Shulker-Kiste (ungefärbt)", "Undyed Shulker Box"),
+            "minecraft:music_disc_creator_music_box": ("Lena Raine - Creator (Music Box)", "Music Disc Creator Music Box"),
+            "minecraft:light_block_7": ("Lichtblock 7", "Light Block 7"),
+            "minecraft:splash_potion": ("Wurftrank", "Splash Potion"),
+            "minecraft:lingering_potion": ("Verweiltrank", "Lingering Potion"),
         }
         for item_id, names in expected.items():
             self.assertEqual(ITEMS[item_id], names, item_id)

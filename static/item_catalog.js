@@ -149,7 +149,7 @@
         { de: "Verdächtige Suppe: Feuerresistenz (Zierlauch)", en: "Suspicious Stew: Fire Resistance (Allium)" },
         { de: "Verdächtige Suppe: Regeneration (Margerite)", en: "Suspicious Stew: Regeneration (Oxeye Daisy)" },
         { de: "Verdächtige Suppe: Wither (Witherrose)", en: "Suspicious Stew: Wither (Wither Rose)" },
-        { de: "Verdächtige Suppe: Nachtsicht (Fackellilie)", en: "Suspicious Stew: Night Vision (Torchflower)" },
+        { de: "Verdächtige Suppe: Nachtsicht (Fackelblume)", en: "Suspicious Stew: Night Vision (Torchflower)" },
         { de: "Verdächtige Suppe: Blindheit (Offene Augenblüte)", en: "Suspicious Stew: Blindness (Open Eyeblossom)" },
         { de: "Verdächtige Suppe: Übelkeit (Geschlossene Augenblüte)", en: "Suspicious Stew: Nausea (Closed Eyeblossom)" },
     ];
@@ -235,10 +235,10 @@
     ]);
     const POTION_VARIANT_BY_DAMAGE = {
         0: { de: "Wasserflasche", en: "Water Bottle", water: true },
-        1: { de: "Mundan", en: "Mundane" },
-        2: { de: "Mundan", en: "Mundane", modifierDe: "verlängert", modifierEn: "Long" },
-        3: { de: "Dickflüssig", en: "Thick" },
-        4: { de: "Seltsam", en: "Awkward" },
+        1: { de: "Gewöhnlich", en: "Mundane", adjective: true },
+        2: { de: "Gewöhnlich", en: "Mundane", adjective: true, modifierDe: "verlängert", modifierEn: "Long" },
+        3: { de: "Dickflüssig", en: "Thick", adjective: true },
+        4: { de: "Seltsam", en: "Awkward", adjective: true },
         5: { de: "Nachtsicht", en: "Night Vision" },
         6: { de: "Nachtsicht", en: "Night Vision", modifierDe: "verlängert", modifierEn: "Long" },
         7: { de: "Unsichtbarkeit", en: "Invisibility" },
@@ -253,8 +253,8 @@
         16: { de: "Schnelligkeit", en: "Swiftness", modifierDe: "verstärkt", modifierEn: "Strong" },
         17: { de: "Langsamkeit", en: "Slowness" },
         18: { de: "Langsamkeit", en: "Slowness", modifierDe: "verlängert", modifierEn: "Long" },
-        19: { de: "Wasseratmung", en: "Water Breathing" },
-        20: { de: "Wasseratmung", en: "Water Breathing", modifierDe: "verlängert", modifierEn: "Long" },
+        19: { de: "Unterwasseratmung", en: "Water Breathing" },
+        20: { de: "Unterwasseratmung", en: "Water Breathing", modifierDe: "verlängert", modifierEn: "Long" },
         21: { de: "Heilung", en: "Healing" },
         22: { de: "Heilung", en: "Healing", modifierDe: "verstärkt", modifierEn: "Strong" },
         23: { de: "Schaden", en: "Harming" },
@@ -270,28 +270,28 @@
         33: { de: "Stärke", en: "Strength", modifierDe: "verstärkt", modifierEn: "Strong" },
         34: { de: "Schwäche", en: "Weakness" },
         35: { de: "Schwäche", en: "Weakness", modifierDe: "verlängert", modifierEn: "Long" },
-        36: { de: "Wither", en: "Decay" },
-        37: { de: "Schildkrötenmeister", en: "Turtle Master" },
-        38: { de: "Schildkrötenmeister", en: "Turtle Master", modifierDe: "verlängert", modifierEn: "Long" },
-        39: { de: "Schildkrötenmeister", en: "Turtle Master", modifierDe: "verstärkt", modifierEn: "Strong" },
+        36: { de: "Verfall", en: "Decay" },
+        37: { de: "Schildkrötenmeister", en: "the Turtle Master" },
+        38: { de: "Schildkrötenmeister", en: "the Turtle Master", modifierDe: "verlängert", modifierEn: "Long" },
+        39: { de: "Schildkrötenmeister", en: "the Turtle Master", modifierDe: "verstärkt", modifierEn: "Strong" },
         40: { de: "Sanfter Fall", en: "Slow Falling" },
         41: { de: "Sanfter Fall", en: "Slow Falling", modifierDe: "verlängert", modifierEn: "Long" },
         42: { de: "Langsamkeit IV", en: "Slowness IV" },
-        43: { de: "Windgeladen", en: "Wind Charged" },
+        43: { de: "Windladen", en: "Wind Charging" },
         44: { de: "Weben", en: "Weaving" },
-        45: { de: "Schleimig", en: "Oozing" },
-        46: { de: "Befallen", en: "Infested" },
+        45: { de: "Sickern", en: "Oozing" },
+        46: { de: "Verseuchung", en: "Infestation" },
     };
     const POTION_WATER_NAMES = {
         "minecraft:potion": ["Wasserflasche", "Water Bottle"],
-        "minecraft:splash_potion": ["Wurfwasserflasche", "Splash Water Bottle"],
-        "minecraft:lingering_potion": ["Verweilwasserflasche", "Lingering Water Bottle"],
+        "minecraft:splash_potion": ["Werfbare Wasserflasche", "Splash Water Bottle"],
+        "minecraft:lingering_potion": ["Verweilende Wasserflasche", "Lingering Water Bottle"],
     };
     const POTION_ITEM_LABEL_PREFIXES = {
         "minecraft:potion": ["Trank", "Potion"],
         "minecraft:splash_potion": ["Wurftrank", "Splash Potion"],
         "minecraft:lingering_potion": ["Verweiltrank", "Lingering Potion"],
-        "minecraft:tipped_arrow": ["Getränkter Pfeil", "Tipped Arrow"],
+        "minecraft:tipped_arrow": ["Getränkter Pfeil", "Arrow"],
     };
 
     const SPECIAL_ITEM_NBT_HINTS = [
@@ -363,11 +363,16 @@
             const damage = damageKey(item ? item.damage : damageArg);
             const variant = POTION_VARIANT_BY_DAMAGE[damage];
             if (!variant) return null;
-            if (variant.water && POTION_WATER_NAMES[name]) return POTION_WATER_NAMES[name];
+            if (variant.water) return name === "minecraft:tipped_arrow"
+                ? ["Pfeil des Spritzens", "Arrow of Splashing"] : POTION_WATER_NAMES[name];
             const prefixes = POTION_ITEM_LABEL_PREFIXES[name];
             const deVariant = variantModifierText(variant.de, variant.modifierDe);
-            const enVariant = variantModifierText(variant.en, variant.modifierEn);
-            return [`${prefixes[0]}: ${deVariant}`, `${prefixes[1]} of ${enVariant}`];
+            // Mundane, Thick and Awkward describe the potion, not an effect.
+            const enName = variant.adjective
+                ? (name === "minecraft:tipped_arrow" ? `Tipped Arrow (${variant.en})`
+                    : prefixes[1].replace("Potion", `${variant.en} Potion`))
+                : `${prefixes[1]} of ${variant.en}`;
+            return [`${prefixes[0]}: ${deVariant}`, variantModifierText(enName, variant.modifierEn)];
         }
 
         function variantItemNamesForId(itemOrId, damageArg = null) {

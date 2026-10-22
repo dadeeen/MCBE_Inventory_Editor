@@ -113,7 +113,7 @@ def test_structural_bridge_maps_renamed_spawn_egg_by_entity_id() -> None:
 
     assert merged["minecraft:zombie_pigman_spawn_egg"] == (
         "Zombifizierter-Piglin-Spawn-Ei",
-        "Zombie Pigman Spawn Egg",
+        "Zombified Piglin Spawn Egg",
     )
 
 
@@ -198,6 +198,30 @@ def test_base_name_rule_keeps_custom_and_single_variant_labels() -> None:
     assert merged["minecraft:sandstone"] == ("Eigener Sandstein", "Custom Sandstone")
     # Die ID hat nur diese eine Variante; der Name ist eindeutig.
     assert merged["minecraft:yellow_flower"] == ("Löwenzahn", "Dandelion")
+
+
+def test_derived_and_variant_names_preserve_a_custom_label_in_either_language() -> None:
+    source_pairs = {
+        "minecraft:bed": ("Schwarzes Bett", "Black Bed"),
+        "minecraft:sandstone": ("Gemeißelter Sandstein", "Chiseled Sandstone"),
+    }
+    localizations = {
+        **SANDSTONE_LOCALIZATIONS,
+        "bed": ("Bett", "Bed"),
+        "bed.white": ("Weißes Bett", "White Bed"),
+        "bed.black": source_pairs["minecraft:bed"],
+    }
+    for language in range(2):
+        current = {item_id: tuple("Personal label" if i == language else name for i, name in enumerate(names)) for item_id, names in source_pairs.items()}
+        assert (
+            update_db.merge_items(
+                current,
+                {"bed": "Bed", "sandstone": "Sandstone"},
+                {"bed": "Bett", "sandstone": "Sandstein"},
+                item_localizations=localizations,
+            )
+            == current
+        )
 
 
 def test_label_bridge_skips_missing_or_placeholder_german_names() -> None:

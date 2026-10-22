@@ -3986,8 +3986,8 @@
       "Arrow"
     ],
     "minecraft:axolotl_bucket": [
-      "Axolotl Bucket",
-      "Axolotl Bucket"
+      "Axolotleimer",
+      "Bucket of Axolotl"
     ],
     "minecraft:axolotl_spawn_egg": [
       "Axolotl-Spawn-Ei",
@@ -4810,7 +4810,7 @@
       "Camel Spawn Egg"
     ],
     "minecraft:camera": [
-      "Camera",
+      "Kamera",
       "Camera"
     ],
     "minecraft:campfire": [
@@ -5230,8 +5230,8 @@
       "Raw Cod"
     ],
     "minecraft:cod_bucket": [
-      "Cod Bucket",
-      "Cod Bucket"
+      "Eimer voll Kabeljau",
+      "Bucket of Cod"
     ],
     "minecraft:cod_spawn_egg": [
       "Kabeljau-Spawn-Ei",
@@ -7730,24 +7730,24 @@
       "Ice Bomb"
     ],
     "minecraft:infested_chiseled_stone_bricks": [
-      "Infested Chiseled Stone Bricks",
-      "Infested Chiseled Stone Bricks"
+      "Befallener gemeißelter Steinziegel",
+      "Infested Chiseled Stone Brick"
     ],
     "minecraft:infested_cobblestone": [
       "Befallener Bruchstein",
       "Infested Cobblestone"
     ],
     "minecraft:infested_cracked_stone_bricks": [
-      "Infested Cracked Stone Bricks",
-      "Infested Cracked Stone Bricks"
+      "Befallener rissiger Steinziegel",
+      "Infested Cracked Stone Brick"
     ],
     "minecraft:infested_deepslate": [
       "Befallener Tiefenschiefer",
       "Infested Deepslate"
     ],
     "minecraft:infested_mossy_stone_bricks": [
-      "Infested Mossy Stone Bricks",
-      "Infested Mossy Stone Bricks"
+      "Befallener bemooster Steinziegel",
+      "Infested Mossy Stone Brick"
     ],
     "minecraft:infested_stone": [
       "Befallener Stein",
@@ -8054,67 +8054,67 @@
       "Light"
     ],
     "minecraft:light_block_0": [
-      "Light Block 0",
+      "Lichtblock 0",
       "Light Block 0"
     ],
     "minecraft:light_block_1": [
-      "Light Block 1",
+      "Lichtblock 1",
       "Light Block 1"
     ],
     "minecraft:light_block_10": [
-      "Light Block 10",
+      "Lichtblock 10",
       "Light Block 10"
     ],
     "minecraft:light_block_11": [
-      "Light Block 11",
+      "Lichtblock 11",
       "Light Block 11"
     ],
     "minecraft:light_block_12": [
-      "Light Block 12",
+      "Lichtblock 12",
       "Light Block 12"
     ],
     "minecraft:light_block_13": [
-      "Light Block 13",
+      "Lichtblock 13",
       "Light Block 13"
     ],
     "minecraft:light_block_14": [
-      "Light Block 14",
+      "Lichtblock 14",
       "Light Block 14"
     ],
     "minecraft:light_block_15": [
-      "Light Block 15",
+      "Lichtblock 15",
       "Light Block 15"
     ],
     "minecraft:light_block_2": [
-      "Light Block 2",
+      "Lichtblock 2",
       "Light Block 2"
     ],
     "minecraft:light_block_3": [
-      "Light Block 3",
+      "Lichtblock 3",
       "Light Block 3"
     ],
     "minecraft:light_block_4": [
-      "Light Block 4",
+      "Lichtblock 4",
       "Light Block 4"
     ],
     "minecraft:light_block_5": [
-      "Light Block 5",
+      "Lichtblock 5",
       "Light Block 5"
     ],
     "minecraft:light_block_6": [
-      "Light Block 6",
+      "Lichtblock 6",
       "Light Block 6"
     ],
     "minecraft:light_block_7": [
-      "Light Block 7",
+      "Lichtblock 7",
       "Light Block 7"
     ],
     "minecraft:light_block_8": [
-      "Light Block 8",
+      "Lichtblock 8",
       "Light Block 8"
     ],
     "minecraft:light_block_9": [
-      "Light Block 9",
+      "Lichtblock 9",
       "Light Block 9"
     ],
     "minecraft:light_blue_bundle": [
@@ -8295,7 +8295,7 @@
     ],
     "minecraft:lily_of_the_valley": [
       "Maiglöckchen",
-      "Lily Of The Valley"
+      "Lily of the Valley"
     ],
     "minecraft:lime_bundle": [
       "Hellgrünes Bündel",
@@ -8382,7 +8382,7 @@
       "Lime Wool Stairs"
     ],
     "minecraft:lingering_potion": [
-      "Lingering Potion",
+      "Verweiltrank",
       "Lingering Potion"
     ],
     "minecraft:lit_blast_furnace": [
@@ -8798,11 +8798,11 @@
       "Mushroom Stew"
     ],
     "minecraft:music_disc_11": [
-      "Music Disc 11",
+      "C418 - 11",
       "Music Disc 11"
     ],
     "minecraft:music_disc_13": [
-      "Music Disc 13",
+      "C418 - 13",
       "Music Disc 13"
     ],
     "minecraft:music_disc_5": [
@@ -8814,7 +8814,7 @@
       "Music Disc Blocks"
     ],
     "minecraft:music_disc_bounce": [
-      "Music Disc Bounce",
+      "fingerspit - Bounce",
       "Music Disc Bounce"
     ],
     "minecraft:music_disc_cat": [
@@ -8826,11 +8826,11 @@
       "Music Disc Chirp"
     ],
     "minecraft:music_disc_creator": [
-      "Music Disc Creator",
+      "Lena Raine - Creator",
       "Music Disc Creator"
     ],
     "minecraft:music_disc_creator_music_box": [
-      "Music Disc Creator Music Box",
+      "Lena Raine - Creator (Music Box)",
       "Music Disc Creator Music Box"
     ],
     "minecraft:music_disc_far": [
@@ -8858,7 +8858,7 @@
       "Music Disc Pigstep"
     ],
     "minecraft:music_disc_precipice": [
-      "Music Disc Precipice",
+      "Aaron Cherof - Precipice",
       "Music Disc Precipice"
     ],
     "minecraft:music_disc_relic": [
@@ -9042,8 +9042,8 @@
       "Normal Stone Double Slab"
     ],
     "minecraft:normal_stone_slab": [
-      "Normal Stone Slab",
-      "Normal Stone Slab"
+      "Steinstufe",
+      "Stone Slab"
     ],
     "minecraft:normal_stone_stairs": [
       "Steintreppe",
@@ -9055,7 +9055,7 @@
     ],
     "minecraft:npc_spawn_egg": [
       "NPC-Spawn-Ei",
-      "Npc Spawn Egg"
+      "NPC Spawn Egg"
     ],
     "minecraft:oak_boat": [
       "Eichenholzboot",
@@ -9994,8 +9994,8 @@
       "Pufferfish"
     ],
     "minecraft:pufferfish_bucket": [
-      "Pufferfish Bucket",
-      "Pufferfish Bucket"
+      "Eimer voll Kugelfisch",
+      "Bucket of Pufferfish"
     ],
     "minecraft:pufferfish_spawn_egg": [
       "Kugelfisch-Spawn-Ei",
@@ -10234,8 +10234,8 @@
       "C418 - blocks"
     ],
     "minecraft:record_bounce": [
-      "Fingerspit - Bounce",
-      "Fingerspit - Bounce"
+      "fingerspit - Bounce",
+      "fingerspit - Bounce"
     ],
     "minecraft:record_cat": [
       "C418 - Katze",
@@ -10562,8 +10562,8 @@
       "Raw Salmon"
     ],
     "minecraft:salmon_bucket": [
-      "Salmon Bucket",
-      "Salmon Bucket"
+      "Eimer voll Lachs",
+      "Bucket of Salmon"
     ],
     "minecraft:salmon_spawn_egg": [
       "Lachs-Spawn-Ei",
@@ -10842,8 +10842,8 @@
       "Smooth Basalt"
     ],
     "minecraft:smooth_quartz": [
-      "Smooth Quartz",
-      "Smooth Quartz"
+      "Glatter Quarzblock",
+      "Smooth Quartz Block"
     ],
     "minecraft:smooth_quartz_double_slab": [
       "Glatte Quarz-Doppelstufe",
@@ -10978,7 +10978,7 @@
       "Spire Armor Trim"
     ],
     "minecraft:splash_potion": [
-      "Splash Potion",
+      "Wurftrank",
       "Splash Potion"
     ],
     "minecraft:sponge": [
@@ -11150,7 +11150,7 @@
       "Stone Brick Double Slab"
     ],
     "minecraft:stone_brick_slab": [
-      "Stone Brick Slab",
+      "Steinziegelstufe",
       "Stone Brick Slab"
     ],
     "minecraft:stone_brick_stairs": [
@@ -11382,8 +11382,8 @@
       "Sulfur Bricks"
     ],
     "minecraft:sulfur_cube_bucket": [
-      "Sulfur Cube Bucket",
-      "Sulfur Cube Bucket"
+      "Eimer voll Schwefelwürfel",
+      "Bucket of Sulfur Cube"
     ],
     "minecraft:sulfur_cube_spawn_egg": [
       "Schwefelwürfel-Spawn-Ei",
@@ -11434,8 +11434,8 @@
       "Sweet Berry Bush"
     ],
     "minecraft:tadpole_bucket": [
-      "Tadpole Bucket",
-      "Tadpole Bucket"
+      "Eimer voll Kaulquappen",
+      "Bucket of Tadpole"
     ],
     "minecraft:tadpole_spawn_egg": [
       "Kaulquappen-Spawn-Ei",
@@ -11526,8 +11526,8 @@
       "Trident"
     ],
     "minecraft:trip_wire": [
-      "Trip Wire",
-      "Trip Wire"
+      "Stolperdraht",
+      "Tripwire"
     ],
     "minecraft:tripwire": [
       "Stolperdraht",
@@ -11542,8 +11542,8 @@
       "Tropical Fish"
     ],
     "minecraft:tropical_fish_bucket": [
-      "Tropical Fish Bucket",
-      "Tropical Fish Bucket"
+      "Eimer voll Tropenfisch",
+      "Bucket of Tropical Fish"
     ],
     "minecraft:tropical_fish_spawn_egg": [
       "Tropenfisch-Spawn-Ei",
@@ -11638,7 +11638,7 @@
       "Underwater Torch"
     ],
     "minecraft:undyed_shulker_box": [
-      "Undyed Shulker Box",
+      "Shulker-Kiste (ungefärbt)",
       "Undyed Shulker Box"
     ],
     "minecraft:unknown": [
@@ -12443,7 +12443,7 @@
     ],
     "minecraft:zombie_pigman_spawn_egg": [
       "Zombifizierter-Piglin-Spawn-Ei",
-      "Zombie Pigman Spawn Egg"
+      "Zombified Piglin Spawn Egg"
     ],
     "minecraft:zombie_spawn_egg": [
       "Zombie-Spawn-Ei",

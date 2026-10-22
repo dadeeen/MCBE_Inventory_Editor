@@ -420,11 +420,11 @@ def _apply_bundled_curation(
     for source in aliases:
         if source in items and source not in bundled_items:
             del items[source]
+    items.update(reviewed_item_label_repairs(items, bundled_items))
     for item_id, bundled_pair in bundled_items.items():
         current = items.get(item_id)
-        if current is None or (_looks_like_fallback_pair(current) and not _looks_like_fallback_pair(bundled_pair)):
+        if current is None or (_looks_like_fallback_pair(current) and current[1] == bundled_pair[1] and not _looks_like_fallback_pair(bundled_pair)):
             items[item_id] = bundled_pair
-    items.update(reviewed_item_label_repairs(items, bundled_items))
     for section, reviewed in (("effects", bundled_effects), ("enchantments", bundled_enchantments)):
         try:
             db[section.upper()] = reconcile_numeric_catalog(db[section.upper()], reviewed, kind=section)
