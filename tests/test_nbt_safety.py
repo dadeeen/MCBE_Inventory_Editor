@@ -527,7 +527,7 @@ class NbtSafetyTests(unittest.TestCase):
         self.assertEqual(view["value"], [1, 2, 3])
         json.dumps(inventory)
 
-    def test_duplicate_original_editable_slots_are_not_cloned_on_save(self):
+    def test_duplicate_original_editable_slots_are_preserved_on_save(self):
         player = nbt.CompoundTag(
             {
                 "Inventory": nbt.ListTag(
@@ -539,14 +539,11 @@ class NbtSafetyTests(unittest.TestCase):
             }
         )
 
-        result = build_inventory_nbt(
-            player,
-            [{"slot": 0, "name": "minecraft:stone", "count": 1, "damage": 0, "display_name": "", "lore": [], "enchantments": []}],
-            ENCHANTMENTS,
-        )
+        visible, _original = nbt_to_json(player)
+        result = build_inventory_nbt(player, list(visible.values()), ENCHANTMENTS)
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["Name"].py_data, "minecraft:stone")
+        self.assertEqual(result.save_to(), player["Inventory"].save_to())
+        self.assertEqual(count_hidden_unknown_slots(player)["inventory_protected_known_slots"], [0])
 
     def test_protected_duplicate_after_visible_item_does_not_hide_visible_source_nbt(self):
         player = nbt.CompoundTag(

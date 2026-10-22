@@ -424,6 +424,8 @@ def _resolve_base_item_tag(
 
     if explicit_source:
         source_items = source_item_maps.get((source_player_key, source_container), {})
+        if source_slot in source_items and source_items[source_slot] is None:
+            raise _unresolved_item_origin_error(validated_item)
         source_item_tag = source_items.get(source_slot)
         source_matches = bool(source_item_tag and _core._tag_item_name_matches(source_item_tag, name))
         is_cross_player = source_player_key != target_player_key
@@ -450,6 +452,8 @@ def _resolve_base_item_tag(
         return None
 
     if source_slot != slot:
+        if source_slot in original_items and original_items[source_slot] is None:
+            raise _unresolved_item_origin_error(validated_item)
         source_item_tag = original_items.get(source_slot)
         source_matches = bool(source_item_tag and _core._tag_item_name_matches(source_item_tag, name))
         if source_matches and source_item_digest is not None:
@@ -460,6 +464,8 @@ def _resolve_base_item_tag(
             raise _unresolved_item_origin_error(validated_item)
         return None
 
+    if slot in original_items and original_target_tag is None:
+        raise _unresolved_item_origin_error(validated_item)
     target_matches = _core._tag_item_name_matches(original_target_tag, name)
     if target_matches and source_item_digest is not None:
         target_matches = _hmac.compare_digest(_item_source_digest(original_target_tag), source_item_digest)
@@ -468,6 +474,17 @@ def _resolve_base_item_tag(
     if requires_original or source_item_digest is not None:
         raise _unresolved_item_origin_error(validated_item)
     return None
+
+
+def _ambiguous_item_slot_error(label, slot):
+    return ValueError(
+        _core.t(
+            "{label}-Slot {slot} enthält mehrere Originaleinträge und ist schreibgeschützt. "
+            "Bitte den Slot unverändert lassen und nicht als Kopierquelle verwenden.",
+            label=label,
+            slot=slot,
+        )
+    )
 
 
 def _build_item_nbt_list(
@@ -494,6 +511,13 @@ def _build_item_nbt_list(
     original_sequence = list(original_tag or [])
     original_items = dict(extra_original_items or {})
     original_items.update(_core._original_items_by_slot(player_tag, tag_name))
+    ambiguous_slots = {slot for slot, item in original_items.items() if item is None and slot in valid_slots}
+    visible_ambiguous_items = {
+        _core._read_item_slot(item): item
+        for item in original_sequence
+        if _core._read_item_slot(item) in ambiguous_slots and _core._item_entry_has_editable_shape(item)
+    }
+    ambiguous_slots = set(visible_ambiguous_items)
     protected_only_slots = _core._protected_only_item_slots(original_sequence, valid_slots)
     source_item_maps = source_item_maps or {}
     expected_source_container = "ender_chest" if is_ender_chest else "inventory"
@@ -526,6 +550,23 @@ def _build_item_nbt_list(
         if slot in seen_slots:
             raise ValueError(_core.t("Doppelter {label}-Slot empfangen: {slot}", label=duplicate_label, slot=slot))
         seen_slots.add(slot)
+        if slot in ambiguous_slots:
+            visible = visible_ambiguous_items[slot]
+            if (
+                validated_item["replace_original_nbt"]
+                or validated_item["source_slot"] != slot
+                or validated_item["source_player_key"] not in (None, target_player_key)
+                or validated_item["source_container"] not in (None, expected_source_container)
+                or not _core._tag_item_name_matches(visible, validated_item["name"])
+                or validated_item["source_item_digest"] is not None
+                and not _item_source_matches(visible, validated_item["name"], validated_item["source_item_digest"])
+            ):
+                raise _ambiguous_item_slot_error(duplicate_label, slot)
+            item_compound = _build_validated_item(validated_item, visible, enchantments_db, duplicate_label, is_ender_chest)
+            if _core.save_player_nbt(_core.nbt.NamedTag(item_compound)) != _core.save_player_nbt(_core.nbt.NamedTag(visible)):
+                raise _ambiguous_item_slot_error(duplicate_label, slot)
+            new_items_by_slot[slot] = item_compound
+            continue
         base_item_tag = _resolve_base_item_tag(
             validated_item,
             original_items,
@@ -541,8 +582,10 @@ def _build_item_nbt_list(
         item_compound = _build_validated_item(validated_item, base_item_tag, enchantments_db, duplicate_label, is_ender_chest)
         new_items_by_slot[slot] = item_compound
 
+    if missing_ambiguous := ambiguous_slots - seen_slots:
+        raise _ambiguous_item_slot_error(duplicate_label, min(missing_ambiguous))
     return _core.nbt.ListTag(
-        _core._merge_items_into_original_sequence(original_sequence, valid_slots, new_items_by_slot),
+        _core._merge_items_into_original_sequence(original_sequence, valid_slots, new_items_by_slot, preserved_slots=ambiguous_slots),
         original_tag.list_data_type if _core._is_list_tag(original_tag) else 1,
     )
 

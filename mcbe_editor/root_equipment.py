@@ -616,7 +616,9 @@ def apply_root_equipment_writes(
         return
 
     original_items = dict(extra_original_items or {})
-    original_items.update(root_equipment_original_items_by_slot(player_tag))
+    # Inventory entries also take precedence as copy/move sources. A shadowed
+    # root entry must not replace their identity or an ambiguous-source marker.
+    original_items.update({slot: item for slot, item in root_equipment_original_items_by_slot(player_tag).items() if slot in writable})
     source_item_maps = source_item_maps or {}
 
     new_items_by_slot: dict[int, Any] = {}

@@ -2174,7 +2174,7 @@ class TestBuildInventoryNbt(unittest.TestCase):
         player = nbt.CompoundTag({"Inventory": nbt.ListTag([orig])})
         result = build_inventory_nbt(
             player,
-            [{"slot": 0, "name": "minecraft:stone", "count": 2, "damage": 1}],
+            [{"slot": 0, "name": "minecraft:stone", "count": 2, "damage": 0}],
             ENCHANTMENTS,
         )
         self.assertEqual(len(result), 1)

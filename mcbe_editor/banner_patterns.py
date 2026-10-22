@@ -51,6 +51,7 @@ BANNER_PATTERN_TEXTURES = {
     "tts": "triangles_top",
 }
 BANNER_TEXTURES = {code: f"entity/banner/banner_{name}" for code, name in {"base": "base", **BANNER_PATTERN_TEXTURES}.items()}
+BANNER_TEXTURES["illager"] = "entity/banner/banner_illager"
 
 
 def crop_banner_texture(png: bytes) -> bytes:

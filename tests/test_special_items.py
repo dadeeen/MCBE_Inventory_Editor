@@ -54,6 +54,7 @@ def test_empty_special_editor_echo_is_byte_preserving(name):
     [
         item("minecraft:diamond"),
         item("minecraft:diamond", count=65),
+        item("minecraft:banner"),
         item("minecraft:writable_book", pages=nbt.ListTag([nbt.CompoundTag({"text": nbt.StringTag("Keep"), "addon": nbt.IntTag(7)})], 10)),
     ],
 )
@@ -64,6 +65,8 @@ def test_browser_container_echo_preserves_sparse_storage_and_reverted_nested_edi
     nested = data["items"][0]
     if nested["special_item"] is not None:
         nested["special_edit"] = {"kind": nested["special_item"]["kind"], "data": deepcopy(nested["special_item"]["data"])}
+        if nested["special_item"]["kind"] == "banner":
+            nested["special_edit"]["data"]["type"] = 0
     payload["special_edit"] = {"kind": "bundle", "data": data}
     result = run_node(
         "const item = "
@@ -368,6 +371,150 @@ def test_banner_layers_reorder_with_unknown_metadata_and_base_color_preserved():
     assert result["tag"]["Patterns"][1]["addon"].py_data == 8
 
 
+def test_ominous_banner_conversion_clears_patterns_but_preserves_unrelated_metadata():
+    original = save(item("minecraft:banner", addon=nbt.LongTag(47)), {"patterns": [{"pattern": "bo", "color": 4}]})
+    original["Damage"] = nbt.ShortTag(4)
+    before = original.save_to()
+    result = save(original, {"type": 1, "patterns": []})
+    assert result["tag"]["Type"].py_data == 1
+    assert result["Damage"].py_data == 15
+    assert "Patterns" not in result["tag"]
+    assert result["tag"]["addon"].py_data == 47
+    assert original.save_to() == before
+
+
+@pytest.mark.parametrize("base_color", [4, 15])
+def test_existing_ominous_hybrid_keeps_its_design_on_echo_and_general_edits(base_color):
+    original = save(item("minecraft:banner", addon=nbt.LongTag(47)), {"patterns": [{"pattern": "bri", "color": 1}]})
+    original["Damage"] = nbt.ShortTag(base_color)
+    original["tag"]["Type"] = nbt.IntTag(1)
+    original["tag"]["Patterns"][0]["addon"] = nbt.IntTag(8)
+    before = original.save_to()
+    data = parsed(original)["special_item"]["data"]
+    assert save(original, data).save_to() == before
+    edited = save(original, data, display_name="Custom name", lore=["Custom lore"])
+    assert parsed(edited)["display_name"] == "Custom name"
+    assert parsed(edited)["lore"] == ["Custom lore"]
+    assert edited["Damage"].save_to() == original["Damage"].save_to()
+    for key in ("Type", "Patterns", "addon"):
+        assert edited["tag"][key].save_to() == original["tag"][key].save_to()
+    assert save(edited, parsed(edited)["special_item"]["data"]).save_to() == edited.save_to()
+    normal = save(original, {**data, "type": 0})
+    assert normal["tag"]["Patterns"].save_to() == original["tag"]["Patterns"].save_to()
+    assert normal["Damage"].py_data == base_color
+    assert original.save_to() == before
+
+
+@pytest.mark.parametrize("change", [{"pattern": "mc"}, {"color": 5}])
+def test_existing_ominous_hybrid_rejects_pattern_edits(change):
+    original = save(item("minecraft:banner"), {"patterns": [{"pattern": "bri", "color": 1}]})
+    original["tag"]["Type"] = nbt.IntTag(1)
+    before = original.save_to()
+    data = parsed(original)["special_item"]["data"]
+    data["patterns"][0].update(change)
+    with pytest.raises(ValueError, match="Vanilla-Design"):
+        save(original, data)
+    assert original.save_to() == before
+
+
+def test_new_ominous_banner_uses_engine_type_without_synthetic_patterns():
+    result = save(item("minecraft:banner"), {"type": 1, "patterns": []})
+    assert result["tag"]["Type"].py_data == 1
+    assert result["Damage"].py_data == 15
+    assert "Patterns" not in result["tag"]
+
+
+@pytest.mark.parametrize("explicit_type", [False, True])
+def test_normal_banner_type_echo_preserves_absent_and_existing_tags(explicit_type):
+    original = item("minecraft:banner", **({"Type": nbt.IntTag(0), "addon": nbt.LongTag(9)} if explicit_type else {}))
+    data = parsed(original)["special_item"]["data"]
+    data["type"] = 0
+    assert save(original, data).save_to() == original.save_to()
+
+
+@pytest.mark.parametrize("already_ominous", [False, True])
+def test_ominous_banner_rejects_new_custom_pattern_combinations(already_ominous):
+    original = item("minecraft:banner", **({"Type": nbt.IntTag(1)} if already_ominous else {}))
+    before = original.save_to()
+    with pytest.raises(ValueError, match="Vanilla-Design"):
+        save(original, {"type": 1, "patterns": [{"pattern": "bri", "color": 1}]})
+    assert original.save_to() == before
+
+
+def test_bundle_stack_keys_distinguish_typed_hidden_data_and_ignore_quantity_and_slot():
+    children = [item("minecraft:torch", slot=index, count=index + 1, addon=nbt.IntTag(9)) for index in range(3)]
+    children[2]["tag"]["addon"] = nbt.LongTag(9)
+    original = item("minecraft:bundle", storage_item_component_content=nbt.ListTag(children, 10))
+    keys = [entry["stack_key"] for entry in parsed(original)["special_item"]["data"]["items"]]
+    assert keys[0] == keys[1]
+    assert keys[0] != keys[2]
+
+
+@pytest.mark.parametrize("parent,key", [("undyed_shulker_box", "Items"), ("bundle", "storage_item_component_content")])
+def test_explicit_container_copy_preserves_original_nbt_and_independent_edits(parent, key):
+    child = item("minecraft:diamond", slot=7, count=2, addon=nbt.LongTag(91))
+    child["Damage"] = nbt.IntTag(0)
+    original = item("minecraft:" + parent, **{key: nbt.ListTag([child], 10)})
+    data = parsed(original)["special_item"]["data"]
+    copied = deepcopy(data["items"][0])
+    copied["slot"] = 3
+    copied["copy_source_index"] = copied.pop("source_index")
+    copied["display_name"] = "Copy"
+    data["items"].append(copied)
+    result = save(original, data)
+    by_slot = {entry["Slot"].py_data: entry for entry in result["tag"][key]}
+    assert by_slot[7].save_to() == child.save_to()
+    assert by_slot[3]["tag"]["addon"].py_data == 91
+    assert isinstance(by_slot[3]["Damage"], nbt.IntTag)
+    assert by_slot[3]["tag"]["display"]["Name"].py_data == "Copy"
+    assert original["tag"][key][0].save_to() == child.save_to()
+    copied["source_index"] = 0
+    with pytest.raises(ValueError, match="nur eine Originalquelle"):
+        save(original, data)
+    del copied["source_index"]
+    copied["copy_source_index"] = 99
+    with pytest.raises(ValueError):
+        save(original, data)
+
+
+def test_bundle_copy_rejects_overflow_without_mutating_source():
+    original = item("minecraft:bundle", storage_item_component_content=nbt.ListTag([item("minecraft:diamond", count=33)], 10))
+    before = original.save_to()
+    data = parsed(original)["special_item"]["data"]
+    copy = {**data["items"][0], "slot": 1, "copy_source_index": 0}
+    del copy["source_index"]
+    data["items"].append(copy)
+    with pytest.raises(ValueError, match="zu voll"):
+        save(original, data)
+    assert original.save_to() == before
+
+
+def test_copied_nested_bundle_keeps_descendant_origins_and_independent_edits():
+    book = item("minecraft:writable_book", pages=nbt.ListTag([nbt.CompoundTag({"text": nbt.StringTag("Original"), "addon": nbt.LongTag(99)})], 10))
+    bundle = item("minecraft:bundle", slot=2, storage_item_component_content=nbt.ListTag([book], 10))
+    original = item("minecraft:undyed_shulker_box", Items=nbt.ListTag([bundle], 10))
+    before = original.save_to()
+    data = parsed(original)["special_item"]["data"]
+    copied = deepcopy(data["items"][0])
+    copied["slot"] = 5
+    copied["copy_source_index"] = copied.pop("source_index")
+    nested = copied["special_item"]["data"]
+    child = nested["items"][0]
+    page_data = deepcopy(child["special_item"]["data"])
+    page_data["pages"][0]["text"] = "Independent copy"
+    child["special_edit"] = {"kind": "book", "data": page_data}
+    copied["special_edit"] = {"kind": "bundle", "data": nested}
+    data["items"].append(copied)
+    result = save(original, data)
+    by_slot = {entry["Slot"].py_data: entry for entry in result["tag"]["Items"]}
+    assert by_slot[2].save_to() == bundle.save_to()
+    page = by_slot[5]["tag"]["storage_item_component_content"][0]["tag"]["pages"][0]
+    assert page["text"].py_data == "Independent copy"
+    assert isinstance(page["addon"], nbt.LongTag)
+    assert page["addon"].py_data == 99
+    assert original.save_to() == before
+
+
 def test_firework_edit_preserves_absent_defaults_in_untouched_effects():
     minimal = nbt.CompoundTag({"FireworkColor": nbt.ByteArrayTag([1]), "addon": nbt.StringTag("keep")})
     original = item("minecraft:firework_rocket", Fireworks=nbt.CompoundTag({"Explosions": nbt.ListTag([minimal], 10)}))
@@ -417,7 +564,7 @@ def test_star_icon_follows_colors_but_preserves_explicit_override():
         item("minecraft:bundle", storage_item_component_content=nbt.StringTag("opaque")),
         item("minecraft:bundle", storage_item_component_content=nbt.ListTag([nbt.CompoundTag({"Slot": nbt.ByteTag(0), "addon": nbt.IntTag(2)})], 10)),
         item("minecraft:writable_book", pages=nbt.ListTag([nbt.StringTag("java format")], 8)),
-        item("minecraft:banner", Type=nbt.IntTag(1)),
+        item("minecraft:banner", Type=nbt.IntTag(2)),
         item("minecraft:fireworks", Fireworks=nbt.CompoundTag({"Flight": nbt.IntTag(3)})),
     ],
 )

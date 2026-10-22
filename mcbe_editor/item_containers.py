@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from copy import deepcopy
 
 from . import nbt
@@ -47,8 +48,30 @@ def read_contents(item, kind, parse_child, *, depth, budget):
             if budget[0] < 0:
                 reject()
             parsed["source_index"] = index
+            # A browser may combine stacks only when their hidden, typed data
+            # agrees as well as the editable fields. Fresh ordinary items have
+            # the same baseline; unusual shapes stay conservatively separate.
+            if kind == "bundle":
+                baseline = nbt.CompoundTag(
+                    {
+                        "Name": nbt.StringTag(parsed["name"]),
+                        "Count": nbt.ByteTag(1),
+                        "Damage": nbt.ShortTag(entry["Damage"].py_data if type(entry.get("Damage")) is nbt.ShortTag else 0),
+                        "WasPickedUp": nbt.ByteTag(0),
+                    }
+                )
+                digest = _stack_key(entry)
+                parsed["stack_key"] = "plain" if digest == _stack_key(baseline) else digest
             items.append(parsed)
     return {"items": items}
+
+
+def _stack_key(item):
+    # Compare complete typed values, including opaque data and raw strings.
+    # Only position and quantity differ between otherwise identical stacks.
+    data = nbt.CompoundTag({key: item[key] for key in sorted(item) if key not in {"Slot", "Count"}}).save_to()
+    count_type = type(item.get("Count")).__name__.encode("ascii")
+    return hashlib.sha256(count_type + data).hexdigest()
 
 
 def item_weight(item, *, depth=0):
@@ -106,13 +129,21 @@ def write_contents(item, kind, data, build_child, *, depth, budget):
             reject("Ein Container-Slot ist mehrfach belegt.")
         seen_slots.add(slot)
         source = child.get("source_index")
+        copied_source = child.get("copy_source_index")
+        if copied_source is not None:
+            if source is not None:
+                reject("Ein Item darf nur eine Originalquelle haben.")
+            source = copied_source
         base = None
         if source is not None:
             integer(source, 0, len(originals) - 1)
-            if source in seen_sources:
+            if source in seen_sources and copied_source is None:
                 reject("Ein Originaleintrag wird im Spezialeditor mehrfach verwendet.")
-            seen_sources.add(source)
+            if copied_source is None:
+                seen_sources.add(source)
             base = originals[source]
+            if _is_empty_entry(base):
+                reject("Ein leerer Eintrag ist keine kopierbare Originalquelle.")
         built = build_child(child, base, capacity, depth + 1, budget)
         if kind_for_item(built) == "shulker":
             reject("Shulkerkisten dürfen nicht in Bundles oder andere Shulkerkisten gelegt werden.")

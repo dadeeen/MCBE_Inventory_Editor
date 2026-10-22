@@ -195,9 +195,7 @@ def _read_metadata(item, kind):
             )
         return data
     if kind == "banner":
-        # Ominous banners use a separate engine-owned type and implicit patterns.
-        if scalar(tag, "Type", nbt.IntTag, 0) != 0:
-            reject()
+        banner_type = integer(scalar(tag, "Type", nbt.IntTag, 0), 0, 1)
         patterns = compound_list(tag, "Patterns", LIMITS["patterns"])
         data = []
         for i, entry in enumerate(patterns):
@@ -205,7 +203,7 @@ def _read_metadata(item, kind):
             if pattern not in BANNER_PATTERNS:
                 reject()
             data.append({"source_index": i, "pattern": pattern, "color": integer(scalar(entry, "Color", nbt.IntTag, -1), 0, 15)})
-        return {"patterns": data}
+        return {"patterns": data, **({"type": 1} if banner_type else {})}
     if kind == "fireworks":
         firework = compound(tag, "Fireworks")
         return {
@@ -277,14 +275,25 @@ def _apply_metadata(item, kind, data):
             if row.get("source_index") is None and "photoname" not in entry:
                 entry["photoname"] = nbt.StringTag("")
 
-        tag["pages"] = _write_rows(data["pages"], compound_list(tag, "pages", LIMITS["pages"]), LIMITS["pages"], update_page)
+        pages = _write_rows(data["pages"], compound_list(tag, "pages", LIMITS["pages"]), LIMITS["pages"], update_page)
+        if "pages" in tag or pages:
+            tag["pages"] = pages
         if signed:
             for field in ("title", "author"):
-                set_scalar(tag, field, text_value(data[field], LIMITS[field + "_length"]), nbt.StringTag)
-            if "generation" not in tag:
-                tag["generation"] = nbt.IntTag(0)
+                set_scalar(tag, field, text_value(data[field], LIMITS[field + "_length"]), nbt.StringTag, "")
+            # Signing creates generation; this editor changes an already signed
+            # book and does not own its generation or other absent defaults.
     elif kind == "banner":
-        exact_fields(data, {"patterns"})
+        exact_fields(data, {"patterns"}, {"type"})
+        previous_type = scalar(tag, "Type", nbt.IntTag, 0)
+        banner_type = integer(data.get("type", previous_type), 0, 1)
+        previous_patterns = _read_metadata(item, kind)["patterns"]
+        if banner_type == 1 and data["patterns"] and (previous_type != 1 or data["patterns"] != previous_patterns):
+            reject("Ein ominöses Banner verwendet das feste Vanilla-Design ohne zusätzliche Muster.")
+        if banner_type != previous_type:
+            tag["Type"] = nbt.IntTag(banner_type)
+        if banner_type == 1 and (previous_type != 1 or data["patterns"] != previous_patterns):
+            item["Damage"] = nbt.ShortTag(15)
 
         def update_pattern(entry, row):
             exact_fields(row, {"pattern", "color"}, {"source_index"})
@@ -293,14 +302,20 @@ def _apply_metadata(item, kind, data):
             set_scalar(entry, "Pattern", row["pattern"], nbt.StringTag)
             set_scalar(entry, "Color", integer(row["color"], 0, 15), nbt.IntTag)
 
-        tag["Patterns"] = _write_rows(data["patterns"], compound_list(tag, "Patterns", LIMITS["patterns"]), LIMITS["patterns"], update_pattern)
+        # Bedrock can render Patterns over the illager motif. Preserve existing
+        # hybrids on echo, but create the vanilla design without extra layers.
+        if data["patterns"] != previous_patterns:
+            if banner_type == 1:
+                tag.pop("Patterns", None)
+            else:
+                tag["Patterns"] = _write_rows(data["patterns"], compound_list(tag, "Patterns", LIMITS["patterns"]), LIMITS["patterns"], update_pattern)
     elif kind == "fireworks":
         exact_fields(data, {"flight", "explosions"})
         firework = compound(tag, "Fireworks")
         set_scalar(firework, "Flight", integer(data["flight"], 1, 3), nbt.ByteTag, 1)
-        firework["Explosions"] = _write_rows(
-            data["explosions"], compound_list(firework, "Explosions", LIMITS["explosions"]), LIMITS["explosions"], _apply_explosion
-        )
+        explosions = _write_rows(data["explosions"], compound_list(firework, "Explosions", LIMITS["explosions"]), LIMITS["explosions"], _apply_explosion)
+        if "Explosions" in firework or explosions:
+            firework["Explosions"] = explosions
         tag["Fireworks"] = firework
     elif kind == "firework_star":
         exact_fields(data, {"explosions"})
@@ -312,7 +327,7 @@ def _apply_metadata(item, kind, data):
         tag["FireworksItem"] = _write_rows(data["explosions"], originals, 1, _apply_explosion)[0]
         # Bedrock's star icon uses an ARGB color. Preserve an explicit custom
         # override; refresh only the derived dye mixture when colors change.
-        if old_color is None or old_colors and old_color == _mixed_star_color(old_colors):
+        if old_colors != data["explosions"][0]["colors"] and (old_color is None or old_colors and old_color == _mixed_star_color(old_colors)):
             set_scalar(tag, "customColor", _mixed_star_color(data["explosions"][0]["colors"]), nbt.IntTag)
     item["tag"] = tag
 
@@ -334,6 +349,11 @@ def _consume_preserved_contents(item, parse_child, depth, budget):
 
 
 def _same_edit_data(kind, requested, current):
+    if kind == "banner" and isinstance(requested, dict):
+        # Type 0 may be implicit. Echoing it must not create a missing tag;
+        # omitting Type also preserves an existing ominous banner.
+        banner_type = requested.get("type", current.get("type", 0))
+        return type(banner_type) is int and {**requested, "type": banner_type} == {**current, "type": current.get("type", 0)}
     if kind not in {"shulker", "bundle"} or requested == current:
         return requested == current
     if not isinstance(requested, dict) or set(requested) != {"items"}:
@@ -344,6 +364,7 @@ def _same_edit_data(kind, requested, current):
     # Save payloads omit read-only presentation data. Comparing it would turn
     # a reverted edit into a real write, normalizing otherwise untouched lists.
     presentation = {
+        "stack_key",
         "special_item",
         "nbt_view",
         "item_tag_opaque",

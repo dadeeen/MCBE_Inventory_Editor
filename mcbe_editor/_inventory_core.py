@@ -50,6 +50,11 @@ DATA_VALUE_VARIANT_DAMAGE_VALUES = {
     "minecraft:suspicious_stew": frozenset(range(13)),
     "minecraft:empty_map": frozenset({0, 2}),
     "minecraft:emptymap": frozenset({0, 2}),
+    # Match the named values already exposed by the item catalog. Unknown
+    # future potion values are preserved from an original, never synthesized.
+    "minecraft:potion": frozenset(range(47)),
+    "minecraft:splash_potion": frozenset(range(47)),
+    "minecraft:lingering_potion": frozenset(range(47)),
 }
 AXOLOTL_VARIANTS = {
     0: {"key": "lucy", "label_de": "Leuzistisch", "label_en": "Leucistic", "display_de": "Leuzistischer Axolotl", "display_en": "Leucistic Axolotl"},
@@ -853,7 +858,9 @@ def _item_name_from_tag(item) -> str:
 
 
 def _item_is_damageable(name: str) -> bool:
-    return get_max_damage(name) != MAX_DAMAGE
+    limits = _item_data.catalog_values()["DURABILITY"]
+    normalized = str(name or "").strip().lower()
+    return normalized in limits or _item_data.canonical_item_id(normalized) in limits
 
 
 def _item_tag_damage_tag(item):
@@ -2120,7 +2127,7 @@ def _item_entry_has_editable_shape(item) -> bool:
     if _item_control_field_type_issues(item):
         return False
     name = str(get_tag_value(item.get("Name"), "")).strip()
-    if not name or name.lower() == "minecraft:air":
+    if not name or name.lower() in {"air", "minecraft:air"}:
         return False
     try:
         count = int(get_tag_value(item.get("Count"), None))
@@ -2169,22 +2176,30 @@ def _item_entry_is_empty_placeholder(item) -> bool:
 def items_by_slot_for_origin(list_tag):
     """Map slot IDs to the item compound the UI can faithfully reference.
 
-    Duplicate or future/opaque entries can exist in the same NBT list.  For
-    preserving source NBT during moves/copies, prefer the editable item the UI
-    actually rendered.  A later protected duplicate with the same slot must not
-    hide the visible item's original compound, otherwise a normal save can rebuild
-    the visible item from JSON and lose its preserved add-on/future fields.
+    Prefer a visible item over an opaque entry. Multiple visible entries for one
+    slot have no unambiguous identity; retain that slot with a None value so every
+    source resolver can distinguish it from an empty slot and refuse copies.
     """
 
     items_by_slot = {}
+    editable_slots, ambiguous_slots = set(), set()
     if not _is_list_tag(list_tag):
         return items_by_slot
     for item in list_tag:
         slot = _read_item_slot(item)
-        if slot is None:
+        if slot is None or _item_entry_is_empty_placeholder(item):
+            # Empty records have no item identity. Keep them in the original
+            # sequence, but do not let them hide visible root equipment sources.
             continue
-        if _item_entry_has_editable_shape(item) or slot not in items_by_slot:
+        if _item_entry_has_editable_shape(item):
+            if slot in editable_slots:
+                ambiguous_slots.add(slot)
+            editable_slots.add(slot)
             items_by_slot[slot] = item
+        elif slot not in items_by_slot:
+            items_by_slot[slot] = item
+    for slot in ambiguous_slots:
+        items_by_slot[slot] = None
     return items_by_slot
 
 
@@ -2243,12 +2258,16 @@ def _hidden_slot_summary(player_tag, tag_name, valid_slots):
     protected_known = 0
     protected_slots = set()
     editable_slots = set()
+    ambiguous_slots = set()
     if tag_name in player_tag and _is_list_tag(player_tag[tag_name]):
         for item in player_tag[tag_name]:
             slot = _read_item_slot(item)
             if slot not in valid_slots:
                 hidden += 1
             elif _item_entry_has_editable_shape(item):
+                if slot in editable_slots:
+                    protected_known += 1
+                    ambiguous_slots.add(slot)
                 editable_slots.add(slot)
             elif _item_entry_is_empty_placeholder(item):
                 # Empty fixed-list placeholders are safe and should not lock the slot.
@@ -2259,7 +2278,7 @@ def _hidden_slot_summary(player_tag, tag_name, valid_slots):
     return {
         "hidden": hidden,
         "protected_known": protected_known,
-        "protected_known_slots": sorted(protected_slots - editable_slots),
+        "protected_known_slots": sorted((protected_slots - editable_slots) | ambiguous_slots),
     }
 
 
@@ -3204,13 +3223,25 @@ def validate_item_original_bounds(validated_item, base_item_tag, duplicate_label
 
 
 def validate_item_data_value_variant(name: str, damage: int, base_item_tag, duplicate_label: str, slot: int) -> None:
-    allowed_values = DATA_VALUE_VARIANT_DAMAGE_VALUES.get(name)
-    if not allowed_values or damage in allowed_values:
+    if _item_is_damageable(name):
+        return
+    allowed_values = DATA_VALUE_VARIANT_DAMAGE_VALUES.get(name) or DATA_VALUE_VARIANT_DAMAGE_VALUES.get(_item_data.canonical_item_id(name))
+    if damage in (allowed_values if allowed_values is not None else {0}):
         return
     # Unknown/future values already present in a world remain round-trip safe.
     # They may not be synthesized or changed into another unsupported value.
     if base_item_tag is not None and _read_editable_item_damage(base_item_tag, name) == damage:
         return
+    if allowed_values is None:
+        raise ValueError(
+            t(
+                "{label}-Slot {slot}: Für {name} ist Datenwert {damage} nicht belegt. Erlaubt sind 0 oder der unveränderte Originalwert.",
+                label=duplicate_label,
+                slot=slot,
+                damage=damage,
+                name=name,
+            )
+        )
     allowed_label = ", ".join(str(value) for value in sorted(allowed_values))
     raise ValueError(
         t(
@@ -3277,11 +3308,17 @@ def _build_item_compound(base_item_tag, validated_item, duplicate_label, is_ende
     return item_compound
 
 
-def _merge_items_into_original_sequence(original_sequence, valid_slots, new_items_by_slot):
+def _merge_items_into_original_sequence(original_sequence, valid_slots, new_items_by_slot, *, preserved_slots=()):
     result_items = []
     emitted_slots = set()
     for original_item in original_sequence:
         slot = _read_item_slot(original_item)
+        if slot in preserved_slots:
+            # Ambiguous slots have already been checked for an unchanged echo.
+            # Preserve every occurrence, including its position and unknown NBT.
+            result_items.append(original_item.copy())
+            emitted_slots.add(slot)
+            continue
         if slot in valid_slots:
             if _item_entry_is_empty_placeholder(original_item):
                 if slot in new_items_by_slot and slot not in emitted_slots:
@@ -3302,9 +3339,8 @@ def _merge_items_into_original_sequence(original_sequence, valid_slots, new_item
                 result_items.append(original_item.copy())
                 continue
             if slot in emitted_slots:
-                # Duplicate editable slots cannot be represented safely in the UI.
-                # Emit at most one item for each editable slot instead of cloning
-                # the replacement into every duplicate occurrence.
+                # A safe empty placeholder may already have emitted this slot.
+                # Ambiguous occupied duplicates were handled above as preserved.
                 continue
             if slot in new_items_by_slot:
                 result_items.append(new_items_by_slot[slot])

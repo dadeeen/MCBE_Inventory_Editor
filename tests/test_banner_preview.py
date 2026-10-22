@@ -38,15 +38,15 @@ def test_unreviewed_atlas_layout_is_rejected(width, height):
 
 def test_all_editor_patterns_have_real_texture_bindings_and_are_published(monkeypatch, tmp_path):
     assert len(BANNER_PATTERNS) == 42
-    assert set(BANNER_TEXTURES) == {"base", *BANNER_PATTERNS}
-    assert len(set(BANNER_TEXTURES.values())) == 43
+    assert set(BANNER_TEXTURES) == {"base", "illager", *BANNER_PATTERNS}
+    assert len(set(BANNER_TEXTURES.values())) == 44
     archive = tmp_path / "reference.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         for path in BANNER_TEXTURES.values():
             zf.writestr(f"resource_pack/textures/{path}.png", atlas())
     target = tmp_path / "icons"
     manifest = build_icon_cache(archive, [], target, {})
-    assert manifest["mapped_display_assets"] == 43
+    assert manifest["mapped_display_assets"] == 44
     for code, path in BANNER_TEXTURES.items():
         assert manifest["display_assets"][f"mcbe:banner_{code}"] == path
         assert (target / f"textures/display/banner_{code}.png").read_bytes() == crop_banner_texture(atlas())
@@ -59,7 +59,7 @@ def test_all_editor_patterns_have_real_texture_bindings_and_are_published(monkey
     # image reader. A manifest alone is not proof that the UI can read a face.
     for _ in range(2):
         index = scan_icons(settings_path=settings)
-        assert len(_public_icon_index(index)["banner_patterns"]) == 43
+        assert len(_public_icon_index(index)["banner_patterns"]) == 44
         for code, entry in _public_icon_index(index)["banner_patterns"].items():
             assert index["_by_token"][entry["token"]].read_bytes() == (target / f"textures/display/banner_{code}.png").read_bytes()
 

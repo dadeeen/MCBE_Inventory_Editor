@@ -289,7 +289,7 @@ def test_frozen_recovery_command_dispatches_to_real_guarded_recovery(interrupted
     monkeypatch.setattr(sys, "platform", "win32")
     # The real Windows file lock has its own native test; this one tests CLI,
     # environment and real restore transactions on all application platforms.
-    monkeypatch.setattr(desktop_app, "desktop_instance", lambda _data: contextlib.nullcontext())
+    monkeypatch.setattr(desktop_app, "desktop_instance", lambda _data, *, translate: contextlib.nullcontext())
 
     def unexpected_gui(*_args, **_kwargs):
         pytest.fail("Recovery must not start Flask or require WebView2")

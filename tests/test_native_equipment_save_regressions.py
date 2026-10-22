@@ -98,13 +98,15 @@ def test_native_inventory_change_keeps_hidden_root_equipment(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("target_slot", [1, 103])
-@pytest.mark.parametrize("source_has_inventory", [False, True])
-def test_native_cross_player_root_copy_preserves_source_and_item_nbt(tmp_path, monkeypatch, target_slot, source_has_inventory):
+@pytest.mark.parametrize("source_inventory_shape", ["absent", "empty", "placeholder"])
+def test_native_cross_player_root_copy_preserves_source_and_item_nbt(tmp_path, monkeypatch, target_slot, source_inventory_shape):
     source = make_minimal_player_tag()
     helmet = _item("minecraft:diamond_helmet", tag=nbt.CompoundTag({"FutureData": nbt.StringTag("preserve copied equipment")}))
     source["Armor"] = _armor(helmet)
-    if source_has_inventory:
-        source["Inventory"] = nbt.ListTag([])
+    if source_inventory_shape != "absent":
+        placeholder = _empty_root_item()
+        placeholder["Slot"] = nbt.ByteTag(103)
+        source["Inventory"] = nbt.ListTag([placeholder] if source_inventory_shape == "placeholder" else [], 10)
     target = make_minimal_player_tag()
     target["Inventory"] = nbt.ListTag([])
     target["Armor"] = _armor()
@@ -136,3 +138,94 @@ def test_native_cross_player_root_copy_preserves_source_and_item_nbt(tmp_path, m
         assert "Slot" not in saved_item
     else:
         assert saved_item["Slot"].py_data == target_slot
+
+
+@pytest.mark.parametrize("source_slot,root_tag,item_name", [(103, "Armor", "minecraft:diamond_helmet"), (-106, "Offhand", "minecraft:shield")])
+@pytest.mark.parametrize("destination", ["inventory", "ender_chest"])
+@pytest.mark.parametrize("move", [False, True])
+def test_root_equipment_origin_ignores_empty_inventory_placeholder(tmp_path, monkeypatch, source_slot, root_tag, item_name, destination, move):
+    player = make_minimal_player_tag()
+    placeholder = _empty_root_item()
+    placeholder["Slot"] = nbt.ByteTag(source_slot)
+    player["Inventory"] = nbt.ListTag([_item("minecraft:stone", 0), placeholder], 10)
+    player["EnderChestInventory"] = nbt.ListTag([], 10)
+    equipped = _item(item_name, tag=nbt.CompoundTag({"FutureData": nbt.StringTag("preserve moved equipment")}))
+    player[root_tag] = _armor(equipped) if root_tag == "Armor" else nbt.ListTag([equipped], 10)
+    world, original_records, service = _seed(tmp_path, monkeypatch, {LOCAL_PLAYER_KEY: player})
+    key = encode_player_key(LOCAL_PLAYER_KEY)
+    loaded = service.load_player(str(world), key)
+    assert source_slot not in loaded["hidden_unknown_slots"]["inventory_protected_known_slots"]
+    inventory, chest = deepcopy(loaded["inventory"]), deepcopy(loaded["ender_chest"])
+    copied = deepcopy(inventory[source_slot])
+    copied["slot"] = 1
+    (inventory if destination == "inventory" else chest)[1] = copied
+    if move:
+        del inventory[source_slot]
+
+    result = service.save_player(
+        str(world),
+        key,
+        list(inventory.values()),
+        {},
+        ender_chest_list=list(chest.values()),
+        base_revision=loaded["player_revision"],
+        root_equipment_editable=True,
+    )
+
+    assert result["success"] and not result["no_op"]
+    records = _read_all(service, world)
+    assert records[UNRELATED_KEY] == original_records[UNRELATED_KEY]
+    saved = load_player_nbt(records[LOCAL_PLAYER_KEY]).tag
+    stored_items = saved["Inventory" if destination == "inventory" else "EnderChestInventory"]
+    stored_copy = next(entry for entry in stored_items if entry["Slot"].py_data == 1)
+    assert stored_copy["tag"].save_to() == equipped["tag"].save_to()
+    stored_placeholder = next(entry for entry in saved["Inventory"] if entry["Slot"].py_data == source_slot)
+    assert stored_placeholder.save_to() == placeholder.save_to()
+    if move:
+        assert saved[root_tag][0]["Count"].py_data == 0
+    else:
+        assert saved[root_tag].save_to() == player[root_tag].save_to()
+
+    reloaded = service.load_player(str(world), key)
+    echoed = service.save_player(
+        str(world),
+        key,
+        list(reloaded["inventory"].values()),
+        {},
+        ender_chest_list=list(reloaded["ender_chest"].values()),
+        base_revision=reloaded["player_revision"],
+        root_equipment_editable=True,
+    )
+    assert echoed["no_op"]
+    assert _read_all(service, world) == records
+
+
+def test_air_placeholder_does_not_block_other_inventory_or_ender_changes(tmp_path, monkeypatch):
+    player = make_minimal_player_tag()
+    placeholder = nbt.CompoundTag({"Slot": nbt.ByteTag(0), "Name": nbt.StringTag("air"), "Count": nbt.ByteTag(1)})
+    player["Inventory"] = nbt.ListTag([deepcopy(placeholder), _item("minecraft:stone", 1)], 10)
+    player["EnderChestInventory"] = nbt.ListTag([deepcopy(placeholder), _item("minecraft:diamond", 1)], 10)
+    world, original_records, service = _seed(tmp_path, monkeypatch, {LOCAL_PLAYER_KEY: player})
+    key = encode_player_key(LOCAL_PLAYER_KEY)
+    loaded = service.load_player(str(world), key)
+    for container in ("inventory", "ender_chest"):
+        assert 0 not in loaded[container]
+        assert loaded["hidden_unknown_slots"][container + "_protected_known_slots"] == []
+        loaded[container][1]["count"] = 2
+
+    result = service.save_player(
+        str(world),
+        key,
+        list(loaded["inventory"].values()),
+        {},
+        ender_chest_list=list(loaded["ender_chest"].values()),
+        base_revision=loaded["player_revision"],
+    )
+
+    assert result["success"] and not result["no_op"]
+    records = _read_all(service, world)
+    assert records[UNRELATED_KEY] == original_records[UNRELATED_KEY]
+    saved = load_player_nbt(records[LOCAL_PLAYER_KEY]).tag
+    for tag_name in ("Inventory", "EnderChestInventory"):
+        assert saved[tag_name][0].save_to() == placeholder.save_to()
+        assert saved[tag_name][1]["Count"].py_data == 2
