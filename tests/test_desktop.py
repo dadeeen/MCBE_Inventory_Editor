@@ -11,10 +11,48 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from mcbe_editor import desktop_app, desktop_worker, gui_dialogs, update_script_runner
+from mcbe_editor import desktop_app, desktop_window, desktop_worker, gui_dialogs, update_script_runner
 from scripts.build_desktop import verify_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    "area,dpi,expected",
+    [
+        ((0, 0, 2560, 1392), 96, (560, 56, 1440, 1280)),
+        ((0, 0, 1366, 728), 96, (24, 24, 1318, 680)),
+        ((0, 0, 1920, 1032), 144, (36, 36, 1848, 960)),
+        ((-2560, 40, 2560, 1352), 96, (-2000, 76, 1440, 1280)),
+        ((0, 0, 800, 560), 96, (24, 24, 752, 512)),
+    ],
+)
+def test_initial_desktop_bounds_respect_work_area_and_dpi(area, dpi, expected):
+    assert desktop_window.initial_window_bounds(*area, dpi) == expected
+
+
+def test_initial_desktop_size_uses_native_monitor_and_limits_minimum(monkeypatch, tmp_path):
+    native = SimpleNamespace(DeviceDpi=144, WindowState="normal", Resize=MagicMock(), FormClosed=MagicMock())
+    native.Resize.__iadd__.return_value = native.Resize
+    native.FormClosed.__iadd__.return_value = native.FormClosed
+    screen = Mock(return_value=SimpleNamespace(WorkingArea=SimpleNamespace(Left=-1200, Top=40, Width=1200, Height=800)))
+    monkeypatch.setitem(sys.modules, "System.Drawing", SimpleNamespace(Point=lambda *xy: xy, Size=lambda *wh: wh))
+    monkeypatch.setitem(
+        sys.modules,
+        "System.Windows.Forms",
+        SimpleNamespace(
+            Screen=SimpleNamespace(FromControl=screen),
+            FormStartPosition=SimpleNamespace(Manual="manual"),
+            FormWindowState=SimpleNamespace(Normal="normal", Minimized="minimized", Maximized="maximized"),
+        ),
+    )
+    desktop_window.DesktopWindowState(tmp_path).apply(SimpleNamespace(native=native))
+    screen.assert_called_once_with(native)
+    assert native.Size == (1128, 728)
+    assert native.MinimumSize == (1128, 728)
+    assert native.Location == (-1164, 76)
+    assert native.StartPosition == "manual"
+    native.FormClosed.__iadd__.assert_called_once()
 
 
 @pytest.mark.parametrize("version,available", [("139.0.3405.125", True), ("0.0.0.0", False), ("", False), ("invalid", False)])

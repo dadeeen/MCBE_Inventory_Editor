@@ -1,9 +1,11 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from mcbe_editor.desktop_navigation import DesktopNavigation
+from tests.node_runner import run_node
 
 URL = "http://127.0.0.1:5001/"
 
@@ -210,6 +212,84 @@ def test_missing_native_api_fails_closed_before_app_is_loaded():
     assert args.Cancel
 
 
+def test_external_link_listener_accepts_only_trusted_primary_and_middle_clicks():
+    window, _, _, _ = native_window()
+    window.get_current_url = Mock(return_value=URL)
+    window.evaluate_js = Mock()
+    policy = DesktopNavigation(window, URL)
+    policy.installed = True
+    policy.prepare_links()
+    script = window.evaluate_js.call_args.args[0]
+    run_node(
+        r"""
+        const assert = require('node:assert/strict');
+        const vm = require('node:vm');
+        const handlers = {}, messages = [];
+        const context = {
+            URL, location: {origin: 'http://127.0.0.1:5001'},
+            window: {chrome: {webview: {postMessage: value => messages.push(value)}}},
+            document: {
+                documentElement: {lang: 'en'},
+                addEventListener: (type, fn) => { assert.equal(handlers[type], undefined); handlers[type] = fn; },
+            },
+        };
+        const script = LINK_SCRIPT;
+        assert.equal(vm.runInNewContext(script, context), 'en');
+        assert.equal(vm.runInNewContext(script, context), 'en'); // No duplicate launchers.
+        for (const sample of [
+            {type:'click', button:0, allowed:true},
+            {type:'auxclick', button:1, allowed:true},
+            {type:'auxclick', button:2},
+            {type:'click', button:1},
+            {type:'auxclick', button:0},
+            {type:'auxclick', button:1, isTrusted:false},
+            {type:'click', button:0, isTrusted:false},
+            {type:'auxclick', button:1, defaultPrevented:true},
+            {type:'auxclick', button:1, download:true},
+            {type:'auxclick', button:1, href:'http://127.0.0.1:5001/local'},
+            {type:'auxclick', button:1, href:'https://user:password@example.invalid/'},
+            {type:'auxclick', button:1, href:'file:///C:/synthetic.txt'},
+        ]) {
+            messages.length = 0;
+            let prevented = false;
+            const anchor = {href:sample.href || 'https://example.invalid/help', hasAttribute: () => !!sample.download};
+            const event = {isTrusted:true, defaultPrevented:false, ...sample,
+                target:{closest: () => anchor}, preventDefault: () => {prevented = true;}};
+            handlers[sample.type](event);
+            assert.equal(messages.length, sample.allowed ? 1 : 0, JSON.stringify(sample));
+            assert.equal(prevented, !!sample.allowed);
+        }
+        """.replace("LINK_SCRIPT", json.dumps(script))
+    )
+
+
+@pytest.mark.parametrize("selected", ["de", "en", "fr", None])
+def test_native_language_follows_only_supported_editor_document_languages(selected):
+    window, _, _, _ = native_window()
+    window.get_current_url = Mock(return_value=URL)
+    window.evaluate_js = Mock(return_value=selected)
+    remember = Mock()
+    policy = DesktopNavigation(window, URL, on_locale=remember)
+    policy.installed = True
+    policy.prepare_links()
+    if selected in ("de", "en"):
+        remember.assert_called_once_with(selected)
+    else:
+        remember.assert_not_called()
+
+
+@pytest.mark.parametrize("urls", [["https://example.invalid/"], [URL, "https://example.invalid/"]])
+def test_native_language_ignores_a_foreign_document(urls):
+    window, _, _, _ = native_window()
+    window.get_current_url = Mock(side_effect=urls)
+    window.evaluate_js = Mock(return_value="en")
+    remember = Mock()
+    policy = DesktopNavigation(window, URL, on_locale=remember)
+    policy.installed = True
+    policy.prepare_links()
+    remember.assert_not_called()
+
+
 def run_native_navigation_probe():
     """Windows integration check; only synthetic pages on two loopback servers."""
     import json
@@ -316,14 +396,14 @@ def run_native_navigation_probe():
             assert "exceptionDetails" not in result, result
             return result.get("result", {}).get("value")
 
-        def click(element_id):
+        def click(element_id, button="left"):
             script("document.addEventListener('click', e => { window.__probeClick = {trusted: e.isTrusted, target: e.target.id}; }, {once:true, capture:true})")
             point = script(
                 "(() => { const r = document.getElementById(" + json.dumps(element_id) + ").getBoundingClientRect();"
                 "return {x:r.x+r.width/2, y:r.y+r.height/2}; })()"
             )
             for event_type in ("mousePressed", "mouseReleased"):
-                payload = json.dumps({**point, "type": event_type, "button": "left", "clickCount": 1})
+                payload = json.dumps({**point, "type": event_type, "button": button, "clickCount": 1})
                 task = on_ui(lambda payload=payload: core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", payload))
                 task.GetAwaiter().GetResult()
 
@@ -344,6 +424,8 @@ def run_native_navigation_probe():
                 ("unsolicited popup", lambda: script("window.open(" + json.dumps(foreign_url) + "); null"), False),
                 ("clicked link", lambda: click("link"), True),
                 ("clicked popup", lambda: click("popup"), True),
+                ("middle-clicked link", lambda: click("link", "middle"), True),
+                ("middle-clicked popup", lambda: click("popup", "middle"), True),
                 ("file navigation", lambda: window.load_url("file:///C:/MCBE-synthetic-navigation-probe.txt"), False),
                 ("data navigation", lambda: window.load_url("data:text/html,foreign"), False),
             )

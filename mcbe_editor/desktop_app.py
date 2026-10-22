@@ -19,8 +19,11 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from mcbe_editor.desktop_locale import DesktopLocale
 from mcbe_editor.desktop_navigation import DesktopNavigation
+from mcbe_editor.desktop_window import DesktopWindowState
 from mcbe_editor.desktop_worker import WORKERS, run_frozen_update, worker_main
+from mcbe_editor.i18n import t
 
 TITLE = "MCBE Inventory Editor"
 DEFAULT_PORT = 5001
@@ -85,12 +88,10 @@ def webview2_available() -> bool:
     return False
 
 
-def startup_error_message(error: Exception, log_path: Path | None = None) -> str:
-    from mcbe_editor.i18n import t
-
-    message = t("Der Editor konnte nicht gestartet werden: {error}", error=str(error))
+def startup_error_message(error: Exception, log_path: Path | None = None, *, translate=t) -> str:
+    message = translate("Der Editor konnte nicht gestartet werden: {error}", error=str(error))
     if log_path is not None:
-        message += "\n\n" + t("Details stehen in {path}.", path=str(log_path))
+        message += "\n\n" + translate("Details stehen in {path}.", path=str(log_path))
     return message
 
 
@@ -112,11 +113,9 @@ def prepare_environment(data_dir: Path | None = None, port: int = DEFAULT_PORT) 
 
 
 @contextlib.contextmanager
-def desktop_instance(data: Path):
+def desktop_instance(data: Path, *, translate=t):
     """Keep one window host per data directory, including during shutdown."""
     import msvcrt
-
-    from mcbe_editor.i18n import t
 
     with (data / "desktop.lock").open("a+b") as handle:
         handle.seek(0, os.SEEK_END)
@@ -127,7 +126,7 @@ def desktop_instance(data: Path):
         try:
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         except OSError as exc:
-            raise RuntimeError(t("Der Editor ist für diesen Datenordner bereits geöffnet.")) from exc
+            raise RuntimeError(translate("Der Editor ist für diesen Datenordner bereits geöffnet.")) from exc
         try:
             yield
         finally:
@@ -142,10 +141,11 @@ class CloseGuard:
     deadlock its UI thread. Only the background confirmation may call back into it.
     """
 
-    def __init__(self, window, pending_operation, document_allowed=lambda: True):
+    def __init__(self, window, pending_operation, document_allowed=lambda: True, *, translate=t):
         self.window = window
         self.pending_operation = pending_operation
         self.document_allowed = document_allowed
+        self.translate = translate
         self.allowed = False
         self._confirming = threading.Lock()
         self._querying = threading.Lock()
@@ -195,24 +195,20 @@ class CloseGuard:
         return state
 
     def _wait_for_operations(self):
-        from mcbe_editor.i18n import t
-
         if self.pending_operation():
-            self.window.set_title(t("Laufender Vorgang wird abgeschlossen …"))
+            self.window.set_title(self.translate("Laufender Vorgang wird abgeschlossen …"))
             # This is deliberately not timed out: never interrupt a world write.
             while self.pending_operation():
                 time.sleep(0.1)
             self.window.set_title(TITLE)
 
     def _confirm(self):
-        from mcbe_editor.i18n import t
-
         try:
             self._wait_for_operations()
             state = self._close_state()
             if state is None or state["dirty"]:
-                title = t("Editor schließen")
-                message = t("Der Bearbeitungsstand kann nicht geprüft werden. Editor trotzdem schließen?")
+                title = self.translate("Editor schließen")
+                message = self.translate("Der Bearbeitungsstand kann nicht geprüft werden. Editor trotzdem schließen?")
                 if state is not None and isinstance(state.get("title"), str) and isinstance(state.get("message"), str):
                     title, message = state["title"], state["message"]
                 if not self.window.create_confirmation_dialog(title, message):
@@ -293,9 +289,13 @@ def _wait_for_server(server, finished: threading.Event) -> None:
     raise RuntimeError("Desktop HTTP server stopped or did not become ready in time")
 
 
-def run_desktop(data: Path, port: int, *, diagnose: Path | None = None, with_window: bool = False, debug: bool = False) -> int:
+def run_desktop(
+    data: Path, port: int, *, diagnose: Path | None = None, with_window: bool = False, debug: bool = False, translations: DesktopLocale | None = None
+) -> int:
     import main as application
 
+    translations = translations or DesktopLocale(data)
+    translate = translations.translate
     server = application.create_local_server("127.0.0.1", port)
     stopping = threading.Event()
     finished = threading.Event()
@@ -329,7 +329,9 @@ def run_desktop(data: Path, port: int, *, diagnose: Path | None = None, with_win
             webview.settings["ALLOW_FILE_URLS"] = False
             webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
             window = webview.create_window(TITLE, "about:blank", width=1440, height=920, min_size=(800, 600), text_select=True)
-            navigation = DesktopNavigation(window, f"http://127.0.0.1:{server.port}/")
+            window_state = DesktopWindowState(data)
+            window.events.before_show += window_state.apply
+            navigation = DesktopNavigation(window, f"http://127.0.0.1:{server.port}/", on_locale=translations.remember, translate=translate)
             window.events.before_show += navigation.install
             window.events.loaded += navigation.prepare_links
 
@@ -343,7 +345,7 @@ def run_desktop(data: Path, port: int, *, diagnose: Path | None = None, with_win
                 return str(result[0]) if result else ""
 
             application.gui_dialogs.set_desktop_dialog(pick)
-            guard = CloseGuard(window, application.has_pending_operations, lambda: navigation.allows(window.get_current_url()))
+            guard = CloseGuard(window, application.has_pending_operations, lambda: navigation.allows(window.get_current_url()), translate=translate)
             window.events.closing += guard.closing
 
             def check_window():
@@ -364,8 +366,6 @@ def run_desktop(data: Path, port: int, *, diagnose: Path | None = None, with_win
                     window.destroy()
 
             def watch_server():
-                from mcbe_editor.i18n import t
-
                 try:
                     navigation.wait_ready()
                 except Exception as exc:
@@ -380,10 +380,10 @@ def run_desktop(data: Path, port: int, *, diagnose: Path | None = None, with_win
                 if stopping.is_set():
                     return
                 try:
-                    window.set_title(t("Lokaler Server nicht verfügbar"))
+                    window.set_title(translate("Lokaler Server nicht verfügbar"))
                     close = window.create_confirmation_dialog(
-                        t("Lokaler Server nicht verfügbar"),
-                        t(
+                        translate("Lokaler Server nicht verfügbar"),
+                        translate(
                             "Der lokale Server wurde unerwartet beendet. Speichern ist nicht mehr möglich. "
                             "Nicht gespeicherte Änderungen bleiben nur im geöffneten Fenster. "
                             "Abbrechen lässt das Fenster zum Notieren der Änderungen offen. Editor jetzt schließen?"
@@ -469,10 +469,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("The desktop host requires Windows. Use main.py for the browser application.")
     log_path = None
     windowed = sys.stdout is None
+    translations = DesktopLocale()
+    translate = translations.translate
     try:
         data = prepare_environment(args.data_dir, args.port)
+        translations.load(data)
         # Take the instance lock before opening/rotating a log shared by hosts.
-        with desktop_instance(data), desktop_log(data / "desktop.log") as log, contextlib.ExitStack() as stack:
+        with desktop_instance(data, translate=translate), desktop_log(data / "desktop.log") as log, contextlib.ExitStack() as stack:
             log_path = data / "desktop.log"
             if sys.stdout is None:
                 stack.enter_context(contextlib.redirect_stdout(log))
@@ -485,20 +488,16 @@ def main(argv: list[str] | None = None) -> int:
                     if windowed and args.recovery_report is None:
                         import ctypes
 
-                        from mcbe_editor.i18n import t
-
-                        message = t("Recovery beendet (Exitcode {code}). Details stehen in {path}.", code=result, path=str(report))
+                        message = translate("Recovery beendet (Exitcode {code}). Details stehen in {path}.", code=result, path=str(report))
                         ctypes.windll.user32.MessageBoxW(None, message, TITLE, 0x10 if result else 0x40)
                     else:
                         print(f"Recovery exit code: {result}. Report: {report}")
                     return result
                 if (args.diagnose is None or args.with_window) and not webview2_available():
-                    from mcbe_editor.i18n import t
-
                     raise RuntimeError(
-                        t("Microsoft Edge WebView2 Runtime fehlt. Installiere die Runtime von https://go.microsoft.com/fwlink/p/?LinkId=2124703.")
+                        translate("Microsoft Edge WebView2 Runtime fehlt. Installiere die Runtime von https://go.microsoft.com/fwlink/p/?LinkId=2124703.")
                     )
-                return run_desktop(data, args.port, diagnose=args.diagnose, with_window=args.with_window, debug=args.debug)
+                return run_desktop(data, args.port, diagnose=args.diagnose, with_window=args.with_window, debug=args.debug, translations=translations)
             except Exception:
                 traceback.print_exc(file=log)
                 raise
@@ -514,5 +513,5 @@ def main(argv: list[str] | None = None) -> int:
         else:
             import ctypes
 
-            ctypes.windll.user32.MessageBoxW(None, startup_error_message(exc, log_path), TITLE, 0x10)
+            ctypes.windll.user32.MessageBoxW(None, startup_error_message(exc, log_path, translate=translate), TITLE, 0x10)
         return 1

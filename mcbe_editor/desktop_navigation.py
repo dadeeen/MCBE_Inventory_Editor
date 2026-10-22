@@ -13,6 +13,8 @@ import threading
 import webbrowser
 from urllib.parse import urlsplit
 
+from mcbe_editor.i18n import t
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -31,9 +33,11 @@ def _http_origin(url: str) -> tuple[str, str, int] | None:
 
 
 class DesktopNavigation:
-    def __init__(self, window, url: str):
+    def __init__(self, window, url: str, *, on_locale=lambda _locale: None, translate=t):
         self.window = window
         self.url = url
+        self.on_locale = on_locale
+        self.translate = translate
         self.origin = _http_origin(url)
         if self.origin is None or self.origin[:2] != ("http", "127.0.0.1"):
             raise ValueError("Desktop navigation requires the bound loopback HTTP origin")
@@ -96,9 +100,7 @@ class DesktopNavigation:
 
     def wait_ready(self, timeout: float = 10.0):
         if not self.ready.wait(timeout) or not self.installed:
-            from mcbe_editor.i18n import t
-
-            raise RuntimeError(t("Die Navigationssperre des Desktop-Fensters konnte nicht eingerichtet werden.")) from self.error
+            raise RuntimeError(self.translate("Die Navigationssperre des Desktop-Fensters konnte nicht eingerichtet werden.")) from self.error
 
     def prepare_links(self):
         # Native gesture flags also mark host-injected scripts as user initiated.
@@ -107,10 +109,12 @@ class DesktopNavigation:
         if not self.installed or not self.allows(self.window.get_current_url()):
             return
         script = """(() => {
-            if (location.origin !== ORIGIN || window.__mcbeExternalLinks) return;
+            if (location.origin !== ORIGIN) return;
+            if (window.__mcbeExternalLinks) return document.documentElement.lang;
             window.__mcbeExternalLinks = true;
-            document.addEventListener('click', event => {
-                if (!event.isTrusted || event.defaultPrevented || event.button !== 0) return;
+            const openLink = event => {
+                if (!event.isTrusted || event.defaultPrevented
+                    || !(event.type === 'click' && event.button === 0 || event.type === 'auxclick' && event.button === 1)) return;
                 const link = event.target.closest?.('a[href]');
                 if (!link || link.hasAttribute('download')) return;
                 let url;
@@ -120,10 +124,15 @@ class DesktopNavigation:
                     event.preventDefault();
                     window.chrome.webview.postMessage({type: 'mcbe.external_link', nonce: NONCE, url: url.href});
                 }
-            }, true);
+            };
+            document.addEventListener('click', openLink, true);
+            document.addEventListener('auxclick', openLink, true);
+            return document.documentElement.lang;
         })()""".replace("ORIGIN", json.dumps(self.url.rstrip("/"))).replace("NONCE", json.dumps(self._link_nonce))
         try:
-            self.window.evaluate_js(script)
+            locale = self.window.evaluate_js(script)
+            if self.allows(self.window.get_current_url()) and locale in ("de", "en"):
+                self.on_locale(locale)
             self.links_ready.set()
         except Exception:
             # Foreign navigation remains blocked even if link preparation fails.

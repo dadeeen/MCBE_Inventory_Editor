@@ -27,5 +27,5 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="MCBEInventoryEditor", console=False, upx=False)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="MCBEInventoryEditor", icon=str(ROOT / "packaging/windows/app.ico"), console=False, upx=False)
 coll = COLLECT(exe, a.binaries, a.datas, name="MCBEInventoryEditor", upx=False)

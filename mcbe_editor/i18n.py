@@ -106,7 +106,7 @@ def request_locale() -> str:
     """Resolve the locale of the active Flask request; German outside a request.
 
     German is the source language, so code paths that run without an HTTP
-    request (startup scans, CLI helpers, desktop dialogs) keep producing the
+    request (startup scans, CLI helpers) keep producing the
     untranslated source strings.
     """
 
