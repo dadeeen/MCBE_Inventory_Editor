@@ -13,12 +13,9 @@ __all__ = [
     "LevelDbPermissionError",
     "ReadonlyLevelDbAdapter",
     "close_db_preserving_active_exception",
-    "register_runtime_leveldb_write_guard",
 ]
 
 LOGGER = logging.getLogger(__name__)
-
-_registered_write_guard: Callable[[str], None] | None = None
 
 
 def _raise_translated_permission_error(exc: Exception, *, operation: str, db_path: str) -> None:
@@ -26,54 +23,6 @@ def _raise_translated_permission_error(exc: Exception, *, operation: str, db_pat
 
     if isinstance(exc, PermissionError) and not isinstance(exc, LevelDbPermissionError):
         raise LevelDbPermissionError(operation=operation, db_path=db_path) from exc
-
-
-def register_runtime_leveldb_write_guard(guard: Callable[[str], None] | None) -> None:
-    """Register the web app's final write gate explicitly.
-
-    The sys.modules lookup below only finds the guard when the Flask app runs
-    as ``main``/``__main__``.  Deployments that import the app under another
-    module name (z. B. ein WSGI-Wrapper) must register the guard here so the
-    final write gate cannot silently disappear.
-    """
-
-    global _registered_write_guard
-    _registered_write_guard = guard
-
-
-def _runtime_app_modules():
-    """Yield possible Flask app modules for direct and imported execution."""
-
-    seen = set()
-    for module_name in ("main", "__main__"):
-        module = sys.modules.get(module_name)
-        if module is None or id(module) in seen:
-            continue
-        seen.add(id(module))
-        yield module
-
-
-def _run_runtime_leveldb_write_guard(action_label: str = "LevelDB-Schreiben") -> None:
-    """Run the Flask app's final write gate before mutating LevelDB access.
-
-    Opening the writable adapter takes the database locks, which keeps Minecraft
-    or a server from opening the world during the session.  Therefore the web
-    app must run the same final write gate before constructing the adapter as it
-    runs before put().  Non-web tools keep the historical behavior because no
-    runtime Flask app module with the guard is loaded there.
-    """
-
-    # Modul-Lookup zuerst: Tests ersetzen sys.modules["main"] gezielt, und der
-    # historische Pfad bleibt so unverändert.  Der registrierte Hook greift,
-    # wenn die App unter einem anderen Modulnamen läuft.
-    for module in _runtime_app_modules():
-        guard = getattr(module, "require_final_world_write_allowed", None)
-        if guard is None:
-            continue
-        guard(action_label)
-        return
-    if _registered_write_guard is not None:
-        _registered_write_guard(action_label)
 
 
 class BedrockDb(Protocol):
@@ -109,21 +58,28 @@ def close_db_preserving_active_exception(db: BedrockDb | None, *, context: str) 
 
 
 class LevelDbAdapter:
-    """Write session on a Bedrock world database with the app's write gates.
+    """Write session with an optional explicitly bound application write gate.
 
     Storage is handled by the pure-Python ``LevelDbWriter``: it locks the
     database like Mojang's engine and appends each batch atomically to a new
     write-ahead log that Minecraft integrates on its next open.
+    ``write_guard=None`` is the offline-tool default; it applies no web policy.
+    Web composition must supply its own guard, which stays bound to this session.
     """
 
-    def __init__(self, db_path: str):
-        _run_runtime_leveldb_write_guard("LevelDB-Öffnen")
+    def __init__(self, db_path: str, *, write_guard: Callable[[str], None] | None = None):
+        self._write_guard = write_guard
+        self._check_write_allowed("LevelDB-Öffnen")
         self._db_path = str(db_path)
         try:
             self._db = LevelDbWriter(self._db_path)
         except Exception as exc:
             _raise_translated_permission_error(exc, operation="Öffnen", db_path=self._db_path)
             raise
+
+    def _check_write_allowed(self, action_label: str) -> None:
+        if self._write_guard is not None:
+            self._write_guard(action_label)
 
     def get(self, key: bytes) -> bytes:
         try:
@@ -133,7 +89,7 @@ class LevelDbAdapter:
             raise
 
     def put(self, key: bytes, value: bytes) -> None:
-        _run_runtime_leveldb_write_guard("LevelDB-Schreiben")
+        self._check_write_allowed("LevelDB-Schreiben")
         try:
             self._db.put(key, value)
         except Exception as exc:
@@ -141,7 +97,7 @@ class LevelDbAdapter:
             raise
 
     def put_batch(self, data: dict[bytes, bytes | None]) -> None:
-        _run_runtime_leveldb_write_guard("LevelDB-Batch-Schreiben")
+        self._check_write_allowed("LevelDB-Batch-Schreiben")
         try:
             self._db.put_batch(data)
         except Exception as exc:

@@ -28,14 +28,6 @@ def player_cases():
     return make_service_cases(observations, catalog["stack_limits"], catalog["enchantments"])
 
 
-@pytest.fixture(autouse=True)
-def offline_writes(monkeypatch):
-    import mcbe_editor.db as db_module
-
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
-
-
 def seed_carriers(cases):
     """Typed test doubles for engine-created originals, including signed books."""
     records = synthetic_carriers(cases)

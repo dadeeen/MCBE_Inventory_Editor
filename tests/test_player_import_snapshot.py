@@ -57,7 +57,6 @@ def test_import_into_existing_fallback_player_keeps_it_discoverable(tmp_path, mo
     (world / "db").mkdir(parents=True)
     source_raw = _player_raw("minecraft:stone")
     target_raw = _player_raw("minecraft:dirt")
-    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
     db = LevelDbAdapter(str(world / "db"))
     try:
         db.put(target_key, target_raw)
@@ -134,7 +133,6 @@ def test_rollback_rechecks_target_on_native_write_connection(tmp_path, monkeypat
 
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)
-    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
     before = _player_raw("minecraft:stone") if existed else None
     installed = _player_raw("minecraft:diamond")
     newer = _player_raw("minecraft:apple")

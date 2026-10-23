@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import pytest
 
-import mcbe_editor.db as db_module
 from mcbe_editor.bedrock_nbt import load_player_nbt
 from mcbe_editor.db import LevelDbAdapter, ReadonlyLevelDbAdapter
 from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
@@ -109,13 +108,6 @@ def _copy_world_for_write_test(source: Path, tmp_path: Path, index: int) -> Path
     return target
 
 
-def _allow_direct_writes_to_temporary_world_copies(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the web write guard out of explicit offline tests on disposable copies."""
-
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
-
-
 def _first_loadable_player(service: BedrockEditorService, world_paths: list[Path]) -> tuple[Path, dict[str, Any], dict[str, Any]] | None:
     max_players = _env_limit("MCBE_PRIVATE_WORLD_MAX_PLAYERS", DEFAULT_MAX_PLAYERS)
     attempts = 0
@@ -194,7 +186,6 @@ def test_private_world_backup_restore_on_temporary_copy(tmp_path: Path, monkeypa
         pytest.skip("Schreibtests auf privaten Weltkopien laufen nur mit MCBE_RUN_PRIVATE_WORLD_WRITE_TESTS=1.")
     world_paths = _private_world_paths()
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    _allow_direct_writes_to_temporary_world_copies(monkeypatch)
     service = _service()
 
     copied_world = _copy_world_for_write_test(world_paths[0], tmp_path, 1)
@@ -220,7 +211,6 @@ def test_private_world_save_player_stat_on_temporary_copy_and_restore(tmp_path: 
         pytest.skip("Schreibtests auf privaten Weltkopien laufen nur mit MCBE_RUN_PRIVATE_WORLD_WRITE_TESTS=1.")
     source_world_paths = _private_world_paths()
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    _allow_direct_writes_to_temporary_world_copies(monkeypatch)
 
     copied_world_paths = [_copy_world_for_write_test(path, tmp_path, index + 1) for index, path in enumerate(source_world_paths)]
     service = _service()
@@ -261,7 +251,6 @@ def test_private_world_export_and_import_player_on_temporary_copy(tmp_path: Path
         pytest.skip("Schreibtests auf privaten Weltkopien laufen nur mit MCBE_RUN_PRIVATE_WORLD_WRITE_TESTS=1.")
     source_world_paths = _private_world_paths()
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    _allow_direct_writes_to_temporary_world_copies(monkeypatch)
 
     copied_world_paths = [_copy_world_for_write_test(path, tmp_path, index + 1) for index, path in enumerate(source_world_paths)]
     service = _service()
@@ -300,7 +289,6 @@ def test_private_world_player_state_transfer_on_temporary_combined_copy(tmp_path
         pytest.skip("Schreibtests auf privaten Weltkopien laufen nur mit MCBE_RUN_PRIVATE_WORLD_WRITE_TESTS=1.")
     source_world_paths = _private_world_paths()
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    _allow_direct_writes_to_temporary_world_copies(monkeypatch)
     service = _service()
 
     local_candidate = None

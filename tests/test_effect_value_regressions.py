@@ -70,7 +70,6 @@ def test_native_save_keeps_protected_and_untouched_effect_bytes(tmp_path, monkey
     player["ActiveEffects"] = nbt.ListTag([_effect(Duration=nbt.IntTag(-1)), _effect(3, ShowIcon=nbt.ByteTag(2))])
     effects_before = player["ActiveEffects"].save_to()
     raw = save_player_nbt(nbt.NamedTag(player))
-    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
     db = LevelDbAdapter(str(world / "db"))
     try:
         db.put(LOCAL_PLAYER_KEY, raw)

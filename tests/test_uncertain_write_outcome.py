@@ -62,7 +62,6 @@ def test_real_writer_failure_preserves_backup_and_reports_outcome(tmp_path, monk
         monkeypatch.setattr(leveldb_writer._SessionLog, "__init__", log_denied)
     else:
         monkeypatch.setattr(db, "LevelDbWriter", FaultingWriter)
-    monkeypatch.setattr(db, "_run_runtime_leveldb_write_guard", lambda *_: None)
     for module in (services, mount_write):
         monkeypatch.setattr(module, "create_backup", create_backup)
     service = fixture.deps.service

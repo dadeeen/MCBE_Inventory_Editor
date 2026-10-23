@@ -62,7 +62,6 @@ def test_leveldb_permission_error_becomes_stable_service_error() -> None:
     name_patch, uid_patch, gid_patch = _as_posix_container()
     with (
         patch("mcbe_editor.db.LevelDbWriter", refuse_open),
-        patch("mcbe_editor.db._run_runtime_leveldb_write_guard"),
         name_patch,
         uid_patch,
         gid_patch,
@@ -84,7 +83,6 @@ def test_leveldb_in_use_error_is_not_reported_as_a_permission_problem() -> None:
 
     with (
         patch("mcbe_editor.db.LevelDbWriter", refuse_open),
-        patch("mcbe_editor.db._run_runtime_leveldb_write_guard"),
         pytest.raises(LevelDbInUseError) as raised,
     ):
         LevelDbAdapter("/worlds/Test/db")
@@ -131,7 +129,6 @@ def test_leveldb_permission_error_during_write_uses_the_same_translation() -> No
     name_patch, uid_patch, gid_patch = _as_posix_container()
     with (
         patch("mcbe_editor.db.LevelDbWriter", lambda _path: FakeDb()),
-        patch("mcbe_editor.db._run_runtime_leveldb_write_guard"),
         name_patch,
         uid_patch,
         gid_patch,

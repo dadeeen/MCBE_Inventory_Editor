@@ -45,7 +45,6 @@ def _armor(helmet=None):
 
 def _seed(tmp_path, monkeypatch, player_tags):
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)
     raw = {key: save_player_nbt(nbt.NamedTag(tag)) for key, tag in player_tags.items()}

@@ -300,16 +300,11 @@ def test_saved_nbt_verification_rejects_clamping():
 
 
 def test_native_offline_worker_writes_only_generated_carriers(tmp_path, monkeypatch):
-    import mcbe_editor.db as db_module
     from mcbe_editor.db import LevelDbAdapter
     from scripts.engine_checks.nbt_roundtrip import read_records, run
     from scripts.engine_checks.runner import WORLD_NAME, sha256, write_json
 
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    # pytest's app fixture registers a web-request guard; this standalone worker
-    # normally runs in a fresh process which never imports the web application.
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
     world = tmp_path / "server" / "worlds" / WORLD_NAME
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic nonplayable fixture", encoding="utf-8")

@@ -2,8 +2,8 @@
 
 Only standard-library imports may precede install_backend. The comparison uses
 today's services with the pre-migration NBT binding, not a historical checkout.
-All paths belong to disposable test copies; guards for an active web app are
-disabled, but validation, backups, native writes and rereads remain real.
+All paths belong to disposable test copies and use the offline adapter default;
+validation, backups, native writes and rereads remain real.
 """
 
 from __future__ import annotations
@@ -19,14 +19,11 @@ from tests.nbt_backend_worker import install_backend, view
 
 def run(backend: str, world: Path, request: dict, output: Path) -> dict:
     install_backend(backend)
-    import mcbe_editor.db as db_module
     from mcbe_editor.backup import get_backups_dir
     from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
     from mcbe_editor.mount_write import create_horse_mount_with_service
     from mcbe_editor.services import BedrockEditorService
 
-    db_module._runtime_app_modules = lambda: ()
-    db_module._registered_write_guard = None
     service = BedrockEditorService(ITEMS, ENCHANTMENTS)
     world_path = str(world.resolve())
     operation = request["operation"]

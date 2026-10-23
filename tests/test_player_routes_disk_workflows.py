@@ -96,7 +96,7 @@ def workflow(tmp_path, monkeypatch):
 
     # Use the same controlled final gate at the real adapter boundary as at
     # the service callback, without importing the unavailable web framework.
-    monkeypatch.setattr(db, "_run_runtime_leveldb_write_guard", final_gate)
+    service.db_factory = lambda path: db.LevelDbAdapter(path, write_guard=final_gate)
     deps = routes.PlayerRouteDeps(
         app_config=SimpleNamespace(is_docker=False, require_server_offline=True, read_only=False),
         service=service,

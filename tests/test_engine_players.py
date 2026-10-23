@@ -160,7 +160,6 @@ def test_client_discovery_distinguishes_account_indexes_and_rejects_ambiguity(mu
 @pytest.mark.parametrize("via_client", [False, True])
 @pytest.mark.parametrize("case_ids", [("minecraft:stone",), ("minecraft:bow", "minecraft:stone")])
 def test_native_player_service_preserves_other_fields_and_records(tmp_path, monkeypatch, via_client, case_ids):
-    import mcbe_editor.db as db_module
     from mcbe_editor import nbt
     from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
     from mcbe_editor.db import LevelDbAdapter
@@ -169,8 +168,6 @@ def test_native_player_service_preserves_other_fields_and_records(tmp_path, monk
     from scripts.engine_checks.player_service import exercise_player_service
 
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
     world = tmp_path / "nonplayable"
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic nonplayable fixture", encoding="utf-8")
@@ -230,7 +227,6 @@ def test_all_suites_keep_failures_and_partial_results(tmp_path, monkeypatch, sta
 
 @pytest.mark.parametrize("fault", ["extra-slot", "lost-move", "changed-metadata", "skipped-delete"])
 def test_player_service_checks_intermediate_states_before_further_writes(tmp_path, monkeypatch, fault):
-    import mcbe_editor.db as db_module
     from mcbe_editor import nbt
     from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
     from mcbe_editor.db import LevelDbAdapter
@@ -239,8 +235,6 @@ def test_player_service_checks_intermediate_states_before_further_writes(tmp_pat
     from scripts.engine_checks.player_service import exercise_player_service
 
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
     world = tmp_path / "nonplayable"
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic nonplayable fixture", encoding="utf-8")

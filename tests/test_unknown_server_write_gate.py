@@ -267,156 +267,129 @@ def test_every_server_status_observation_gets_a_new_revision(monkeypatch):
     assert second["server_status_revision"] == first["server_status_revision"] + 1
 
 
-def test_leveldb_adapter_runs_runtime_final_write_guard_before_open_and_put(monkeypatch):
-    import sys
-
+def test_leveldb_adapter_runs_bound_guard_before_open_and_each_write(monkeypatch):
     from mcbe_editor.db import LevelDbAdapter
 
     calls = []
 
     class FakeDb:
-        def get(self, _key):
-            raise KeyError(_key)
+        def __init__(self, path):
+            calls.append(("open", path))
 
         def put(self, key, value):
             calls.append(("put", key, value))
 
-        def close(self):
-            calls.append(("close",))
-
-        def iter_items(self):
-            return iter(())
-
-    fake_db = FakeDb()
-    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", lambda _path: fake_db)
-    monkeypatch.setitem(
-        sys.modules,
-        "main",
-        SimpleNamespace(require_final_world_write_allowed=lambda label: calls.append(("guard", label))),
-    )
-
-    adapter = LevelDbAdapter("/tmp/world/db")
-    adapter.put(b"player", b"data")
-
-    assert calls == [
-        ("guard", "LevelDB-Öffnen"),
-        ("guard", "LevelDB-Schreiben"),
-        ("put", b"player", b"data"),
-    ]
-
-
-def test_leveldb_adapter_uses_dunder_main_runtime_guard(monkeypatch):
-    import sys
-
-    from mcbe_editor.db import LevelDbAdapter
-
-    calls = []
-
-    class FakeDb:
-        def put(self, key, value):
-            calls.append(("put", key, value))
-
-        def get(self, _key):
-            raise KeyError(_key)
-
-        def close(self):
-            pass
-
-        def iter_items(self):
-            return iter(())
-
-    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", lambda _path: FakeDb())
-    monkeypatch.delitem(sys.modules, "main", raising=False)
-    monkeypatch.setitem(
-        sys.modules,
-        "__main__",
-        SimpleNamespace(require_final_world_write_allowed=lambda label: calls.append(("guard", label))),
-    )
-
-    adapter = LevelDbAdapter("/tmp/world/db")
-    adapter.put(b"player", b"data")
-
-    assert calls == [
-        ("guard", "LevelDB-Öffnen"),
-        ("guard", "LevelDB-Schreiben"),
-        ("put", b"player", b"data"),
-    ]
-
-
-def test_leveldb_adapter_uses_registered_runtime_guard_without_app_module(monkeypatch):
-    import sys
-
-    from mcbe_editor import db as db_module
-    from mcbe_editor.db import LevelDbAdapter, register_runtime_leveldb_write_guard
-
-    calls = []
-
-    class FakeDb:
-        def put(self, key, value):
-            calls.append(("put", key, value))
-
-        def get(self, _key):
-            raise KeyError(_key)
-
-        def close(self):
-            pass
-
-        def iter_items(self):
-            return iter(())
-
-    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", lambda _path: FakeDb())
-    # App läuft unter fremdem Modulnamen: weder main noch __main__ tragen den Guard.
-    monkeypatch.delitem(sys.modules, "main", raising=False)
-    monkeypatch.setitem(sys.modules, "__main__", SimpleNamespace())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
-    register_runtime_leveldb_write_guard(lambda label: calls.append(("guard", label)))
-
-    adapter = LevelDbAdapter("/tmp/world/db")
-    adapter.put(b"player", b"data")
-
-    assert calls == [
-        ("guard", "LevelDB-Öffnen"),
-        ("guard", "LevelDB-Schreiben"),
-        ("put", b"player", b"data"),
-    ]
-
-
-def test_leveldb_adapter_does_not_open_when_runtime_final_write_guard_blocks(monkeypatch):
-    import sys
-
-    import pytest
-
-    from mcbe_editor.db import LevelDbAdapter
-
-    calls = []
-
-    class FakeDb:
-        def __init__(self, _path):
-            calls.append(("open",))
-
-        def put(self, _key, _value):
-            calls.append(("put",))
-
-        def get(self, _key):
-            raise KeyError(_key)
-
-        def close(self):
-            pass
-
-        def iter_items(self):
-            return iter(())
-
-    def blocked_guard(_label):
-        calls.append(("guard",))
-        raise ValueError("final gate blocked")
+        def put_batch(self, data):
+            calls.append(("batch", data))
 
     monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", FakeDb)
-    monkeypatch.setitem(sys.modules, "main", SimpleNamespace(require_final_world_write_allowed=blocked_guard))
+    adapter = LevelDbAdapter("/tmp/world/db", write_guard=lambda label: calls.append(("guard", label)))
+    adapter.put(b"player", b"data")
+    adapter.put_batch({b"player": b"updated"})
+    assert calls == [
+        ("guard", "LevelDB-Öffnen"),
+        ("open", "/tmp/world/db"),
+        ("guard", "LevelDB-Schreiben"),
+        ("put", b"player", b"data"),
+        ("guard", "LevelDB-Batch-Schreiben"),
+        ("batch", {b"player": b"updated"}),
+    ]
 
-    with pytest.raises(ValueError, match="final gate blocked"):
-        LevelDbAdapter("/tmp/world/db")
 
-    assert calls == [("guard",)]
+@pytest.mark.parametrize("operation", ["open", "put", "put_batch"])
+def test_leveldb_adapter_bound_guard_rejects_before_mutation(monkeypatch, operation):
+    from mcbe_editor.db import LevelDbAdapter
+
+    calls = []
+    blocked = operation == "open"
+
+    class FakeDb:
+        def __init__(self, path):
+            calls.append("open")
+
+        def put(self, *_args):
+            calls.append("put")
+
+        def put_batch(self, *_args):
+            calls.append("put_batch")
+
+    def guard(_label):
+        if blocked:
+            raise ValueError("final gate blocked")
+
+    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", FakeDb)
+    if operation == "open":
+        with pytest.raises(ValueError, match="final gate blocked"):
+            LevelDbAdapter("/tmp/world/db", write_guard=guard)
+        assert calls == []
+    else:
+        adapter = LevelDbAdapter("/tmp/world/db", write_guard=guard)
+        blocked = True
+        with pytest.raises(ValueError, match="final gate blocked"):
+            if operation == "put":
+                adapter.put(b"player", b"data")
+            else:
+                adapter.put_batch({b"player": b"data"})
+        assert calls == ["open"]
+
+
+def test_offline_adapter_is_independent_of_imported_web_modules(monkeypatch):
+    import sys
+
+    from mcbe_editor.db import LevelDbAdapter
+
+    calls = []
+
+    def unexpected_guard(_label):
+        raise AssertionError("Offline tools must not discover a web guard")
+
+    class FakeDb:
+        def put(self, key, value):
+            calls.append((key, value))
+
+    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", lambda _: FakeDb())
+    for name in ("main", "__main__", "wsgi_app"):
+        monkeypatch.setitem(sys.modules, name, SimpleNamespace(require_final_world_write_allowed=unexpected_guard))
+    LevelDbAdapter("/tmp/world/db").put(b"player", b"data")
+    assert calls == [(b"player", b"data")]
+
+
+def test_wsgi_app_instances_bind_their_own_guards_and_keep_sessions_isolated(monkeypatch, tmp_path):
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    import main
+
+    calls = []
+
+    class FakeDb:
+        def __init__(self, path):
+            calls.append(("open", path))
+
+        def put(self, key, value):
+            calls.append(("put", key, value))
+
+    monkeypatch.setattr("mcbe_editor.db.LevelDbWriter", FakeDb)
+    monkeypatch.setattr("mcbe_editor.server_status.check_server_status", lambda _: {"status": "offline"})
+    applications = []
+    for name, read_only in (("mcbe_wsgi_allowed", False), ("mcbe_wsgi_blocked", True)):
+        monkeypatch.setenv("MCBE_DATA_ROOT", str(tmp_path / name))
+        spec = importlib.util.spec_from_file_location(name, Path(main.__file__))
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, name, module)
+        spec.loader.exec_module(module)
+        module.APP_CONFIG = replace(module.APP_CONFIG, read_only=read_only, require_server_offline=True)
+        applications.append(module)
+    allowed, blocked = applications
+    adapter = allowed.editor_service.db_factory("/tmp/allowed/db")
+    with pytest.raises(blocked.FinalWriteGateBlockedError):
+        blocked.editor_service.db_factory("/tmp/blocked/db")
+    adapter.put(b"player", b"data")
+    allowed.APP_CONFIG = replace(allowed.APP_CONFIG, read_only=True)
+    with pytest.raises(allowed.FinalWriteGateBlockedError):
+        adapter.put(b"player", b"changed")
+    assert calls == [("open", "/tmp/allowed/db"), ("put", b"player", b"data")]
 
 
 @pytest.mark.parametrize("require_server_offline", [False, True])

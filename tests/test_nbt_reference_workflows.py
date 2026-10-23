@@ -29,13 +29,11 @@ from tests.test_nbt_reference_write_path import (
     SERVER_PLAYER_KEY,
     _build_synthetic_world,
     _copy_world,
-    _offline_world_writes as _offline_world_writes,
     _private_world_paths,
 )
 
 reference = pytest.importorskip("amulet_nbt", reason="Independent NBT oracle runs on Python 3.12")
 BACKENDS = ("project", "amulet")
-pytestmark = pytest.mark.usefixtures("_offline_world_writes")
 
 
 def _load(raw):

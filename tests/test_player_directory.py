@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from flask import Flask
 
-from mcbe_editor import db as db_module, nbt, players as players_module, services as services_module
+from mcbe_editor import nbt, players as players_module, services as services_module
 from mcbe_editor.db import LevelDbAdapter
 from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
 from mcbe_editor.leveldb_readonly import ReadonlyLevelDbAdapter
@@ -171,7 +171,6 @@ def _save(service, world, *, key=LOCAL_PLAYER_KEY, xp=2, **kwargs):
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
-    monkeypatch.setattr(db_module, "_run_runtime_leveldb_write_guard", lambda _label: None)
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic directory test", encoding="utf-8")

@@ -252,14 +252,11 @@ def test_nested_revision_origins_follow_persisted_slots_not_row_order(special_ca
 @pytest.mark.parametrize("standalone", [False, True])
 @pytest.mark.parametrize("corrupt_before_revision", [False, True])
 def test_worker_revises_only_after_verified_reload_and_preserves_unrelated_records(tmp_path, monkeypatch, special_cases, standalone, corrupt_before_revision):
-    import mcbe_editor.db as db_module
     from mcbe_editor.db import LevelDbAdapter
     from scripts.engine_checks.nbt_roundtrip import read_records, run
     from scripts.engine_checks.runner import ROOT, WORLD_NAME, nbt_worker, sha256, write_json
 
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
     world = tmp_path / "server" / "worlds" / WORLD_NAME
     (world / "db").mkdir(parents=True)
     (world / "levelname.txt").write_text("Synthetic nonplayable fixture", encoding="utf-8")

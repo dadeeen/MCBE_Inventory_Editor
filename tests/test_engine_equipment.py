@@ -115,11 +115,8 @@ def fixture_player(container_cases, equipment_cases, *, body=True):
 
 @pytest.fixture
 def synthetic_world(tmp_path, monkeypatch):
-    import mcbe_editor.db as db_module
 
     monkeypatch.setenv("MCBE_BACKUP_ROOT", str(tmp_path / "backups"))
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
 
     def create(player):
         world = tmp_path / "nonplayable"

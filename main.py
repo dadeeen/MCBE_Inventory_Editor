@@ -47,7 +47,7 @@ from mcbe_editor import (
 from mcbe_editor.audit import AuditLogger
 from mcbe_editor.browser_launch import browser_url, existing_editor_url, open_browser_url
 from mcbe_editor.config import _host_for_origin, host_reaches_beyond_loopback, request_host_is_trusted, trusted_hosts_for_bind
-from mcbe_editor.db import register_runtime_leveldb_write_guard
+from mcbe_editor.db import LevelDbAdapter
 from mcbe_editor.deployment import worlds_root_status, write_gate_setup_status
 from mcbe_editor.distribution import data_root_snapshot, distribution_snapshot
 from mcbe_editor.player_directory import PlayerDirectory
@@ -383,9 +383,17 @@ app.config["SESSION_COOKIE_SECURE"] = APP_CONFIG.session_cookie_secure
 app.secret_key = APP_CONFIG.secret_key if APP_CONFIG.secret_key_configured else SETUP_STATE.secret_key() or APP_CONFIG.secret_key
 # Discovery depends on database state, so it outlives catalog-bound services.
 _PLAYER_DIRECTORY = PlayerDirectory()
+
+
+def _web_db_factory(db_path: str) -> LevelDbAdapter:
+    """Bind this app's final gate to every writable session, including WSGI imports."""
+    return LevelDbAdapter(db_path, write_guard=require_final_world_write_allowed)
+
+
 editor_service = BedrockEditorService(
     item_data_module.ITEMS,
     item_data_module.ENCHANTMENTS,
+    db_factory=_web_db_factory,
     item_catalog=item_data_module.current_item_catalog(),
     player_directory=_PLAYER_DIRECTORY,
 )
@@ -1180,11 +1188,6 @@ def require_final_world_write_allowed(action_label: str):
     raise FinalWriteGateBlockedError(action_label, gate)
 
 
-# Explizit registrieren, damit der finale LevelDB-Write-Guard auch greift,
-# wenn die App nicht als Modul "main"/"__main__" läuft (z. B. WSGI-Wrapper).
-register_runtime_leveldb_write_guard(require_final_world_write_allowed)
-
-
 def world_db_access_gate() -> dict:
     """Return the exact read-gate observation for the current request.
 
@@ -1432,6 +1435,7 @@ def reload_item_db_after_update() -> dict:
         service = BedrockEditorService(
             catalog["ITEMS"],
             catalog["ENCHANTMENTS"],
+            db_factory=_web_db_factory,
             item_catalog=catalog,
             player_directory=_PLAYER_DIRECTORY,
         )

@@ -12,14 +12,6 @@ from mcbe_editor.leveldb_readonly import ReadonlyLevelDbAdapter
 leveldb = pytest.importorskip("leveldb", reason="amulet-leveldb reference engine is not installed")
 
 
-@pytest.fixture(autouse=True)
-def _offline_disposable_databases(monkeypatch):
-    import mcbe_editor.db as db_module
-
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
-
-
 def test_native_batch_persists_deletes_and_unrelated_records(tmp_path):
     path = tmp_path / "db"
     seed = leveldb.LevelDB(str(path), True)

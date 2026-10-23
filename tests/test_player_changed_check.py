@@ -70,7 +70,6 @@ def player_world(tmp_path, monkeypatch):
 
     world = tmp_path / "world"
     (world / "db").mkdir(parents=True)
-    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
 
     def write_player(level):
         player = make_minimal_player_tag()

@@ -236,7 +236,6 @@ def test_direct_mount_backup_failure_leaves_native_world_files_identical(monkeyp
     finally:
         db.close()
     service = BedrockEditorService({}, {})
-    monkeypatch.setattr("mcbe_editor.db._run_runtime_leveldb_write_guard", lambda *_args: None)
     backup_attempts = []
 
     def fail_backup(*args, **_kwargs):

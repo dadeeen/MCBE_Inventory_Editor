@@ -106,14 +106,10 @@ def dump_database(db) -> dict:
 
 def run(backend: str, world: Path, *, edit: bool) -> dict:
     install_backend(backend)
-    import mcbe_editor.db as db_module
     from mcbe_editor.db import LevelDbAdapter
     from mcbe_editor.item_data import ENCHANTMENTS, ITEMS
     from mcbe_editor.services import BedrockEditorService
 
-    # Disposable copies only: keep the web write guard out, as the private-world tests do.
-    db_module._runtime_app_modules = lambda: ()
-    db_module._registered_write_guard = None
     world_path = str(world.resolve())
     report = {"backend": backend, "nbt_module": sys.modules["mcbe_editor.nbt"].__name__, "players": {}}
     if edit:

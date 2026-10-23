@@ -26,7 +26,6 @@ from pathlib import Path
 
 import pytest
 
-import mcbe_editor.db as db_module
 from mcbe_editor import nbt
 from mcbe_editor.db import LevelDbAdapter
 from mcbe_editor.players import decode_player_key, encode_player_key
@@ -39,13 +38,6 @@ PRIVATE_WORLD_ROOT = ROOT / "fixtures" / "private"
 SERVER_PLAYER_KEY = b"player_server_11111111-2222-3333-4444-555555555555"
 TRUE_VALUES = {"1", "true", "yes", "ja", "on"}
 DEFAULT_MAX_WORLDS = 3
-
-
-@pytest.fixture
-def _offline_world_writes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the web write guard out of explicit offline writes to disposable worlds."""
-    monkeypatch.setattr(db_module, "_runtime_app_modules", lambda: ())
-    monkeypatch.setattr(db_module, "_registered_write_guard", None)
 
 
 def _item(slot: int, name: str, count: int = 1, damage: int = 0, tag=None):
@@ -311,7 +303,7 @@ def _compare_backends(world: Path, work: Path, *, copy_from: Path | None = None)
     return project, amulet, edited
 
 
-def test_synthetic_world_edit_is_byte_identical_across_nbt_backends(tmp_path: Path, _offline_world_writes) -> None:
+def test_synthetic_world_edit_is_byte_identical_across_nbt_backends(tmp_path: Path) -> None:
     source = tmp_path / "source"
     _build_synthetic_world(source)
 
@@ -408,10 +400,7 @@ def test_private_world_copies_edit_is_byte_identical_across_nbt_backends(tmp_pat
 def _successful_backend_reports(tmp_path_factory):
     root = tmp_path_factory.mktemp("reference-write-reports")
     source = root / "source"
-    with pytest.MonkeyPatch.context() as patcher:
-        patcher.setattr(db_module, "_runtime_app_modules", lambda: ())
-        patcher.setattr(db_module, "_registered_write_guard", None)
-        _build_synthetic_world(source)
+    _build_synthetic_world(source)
     _compare_backends(source, root / "run")
     reports = {name: json.loads((root / "run" / f"{name}.json").read_text(encoding="utf-8")) for name in ("baseline", "project", "amulet")}
     return source, reports

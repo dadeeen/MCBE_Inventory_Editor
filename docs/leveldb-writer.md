@@ -2,8 +2,11 @@
 
 The editor reads and writes Bedrock world databases with the Python standard
 library. `mcbe_editor.leveldb_writer` provides the write session and extends the
-reader in `mcbe_editor.leveldb_readonly`; `mcbe_editor.db.LevelDbAdapter` wraps
-it with the app's final write gates and error translation.
+reader in `mcbe_editor.leveldb_readonly`; `mcbe_editor.db.LevelDbAdapter` adds
+error translation and an optional per-instance write guard. The web service's
+adapter factory explicitly binds its final write gates, including after catalog
+reloads. Offline callers choose their own guard or use the default `None`; the
+adapter does not discover application state through imported modules.
 
 ## Design: append a write-ahead log, never rewrite
 
