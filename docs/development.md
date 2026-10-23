@@ -201,6 +201,20 @@ Documentation languages: `README.md` and `SECURITY.md` are English with maintain
 
 `python -m scripts.update_db` regenerates `mcbe_editor/resources/item_db.json` from the `Mojang/bedrock-samples` release and the Microsoft Learn item listing. Identifiers, effects, and display names update from those sources. Normal runs always query the current release metadata first and reuse the cached ZIP only when release identity, size, and ZIP validation match. Enchantment **maximum levels** come from the reviewed table in `mcbe_editor/resources/enchantment_max_levels.json`.
 
+Bundled provenance is shipped beside the database in `item_db_source.json` and
+`item_db_source_history.json`. Startup seeds missing persistent provenance only
+when the active database is byte-identical to the bundled snapshot; existing
+metadata and verification receipts are preserved. When refreshing that snapshot,
+update both public provenance resources from the same reviewed update and keep
+the root publication copies (`source_version.json` and
+`source_version_history.json`) byte-identical to their resource counterparts.
+Do not promote installation-specific verification receipts or other private
+runtime state into these public files. The updater writes its provenance to the
+configured runtime paths (by default under `data/`); it does not refresh the
+public copies automatically. `tests/test_bundled_item_db_metadata.py` checks
+resource/copy consistency, packaged startup and preservation of runtime data.
+The private runtime filenames remain excluded from release and Docker packages.
+
 Before processing, the updater validates the exact registries and the canonical
 English/German language files required by the selected scope. Missing, duplicate,
 empty or malformed required sections stop the update before a write or a new

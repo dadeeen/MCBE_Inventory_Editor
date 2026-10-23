@@ -39,8 +39,8 @@ def test_runtime_bootstrap_seeds_once_and_preserves_updated_data_after_restart(t
     paths = _probe(env, tmp_path)
     bundled = {
         "items": ROOT / "mcbe_editor/resources/item_db.json",
-        "source": ROOT / "source_version.json",
-        "history": ROOT / "source_version_history.json",
+        "source": ROOT / "mcbe_editor/resources/item_db_source.json",
+        "history": ROOT / "mcbe_editor/resources/item_db_source_history.json",
     }
     for key, path in paths.items():
         assert path.is_absolute()

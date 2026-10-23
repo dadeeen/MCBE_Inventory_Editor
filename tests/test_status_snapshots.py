@@ -121,7 +121,9 @@ def test_item_db_status_snapshot_detects_the_initial_bundled_metadata_copy(tmp_p
     item_db.parent.mkdir(parents=True)
     item_db.write_text("{}", encoding="utf-8")
     metadata = {"resource_pack_release": "1.21", "generated_at": "2026-01-01"}
-    (tmp_path / "source_version.json").write_text(json.dumps(metadata), encoding="utf-8")
+    bundled_metadata = tmp_path / "mcbe_editor" / "resources" / "item_db_source.json"
+    bundled_metadata.parent.mkdir(parents=True)
+    bundled_metadata.write_text(json.dumps(metadata), encoding="utf-8")
     Path(config.source_version_path).write_text(json.dumps(metadata), encoding="utf-8")
     item_data = SimpleNamespace(ITEM_DB_SOURCE_PATH=str(item_db))
 

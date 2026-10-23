@@ -8,7 +8,7 @@ from typing import Any
 
 from mcbe_editor import item_db_verification
 from mcbe_editor.numeric_catalog_policy import numeric_catalog_conflict_messages
-from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_RELATIVE_PATH
+from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_RELATIVE_PATH, BUNDLED_SOURCE_VERSION_HISTORY_RELATIVE_PATH, BUNDLED_SOURCE_VERSION_RELATIVE_PATH
 
 
 def public_app_config(
@@ -100,7 +100,7 @@ def read_json_list(path_value: str | None) -> list[Any]:
 
 
 def source_version_history_entries(source_version_history_path: str | None, app_root: Path) -> list[dict]:
-    path_value = source_version_history_path or str(app_root / "source_version_history.json")
+    path_value = source_version_history_path or str(app_root / BUNDLED_SOURCE_VERSION_HISTORY_RELATIVE_PATH)
     return [entry for entry in read_json_list(path_value) if isinstance(entry, dict)]
 
 
@@ -116,7 +116,7 @@ def item_db_status_snapshot(app_config: Any, item_data_module: Any, app_root: Pa
     source_path = Path(getattr(item_data_module, "ITEM_DB_SOURCE_PATH", bundled_path)).expanduser()
     configured_path = Path(app_config.item_db_path).expanduser() if app_config.item_db_path else bundled_path
     source_version = read_json_dict(app_config.source_version_path)
-    bundled_source_version = read_json_dict(str(app_root / "source_version.json"))
+    bundled_source_version = read_json_dict(str(app_root / BUNDLED_SOURCE_VERSION_RELATIVE_PATH))
     history = source_version_history_entries(app_config.source_version_history_path, app_root)
     try:
         stat = source_path.stat()

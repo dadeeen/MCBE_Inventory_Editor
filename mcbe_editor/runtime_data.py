@@ -11,6 +11,8 @@ PRIVATE_FILE_MODE = 0o600
 PRIVATE_DIRECTORY_MODE = 0o700
 BUNDLED_ITEM_DB_RELATIVE_PATH = Path("mcbe_editor") / "resources" / "item_db.json"
 BUNDLED_ITEM_DB_JSON = Path(__file__).resolve().parents[1] / BUNDLED_ITEM_DB_RELATIVE_PATH
+BUNDLED_SOURCE_VERSION_RELATIVE_PATH = Path("mcbe_editor") / "resources" / "item_db_source.json"
+BUNDLED_SOURCE_VERSION_HISTORY_RELATIVE_PATH = Path("mcbe_editor") / "resources" / "item_db_source_history.json"
 _FCHMOD: Callable[[int, int], None] | None = getattr(os, "fchmod", None)
 
 
@@ -139,8 +141,8 @@ def _resolved_runtime_path(path: str) -> Path:
     return resolved
 
 
-def prepare_persistent_json_file(target_path: str | None, bundled_json: Path, expected_name: str) -> Path | None:
-    """Copy a bundled JSON file into a writable runtime path when missing."""
+def prepare_persistent_json_file(target_path: str | None, bundled_json: Path, expected_name: str, *, seed_bundled: bool = True) -> Path | None:
+    """Prepare a writable JSON path, optionally seeding a missing bundled file."""
     if not target_path:
         return None
 
@@ -149,10 +151,20 @@ def prepare_persistent_json_file(target_path: str | None, bundled_json: Path, ex
         raise ValueError(f"{expected_name} muss auf {expected_name} zeigen.")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    if not target.exists() and bundled_json.exists():
+    if seed_bundled and not target.exists() and bundled_json.exists():
         atomic_seed_file(bundled_json, target)
 
     return target
+
+
+def item_db_matches_bundled(item_db_json: Path, bundled_item_db_json: Path) -> bool:
+    """Only attribute bundled provenance to the exact database shipped with it."""
+    try:
+        bundled = bundled_item_db_json.read_bytes()
+        with item_db_json.open("rb") as current:
+            return current.read(len(bundled) + 1) == bundled
+    except OSError:
+        return False
 
 
 def prepare_persistent_item_db(item_db_path: str | None, bundled_item_db_json: Path) -> Path | None:

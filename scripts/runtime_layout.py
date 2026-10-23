@@ -75,6 +75,8 @@ REQUIRED_RUNTIME_FILES = frozenset(
         "mcbe_editor/resources/enchantment_max_levels.json",
         "mcbe_editor/resources/item_availability.json",
         "mcbe_editor/resources/item_db.json",
+        "mcbe_editor/resources/item_db_source.json",
+        "mcbe_editor/resources/item_db_source_history.json",
         "static/app.js",
         "templates/index.html",
     }
