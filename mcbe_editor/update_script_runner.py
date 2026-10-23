@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -152,25 +153,36 @@ def run_update_icons(
     if progress_path is not None:
         env[PROGRESS_ENV] = str(progress_path.resolve())
 
+    cache_dir = Path(env.get("MCBE_UPDATE_CACHE_DIR") or data_root / "cache" / "item_update").expanduser().resolve()
+    env["MCBE_UPDATE_CACHE_DIR"] = str(cache_dir)
     _ensure_dirs(
         {
             data_root,
             icon_root.parent,
-            Path(app_config.update_cache_dir).expanduser() if app_config.update_cache_dir else None,
+            cache_dir,
         }
     )
 
-    proc = _run_update(
-        cmd,
-        cwd=str(app_root),
-        env=env,
-        text=True,
-        encoding="utf-8",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=300,
-        check=False,
-    )
+    # The parent survives an updater timeout and removes this run's partial
+    # download and rendered staging after the child has terminated. Keep each
+    # directory beside its destination so publication remains an atomic rename.
+    with (
+        tempfile.TemporaryDirectory(prefix=".icon-download-", dir=cache_dir) as download_dir,
+        tempfile.TemporaryDirectory(prefix=f".{icon_root.name}.staging-", dir=icon_root.parent) as staging_dir,
+    ):
+        env["MCBE_ICON_DOWNLOAD_TEMP_DIR"] = download_dir
+        env["MCBE_ICON_STAGING_DIR"] = staging_dir
+        proc = _run_update(
+            cmd,
+            cwd=str(app_root),
+            env=env,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=300,
+            check=False,
+        )
     if progress_path is not None:
         write_progress(progress_path, "finalizing")
     return proc.returncode, strip_terminal_formatting(proc.stdout)

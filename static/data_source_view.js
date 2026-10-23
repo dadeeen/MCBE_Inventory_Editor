@@ -93,10 +93,12 @@
         const existingSources = Number(health.existing_sources || (summary?.sources || []).filter(src => src.enabled !== false && src.exists).length || 0);
         const scanned = Number(summary?.scanned_files || 0);
         if (count > 0) {
+            const missingPatterns = Boolean(summary?.missing_banner_patterns?.length);
             return {
-                rank: warnings ? 1 : 0,
-                value: warnings ? t("Hinweise") : t("bereit"),
-                detail: t("{count} lokale Icons · {files} Dateien geprüft", { count: formatDeNumber(count), files: formatDeNumber(scanned) }),
+                rank: warnings || missingPatterns ? 1 : 0,
+                value: warnings || missingPatterns ? t("Hinweise") : t("bereit"),
+                detail: missingPatterns ? t("Bannermuster fehlen")
+                    : t("{count} lokale Icons · {files} Dateien geprüft", { count: formatDeNumber(count), files: formatDeNumber(scanned) }),
             };
         }
         if (sourceCount > 0) {

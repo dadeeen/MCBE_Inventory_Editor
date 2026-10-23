@@ -8,6 +8,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from mcbe_editor.banner_patterns import BANNER_TEXTURES
 from mcbe_editor.update_output_i18n import output_t as tr
 
 WarningHandler = Callable[[str], None]
@@ -24,48 +25,52 @@ def _remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
-def _cache_is_complete(path: Path) -> bool:
+def _complete_cache_manifest(path: Path) -> dict | None:
     if not path.is_dir():
-        return False
+        return None
     try:
         manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
-        return False
+        return None
     if not isinstance(manifest, dict):
-        return False
+        return None
     items = manifest.get("items")
     if not isinstance(items, dict):
-        return False
+        return None
     for item_id, texture_path in items.items():
         if not isinstance(item_id, str) or not item_id.startswith("minecraft:") or not isinstance(texture_path, str) or not texture_path.strip():
-            return False
+            return None
         asset_name = item_id.removeprefix("minecraft:")
         if not asset_name or asset_name in {".", ".."} or "\0" in asset_name or "/" in asset_name or "\\" in asset_name:
-            return False
+            return None
         icon_path = path / "textures" / "items" / f"{asset_name}.png"
         try:
             icon_stat = icon_path.stat(follow_symlinks=False)
         except OSError:
-            return False
+            return None
         if not icon_path.is_file() or icon_path.is_symlink() or icon_stat.st_size <= 0:
-            return False
+            return None
     display_assets = manifest.get("display_assets", {})
     if not isinstance(display_assets, dict):
-        return False
+        return None
     for asset_id, texture_path in display_assets.items():
         if not isinstance(asset_id, str) or not asset_id.startswith("mcbe:") or not isinstance(texture_path, str) or not texture_path.strip():
-            return False
+            return None
         asset_name = asset_id.removeprefix("mcbe:")
         if not asset_name or asset_name in {".", ".."} or "\0" in asset_name or "/" in asset_name or "\\" in asset_name:
-            return False
+            return None
         icon_path = path / "textures" / "display" / f"{asset_name}.png"
         try:
             icon_stat = icon_path.stat(follow_symlinks=False)
         except OSError:
-            return False
+            return None
         if not icon_path.is_file() or icon_path.is_symlink() or icon_stat.st_size <= 0:
-            return False
-    return True
+            return None
+    return manifest
+
+
+def _cache_is_complete(path: Path) -> bool:
+    return _complete_cache_manifest(path) is not None
 
 
 def _rollback_paths(target_root: Path) -> list[Path]:
@@ -158,11 +163,19 @@ def publish_icon_cache(staging: Path, target_root: Path, *, warn: WarningHandler
 
     if staging.parent != target_root.parent:
         raise ValueError(tr("Icon-Staging und Ziel müssen im selben Verzeichnis liegen."))
-    if not _cache_is_complete(staging):
+    staged_manifest = _complete_cache_manifest(staging)
+    if staged_manifest is None:
         raise ValueError(tr("Der neue Icon-Cache ist unvollständig und wird nicht veröffentlicht."))
 
     with _cache_lock(target_root):
         _recover_icon_cache_unlocked(target_root, warn=warn)
+        previous_manifest = _complete_cache_manifest(target_root)
+        if previous_manifest is not None:
+            if previous_manifest["items"] and not staged_manifest["items"]:
+                raise ValueError(tr("Der neue Icon-Cache enthält keine Item-Icons. Der vorhandene Cache bleibt erhalten."))
+            previous_banners = {f"mcbe:banner_{code}" for code in BANNER_TEXTURES} & previous_manifest.get("display_assets", {}).keys()
+            if not previous_banners <= staged_manifest.get("display_assets", {}).keys():
+                raise ValueError(tr("Der neue Icon-Cache enthält nicht alle bisher verfügbaren Bannermuster. Der vorhandene Cache bleibt erhalten."))
         rollback = target_root.parent / f".{target_root.name}.rollback-{os.urandom(8).hex()}"
         moved_old = False
         if _path_exists(target_root):

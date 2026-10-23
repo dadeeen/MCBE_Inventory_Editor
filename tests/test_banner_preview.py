@@ -95,6 +95,43 @@ def test_bad_banner_does_not_replace_a_working_cache(tmp_path):
     assert before == {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
 
 
+@pytest.mark.parametrize("missing", [["illager"], list(BANNER_TEXTURES)])
+def test_rebuild_cannot_remove_working_banner_faces_even_with_valid_item_icons(tmp_path, missing):
+    archive = tmp_path / "reference.zip"
+    target = tmp_path / "icons"
+    apple = encode_rgba_png(16, 16, bytes((255, 0, 0, 255)) * 256)
+
+    def pack(omit):
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("resource_pack/textures/items/apple.png", apple)
+            for code, texture in BANNER_TEXTURES.items():
+                if code not in omit:
+                    zf.writestr(f"resource_pack/textures/{texture}.png", atlas())
+
+    pack([])
+    build_icon_cache(archive, ["apple"], target, {}, block_item_ids=set())
+    before = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+    pack(missing)
+    with pytest.raises(ValueError, match="Bannermuster"):
+        build_icon_cache(archive, ["apple"], target, {}, block_item_ids=set())
+    assert before == {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
+    assert not list(tmp_path.glob(".icons.staging-*"))
+    assert not list(tmp_path.glob(".icons.rollback-*"))
+
+
+@pytest.mark.parametrize("replacement", [["base"], ["base", "illager"]])
+def test_partial_banner_cache_can_be_refreshed_and_extended(tmp_path, replacement):
+    archive = tmp_path / "reference.zip"
+    target = tmp_path / "icons"
+    for codes, scale in [(["base"], 1), (replacement, 2)]:
+        with zipfile.ZipFile(archive, "w") as zf:
+            for code in codes:
+                zf.writestr(f"resource_pack/textures/{BANNER_TEXTURES[code]}.png", atlas(scale))
+        manifest = build_icon_cache(archive, [], target, {})
+        assert set(manifest["display_assets"]) == {f"mcbe:banner_{code}" for code in codes}
+        assert (target / "textures/display/banner_base.png").read_bytes() == crop_banner_texture(atlas(scale))
+
+
 def test_public_banner_urls_keep_context_and_exclude_unreviewed_display_assets():
     index = {
         "_context_id": "shared-context",
@@ -111,6 +148,66 @@ def test_public_banner_urls_keep_context_and_exclude_unreviewed_display_assets()
     assert "display_icons" not in public
     assert json.dumps(index) == before
     assert _public_icon_index({})["banner_patterns"] == {}
+
+
+@pytest.mark.parametrize("missing", [[], ["illager"], ["base", "sku"], list(BANNER_TEXTURES)])
+def test_populated_icon_status_reports_missing_faces_without_changing_the_cached_index(missing):
+    index = {
+        "count": 1972,
+        "warnings": ["Existing source warning"],
+        "display_icons": {f"mcbe:banner_{code}": {"url": f"/api/icons/banner_{code}"} for code in BANNER_TEXTURES if code not in missing},
+    }
+    before = json.dumps(index)
+    public = _public_icon_index(index)
+    assert set(public["missing_banner_patterns"]) == set(missing)
+    assert public["warnings"] == ["Existing source warning"]
+    assert public["count"] == 1972
+    assert json.dumps(index) == before
+
+
+def test_legacy_cache_gains_banner_faces_from_validated_zip_without_redownload(monkeypatch, tmp_path):
+    from scripts import update_icons
+
+    cache = tmp_path / "downloads"
+    cache.mkdir()
+    target = tmp_path / "icons"
+    archive = cache / "bedrock-samples-fixture-full.zip"
+    apple = encode_rgba_png(16, 16, bytes((255, 0, 0, 255)) * 256)
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("resource_pack/textures/items/apple.png", apple)
+    build_icon_cache(archive, ["apple"], target, {}, block_item_ids=set())
+    monkeypatch.setenv("MCBE_DATA_ROOT", str(tmp_path / "data"))
+    monkeypatch.delenv("MCBE_ICON_ROOTS", raising=False)
+    monkeypatch.setenv("MCBE_ICON_CACHE_ROOT", str(target))
+    settings = str(tmp_path / "settings.json")
+    before = _public_icon_index(scan_icons(settings_path=settings))
+    assert before["count"] > 0
+    assert set(before["missing_banner_patterns"]) == set(BANNER_TEXTURES)
+
+    with zipfile.ZipFile(archive, "a") as zf:
+        for texture in BANNER_TEXTURES.values():
+            zf.writestr(f"resource_pack/textures/{texture}.png", atlas())
+    info = {
+        "resource_pack_release": "fixture",
+        "resource_pack_asset": archive.name,
+        "resource_pack_asset_size": archive.stat().st_size,
+        "resource_pack_url": "https://github.com/Mojang/bedrock-samples/releases/download/fixture/" + archive.name,
+    }
+    monkeypatch.setattr(update_icons, "CACHE_DIR", cache)
+    monkeypatch.setattr(update_icons, "ICON_ROOT", target)
+    monkeypatch.setattr(update_icons, "read_release_metadata", lambda: info)
+    monkeypatch.setattr(update_icons, "get_latest_full_release_info", lambda: info)
+    monkeypatch.setattr(update_icons, "load_item_icon_targets", lambda: (["apple"], [], 1))
+    monkeypatch.setattr(update_icons, "load_block_item_targets", set)
+    monkeypatch.setattr(update_icons, "_build_validating_opener", lambda *a, **kw: pytest.fail("The validated ZIP must be reused"))
+    assert update_icons.main([]) == 0
+
+    after = _public_icon_index(scan_icons(settings_path=settings, force=True))
+    assert after["missing_banner_patterns"] == []
+    assert set(after["banner_patterns"]) == set(BANNER_TEXTURES)
+    assert "minecraft:apple" in after["icons"]
+    assert (target / "textures/items/apple.png").read_bytes() == apple
+    assert not any("Bannermuster fehlen" in warning for warning in after["warnings"])
 
 
 def test_banner_tint_preserves_fractional_alpha_and_does_not_mutate_source():

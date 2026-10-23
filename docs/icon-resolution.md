@@ -96,9 +96,17 @@ The generated `textures/display/banner_<code>.png` files use the existing atomic
 cache publication and guarded image route. Icon responses expose only the
 allowlisted banner faces through `banner_patterns`, including the shared context
 in each image URL. Raw entity display assets remain internal. Existing caches
-remain readable; the dialog's **Load banner patterns** action uses the Vanilla
-icon updater when the required faces are absent. Viewing a prepared preview
-requires no network access or new cache writes.
+remain readable. `missing_banner_patterns` compares the indexed faces with the
+required pattern set, including base cloth and the ominous motif. Missing faces
+keep icon setup pending even when item icons are available; the setup banner,
+icon status and preview dialog explain how to complete the previews. A failed
+or partial rebuild keeps this notice visible. Publication rejects a rebuild that
+would remove any available required banner face from a valid existing cache.
+A successful rebuild with missing faces reports a warning instead of marking
+banner setup complete. The existing Vanilla updater checks the current release
+and reuses a matching, validated cached ZIP; otherwise
+it downloads the required archive. Viewing a prepared preview requires no
+network access or new cache writes.
 
 `static/banner_preview.js` multiplies texture RGB by each Bedrock dye color and
 composites the layers in NBT order with their original alpha. The 1:2 preview

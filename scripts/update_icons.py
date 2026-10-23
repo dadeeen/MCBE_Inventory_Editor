@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 import zlib
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -888,7 +889,10 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
 
     opener = _build_validating_opener(ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack")
     opener.addheaders = [("User-Agent", "MCBE-Inventory-Editor-Icon-Updater/1.0")]
-    fd, temp_name = tempfile.mkstemp(prefix=f".{asset_name}.", suffix=".part", dir=CACHE_DIR)
+    # App-launched updates use a parent-owned directory that is cleaned even
+    # when the child is killed on timeout. Direct CLI runs keep local cleanup.
+    download_dir = Path(os.environ.get("MCBE_ICON_DOWNLOAD_TEMP_DIR") or CACHE_DIR).expanduser()
+    fd, temp_name = tempfile.mkstemp(prefix=f".{asset_name}.", suffix=".part", dir=download_dir)
     temp_path = Path(temp_name)
     try:
         report_progress("downloading", current=0, total=expected_size, unit="bytes")
@@ -1597,6 +1601,29 @@ def _texture_source_png_bytes(zf: zipfile.ZipFile, source: TextureMember) -> byt
     raise ValueError(tr("Nicht unterstützte Texturquelle: {kind}", kind=kind))
 
 
+@contextlib.contextmanager
+def _icon_staging_directory(target_root: Path) -> Iterator[Path]:
+    """Use app-owned staging for kill-safe cleanup; direct CLI runs own theirs."""
+    configured = os.environ.get("MCBE_ICON_STAGING_DIR")
+    if not configured:
+        with tempfile.TemporaryDirectory(prefix=f".{target_root.name}.staging-", dir=target_root.parent) as name:
+            yield Path(name)
+        return
+
+    from mcbe_editor.path_safety import is_linklike
+
+    staging = Path(os.path.abspath(Path(configured).expanduser()))
+    if (
+        staging.parent != target_root.parent
+        or not staging.name.startswith(f".{target_root.name}.staging-")
+        or is_linklike(staging)
+        or not staging.is_dir()
+        or any(staging.iterdir())
+    ):
+        raise ValueError(tr("Der vorgegebene Icon-Staging-Ordner muss ein eigener, leerer Ordner neben dem Ziel sein."))
+    yield staging
+
+
 def build_icon_cache(
     zip_path: Path,
     known_items: list[str],
@@ -1623,13 +1650,14 @@ def build_icon_cache(
         item_aliases = build_data_driven_texture_aliases(item_textures, icon_targets + display_texture_targets)
         block_aliases = build_data_driven_texture_aliases(terrain_textures, icon_targets + display_texture_targets)
         texture_members = _texture_members(zf)
+        if not texture_members:
+            raise ValueError(tr("Das Resource-Pack enthält keine unterstützten Vanilla-Texturen. Die vorhandenen Icons bleiben erhalten."))
         available_textures = set(texture_members)
         block_members = {key: value for key, value in texture_members.items() if not key.startswith("items/")}
         item_members = {key: value for key, value in texture_members.items() if not key.startswith("blocks/")}
         target_root.parent.mkdir(parents=True, exist_ok=True)
         recover_icon_cache(target_root, warn=log)
-        with tempfile.TemporaryDirectory(prefix=f".{target_root.name}.staging-", dir=target_root.parent) as staging_name:
-            staging = Path(staging_name)
+        with _icon_staging_directory(target_root) as staging:
             extracted = staging / "textures" / "items"
             extracted_display = staging / "textures" / "display"
             mapped: dict[str, str] = {}

@@ -10,6 +10,7 @@
         elements = {},
         isItemDbPending = () => false,
         isIconsPending = () => false,
+        getIconsPendingHint = () => "",
         runItemDbUpdate = async () => {},
         runIconsUpdate = async () => {},
         refreshItemDbStatus = async () => {},
@@ -79,7 +80,7 @@
                                 ? t("Status nicht verfügbar. Seite neu laden.")
                             : locked
                                 ? readOnlyMessage
-                                : "";
+                                : id === "icons" ? getIconsPendingHint() : "";
             }
             if (button) {
                 button.disabled = done || TODO_IDS.some(todo => running[todo]) || locked || unknown;
@@ -100,7 +101,7 @@
                 bannerDetail.textContent = [
                     t("Offen: {items}.", { items: open.map(id => TODO_LABELS[id]()).join(", ") }),
                     open.includes("item_db") ? t("Prüfe die Item-Daten auf Aktualität.") : "",
-                    open.includes("icons") ? t("Die Slots zeigen Ersatzsymbole, bis Icons eingerichtet sind.") : "",
+                    open.includes("icons") ? getIconsPendingHint() || t("Die Slots zeigen Ersatzsymbole, bis Icons eingerichtet sind.") : "",
                 ].filter(Boolean).join(" ");
             }
         }

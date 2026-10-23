@@ -20,6 +20,11 @@
         return window.MCBEI18n?.formatNumber?.(value || 0) || Number(value || 0).toLocaleString();
     }
 
+    function bannerSetupHint(summary) {
+        return Number(summary?.count || 0) > 0 && summary?.missing_banner_patterns?.length
+            ? t("Bannermuster fehlen im lokalen Icon-Cache. Lade die Vanilla-Icons, um die Bannervorschau zu vervollständigen.") : "";
+    }
+
     function iconManagerSummaryText(data = null, { version = "dev" } = {}) {
         const summary = data || {};
         const health = summary.health || {};
@@ -34,6 +39,7 @@
             t("Health: {status} · Quellen {existing}/{enabled} · Preview {found}/{total}", { status: health.status || t("unbekannt"), existing: health.existing_sources || 0, enabled: health.enabled_sources || 0, found: health.sample_found || 0, total: health.sample_total || 0 }),
             `Settings: ${summary.settings_path || "-"}`,
         ];
+        if (bannerSetupHint(summary)) lines.push(bannerSetupHint(summary));
         (health.sample || []).forEach(row => lines.push(`Preview: ${row.found ? "✓" : "-"} ${row.item_id}${row.source ? ` · ${row.source}` : ""}`));
         (summary.sources || []).forEach((src, idx) => {
             lines.push(`${idx + 1}. ${src.enabled ? t("aktiv") : t("aus")} · ${src.manual ? t("manuell") : src.env ? "env" : "auto"} · ${src.exists ? t("vorhanden") : t("fehlt")} · ${src.status || "ok"} · ${t("{count} Icons", { count: src.count || 0 })} · ${src.label || src.path}`);
@@ -66,7 +72,8 @@
         const cache = summary.cache || {};
         const cacheLabel = cache.state === "hit" ? t("Cache genutzt") : cache.state === "rebuilt" ? t("Index neu aufgebaut") : t("Cache unbekannt");
         const enabledSourceCount = Number(health.enabled_sources || sources.filter(src => src.enabled !== false).length || 0);
-        const hasWarnings = warnings.length > 0 || health.status === "warning";
+        const setupHint = bannerSetupHint(summary);
+        const hasWarnings = warnings.length > 0 || health.status === "warning" || Boolean(setupHint);
         const healthLabel = Number(summary.count || 0) > 0
             ? (hasWarnings ? t("bereit mit Einschränkungen") : t("bereit"))
             : (enabledSourceCount ? t("keine Treffer") : t("Fallback aktiv"));
@@ -103,6 +110,7 @@
         return `
         ${setupHtml}
         <p class="tool-status-line"><strong>${t("{count} Icons", { count: formatDe(summary.count) })}</strong><span>${escapeHtml(healthLabel)}</span></p>
+        ${setupHint ? `<p class="hint-text">${escapeHtml(setupHint)}</p>` : ""}
         ${warningHtml}
         <div class="tool-source-list">${rows}</div>
         <div class="icon-preview-panel">

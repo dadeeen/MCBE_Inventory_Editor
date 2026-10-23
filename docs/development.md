@@ -237,6 +237,14 @@ the separate technical log. See [Item names and source comparisons](item-localiz
 
 Each update replaces the browser's technical output. Successful source changes append metadata to `source_version_history.json`; unchanged sources do not extend this history. A full apply can refresh the verification timestamp without rewriting the item database. The Item-DB download keeps one replaceable archive and item-list snapshot; the icon updater keeps its current managed release ZIP. Progress snapshots are removed when requests finish; a later tracked request removes crash leftovers older than 24 hours.
 
+For app-launched icon updates, the parent runner owns both the temporary download
+directory and the render staging directory. It removes them after the child exits
+or is terminated on timeout. The child receives the exact staging path and checks
+that it is a separate, empty, non-linked directory beside the target. Direct CLI
+runs own their staging context. Cleanup never searches for or deletes sibling
+directories belonging to other runs; publication locking and rollback recovery
+remain the responsibility of `mcbe_editor/icon_cache.py`.
+
 The Microsoft Learn source identity uses `microsoft_item_listing_items_hash`, a canonical hash of the parsed item mapping. The full HTML hash remains provenance; page-layout changes and fetch timestamps do not establish a different item-source identity. Metadata without the normalized fingerprint retains its original verification semantics and requires one source-metadata update to persist that fingerprint. Cached listings already contain a verified normalized mapping and supply the same fingerprint as an online fetch. Review receipts bind the complete cache files and starting files, including HTML provenance, so changed inputs still invalidate an outstanding apply receipt.
 
 Regression tests cover missing local values, table completeness, and wiki-only entries.

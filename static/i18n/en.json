@@ -1827,6 +1827,10 @@
   "Der konfigurierte Backup-Pfad ist kein Ordner.": "The configured backup path is not a folder.",
   "Der konfigurierte Export-Pfad ist kein Ordner.": "The configured export path is not a folder.",
   "Der neue Icon-Cache ist unvollständig und wird nicht veröffentlicht.": "The new icon cache is incomplete and will not be published.",
+  "Der neue Icon-Cache enthält keine Item-Icons. Der vorhandene Cache bleibt erhalten.": "The new icon cache contains no item icons. The existing cache is preserved.",
+  "Der neue Icon-Cache enthält nicht alle bisher verfügbaren Bannermuster. Der vorhandene Cache bleibt erhalten.": "The new icon cache does not contain all previously available banner patterns. The existing cache is preserved.",
+  "Der vorgegebene Icon-Staging-Ordner muss ein eigener, leerer Ordner neben dem Ziel sein.": "The supplied icon staging directory must be a separate, empty directory beside the target.",
+  "Das Resource-Pack enthält keine unterstützten Vanilla-Texturen. Die vorhandenen Icons bleiben erhalten.": "The resource pack contains no supported Vanilla textures. Existing icons are preserved.",
   "Der private Restore-Snapshot konnte nicht entfernt werden und blieb unter {path} zurück: {error}": "The private restore snapshot could not be removed and was left behind at {path}: {error}",
   "Der Restore-Transaktionsmarker konnte nicht entfernt werden und wird beim nächsten Start erneut geprüft: {path}: {error}": "The restore transaction marker could not be removed and will be checked again on the next startup: {path}: {error}",
   "Der unvollständige Restore-Transaktionsmarker konnte nicht entfernt werden und blieb unter {path} zurück: {error}": "The incomplete restore transaction marker could not be removed and was left behind at {path}: {error}",
@@ -3397,5 +3401,8 @@
   "Dieses gespeicherte Banner enthält eine andere Grundfarbe oder zusätzliche Muster. Im Spiel können diese das ominöse Motiv überlagern.": "This saved banner has a different base color or additional patterns. In the game, these may overlay the ominous motif.",
   "Noch keine Muster. Füge eine Ebene hinzu, um dein Banner zu gestalten.": "No patterns yet. Add a layer to design your banner.",
   "Ungültige Menge.": "Invalid quantity.",
-  "Ominöse Banner haben ein festes Motiv ohne eigene Muster.": "Ominous banners have a fixed motif without custom patterns."
+  "Ominöse Banner haben ein festes Motiv ohne eigene Muster.": "Ominous banners have a fixed motif without custom patterns.",
+  "Bannermuster fehlen": "Banner patterns are missing",
+  "Bannermuster fehlen im lokalen Icon-Cache. Lade die Vanilla-Icons, um die Bannervorschau zu vervollständigen.": "The local icon cache is missing banner patterns. Load the vanilla icons to complete the banner preview.",
+  "Vanilla-Icons wurden geladen, aber es fehlen weiterhin Bannermuster. Prüfe die Icon-Quellen unter Werkzeuge & Einstellungen.": "Vanilla icons were loaded, but banner patterns are still missing. Check the icon sources under Tools & Settings."
 }

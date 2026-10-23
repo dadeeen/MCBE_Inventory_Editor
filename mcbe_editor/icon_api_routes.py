@@ -81,6 +81,7 @@ def _public_icon_index(index: dict) -> dict:
     public["banner_patterns"] = {
         code: with_context(index["display_icons"][f"mcbe:banner_{code}"]) for code in BANNER_TEXTURES if f"mcbe:banner_{code}" in index.get("display_icons", {})
     }
+    public["missing_banner_patterns"] = [code for code in BANNER_TEXTURES if code not in public["banner_patterns"]]
     if context:
         public["icons"] = {key: with_context(entry) for key, entry in index.get("icons", {}).items()}
         if "health" in index:

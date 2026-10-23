@@ -171,10 +171,11 @@
 
         function renderIconHints() {
             const count = Number(iconSourceSummary?.count || 0);
+            const missingPatterns = count > 0 && Boolean(iconSourceSummary?.missing_banner_patterns?.length);
             if (emptyStateHint) emptyStateHint.style.display = count > 0 ? "none" : "";
             if (!hintBanner) return;
             const dismissed = Boolean(loadWorkspace()?.icon_hint_dismissed);
-            if (count > 0 || dismissed || !isInventoryOpen()) {
+            if ((count > 0 && !missingPatterns) || dismissed || !isInventoryOpen()) {
                 hintBanner.style.display = "none";
                 hintBanner.innerHTML = "";
                 return;
@@ -182,8 +183,10 @@
             const locked = !canWriteAppState();
             hintBanner.innerHTML = `
                 <div class="icon-hint-banner-text">
-                    <strong>${t("Keine Item-Icons eingerichtet")}</strong>
-                    <span>${t("Die App zeigt Ersatzsymbole. Optional: Vanilla-Icons laden oder unter Werkzeuge &amp; Einstellungen &rarr; Icons ein eigenes Resource-Pack w&auml;hlen.")}</span>
+                    <strong>${missingPatterns ? t("Bannermuster fehlen") : t("Keine Item-Icons eingerichtet")}</strong>
+                    <span>${missingPatterns
+                        ? t("Bannermuster fehlen im lokalen Icon-Cache. Lade die Vanilla-Icons, um die Bannervorschau zu vervollständigen.")
+                        : t("Die App zeigt Ersatzsymbole. Optional: Vanilla-Icons laden oder unter Werkzeuge &amp; Einstellungen &rarr; Icons ein eigenes Resource-Pack w&auml;hlen.")}</span>
                 </div>
                 <div class="inline-actions">
                     <button id="btnIconHintVanilla" class="btn btn-primary btn-sm" type="button"${locked ? ` disabled title="${READ_ONLY_SOURCES_MESSAGE}"` : ""}>${t("Vanilla-Icons laden")}</button>
@@ -379,7 +382,13 @@
                     showToast(data.scan_warning, "warning", 8000);
                     return { ...data, success: false, error: data.scan_warning };
                 }
-                await applyMutationIconIndexData(data, request);
+                const summary = await applyMutationIconIndexData(data, request);
+                if (summary?.missing_banner_patterns?.length) {
+                    const message = t("Vanilla-Icons wurden geladen, aber es fehlen weiterhin Bannermuster. Prüfe die Icon-Quellen unter Werkzeuge & Einstellungen.");
+                    updateStatus(message, "warning", true);
+                    showToast(message, "warning", 8000);
+                    return data;
+                }
                 const mapped = data.manifest?.mapped_items ?? data.count ?? 0;
                 const known = data.manifest?.known_items ?? "?";
                 const message = t("Vanilla-Icons aktualisiert: {mapped} von {known} Item-IDs zugeordnet.", { mapped, known });

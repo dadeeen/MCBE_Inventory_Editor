@@ -3,6 +3,60 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_populated_icons_show_missing_banner_hint_and_respect_read_only_controls() -> None:
+    run_node(r"""
+        const assert = require('node:assert/strict');
+        const vm = require('node:vm');
+        const fs = require('node:fs');
+        const context = {window: {}, console};
+        vm.runInNewContext(fs.readFileSync('static/icon_sources_controller.js', 'utf8'), context);
+        for (const readOnly of [true, false]) {
+            const hint = {style: {}, innerHTML: '', querySelector() {return null;}};
+            const empty = {style: {}};
+            const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                elements: {hintBanner: hint, emptyStateHint: empty},
+                fetchImpl: () => {throw new Error('No request is needed to render the hint');},
+                appConfig: {read_only: readOnly}, isInventoryOpen: () => true,
+            });
+            controller.applyIconIndexData({count: 1972, missing_banner_patterns: ['illager']});
+            assert.equal(empty.style.display, 'none');
+            assert.equal(hint.style.display, '');
+            assert.match(hint.innerHTML, /Bannermuster fehlen/);
+            assert.doesNotMatch(hint.innerHTML, /Keine Item-Icons eingerichtet/);
+            assert.equal(/disabled title/.test(hint.innerHTML), readOnly);
+            controller.applyIconIndexData({count: 1972, missing_banner_patterns: []});
+            assert.equal(hint.style.display, 'none');
+            controller.applyIconIndexData({count: 0, missing_banner_patterns: ['base']});
+            assert.match(hint.innerHTML, /Keine Item-Icons eingerichtet/);
+        }
+    """)
+
+
+def test_missing_banner_faces_remain_visible_in_icon_status_and_diagnostics() -> None:
+    run_node(r"""
+        const assert = require('node:assert/strict');
+        const vm = require('node:vm');
+        const fs = require('node:fs');
+        const context = {window: {}, console};
+        for (const name of ['data_source_view', 'icon_manager_view']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        const summary = {count: 1972, warnings: [], health: {status: 'ok', warning_count: 0}, missing_banner_patterns: ['illager']};
+        const before = JSON.stringify(summary);
+        const status = context.window.MCBEDataSourceView.iconStateSummary(summary);
+        assert.equal(status.rank, 1);
+        assert.match(status.detail, /Bannermuster fehlen/);
+        const view = context.window.MCBEIconManagerView;
+        assert.match(view.iconManagerHtml(summary), /bereit mit Einschränkungen/);
+        assert.match(view.iconManagerHtml(summary), /Bannermuster fehlen/);
+        assert.match(view.iconManagerSummaryText(summary), /Bannermuster fehlen/);
+        assert.equal(JSON.stringify(summary), before);
+        summary.missing_banner_patterns = [];
+        assert.equal(context.window.MCBEDataSourceView.iconStateSummary(summary).rank, 0);
+        assert.doesNotMatch(view.iconManagerHtml(summary), /Bannermuster fehlen/);
+    """)
+
+
 def test_icon_load_ignores_stale_success_and_failure_in_every_world_context() -> None:
     run_node(
         textwrap.dedent(r"""
@@ -781,6 +835,56 @@ def test_frontend_icon_hint_banner_vanilla_button_confirms_and_updates() -> None
             })();
             """
         )
+    )
+
+
+def test_vanilla_update_feedback_uses_current_banner_completeness() -> None:
+    run_node(
+        textwrap.dedent(r"""
+        (async () => {
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = { window: {}, console };
+            vm.runInNewContext(fs.readFileSync("static/icon_sources_controller.js", "utf8"), context);
+            for (const [updatedMissing, currentMissing, switchWorld] of [
+                [true, true, false], [false, false, false],
+                [true, false, true], [false, true, true],
+            ]) {
+                let world = "A", resolveUpdate;
+                const toasts = [], statuses = [], applied = [];
+                const result = missing => ({
+                    success: true, icons: { "minecraft:apple": "/apple.png" }, count: 1,
+                    missing_banner_patterns: missing ? ["illager"] : [],
+                    manifest: { mapped_items: 1, known_items: 1 },
+                });
+                const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                    fetchImpl: (url, options) => {
+                        if (url === "/api/icons/vanilla/update") return new Promise(resolve => { resolveUpdate = resolve; });
+                        assert.strictEqual(url, "/api/icons/scan");
+                        assert.strictEqual(JSON.parse(options.body).world_path, "B");
+                        return Promise.resolve(result(currentMissing));
+                    },
+                    parseJsonResponse: async data => data, withCsrf: () => ({}),
+                    getWorldPath: () => world,
+                    onIconData: ({ summary }) => applied.push(summary),
+                    showToast: (message, type) => toasts.push({ message, type }),
+                    logStatus: (message, type, options) => statuses.push({ message, type, options }),
+                });
+                const updating = controller.updateVanillaIcons();
+                if (switchWorld) world = "B";
+                resolveUpdate(result(updatedMissing));
+                assert.strictEqual((await updating).success, true);
+                assert.strictEqual(applied.length, 1);
+                assert.strictEqual(applied[0].missing_banner_patterns.length > 0, currentMissing);
+                assert.strictEqual(toasts.length, 1);
+                assert.strictEqual(toasts[0].type, currentMissing ? "warning" : "success");
+                assert.strictEqual(statuses.at(-1).type, toasts[0].type);
+                assert.strictEqual(statuses.at(-1).options.active, currentMissing);
+                if (currentMissing) assert.ok(toasts[0].message.includes("Bannermuster"));
+            }
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+        """)
     )
 
 
