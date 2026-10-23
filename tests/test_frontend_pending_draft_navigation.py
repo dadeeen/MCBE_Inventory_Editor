@@ -14,7 +14,7 @@ def test_navigation_confirms_pending_forms_and_discards_only_after_acceptance(op
         f"const operation = {json.dumps(operation)}, accept = {json.dumps(accept)};\n"
         + r"""
 const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-const context = {window: {}, document: {getElementById: () => null}, console,
+const context = { AbortController, setTimeout, clearTimeout,window: {}, document: {getElementById: () => null}, console,
     localStorage: {getItem: () => null, setItem() {}}};
 for (const name of ['player_view_models', 'player_load_controller', 'player_load_app']) {
     vm.runInNewContext(fs.readFileSync('static/' + name + '.js', 'utf8'), context);
@@ -75,7 +75,7 @@ for (const name of ['player_view_models', 'player_load_controller', 'player_load
 def test_failed_player_read_keeps_the_confirmed_form_draft_available():
     run_node(r"""
 const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-const context = {window: {}, console: {error() {}}};
+const context = { AbortController, setTimeout, clearTimeout,window: {}, console: {error() {}}};
 for (const name of ['player_view_models', 'player_load_controller']) {
     vm.runInNewContext(fs.readFileSync('static/' + name + '.js', 'utf8'), context);
 }

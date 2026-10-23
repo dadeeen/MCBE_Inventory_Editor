@@ -10,7 +10,7 @@ def test_player_load_app_discards_pending_mounts_on_reload_and_reset() -> None:
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {}, document: { getElementById: () => null } };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, document: { getElementById: () => null } };
             for (const name of ["player_view_models", "player_load_controller", "player_load_app"]) {
                 vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
             }
@@ -76,7 +76,7 @@ def test_frontend_player_load_app_wires_app_dependencies_and_facade_methods() ->
                 resetLoadedPlayerState(...args) { calls.push(["resetLoadedPlayerState", args]); },
                 wire(...args) { calls.push(["wire", args]); },
             };
-            const context = {
+            const context = { AbortController, setTimeout, clearTimeout,
                 window: {
                     MCBEPlayerLoadController: {
                         createInventoryPlayerLoadController(deps) {

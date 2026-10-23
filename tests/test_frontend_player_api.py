@@ -12,7 +12,8 @@ def test_frontend_player_api_posts_player_requests_with_csrf_headers() -> None:
             const vm = require("vm");
             const code = fs.readFileSync("static/player_api.js", "utf8");
             const calls = [];
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
             vm.runInNewContext(code, context, { filename: "static/player_api.js" });
 
             (async () => {
@@ -50,7 +51,8 @@ def test_frontend_player_api_load_player_or_throw_uses_error_builder() -> None:
             const fs = require("fs");
             const vm = require("vm");
             const code = fs.readFileSync("static/player_api.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
             vm.runInNewContext(code, context, { filename: "static/player_api.js" });
 
             (async () => {

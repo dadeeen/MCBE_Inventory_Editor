@@ -16,7 +16,7 @@ def test_reload_lock_survives_reset_and_failed_refresh(scenario: str) -> None:
         f"const scenario = {json.dumps(scenario)};\n"
         + r"""
 const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-const context = {window: {}, console: {error() {}}};
+const context = {AbortController, setTimeout, clearTimeout, window: {}, console: {error() {}}};
 for (const name of ['player_view_models', 'player_load_controller', 'write_status_view']) {
     vm.runInNewContext(fs.readFileSync('static/' + name + '.js', 'utf8'), context);
 }
@@ -63,7 +63,7 @@ def test_committed_restore_keeps_failed_reload_non_writable(scenario: str) -> No
         + r"""
 const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
 let writes = 0;
-const context = {window: {}, console: {error() {}}, fetch: async url => {
+const context = {AbortController, setTimeout, clearTimeout, window: {}, console: {error() {}}, fetch: async url => {
     if (url === '/api/restore_backup') writes++;
     return {json: async () => ({success: true, backup_token: {version: 1}})};
 }};

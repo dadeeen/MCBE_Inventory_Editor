@@ -162,7 +162,7 @@ def test_scan_path_failures_are_visible_without_success_refresh(action, failure)
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
-const context = { window: {}, console, fetch: () => {} };
+const context = { AbortController, setTimeout, clearTimeout, window: {}, console, fetch: () => {} };
 vm.runInNewContext(fs.readFileSync('static/api_client.js', 'utf8'), context, { filename: 'static/api_client.js' });
 vm.runInNewContext(fs.readFileSync('static/scan_paths_controller.js', 'utf8'), context);
 const button = () => ({ listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; } });
@@ -293,7 +293,7 @@ const state = {worldPath: 'world-A', currentPlayerKey: 'player-A', currentPlayer
 const pathInput = {value: 'export.zip'};
 const calls = [], messages = [], actions = [];
 const target = params.new_player ? 'player-B' : 'player-A';
-const context = {window: {}, console, fetch: async () => {
+const context = { AbortController, setTimeout, clearTimeout,window: {}, console, fetch: async () => {
     calls.push('import');
     return {data: {success: true, write_committed: true}};
 }};
@@ -373,7 +373,7 @@ def test_import_failed_rollback_keeps_error_and_backup_after_context_change(chan
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const state = {world: 'world-A', player: 'player-A'};
 const messages = [], mutations = [];
-const context = {window: {}, console, fetch: async () => {
+const context = { AbortController, setTimeout, clearTimeout,window: {}, console, fetch: async () => {
     state[params.change] = 'new-context';
     return {data: {success: false, write_committed: true, error: 'Import validation failed',
         rollback_warning: 'Import-Rollback unvollständig: Datenbank gesperrt', backup_file: 'world_before_import.zip'}};

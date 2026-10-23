@@ -6,7 +6,7 @@ from tests.node_runner import run_node
 def test_player_context_changes_invalidate_pending_loads_and_release_only_their_overlay() -> None:
     run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-        const context = {window: {}};
+        const context = { AbortController, setTimeout, clearTimeout,window: {}};
         for (const name of ['player_view_models', 'player_load_controller']) {
             vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
         }
@@ -66,7 +66,7 @@ def test_player_load_preserves_an_existing_workflow_view() -> None:
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context, {
                 filename: "static/player_view_models.js",
             });
@@ -92,7 +92,7 @@ def test_readonly_player_selection_confirms_before_discarding_edits() -> None:
     run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
         const rows = [];
-        const context = {window: {}, document: {createElement: () => ({
+        const context = { AbortController, setTimeout, clearTimeout,window: {}, document: {createElement: () => ({
             classList: {add() {}}, listeners: {}, dataset: {},
             addEventListener(name, callback) {this.listeners[name] = callback},
         })}};
@@ -140,7 +140,7 @@ def test_readonly_player_selection_confirms_before_discarding_edits() -> None:
 def test_load_busy_lifecycle_preserves_edits_and_does_not_unlock_newer_requests() -> None:
     run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-        const context = {window: {}, console: {error() {}}};
+        const context = { AbortController, setTimeout, clearTimeout,window: {}, console: {error() {}}};
         for (const name of ['player_view_models', 'player_load_controller', 'write_status_view']) {
             vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
         }
@@ -224,7 +224,7 @@ def test_load_busy_lifecycle_preserves_edits_and_does_not_unlock_newer_requests(
 def test_loaded_controls_restore_current_protection_and_undo_after_busy_state() -> None:
     run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-        const context = {window: {}};
+        const context = { AbortController, setTimeout, clearTimeout,window: {}};
         for (const name of ['player_view_models', 'player_load_controller', 'write_status_view',
                             'ability_state', 'ability_view', 'effects_logic', 'undo_redo_view', 'undo_redo_controller']) {
             vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
@@ -294,7 +294,7 @@ def test_recent_world_ui_is_cleared_instead_of_persisted() -> None:
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
@@ -332,7 +332,7 @@ def test_frontend_player_load_controller_collects_inventory_dom_elements() -> No
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
@@ -392,7 +392,7 @@ def test_frontend_player_load_controller_renders_player_rows_from_state() -> Non
                     return el;
                 },
             };
-            const context = { window: {}, document: doc };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, document: doc };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
@@ -437,7 +437,7 @@ def test_frontend_player_load_controller_shows_overlay_while_loading_player() ->
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
@@ -499,7 +499,7 @@ def test_frontend_player_load_controller_can_suppress_player_overlay_for_parent_
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
@@ -543,7 +543,7 @@ def test_frontend_player_load_marks_online_snapshot_stale_immediately() -> None:
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
@@ -606,7 +606,7 @@ def test_frontend_player_load_carries_client_status_request_order() -> None:
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
@@ -664,7 +664,7 @@ def test_frontend_player_load_accepts_fresh_token_after_backend_epoch_reset() ->
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
@@ -729,7 +729,7 @@ def test_frontend_player_load_controller_ignores_out_of_order_player_response() 
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
@@ -781,7 +781,7 @@ def test_frontend_player_load_cancellation_replaces_superseded_running_status() 
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(fs.readFileSync("static/player_load_controller.js", "utf8"), context);
@@ -884,7 +884,7 @@ def test_frontend_player_list_refresh_ignores_previous_world_response() -> None:
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
@@ -931,7 +931,7 @@ def test_world_switch_clears_old_player_before_loading_new_world_player() -> Non
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {}, console: { error() {} } };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, console: { error() {} } };
             for (const name of ["player_view_models", "player_load_controller"]) {
                 vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
             }
@@ -992,7 +992,7 @@ def test_frontend_player_load_controller_hides_overlay_after_load_failure() -> N
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });
@@ -1042,7 +1042,7 @@ def test_frontend_player_load_controller_uses_shared_icon_status_when_loading_pl
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const loadControllerCode = fs.readFileSync("static/player_load_controller.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(loadControllerCode, context, { filename: "static/player_load_controller.js" });

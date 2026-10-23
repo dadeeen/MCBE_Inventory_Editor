@@ -45,6 +45,12 @@ one worker, then restart all workers so they load the saved decision and signing
 key together. Interprocess write locks prevent concurrent world writes but do not
 provide authentication-state synchronization.
 
+Player/list reads and presence polling use the frontend's `readJson` helper with
+a configurable deadline (15 seconds by default), including response-body parsing.
+Replacing the selected player or world cancels obsolete reads; presence polling
+allows one active read per selection. This deadline applies only to these reads.
+Write requests retain their existing transport and completion handling.
+
 Docker CI loads the runtime image and runs `scripts/docker/smoke_image.sh` before
 publication. The probe uses a read-only root, temporary data/world mounts and no
 external network or host ports. It checks HTTP readiness, absence of the unused

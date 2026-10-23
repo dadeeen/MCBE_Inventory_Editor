@@ -42,7 +42,7 @@ def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_paylo
         + json.dumps(responses)
         + r""";
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-        const context = {window: {}};
+        const context = { AbortController, setTimeout, clearTimeout,window: {}};
         for (const name of ['player_view_models', 'player_tools', 'save_payload_logic', 'ability_state']) {
             vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
         }
@@ -78,7 +78,7 @@ def test_copy_stats_skips_source_defaults_through_real_extraction_and_save_paylo
 def test_copy_ender_chest_keeps_target_creation_confirmation() -> None:
     run_node(r"""
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-        const context = {window: {}};
+        const context = { AbortController, setTimeout, clearTimeout,window: {}};
         for (const name of ['player_view_models', 'player_tools', 'save_controller']) {
             vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
         }
@@ -119,7 +119,7 @@ def test_frontend_player_tools_row_html_escapes_model_text() -> None:
             const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
@@ -151,7 +151,7 @@ def test_frontend_player_tools_row_element_uses_model_state_and_html() -> None:
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -215,7 +215,7 @@ def test_frontend_player_tools_list_status_html_formats_known_states() -> None:
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -251,7 +251,7 @@ def test_frontend_player_tools_options_html_escapes_and_disables_current() -> No
             const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
@@ -288,7 +288,7 @@ def test_frontend_player_tools_copy_request_model() -> None:
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -332,7 +332,7 @@ def test_frontend_player_tools_snapshot_counts_only_repairable_damage_as_damaged
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -370,7 +370,7 @@ def test_frontend_player_tools_strips_read_only_root_equipment_on_copy() -> None
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -409,7 +409,7 @@ def test_frontend_player_tools_does_not_copy_into_a_new_target_player() -> None:
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -476,7 +476,7 @@ def test_frontend_player_tools_rechecks_edit_gate_after_async_snapshot_load() ->
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {}, console };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, console };
             vm.runInNewContext(fs.readFileSync("static/player_view_models.js", "utf8"), context);
             vm.runInNewContext(fs.readFileSync("static/player_tools.js", "utf8"), context);
 
@@ -535,10 +535,11 @@ def test_frontend_player_api_exposes_safe_state_transfer_endpoints() -> None:
             const vm = require("vm");
             const apiCode = fs.readFileSync("static/player_api.js", "utf8");
             const calls = [];
-            const context = { window: {}, fetch: async (url, options) => {
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, fetch: async (url, options) => {
                 calls.push({ url, options, body: JSON.parse(options.body) });
                 return { json: async () => ({ success: true }) };
             } };
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
             vm.runInNewContext(apiCode, context, { filename: "static/player_api.js" });
 
             (async () => {
@@ -590,7 +591,7 @@ def test_frontend_player_tools_previews_and_applies_state_transfer_with_backup()
             const htmlUtilsCode = fs.readFileSync("static/html_utils.js", "utf8");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {}, fetch: async () => ({ json: async () => ({ success: true }) }) };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, fetch: async () => ({ json: async () => ({ success: true }) }) };
             vm.runInNewContext(htmlUtilsCode, context, { filename: "static/html_utils.js" });
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
@@ -804,7 +805,7 @@ def test_state_transfer_confirmation_is_single_flight_and_rechecks_world_context
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {}, console };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, console };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -909,7 +910,7 @@ def test_state_transfer_applies_authoritative_write_gate_failure_immediately() -
             const assert = require("assert");
             const fs = require("fs");
             const vm = require("vm");
-            const context = { window: {}, console };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, console };
             vm.runInNewContext(
                 fs.readFileSync("static/player_view_models.js", "utf8"),
                 context,
@@ -1013,7 +1014,7 @@ def test_state_transfer_discards_preview_response_after_selection_changes() -> N
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {}, console };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, console };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 
@@ -1091,7 +1092,7 @@ def test_frontend_failed_migration_rollback_invalidates_preview_and_reloads_play
             const vm = require("vm");
             const viewModelsCode = fs.readFileSync("static/player_view_models.js", "utf8");
             const toolsCode = fs.readFileSync("static/player_tools.js", "utf8");
-            const context = { window: {}, console };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, console };
             vm.runInNewContext(viewModelsCode, context, { filename: "static/player_view_models.js" });
             vm.runInNewContext(toolsCode, context, { filename: "static/player_tools.js" });
 

@@ -107,6 +107,9 @@
         let playerLoadRequestId = 0;
         let playerListRequestId = 0;
         let worldLoadRequestId = 0;
+        let playerLoadAbort = null;
+        let playerListAbort = null;
+        let worldLoadAbort = null;
         let playerLoadingOverlayRequestId = null;
         const pendingLoads = new Set();
         let wasLoading = false;
@@ -138,6 +141,10 @@
 
         function invalidatePlayerLoad() {
             playerLoadRequestId += 1;
+            playerLoadAbort?.abort();
+            playerLoadAbort = null;
+            playerListAbort?.abort();
+            playerListAbort = null;
             syncLoadBusyState();
             if (playerLoadingOverlayRequestId !== null) {
                 playerLoadingOverlayRequestId = null;
@@ -291,6 +298,7 @@
 
         async function loadPlayersList(selectFirst = true) {
             const requestId = ++playerListRequestId;
+            playerListAbort?.abort();
             const requestedWorldPath = getState().worldPath;
             const requestedPlayerContextId = playerLoadRequestId;
             if (!requestedWorldPath) return false;
@@ -310,8 +318,10 @@
                 && requestedWorldPath === getState().worldPath && playerContextId === playerLoadRequestId;
             if (playerManager) playerManager.style.display = "flex";
             if (playersList) playersList.innerHTML = playerListStatusHtml("loading");
+            const controller = new AbortController();
+            playerListAbort = controller;
             try {
-                const data = await getPlayerApi().listPlayers(requestedWorldPath);
+                const data = await getPlayerApi().listPlayers(requestedWorldPath, { signal: controller.signal });
                 if (!listContextIsCurrent()) return false;
                 if (!data.success) {
                     if (playersList) playersList.innerHTML = playerListStatusHtml("loadError");
@@ -348,6 +358,8 @@
                 logLoadStatus(buildErrorMessage(data), "error");
                 renderLoadError(data, t("Verbindungsfehler beim Laden der Spieler."));
                 return false;
+            } finally {
+                if (playerListAbort === controller) playerListAbort = null;
             }
         }
 
@@ -376,9 +388,11 @@
                 showLoading(t("{player} wird geladen...", { player: playerLoadLabel(playerKey) }));
                 playerLoadingOverlayRequestId = requestId;
             }
+            const controller = new AbortController();
+            playerLoadAbort = controller;
             try {
                 const statusRequestOrder = beginServerStatusRequest();
-                const data = await getPlayerApi().loadPlayer(requestedWorldPath, playerKey);
+                const data = await getPlayerApi().loadPlayer(requestedWorldPath, playerKey, { signal: controller.signal });
                 if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
                 if (!data.success) {
                     const msg = buildErrorMessage(data, t("Spieler konnte nicht geladen werden."));
@@ -521,6 +535,7 @@
                 renderLoadError(data, t("Verbindungsfehler beim Laden des Spielers."));
                 return false;
             } finally {
+                if (playerLoadAbort === controller) playerLoadAbort = null;
                 if (playerLoadingOverlayRequestId === requestId) {
                     playerLoadingOverlayRequestId = null;
                     hideLoading();
@@ -532,6 +547,8 @@
 
         async function loadWorldFromInput() {
             const requestId = ++worldLoadRequestId;
+            worldLoadAbort?.abort();
+            playerListAbort?.abort();
             return whileLoading(
                 () => requestId === worldLoadRequestId,
                 () => performWorldLoad(requestId),
@@ -572,8 +589,10 @@
             if (loadButton) loadButton.disabled = true;
             showLoading(t("1/2 Welt prüfen und Spieler erkennen..."));
             logLoadStatus(t("Lade Welt und Spieler..."), "running");
+            const controller = new AbortController();
+            worldLoadAbort = controller;
             try {
-                const data = await getPlayerApi().listPlayers(nextWorldPath);
+                const data = await getPlayerApi().listPlayers(nextWorldPath, { signal: controller.signal });
                 if (requestId !== worldLoadRequestId) return false;
 
                 if (!data.success) {
@@ -627,6 +646,7 @@
                 renderLoadError(data, t("Verbindungsfehler beim Laden der Welt."));
                 return false;
             } finally {
+                if (worldLoadAbort === controller) worldLoadAbort = null;
                 if (requestId === worldLoadRequestId) {
                     hideLoading();
                     if (loadButton) loadButton.disabled = false;

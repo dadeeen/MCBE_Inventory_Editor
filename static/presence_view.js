@@ -111,6 +111,7 @@
         win = window,
         sessionKey,
         intervalMs = 10000,
+        readTimeoutMs = 15000,
         elements = {},
         withCsrf,
         parseJsonResponse,
@@ -136,6 +137,8 @@
         let playerChangedToast = null;
         let sentRequests = 0;
         let appliedRequest = 0;
+        let activeRead = null;
+        let pollingTimer = null;
 
         function sessionId() {
             try {
@@ -221,58 +224,74 @@
             return reloadPlayer?.();
         }
 
-        async function update({ silent = true } = {}) {
+        function cancelObsoleteRead() {
+            if (activeRead && (activeRead.worldPath !== (getWorldPath?.() || "")
+                || activeRead.playerKey !== (getCurrentPlayerKey?.() || ""))) {
+                activeRead.controller.abort();
+                activeRead = null;
+            }
+        }
+
+        function update({ silent = true } = {}) {
+            cancelObsoleteRead();
             playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext());
             renderPlayerChanged();
             const worldPath = getWorldPath?.() || "";
             const playerKey = getCurrentPlayerKey?.() || "";
             if (!worldPath) {
                 render(null);
-                return null;
+                return Promise.resolve(null);
             }
+            if (activeRead) return activeRead.promise;
             const requestKey = playerWatch.key;
             const watchFields = getIsBusy?.() === true ? {} : view.playerWatchRequest(playerWatch);
             const request = ++sentRequests;
-            try {
-                const res = await fetch("/api/world/presence", {
-                    method: "POST",
-                    headers: withCsrf?.(),
-                    body: JSON.stringify({
-                        session_id: sessionId(),
-                        world_path: worldPath,
-                        player_key: playerKey,
-                        player_label: getCurrentPlayerLabel?.() || t("Spieler"),
-                        dirty: getIsDirty?.() === true,
-                        ...watchFields,
-                    }),
-                });
-                const data = await parseJsonResponse(res);
-                // A delayed poll belongs to its original world/player selection.
-                // It must not render that selection's conflicts in another one.
-                if (request < appliedRequest || worldPath !== (getWorldPath?.() || "")
-                    || playerKey !== (getCurrentPlayerKey?.() || "")) return null;
-                if (data.success) {
-                    appliedRequest = request;
-                    leaveSent = false;
-                    render(data);
-                    playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext(), {
-                        data,
-                        requestKey: Object.keys(watchFields).length ? requestKey : "",
-                        busy: getIsBusy?.() === true,
-                    });
-                    renderPlayerChanged();
-                    return data;
+            const flight = { worldPath, playerKey, controller: new AbortController(), promise: null };
+            activeRead = flight;
+            flight.promise = (async () => {
+                try {
+                    const data = await window.MCBEApiClient.readJson("/api/world/presence", {
+                        method: "POST",
+                        headers: withCsrf?.(),
+                        body: JSON.stringify({
+                            session_id: sessionId(),
+                            world_path: worldPath,
+                            player_key: playerKey,
+                            player_label: getCurrentPlayerLabel?.() || t("Spieler"),
+                            dirty: getIsDirty?.() === true,
+                            ...watchFields,
+                        }),
+                    }, { parseJsonResponse, timeoutMs: readTimeoutMs, signal: flight.controller.signal });
+                    // A delayed poll belongs to its original world/player selection.
+                    // It must not render that selection's conflicts in another one.
+                    if (flight.controller.signal.aborted || request < appliedRequest || worldPath !== (getWorldPath?.() || "")
+                        || playerKey !== (getCurrentPlayerKey?.() || "")) return null;
+                    if (data.success) {
+                        appliedRequest = request;
+                        leaveSent = false;
+                        render(data);
+                        playerWatch = view.nextPlayerWatch(playerWatch, playerWatchContext(), {
+                            data,
+                            requestKey: Object.keys(watchFields).length ? requestKey : "",
+                            busy: getIsBusy?.() === true,
+                        });
+                        renderPlayerChanged();
+                        return data;
+                    }
+                    if (!silent) {
+                        logStatus?.(window.MCBEApiClient.errorMessageInContext(
+                            data,
+                            reason => t("Präsenz-Hinweis konnte nicht aktualisiert werden: {error}", { error: reason }),
+                        ), "warning");
+                    }
+                } catch (e) {
+                    if (!silent && e?.name !== "AbortError") console.warn("updateWorldPresence:", e);
+                } finally {
+                    if (activeRead === flight) activeRead = null;
                 }
-                if (!silent) {
-                    logStatus?.(window.MCBEApiClient.errorMessageInContext(
-                        data,
-                        reason => t("Präsenz-Hinweis konnte nicht aktualisiert werden: {error}", { error: reason }),
-                    ), "warning");
-                }
-            } catch (e) {
-                if (!silent) console.warn("updateWorldPresence:", e);
-            }
-            return null;
+                return null;
+            })();
+            return flight.promise;
         }
 
         async function confirmConflict(data) {
@@ -280,11 +299,13 @@
         }
 
         function scheduleUpdate(delayMs = 600) {
+            cancelObsoleteRead();
             if (timer) clearTimeout(timer);
-            timer = setTimeout(() => update(), delayMs);
+            timer = setTimeout(() => { timer = null; update(); }, delayMs);
         }
 
         function leave() {
+            stopPolling();
             if (leaveSent) return;
             leaveSent = true;
             try {
@@ -303,10 +324,26 @@
             // is actually being hidden/unloaded; TTL cleanup remains the fallback
             // for browsers that suppress the keepalive request.
             win.addEventListener("pagehide", leave);
+            win.addEventListener("pageshow", event => {
+                if (!event.persisted) return;
+                leaveSent = false;
+                startPolling();
+                update();
+            });
         }
 
         function startPolling() {
-            return win.setInterval(() => update(), intervalMs);
+            if (pollingTimer === null) pollingTimer = win.setInterval(() => update(), intervalMs);
+            return pollingTimer;
+        }
+
+        function stopPolling() {
+            if (pollingTimer !== null) win.clearInterval(pollingTimer);
+            pollingTimer = null;
+            if (timer !== null) clearTimeout(timer);
+            timer = null;
+            activeRead?.controller.abort();
+            activeRead = null;
         }
 
         return {
@@ -317,6 +354,7 @@
             scheduleUpdate,
             sessionId,
             startPolling,
+            stopPolling,
             update,
             wireBeforeUnload,
         };

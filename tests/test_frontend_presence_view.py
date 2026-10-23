@@ -11,7 +11,7 @@ def test_frontend_presence_view_world_presence_model_and_applier() -> None:
             const fs = require("fs");
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
 
@@ -55,7 +55,7 @@ def test_frontend_presence_view_conflict_text_lists_dirty_sessions() -> None:
             const fs = require("fs");
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
 
@@ -89,7 +89,7 @@ def test_frontend_presence_leave_uses_pagehide_and_deduplicates_signals() -> Non
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const fetchCalls = [];
             const events = {};
-            const context = {
+            const context = { AbortController, setTimeout, clearTimeout,
                 window: {},
                 fetch: (url, options) => {
                     fetchCalls.push([url, options]);
@@ -162,7 +162,7 @@ def test_frontend_player_watch_reports_only_a_changed_revision() -> None:
             const fs = require("fs");
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
-            const context = { window: {} };
+            const context = { AbortController, setTimeout, clearTimeout, window: {} };
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
             const view = context.window.MCBEPresenceView;
@@ -226,7 +226,7 @@ def test_frontend_presence_controller_reports_the_changed_player_until_it_is_rel
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const requests = [];
             const responses = [];
-            const context = {
+            const context = { AbortController, setTimeout, clearTimeout,
                 window: {},
                 fetch: (_url, options) => {
                     requests.push(JSON.parse(options.body));
@@ -345,7 +345,7 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const pending = [];
             const state = { world: "/w", player: "p" };
-            const context = {
+            const context = { AbortController, setTimeout, clearTimeout,
                 window: {},
                 fetch: (_url, options) => new Promise(resolve => {
                     pending.push({ body: JSON.parse(options.body), answer: resolve });
@@ -387,26 +387,23 @@ def test_frontend_presence_controller_ignores_a_poll_that_answers_late() -> None
                 pending[0].answer({ success: true, world_fingerprint: "F1" });
                 await first;
 
-                // Two polls for the same world, player and revision overlap,
-                // and the newer one answers first with the changed player.
+                // Repeated polls for one selection share a single pending read.
                 const older = controller.update();
                 const newer = controller.update();
+                assert.strictEqual(older, newer);
+                assert.strictEqual(pending.length, 2);
                 assert.strictEqual(pending[1].body.fingerprint_seen, "F1");
-                assert.strictEqual(pending[2].body.fingerprint_seen, "F1");
-                pending[2].answer({ success: true, world_fingerprint: "F1", player_revision: "R2" });
+                pending[1].answer({ success: true, world_fingerprint: "F1", player_revision: "R2" });
                 await newer;
                 assert.ok(notices.has("player-changed"));
-                pending[1].answer({ success: true, world_fingerprint: "F1", player_revision: "R1" });
-                const late = await older;
-                assert.ok(notices.has("player-changed"));
-                assert.strictEqual(late, null);
+                await older;
 
                 // The next poll builds on the newer answer, and the notice
                 // stays without a second toast.
                 const next = controller.update();
-                assert.strictEqual(pending[3].body.fingerprint_baseline, "F1");
-                assert.strictEqual(pending[3].body.fingerprint_seen, "");
-                pending[3].answer({ success: true, world_fingerprint: "F1" });
+                assert.strictEqual(pending[2].body.fingerprint_baseline, "F1");
+                assert.strictEqual(pending[2].body.fingerprint_seen, "");
+                pending[2].answer({ success: true, world_fingerprint: "F1" });
                 await next;
                 assert.ok(notices.has("player-changed"));
                 assert.strictEqual(toasts.length, 1);
@@ -442,7 +439,7 @@ def test_frontend_presence_controller_drops_the_notice_of_a_player_no_longer_loa
             const vm = require("vm");
             const code = fs.readFileSync("static/presence_view.js", "utf8");
             const responses = [];
-            const context = { window: {}, fetch: () => Promise.resolve({}) };
+            const context = { AbortController, setTimeout, clearTimeout, window: {}, fetch: () => Promise.resolve({}) };
             vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context, { filename: "static/api_client.js" });
             vm.runInNewContext(code, context, { filename: "static/presence_view.js" });
             const view = context.window.MCBEPresenceView;

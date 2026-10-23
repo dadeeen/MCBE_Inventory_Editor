@@ -8,6 +8,7 @@
         withCsrf = () => ({}),
         parseJsonResponse = async response => response.json(),
         buildErrorMessage = (data, fallback = t("Fehler")) => data?.error || fallback,
+        readTimeoutMs = 15000,
     } = {}) {
         async function postJson(url, body) {
             const response = await fetchFn(url, {
@@ -18,29 +19,37 @@
             return parseJsonResponse(response);
         }
 
-        function listPlayers(worldPath) {
-            return postJson("/api/players", { world_path: worldPath });
+        function read(url, body, options = {}) {
+            return window.MCBEApiClient.readJson(url, {
+                method: "POST",
+                headers: withCsrf(),
+                body: JSON.stringify(body),
+            }, { fetchFn, parseJsonResponse, timeoutMs: readTimeoutMs, signal: options.signal });
         }
 
-        function loadPlayer(worldPath, playerKey) {
-            return postJson("/api/player/load", {
+        function listPlayers(worldPath, options = {}) {
+            return read("/api/players", { world_path: worldPath }, options);
+        }
+
+        function loadPlayer(worldPath, playerKey, options = {}) {
+            return read("/api/player/load", {
                 world_path: worldPath,
                 player_key: playerKey,
-            });
+            }, options);
         }
 
-        async function loadPlayerOrThrow(worldPath, playerKey, fallbackMessage = t("Spieler konnte nicht geladen werden.")) {
-            const data = await loadPlayer(worldPath, playerKey);
+        async function loadPlayerOrThrow(worldPath, playerKey, fallbackMessage = t("Spieler konnte nicht geladen werden."), options = {}) {
+            const data = await loadPlayer(worldPath, playerKey, options);
             if (!data.success) throw new Error(buildErrorMessage(data, fallbackMessage));
             return data;
         }
 
-        function previewStateTransfer(worldPath, sourcePlayerKey, targetPlayerKey) {
-            return postJson("/api/player/state_transfer_preview", {
+        function previewStateTransfer(worldPath, sourcePlayerKey, targetPlayerKey, options = {}) {
+            return read("/api/player/state_transfer_preview", {
                 world_path: worldPath,
                 source_player_key: sourcePlayerKey,
                 target_player_key: targetPlayerKey,
-            });
+            }, options);
         }
 
         function applyStateTransfer({

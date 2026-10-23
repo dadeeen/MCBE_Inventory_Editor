@@ -64,6 +64,40 @@
         return body.slice(0, 600);
     }
 
+    // Only read operations opt into this deadline. Keep it active through body
+    // parsing, and settle even when a fetch double ignores AbortSignal.
+    async function readJson(url, options = {}, {
+        fetchFn = fetch,
+        parseJsonResponse = response => response.json(),
+        timeoutMs = 15000,
+        signal = options.signal,
+    } = {}) {
+        const controller = new AbortController();
+        let timer;
+        let rejectStopped;
+        const stopped = new Promise((_resolve, reject) => { rejectStopped = reject; });
+        function stop(name, message) {
+            const error = new Error(message);
+            error.name = name;
+            rejectStopped(error);
+            controller.abort();
+        }
+        const cancel = () => stop("AbortError", t("Leseanfrage abgebrochen."));
+        signal?.addEventListener("abort", cancel, { once: true });
+        try {
+            if (signal?.aborted) {
+                cancel();
+                return await stopped;
+            }
+            timer = setTimeout(() => stop("TimeoutError", t("Zeitüberschreitung beim Lesen der Serverantwort.")), timeoutMs);
+            const request = (async () => parseJsonResponse(await fetchFn(url, { ...options, signal: controller.signal })))();
+            return await Promise.race([request, stopped]);
+        } finally {
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", cancel);
+        }
+    }
+
     function createApiClient({ csrfToken = "" } = {}) {
         function withCsrf() {
             return { "Content-Type": "application/json", "X-CSRF-Token": csrfToken };
@@ -123,6 +157,7 @@
             hasBackendErrorMessage,
             localizedErrorMessage,
             parseJsonResponse,
+            readJson,
             withCsrf,
         };
     }
@@ -133,5 +168,6 @@
         errorMessageInContext,
         hasBackendErrorMessage,
         localizedErrorMessage,
+        readJson,
     };
 }());

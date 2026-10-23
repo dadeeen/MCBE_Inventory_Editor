@@ -10,7 +10,7 @@ const vm = require("node:vm");
 const appSource = fs.readFileSync("static/app.js", "utf8");
 
 function createHarness() {
-    const context = {window: {}, console};
+    const context = { AbortController, setTimeout, clearTimeout,window: {}, console};
     for (const name of ["player_view_models", "player_load_controller", "update_db_view"]) {
         vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
     }

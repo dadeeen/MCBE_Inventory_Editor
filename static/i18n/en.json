@@ -3410,5 +3410,7 @@
   "Das Update-Skript wurde unterbrochen. Die neue Item-Datenbank und ihre Quellenmetadaten wurden vollständig übernommen.": "The update script was interrupted. The new item database and its source metadata were fully committed.",
   "Das Update-Skript wurde unterbrochen. Die vorherige Item-Datenbank und ihre Quellenmetadaten wurden wiederhergestellt.": "The update script was interrupted. The previous item database and its source metadata were restored.",
   "Das Update-Skript wurde unterbrochen, bevor eine neue Item-Datenbank übernommen wurde.": "The update script was interrupted before a new item database was committed.",
-  "Die unterbrochene Item-DB-Aktualisierung konnte nicht sicher wiederhergestellt werden. Bitte die Dateizugriffsrechte prüfen und die Anwendung neu starten.": "The interrupted item database update could not be recovered safely. Please check file access permissions and restart the application."
+  "Die unterbrochene Item-DB-Aktualisierung konnte nicht sicher wiederhergestellt werden. Bitte die Dateizugriffsrechte prüfen und die Anwendung neu starten.": "The interrupted item database update could not be recovered safely. Please check file access permissions and restart the application.",
+  "Zeitüberschreitung beim Lesen der Serverantwort.": "Timed out while reading the server response.",
+  "Leseanfrage abgebrochen.": "Read request canceled."
 }
