@@ -1,5 +1,5 @@
 {
-  "_comment": "Distilled from Minecraft-written actor records; regenerate with scripts/export_mount_reference.py. Only type-invariant evidence is asserted. Per-specimen rolls are listed under varying_* and never compared. No coordinates, entity ids, owner ids or custom names are stored.",
+  "_comment": "Distilled from Minecraft-written actor records; regenerate with scripts/export_mount_reference.py. Observed stable values are recorded for comparison; varying values are listed by name, and single-specimen values remain unconfirmed. Known coordinate and identity tags are stored by name only; known custom-name tags are omitted. This export is not general anonymization: manually review all values, definitions, attribute names, tag names and the label for personal and private data before sharing or committing.",
   "label": "creative reference world, summoned specimens per rideable type",
   "mounts": {
     "minecraft:camel": {

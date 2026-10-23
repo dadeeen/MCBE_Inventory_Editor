@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Distil a committable mount reference from Minecraft-written actor records.
+"""Distil a mount reference for manual review from Minecraft-written actor records.
 
 The mount writer's per-type constants (definitions sets, attribute bases, tag
 presence) are claims about what Minecraft itself produces.  This script turns a
 private reference world into a small, reviewable JSON fixture so those claims
 can be re-checked by an always-on test instead of a manual comparison.
 
-Only *type-invariant* evidence is recorded.  Values Minecraft rolls per specimen
-(health, jump strength, temper) are listed by name as "varying" and never
-asserted.  Nothing world-specific or user-authored is written to the fixture:
-custom names are dropped entirely, and coordinates, entity ids and owner ids are
-recorded by tag name only.  See fixtures/README.md for the privacy boundary.
+Values that match across the observed specimens are recorded for comparison;
+varying values are listed by name.  A single specimen's values are retained as
+unconfirmed evidence.  Known custom-name tags are dropped, and known coordinate
+and identity tags are recorded by name only.
+
+This is reference distillation, not general anonymization.  Unknown scalar
+values, definitions, attribute names, tag names and the supplied label can carry
+world-specific or user-authored content.  Review the complete output for personal
+and private data before sharing or committing it.  See tests/fixtures/README.md
+for the public-fixture boundary.
 
 Usage:
     python scripts/export_mount_reference.py \
@@ -37,7 +42,7 @@ from mcbe_editor.bedrock_nbt import LOAD_KWARGS  # noqa: E402
 from mcbe_editor.db import ReadonlyLevelDbAdapter  # noqa: E402
 from mcbe_editor.mount_write import ACTOR_PREFIX, SYNTHETIC_CREATABLE_MOUNT_TYPES  # noqa: E402
 
-# User-authored text.  Never recorded, not even as a tag name.
+# Known custom-name tags.  Never recorded, not even as a tag name.
 EXCLUDED_TAGS = frozenset({"CustomName", "CustomNameVisible"})
 # Recorded as "this tag must exist", never with its value: world coordinates and
 # entity/player identities.
@@ -230,8 +235,10 @@ def main(argv: list[str] | None = None) -> int:
     fixture = {
         "_comment": (
             "Distilled from Minecraft-written actor records; regenerate with scripts/export_mount_reference.py. "
-            "Only type-invariant evidence is asserted. Per-specimen rolls are listed under varying_* and never "
-            "compared. No coordinates, entity ids, owner ids or custom names are stored."
+            "Observed stable values are recorded for comparison; varying values are listed by name, and single-specimen "
+            "values remain unconfirmed. Known coordinate and identity tags are stored by name only; known custom-name "
+            "tags are omitted. This export is not general anonymization: manually review all values, definitions, "
+            "attribute names, tag names and the label for personal and private data before sharing or committing."
         ),
         "label": args.label,
         "mounts": {identifier: distil(records) for identifier, records in sorted(by_type.items())},
@@ -241,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     output.write_text(json.dumps(fixture, indent=2, ensure_ascii=False, sort_keys=False) + "\n", encoding="utf-8")
 
     print(f"Reference written: {output}")
+    print("Review the complete output for personal and private data before sharing or committing; this export is not general anonymization.")
     warned = False
     for identifier, data in fixture["mounts"].items():
         print(

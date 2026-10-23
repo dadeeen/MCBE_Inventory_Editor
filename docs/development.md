@@ -354,7 +354,7 @@ These generated scanner fixtures serve scanner, ZIP hygiene and restore preview 
 python scripts/export_mount_reference.py --world "fixtures/private/<reference world>" --output tests/fixtures/mount_reference.json
 ```
 
-A useful reference world holds at least two adult specimens of every rideable type, spawned and left untouched. Two are the minimum because a single specimen cannot separate a type-invariant value from a per-specimen roll; the exporter refuses to record values for such a type and says so. Only type-invariant evidence is written: coordinates, entity ids and owner ids are recorded by tag name only, and custom names are dropped entirely.
+A useful reference world holds at least two adult specimens of every rideable type, spawned and left untouched. Two are the minimum because a single specimen cannot separate a type-invariant value from a per-specimen roll; single observations are retained as unconfirmed evidence. The export is a condensed reference requiring manual review before sharing or committing. Known coordinates, entity ids and owner ids are recorded by tag name only, and custom names are dropped. Unknown scalar values, definitions, attribute names, tag names and supplied labels can still contain private information; the export does not guarantee anonymization.
 
 Optional integration tests against locally stored private worlds run only after explicit opt-in. Without the flag they are skipped; write tests operate exclusively on temporary copies:
 
