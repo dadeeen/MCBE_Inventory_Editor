@@ -95,8 +95,26 @@ member order, following [Bedrock texture reference resolution](https://learn.mic
 The generated `textures/display/banner_<code>.png` files use the existing atomic
 cache publication and guarded image route. Icon responses expose only the
 allowlisted banner faces through `banner_patterns`, including the shared context
-in each image URL. Raw entity display assets remain internal. Existing caches
-remain readable. `missing_banner_patterns` compares the indexed faces with the
+in each image URL. Raw entity display assets remain internal. Writable icon
+scans automatically complete missing banner faces and axolotl display assets
+from the local archive identified by the existing Vanilla manifest. The archive
+must match its recorded name and size and pass ZIP integrity and size checks.
+The repair uses the same extraction rules as the full updater, including TGA
+precedence. Missing files and empty declared display files are also repaired.
+It preserves item icons, existing display images, release metadata and custom
+source priority; it neither downloads an archive nor changes Minecraft versions.
+
+Repairs publish a staging copy through the rollback-safe cache publisher. If a
+concurrent full update changes the manifest, its result wins. Unchanged inputs
+are remembered in a bounded process-local cache to avoid repeating failed work
+on every status request; changed files or an explicit rescan allow a retry.
+The first repair needs archive-validation time and temporary space for a second
+icon cache. Read-only status requests, disabled/custom sources and explicitly
+removed caches do not trigger repairs. Missing or incompatible source archives
+leave usable icons available and retain the setup hint. New item/model rendering
+rules and Minecraft content still use the explicit full Vanilla updater.
+
+`missing_banner_patterns` compares the indexed faces with the
 required pattern set, including base cloth and the ominous motif. Missing faces
 keep icon setup pending even when item icons are available; the setup banner,
 icon status and preview dialog explain how to complete the previews. A failed

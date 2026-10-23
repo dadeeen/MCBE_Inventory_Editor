@@ -1601,6 +1601,32 @@ def _texture_source_png_bytes(zf: zipfile.ZipFile, source: TextureMember) -> byt
     raise ValueError(tr("Nicht unterstützte Texturquelle: {kind}", kind=kind))
 
 
+def display_asset_images(
+    zf: zipfile.ZipFile,
+    texture_members: dict[str, TextureMember],
+    item_textures: dict[str, list[str]],
+    item_aliases: dict[str, list[str]],
+    *,
+    only: set[str] | None = None,
+) -> Iterator[tuple[str, str, bytes, str]]:
+    """Share reviewed display extraction between full builds and local repairs."""
+    for asset_id, texture_target in AXOLOTL_DISPLAY_ASSETS.items():
+        if only is not None and asset_id not in only:
+            continue
+        selected = _select_texture_source(candidate_texture_keys(texture_target, item_aliases), item_textures, texture_members)
+        if selected:
+            texture_path, source = selected
+            yield asset_id, texture_path, _texture_source_png_bytes(zf, source), _zip_member_key(source[1].filename)
+    for code, texture_path in BANNER_TEXTURES.items():
+        asset_id = f"mcbe:banner_{code}"
+        if only is not None and asset_id not in only:
+            continue
+        source = texture_members.get(texture_path)
+        if source is not None:
+            png = crop_banner_texture(_texture_source_png_bytes(zf, source))
+            yield asset_id, texture_path, png, _zip_member_key(source[1].filename)
+
+
 @contextlib.contextmanager
 def _icon_staging_directory(target_root: Path) -> Iterator[Path]:
     """Use app-owned staging for kill-safe cleanup; direct CLI runs own theirs."""
@@ -1921,28 +1947,11 @@ def build_icon_cache(
                     used_members.add(_zip_member_key(source[1].filename))
                     bed_variant_icons += 1
             report_progress("rendering", current=len(icon_targets), total=len(icon_targets), unit="items")
-            for asset_id, texture_target in AXOLOTL_DISPLAY_ASSETS.items():
-                selected = _select_texture_source(
-                    candidate_texture_keys(texture_target, item_aliases),
-                    item_textures,
-                    texture_members,
-                )
-                if not selected:
-                    continue
-                texture_path, source = selected
-                asset_name = asset_id.removeprefix("mcbe:")
-                _write_texture_as_png(zf, source, extracted_display / f"{asset_name}.png")
-                display_assets[asset_id] = texture_path
-                used_members.add(_zip_member_key(source[1].filename))
-            for code, texture_path in BANNER_TEXTURES.items():
-                source = texture_members.get(texture_path)
-                if source is None:
-                    continue
-                preview_png = crop_banner_texture(_texture_source_png_bytes(zf, source))
+            for asset_id, texture_path, preview_png, member_key in display_asset_images(zf, texture_members, item_textures, item_aliases):
                 extracted_display.mkdir(parents=True, exist_ok=True)
-                (extracted_display / f"banner_{code}.png").write_bytes(preview_png)
-                display_assets[f"mcbe:banner_{code}"] = texture_path
-                used_members.add(_zip_member_key(source[1].filename))
+                (extracted_display / f"{asset_id.removeprefix('mcbe:')}.png").write_bytes(preview_png)
+                display_assets[asset_id] = texture_path
+                used_members.add(member_key)
             manifest = {
                 "schema_version": 6,
                 "resolutions": resolutions,

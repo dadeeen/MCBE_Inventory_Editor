@@ -4,7 +4,7 @@
 - Preserve unapplied slot inputs during catalog updates and retain usable icon caches after failed downloads.
 - Strengthen database write guards and preserve Bedrock-specific item data.
 - Add read timeouts and restore presence polling after browser navigation.
-- Improve banner setup feedback, update dependencies and expand automated regression coverage.
+- Complete missing banner and axolotl previews from matching local archives, improve setup feedback and update dependencies.
 
 ## Updating
 

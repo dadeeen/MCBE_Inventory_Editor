@@ -158,7 +158,9 @@ def recover_icon_cache(target_root: Path, *, warn: WarningHandler | None = None)
         _recover_icon_cache_unlocked(target_root, warn=warn)
 
 
-def publish_icon_cache(staging: Path, target_root: Path, *, warn: WarningHandler | None = None) -> None:
+def publish_icon_cache(
+    staging: Path, target_root: Path, *, warn: WarningHandler | None = None, expected_manifest: tuple[bytes, tuple[int, int]] | None = None
+) -> bool:
     """Publish a complete cache while preserving the previous cache on failure."""
 
     if staging.parent != target_root.parent:
@@ -169,6 +171,15 @@ def publish_icon_cache(staging: Path, target_root: Path, *, warn: WarningHandler
 
     with _cache_lock(target_root):
         _recover_icon_cache_unlocked(target_root, warn=warn)
+        if expected_manifest is not None:
+            # An automatic extension must not overwrite a newer full update.
+            try:
+                path = target_root / "manifest.json"
+                info = path.stat(follow_symlinks=False)
+                if (path.read_bytes(), (info.st_dev, info.st_ino)) != expected_manifest:
+                    return False
+            except FileNotFoundError:
+                return False
         previous_manifest = _complete_cache_manifest(target_root)
         if previous_manifest is not None:
             if previous_manifest["items"] and not staged_manifest["items"]:
@@ -223,3 +234,4 @@ def publish_icon_cache(staging: Path, target_root: Path, *, warn: WarningHandler
                     warn,
                     tr("Alter Icon-Cache konnte nach erfolgreicher Veröffentlichung nicht entfernt werden: {path}: {error}", path=rollback, error=exc),
                 )
+        return True

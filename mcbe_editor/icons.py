@@ -1504,11 +1504,16 @@ def _scan_icons(
         raise ValueError("Pass either prepared sources or extra sources, not both.")
     sources = prepared_sources if prepared_sources is not None else configured_icon_sources(settings_path, extra_sources=extra_sources)
     for source in sources:
-        if source.get("vanilla"):
+        if source.get("vanilla") and source.get("enabled", True):
             try:
                 recover_icon_cache(Path(source["path"]), warn=lambda message: _LOGGER.warning("%s", message))
             except OSError:
                 _LOGGER.exception("Unterbrochener Vanilla-Icon-Cache konnte nicht wiederhergestellt werden: %s", source["path"])
+            if source.get("auto"):
+                from .icon_cache_refresh import refresh_cached_display_assets
+
+                cache_dir = Path(os.environ.get("MCBE_UPDATE_CACHE_DIR") or _data_root() / "cache" / "item_update").expanduser()
+                refresh_cached_display_assets(Path(source["path"]), cache_dir, force=force)
     source_signature = _sources_signature(sources)
     cache_path = _context_cache_file(settings_path, context_id) if context_id is not None else _cache_file(settings_path)
     if not force and cache_path and cache_path.exists():
