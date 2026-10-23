@@ -3,6 +3,63 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_reverted_slot_restores_representation_but_preserves_identity_and_nbt_intent() -> None:
+    run_node(r"""
+        const assert = require('assert'), fs = require('fs'), vm = require('vm');
+        const context = { window: {} };
+        for (const file of ['entity_variant_editor', 'slot_detail_logic']) {
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, 'utf8'), context);
+        }
+        const restore = context.window.MCBESlotDetailLogic.restoreEquivalentItem;
+        const baseline = { slot: 4, name: 'minecraft:stone', count: 2, damage: 0,
+            source_slot: 4, source_player_key: 'player', source_container: 'inventory',
+            source_world_path: 'world', source_item_digest: 'a'.repeat(64),
+            nbt_view: { original: true }, stack_key: 'original',
+            has_protected_nbt: true, special_item: { kind: 'test', data: { a: 1, b: 2 } } };
+        const candidate = { enchantments: [], lore: [], display_name: '', ...baseline,
+            special_item: { data: { b: 2, a: 1 }, kind: 'test' } };
+        delete candidate.nbt_view;
+        delete candidate.stack_key;
+        assert.equal(JSON.stringify(restore(candidate, baseline)), JSON.stringify(baseline));
+        assert.notEqual(restore(candidate, baseline), baseline);
+        for (const changes of [
+            { source_slot: 5 }, { source_player_key: 'other' }, { source_container: 'ender_chest' },
+            { source_world_path: 'other' }, { source_item_digest: 'b'.repeat(64) },
+            { replace_original_nbt: true }, { protected_nbt_dropped: true },
+            { special_edit: { kind: 'test', data: {} } }, { has_protected_nbt: false },
+            { count: 3 }, { display_name: 'Changed' }, { lore: ['Changed'] },
+            { enchantments: [{ id: 9, lvl: 1 }] },
+        ]) {
+            const changed = { ...candidate, ...changes };
+            assert.equal(restore(changed, baseline), changed, JSON.stringify(changes));
+        }
+        assert.equal(restore(null, baseline), null);
+        assert.equal(restore(candidate, null), candidate);
+
+        const entity = context.window.MCBEEntityVariantEditor;
+        for (const [name, metadata, edit] of [
+            ['minecraft:axolotl_bucket', { entity_id: 'minecraft:axolotl', variant: 1, is_baby: false, can_edit: true },
+                { kind: 'axolotl', variant: 1, is_baby: false }],
+            ['minecraft:tropical_fish_bucket', { entity_id: 'minecraft:tropical_fish', variant: 0, mark_variant: 1, color: 2, color2: 3, can_edit: true },
+                { kind: 'tropical_fish', variant: 0, mark_variant: 1, color: 2, color2: 3 }],
+        ]) {
+            const original = { ...baseline, name, entity_variant: metadata };
+            const reverted = { ...candidate, name, entity_variant_edit: edit,
+                entity_variant: entity.updatedEntityVariantMetadata(metadata, edit) };
+            assert.equal(JSON.stringify(restore(reverted, original)), JSON.stringify(original));
+            for (const extra of [{ replace_original_nbt: true }, { source_item_digest: 'b'.repeat(64) }]) {
+                const replacement = { ...reverted, ...extra };
+                assert.equal(restore(replacement, original), replacement);
+            }
+            const changed = { ...reverted, entity_variant_edit: { ...edit, variant: 4 } };
+            assert.equal(restore(changed, original), changed);
+            // An edit already present in the baseline is still pending work.
+            const pending = { ...original, entity_variant_edit: edit };
+            assert.equal(restore(candidate, pending), candidate);
+        }
+    """)
+
+
 def test_followup_slot_edits_preserve_pending_nbt_warnings_and_entity_edits() -> None:
     run_node(
         textwrap.dedent(
@@ -38,6 +95,38 @@ def test_followup_slot_edits_preserve_pending_nbt_warnings_and_entity_edits() ->
             """
         )
     )
+
+
+def test_followup_root_equipment_edits_preserve_storage_metadata() -> None:
+    run_node(r"""
+        const assert = require('assert'), fs = require('fs'), vm = require('vm');
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync('static/slot_detail_logic.js', 'utf8'), context);
+        const { buildDetailItemFromForm: build, restoreEquivalentItem: restore } = context.window.MCBESlotDetailLogic;
+        for (const extra of [{}, { root_equipment_read_only: true }]) {
+            const original = { slot: 103, name: 'minecraft:diamond_helmet', count: 1, damage: 16,
+                source_slot: 103, source_player_key: 'player', source_container: 'inventory',
+                source_world_path: 'world', source_item_digest: 'a'.repeat(64),
+                root_equipment_source_tag: 'Armor', root_equipment_source_index: 0,
+                nbt_view: { tag: 'original' }, ...extra };
+            let item = original;
+            for (const damage of [21, 16]) {
+                const result = build({ slotId: 103, previousItem: item, rawName: item.name,
+                    rawCount: 1, rawDamage: damage, maxDamage: 363 });
+                assert.equal(result.ok, true);
+                item = result.item;
+                assert.equal(item.root_equipment_source_tag, 'Armor');
+                assert.equal(item.root_equipment_source_index, 0);
+                assert.equal(item.root_equipment_read_only, extra.root_equipment_read_only);
+            }
+            assert.equal(JSON.stringify(restore(item, original)), JSON.stringify(original));
+            const replacement = build({ slotId: 103, previousItem: item,
+                rawName: 'minecraft:iron_helmet', rawCount: 1, rawDamage: 0 });
+            assert.equal(replacement.item.root_equipment_source_tag, undefined);
+            assert.equal(replacement.item.root_equipment_source_index, undefined);
+            assert.equal(replacement.item.replace_original_nbt, true);
+        }
+    """)
 
 
 def test_frontend_slot_detail_logic_builds_and_preserves_same_item_nbt() -> None:

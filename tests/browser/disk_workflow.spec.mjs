@@ -100,8 +100,26 @@ test("real browser authenticates, saves with backup, rejects stale/CSRF writes a
     if (name === "db/LOCK") continue;
     expect(backup[name], `backup bytes for ${name}`).toBe(hash);
   }
+  const savedSlot = await page.evaluate(() => JSON.stringify(inventory[0]));
+  await page.locator("#detailCount").fill("9");
+  expect(inspectDisk()).toEqual(after);
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => JSON.stringify(inventory[0]))).toBe(savedSlot);
+  expect(await page.evaluate(() => isDirty)).toBe(false);
+  await page.locator("#btnRedo").click();
+  expect(await page.evaluate(() => inventory[0].count)).toBe(9);
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("#saveReviewOverlay")).toBeVisible();
+  const savedAgainPromise = page.waitForResponse(response => response.url().endsWith("/api/player/save") && response.status() === 200);
+  await page.locator("#btnSaveReviewConfirm").click();
+  const savedAgain = await finishWrite(page, savedAgainPromise);
+  expect(savedAgain.player_revision).not.toBe(saved.player_revision);
+  const afterSecondSave = inspectDisk();
+  expect(afterSecondSave.count).toBe(9);
+  expect(afterSecondSave.preserved).toBe("preserve-me");
+  expect(afterSecondSave.backups[savedAgain.backup_file]).toBeTruthy();
   const fresh = await post(page, "/api/player/load", request);
-  expect(fresh.body.inventory[0].count).toBe(7);
+  expect(fresh.body.inventory[0].count).toBe(9);
   expect(fresh.body.player_revision).not.toBe(loaded.player_revision);
   const stale = await post(page, "/api/player/save", {
     ...request, base_revision: loaded.player_revision, stats: { xp_level: 31 },
@@ -112,7 +130,7 @@ test("real browser authenticates, saves with backup, rejects stale/CSRF writes a
   expect(stale.body.error).toContain("seit dem Laden");
   const csrf = await post(page, "/api/player/save", { ...request, stats: { xp_level: 31 } }, false);
   expect(csrf.status).toBe(403);
-  expect(inspectDisk()).toEqual(after);
+  expect(inspectDisk()).toEqual(afterSecondSave);
 
   await page.locator('.app-section-nav button[data-workflow-view="tools"]').click();
   await page.locator('[data-tab-dash="dashBackups"]').click();

@@ -3,6 +3,41 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_finished_input_groups_drop_only_their_unchanged_undo_step() -> None:
+    run_node(r"""
+        const assert = require('assert'), fs = require('fs'), vm = require('vm');
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync('static/undo_redo_controller.js', 'utf8'), context);
+        let value = 1;
+        const history = context.window.MCBEUndoRedoController.createUndoRedoController({
+            takeSnapshot: () => ({ value }), snapshotHash: JSON.stringify,
+        });
+        const first = {}, second = {};
+        history.pushUndo('first', { mergeKey: first });
+        value = 2;
+        assert.equal(history.finishUndoGroup(first), true);
+        history.pushUndo('second', { mergeKey: second });
+        value = 3;
+        history.pushUndo('second', { mergeKey: second });
+        value = 2;
+        assert.equal(history.finishUndoGroup(first), true, 'unrelated group cannot remove a step');
+        assert.equal(history.state().undoCount, 2);
+        assert.equal(history.finishUndoGroup(second), false);
+        assert.equal(history.state().undoCount, 1);
+        value = history.undo().snapshot.value;
+        assert.equal(value, 1);
+        value = history.redo().snapshot.value;
+        assert.equal(value, 2);
+        history.pushUndo('new edit', { mergeKey: second });
+        value = 4;
+        assert.equal(history.finishUndoGroup(second), true);
+        assert.equal(history.undo().snapshot.value, 2);
+        history.reset();
+        assert.equal(history.finishUndoGroup(second), true);
+        assert.equal(history.state().undoCount, 0);
+    """)
+
+
 def test_frontend_undo_redo_controller_pushes_dedupes_and_trims() -> None:
     run_node(
         textwrap.dedent(
@@ -44,6 +79,51 @@ def test_frontend_undo_redo_controller_pushes_dedupes_and_trims() -> None:
             """
         )
     )
+
+
+def test_reverted_input_group_preserves_full_history_and_accepted_groups_enforce_limit() -> None:
+    run_node(r"""
+        const assert = require('assert'), fs = require('fs'), vm = require('vm');
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync('static/undo_redo_controller.js', 'utf8'), context);
+        for (const finish of ['explicit', 'undo', 'new-action']) {
+            let value = 0;
+            const history = context.window.MCBEUndoRedoController.createUndoRedoController({
+                takeSnapshot: () => ({ value }), snapshotHash: JSON.stringify, maxUndo: 2,
+            });
+            history.pushUndo('first'); value = 1;
+            history.pushUndo('second'); value = 2;
+            const group = {};
+            history.pushUndo('typing', { mergeKey: group }); value = 3;
+            history.pushUndo('typing', { mergeKey: group }); value = 2;
+            if (finish === 'explicit') {
+                assert.equal(history.finishUndoGroup(group), false);
+                assert.equal(history.state().undoCount, 2);
+            }
+            if (finish === 'new-action') {
+                history.pushUndo('third'); value = 4;
+                assert.equal(history.state().undoCount, 2);
+                value = history.undo().snapshot.value;
+                assert.equal(value, 2);
+                assert.equal(history.undo().snapshot.value, 1);
+                assert.equal(history.undo(), null);
+                continue;
+            }
+            value = history.undo().snapshot.value;
+            assert.equal(value, 1);
+            value = history.undo().snapshot.value;
+            assert.equal(value, 0);
+            value = history.redo().snapshot.value;
+            value = history.redo().snapshot.value;
+            assert.equal(value, 2);
+            history.pushUndo('accepted typing', { mergeKey: {} }); value = 5;
+            value = history.undo().snapshot.value;
+            assert.equal(value, 2);
+            value = history.undo().snapshot.value;
+            assert.equal(value, 1);
+            assert.equal(history.undo(), null, 'accepted groups enforce maxUndo');
+        }
+    """)
 
 
 def test_frontend_undo_redo_controller_undo_redo_transitions_and_reset() -> None:

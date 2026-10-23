@@ -12,6 +12,36 @@
         return String(rawName || "").trim().toLowerCase();
     }
 
+    function restoreEquivalentItem(item, baseline) {
+        if (!item || !baseline) return item;
+        // Only derived inspection/stack caches and empty form defaults are
+        // irrelevant here. Origins, replacement intent and NBT edits must match.
+        const comparable = value => {
+            const result = cloneJson(value);
+            delete result.nbt_view;
+            delete result.stack_key;
+            result.display_name ??= "";
+            result.lore ??= [];
+            result.enchantments ??= [];
+            return result;
+        };
+        const candidate = comparable(item);
+        const original = comparable(baseline);
+        const editor = window.MCBEEntityVariantEditor;
+        if (candidate.entity_variant_edit && !original.entity_variant_edit && editor) {
+            const originalEdit = editor.sourceEditFromModel(editor.editorModel({ item: baseline, itemName: baseline.name }));
+            if (editor.editsEqual(candidate.entity_variant_edit, originalEdit)) {
+                delete candidate.entity_variant_edit;
+                candidate.entity_variant = original.entity_variant;
+            }
+        }
+        const ordered = value => Array.isArray(value) ? value.map(ordered)
+            : value && typeof value === "object"
+                ? Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])]))
+                : value;
+        return JSON.stringify(ordered(candidate)) === JSON.stringify(ordered(original)) ? cloneJson(baseline) : item;
+    }
+
     function clampInteger(value, fallback, min, max) {
         const parsed = parseInt(value, 10);
         if (!Number.isFinite(parsed)) return fallback;
@@ -329,6 +359,9 @@
                 "protected_nbt_summary",
                 "preserved_nbt_summary",
                 "source_item_digest",
+                "root_equipment_source_tag",
+                "root_equipment_source_index",
+                "root_equipment_read_only",
                 "origin_world_mismatch",
                 "replace_original_nbt",
                 "protected_nbt_dropped",
@@ -461,6 +494,7 @@
         entityVariantMetadataForItem,
         loreLinesFromText,
         normalizedItemName,
+        restoreEquivalentItem,
         quickClearSlotPlan,
         quickMaxStackPlan,
         quickRepairSlotPlan,
@@ -501,6 +535,7 @@
         constants = {},
         getInventory,
         getEnderChestInventory,
+        getCleanSnapshot = () => null,
         getCurrentSelectionState,
         getCurrentPlayerKey,
         getWorldPath,
@@ -518,6 +553,7 @@
         slotDisplayName,
         detailItemLabel,
         pushUndo,
+        finishUndoGroup = () => true,
         updateGridVisuals,
         setDirty,
         editingBlocked = () => false,
@@ -1043,7 +1079,12 @@
                 entityVariantEdit: entityState.edit,
                 entityVariantMetadata: entityState.metadata,
             });
-            if (result.ok && result.item) result.item = itemCatalog.applyItemVariant?.(result.item, reset ? null : selectedItemVariant) || result.item;
+            if (result.ok && result.item) {
+                result.item = itemCatalog.applyItemVariant?.(result.item, reset ? null : selectedItemVariant) || result.item;
+                result.item = logic.restoreEquivalentItem(result.item, inputSession?.initialItem);
+                const clean = getCleanSnapshot();
+                result.item = logic.restoreEquivalentItem(result.item, (containerName === "ender_chest" ? clean?.ec : clean?.inv)?.[slotId]);
+            }
             return result;
         }
 
@@ -1206,6 +1247,7 @@
             const completed = inputSession;
             inputSession = inputSessionTarget = null;
             if (!completed?.actionMessage) return;
+            if (finishUndoGroup(completed) === false) return;
             logStatus?.(completed.statusMessage, "info");
             recordAction?.(completed.actionMessage, "edit");
         }
@@ -1388,7 +1430,8 @@
                 if (inputSessionTarget !== event.currentTarget) {
                     finishInputSession();
                     inputSessionTarget = event.currentTarget;
-                    inputSession = {};
+                    const target = currentDetailTarget();
+                    inputSession = { initialItem: target?.source?.[target.slotId] || null };
                 }
                 applyCurrentSingleSlot({ mergeKey: inputSession, quiet: true });
             };
@@ -1526,6 +1569,7 @@
             constants,
             getInventory: state.getInventory,
             getEnderChestInventory: state.getEnderChestInventory,
+            getCleanSnapshot: state.getCleanSnapshot,
             getCurrentSelectionState: state.getCurrentSelectionState,
             getCurrentPlayerKey: state.getCurrentPlayerKey,
             getWorldPath: state.getWorldPath,
@@ -1543,6 +1587,7 @@
             slotDisplayName: helpers.slotDisplayName,
             detailItemLabel: helpers.detailItemLabel,
             pushUndo: helpers.pushUndo,
+            finishUndoGroup: helpers.finishUndoGroup,
             updateGridVisuals: helpers.updateGridVisuals,
             setDirty: helpers.setDirty,
             editingBlocked: helpers.editingBlocked,

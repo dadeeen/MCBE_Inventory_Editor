@@ -1384,6 +1384,7 @@ slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetailContr
     state: {
         getInventory: () => inventory,
         getEnderChestInventory: () => enderChestInventory,
+        getCleanSnapshot: () => undoRedoAppController.getCleanSnapshot(),
         getCurrentSelectionState: currentSelectionState,
         getCurrentPlayerKey: () => currentPlayerKey,
         getWorldPath: () => worldPath,
@@ -1403,6 +1404,7 @@ slotDetailController = window.MCBESlotDetailLogic.createInventorySlotDetailContr
         openSpecialEditor,
         specialItemModel,
         pushUndo,
+        finishUndoGroup: key => undoRedoAppController.finishUndoGroup(key),
         updateGridVisuals,
         setDirty,
         editingBlocked: () => writeGateController.editingBlocked(),

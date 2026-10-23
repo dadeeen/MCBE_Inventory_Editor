@@ -49,6 +49,7 @@
         }
 
         function pushUndo(label = DEFAULT_LABEL(), { mergeKey = null } = {}) {
+            if (lastMergeKey !== null && mergeKey !== lastMergeKey) finishUndoGroup(lastMergeKey);
             const snap = takeSnapshot();
             const hash = snapshotHash(snap);
             const lastHash = undoStack.length ? snapshotHash(undoStack[undoStack.length - 1]) : null;
@@ -57,7 +58,9 @@
             } else if (hash !== lastHash) {
                 undoStack.push(snap);
                 undoLabels.push(normalizedLabel(label));
-                trim(undoStack, undoLabels);
+                // Keep the oldest step until a typing group is accepted. A
+                // reverted group must not evict real history at the limit.
+                if (mergeKey === null) trim(undoStack, undoLabels);
             }
             redoStack = [];
             redoLabels = [];
@@ -65,7 +68,21 @@
             return state();
         }
 
+        function finishUndoGroup(mergeKey) {
+            if (mergeKey === null || mergeKey !== lastMergeKey) return true;
+            lastMergeKey = null;
+            const previous = undoStack[undoStack.length - 1];
+            if (!previous || snapshotHash(previous) !== snapshotHash(takeSnapshot())) {
+                trim(undoStack, undoLabels);
+                return true;
+            }
+            undoStack.pop();
+            undoLabels.pop();
+            return false;
+        }
+
         function undo() {
+            if (lastMergeKey !== null) finishUndoGroup(lastMergeKey);
             lastMergeKey = null;
             if (undoStack.length === 0) return null;
             redoStack.push(takeSnapshot());
@@ -77,6 +94,7 @@
         }
 
         function redo() {
+            if (lastMergeKey !== null) finishUndoGroup(lastMergeKey);
             lastMergeKey = null;
             if (redoStack.length === 0) return null;
             undoStack.push(takeSnapshot());
@@ -89,6 +107,7 @@
 
         return {
             pushUndo,
+            finishUndoGroup,
             redo,
             reset,
             state,
@@ -183,6 +202,12 @@
             updateUndoButtons();
         }
 
+        function finishUndoGroup(mergeKey) {
+            const retained = stack.finishUndoGroup(mergeKey);
+            updateUndoButtons();
+            return retained;
+        }
+
         function applySnapshot(snap = {}) {
             setInventory(cloneJson(snap.inv || {}));
             setEnderChestInventory(cloneJson(snap.ec || {}));
@@ -231,6 +256,7 @@
             getCleanSnapshot,
             markCleanState,
             pushUndo,
+            finishUndoGroup,
             redo,
             renderUndoRedoPanel,
             resetForUnloadedPlayer,
