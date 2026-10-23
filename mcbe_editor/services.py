@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import contextlib
 import hashlib
 import logging
 import os
+from collections.abc import Callable
 from functools import wraps
+from typing import Concatenate
 
 from mcbe_editor import item_data, nbt
 from mcbe_editor.item_availability import item_availability_client_payload
@@ -93,14 +97,28 @@ from .service_errors import (
 )
 from .world import LOCAL_PLAYER_KEY, detect_capabilities, ensure_valid_world_path, get_world_name, world_fingerprint
 from .world_locks import get_world_lock, lock_key, locked_world, world_lock_if_free
+from .write_results import (
+    ExtraBatchBuilder,
+    ExtraBatchValidator,
+    ImportResult,
+    RestoreResult,
+    SavedItemState,
+    SaveResult,
+    WriteCheck,
+    import_completed,
+    restore_completed,
+    save_completed,
+    save_no_op,
+    save_post_write_failure,
+)
 from .write_transaction import WritePlan, WriteState
 
 LOGGER = logging.getLogger(__name__)
 
 
-def _catalog_operation(func):
+def _catalog_operation[**P, R](func: Callable[Concatenate[BedrockEditorService, P], R]) -> Callable[Concatenate[BedrockEditorService, P], R]:
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: BedrockEditorService, *args: P.args, **kwargs: P.kwargs) -> R:
         with item_data.use_item_catalog(self.item_catalog):
             return func(self, *args, **kwargs)
 
@@ -257,7 +275,7 @@ class BedrockEditorService:
             item["source_container"] = container_name
         return items_by_slot
 
-    def _saved_item_state(self, player_tag, encoded_player_key, world_path):
+    def _saved_item_state(self, player_tag, encoded_player_key, world_path) -> SavedItemState:
         inventory_data, _original_items = nbt_to_json(player_tag)
         self._annotate_item_origins(inventory_data, encoded_player_key, "inventory")
         merge_root_equipment_fallbacks(inventory_data, player_tag, encoded_player_key=encoded_player_key, world_path=world_path)
@@ -536,10 +554,10 @@ class BedrockEditorService:
         allow_create_effects=False,
         allow_create_abilities=False,
         root_equipment_editable=False,
-        pre_write_check=None,
-        extra_batch_builder=None,
-        extra_batch_validator=None,
-    ):
+        pre_write_check: WriteCheck | None = None,
+        extra_batch_builder: ExtraBatchBuilder | None = None,
+        extra_batch_validator: ExtraBatchValidator | None = None,
+    ) -> SaveResult:
         with self._locked_world(world_path):
             ensure_valid_world_path(world_path)
             backup_file = None
@@ -677,14 +695,7 @@ class BedrockEditorService:
                 saved_item_state = self._saved_item_state(assert_serialized_player_roundtrip(serialized_bytes).tag, encoded_player_key, world_path)
                 player_changed = serialized_bytes != player_bytes
                 if not player_changed and extra_batch_builder is None:
-                    return {
-                        "success": True,
-                        "message": "Keine Änderungen erkannt. Es wurde kein Backup erstellt und nichts geschrieben.",
-                        "backup_file": None,
-                        "player_revision": self._player_revision(player_bytes),
-                        **saved_item_state,
-                        "no_op": True,
-                    }
+                    return save_no_op(saved_item_state, self._player_revision(player_bytes))
 
                 # Phase 2 (write): from here on the world is modified.  The
                 # read-only handle is released first so the mutating adapter can
@@ -779,27 +790,13 @@ class BedrockEditorService:
                             step_failure_text("Alte Backups konnten nach dem Schreiben nicht bereinigt werden", exc, context="player.save post_write")
                         )
 
-                    result = {
-                        "success": not post_write_errors,
-                        "message": "Erfolgreich gespeichert!" if not post_write_errors else "; ".join(post_write_errors),
-                        "backup_file": os.path.basename(backup_file),
-                        "player_revision": self._player_revision(serialized_bytes),
-                        **saved_item_state,
-                        "no_op": False,
-                        "workspace": extra_batch.get("result") if extra_batch_builder else None,
-                    }
-                    if post_write_errors:
-                        result.update(
-                            {
-                                "write_committed": write_state.committed,
-                                "validation_failed": True,
-                                "error": (
-                                    "Änderungen wurden geschrieben, aber der Abschluss nach dem Schreiben ist fehlgeschlagen. "
-                                    "Nicht erneut speichern; stelle bei Zweifeln das angegebene Backup wieder her. " + "; ".join(post_write_errors)
-                                ),
-                            }
-                        )
-                    return result
+                    return save_completed(
+                        saved_item_state,
+                        self._player_revision(serialized_bytes),
+                        os.path.basename(backup_file),
+                        extra_batch.get("result") if extra_batch_builder else None,
+                        post_write_errors,
+                    )
                 except Exception as exc:
                     # Unerwarteter Fehler nach dem Commit (z. B. beim Aufbau der
                     # Antwort). Der Batch ist geschrieben: strukturiert als
@@ -809,21 +806,7 @@ class BedrockEditorService:
                         if db is not None:
                             db.close()
                     db = None
-                    post_write_message = (
-                        "Änderungen wurden geschrieben, aber der Abschluss nach dem Schreiben ist fehlgeschlagen. "
-                        "Nicht erneut speichern; stelle bei Zweifeln das angegebene Backup wieder her."
-                    )
-                    return {
-                        "success": False,
-                        "write_committed": write_state.committed,
-                        "validation_failed": True,
-                        "error_phase": "post_write",
-                        "error": post_write_message,
-                        "message": post_write_message,
-                        "no_op": False,
-                        "backup_file": os.path.basename(backup_file) if backup_file else None,
-                        **saved_item_state,
-                    }
+                    return save_post_write_failure(saved_item_state, os.path.basename(backup_file) if backup_file else None)
             except Exception as exc:
                 if backup_file and not write_state.attempted:
                     remove_backup_after_aborted_write(backup_file, exc, operation="player.save")
@@ -1046,7 +1029,7 @@ class BedrockEditorService:
         *,
         confirm_transfer=False,
         transfer_token=None,
-        write_gate_check=None,
+        write_gate_check: WriteCheck | None = None,
     ):
         if not confirm_transfer:
             raise ValueError(t("Spielermigration blockiert: Die Übertragung muss ausdrücklich bestätigt werden."))
@@ -1352,8 +1335,8 @@ class BedrockEditorService:
         import_as_exported_player=False,
         import_token=None,
         base_revision=None,
-        write_gate_check=None,
-    ):
+        write_gate_check: WriteCheck | None = None,
+    ) -> ImportResult:
         if not confirm_overwrite:
             raise ValueError("Import blockiert: Überschreiben muss ausdrücklich bestätigt werden.")
         if not isinstance(import_token, dict):
@@ -1480,16 +1463,7 @@ class BedrockEditorService:
                         cleanup_warning = t("Import war erfolgreich, alte Backups konnten aber nicht bereinigt werden: {error}", error=exc)
                         LOGGER.exception("Backup-Retention nach erfolgreichem Spieler-Import fehlgeschlagen.")
 
-                    result = {
-                        "success": True,
-                        "write_committed": write_state.committed,
-                        "world_path": target_world_path,
-                        "backup_file": os.path.basename(backup_file),
-                        "target_player": resulting_info,
-                        "import_preview": preview,
-                        "created_new_player": bool(import_as_exported_player),
-                        "post_write_validated": True,
-                    }
+                    result = import_completed(target_world_path, os.path.basename(backup_file), resulting_info, preview, bool(import_as_exported_player))
                     if cleanup_warning:
                         result["cleanup_warning"] = cleanup_warning
                 except Exception as exc:
@@ -1589,7 +1563,7 @@ class BedrockEditorService:
                 "backup_file": os.path.basename(deleted),
             }
 
-    def restore_backup(self, world_path, backup_file, *, backup_token=None, pre_restore_check=None):
+    def restore_backup(self, world_path, backup_file, *, backup_token=None, pre_restore_check: WriteCheck | None = None) -> RestoreResult:
         with self._locked_world(world_path):
             ensure_valid_world_path(world_path)
             # Resolve the requested backup before creating the pre-restore
@@ -1666,12 +1640,7 @@ class BedrockEditorService:
                             existing = getattr(operation_error, "cleanup_warning", None)
                             operation_error.cleanup_warning = f"{existing} {warning}" if existing else warning
                         LOGGER.exception("Backup-Retention nach Restore-Versuch fehlgeschlagen.")
-            result = {
-                "success": True,
-                "message": "Backup erfolgreich wiederhergestellt!",
-                "pre_restore_backup": os.path.basename(pre_restore_backup),
-                "restored_backup": os.path.basename(selected_backup),
-            }
+            result = restore_completed(os.path.basename(pre_restore_backup), os.path.basename(selected_backup))
             if cleanup_warnings:
                 result["cleanup_warning"] = " ".join(cleanup_warnings)
             return result

@@ -77,6 +77,7 @@ files = [
     "mcbe_editor/update_output_i18n.py",
     "mcbe_editor/world_locks.py",
     "mcbe_editor/write_transaction.py",
+    "mcbe_editor/write_results.py",
 ]
 strict = true
 follow_imports = "silent"
