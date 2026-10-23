@@ -8,13 +8,13 @@ const outputDir = process.env.MCBE_BROWSER_SMOKE_OUTPUT_DIR
 
 let launchOptions;
 if (process.platform === "win32") {
-  // Chromium 143's randomized TCP ports can collide during loopback smoke tests.
+  // Chromium's randomized TCP ports can fail during loopback smoke tests.
   // Preserve the pinned Playwright defaults: duplicate --disable-features flags
   // replace each other rather than merging. Recheck this internal API on upgrades.
   const require = createRequire(import.meta.url);
-  const coreRoot = path.dirname(require.resolve("playwright-core/package.json"));
-  const { chromiumSwitches } = require(path.join(coreRoot, "lib/server/chromium/chromiumSwitches.js"));
-  const disabled = chromiumSwitches(false).find(arg => arg.startsWith("--disable-features="));
+  const { server } = require("playwright-core/lib/coreBundle");
+  const chromium = server.createPlaywright({ sdkLanguage: "javascript" }).chromium;
+  const disabled = chromium._innerDefaultArgs({}).find(arg => arg.startsWith("--disable-features="));
   if (!disabled) throw new Error("Playwright Chromium defaults changed; review the Windows TCP workaround.");
   launchOptions = {
     ignoreDefaultArgs: [disabled],
