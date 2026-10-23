@@ -101,7 +101,7 @@ jobs:
         run: MCBE_SMOKE_IMPORT_APP=true python scripts/smoke_check.py
       - name: Tests
         run: python scripts/test_full.py -v
-      - name: Backend branch coverage
+      - name: Backend combined line and branch coverage
         if: matrix.python == '3.12' && matrix.os == 'ubuntu-latest'
         run: python scripts/coverage_check.py -q
       - name: Upload coverage report
@@ -133,6 +133,8 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npx playwright install --with-deps chromium
+      - name: JavaScript unit tests
+        run: npm run test:javascript
       - name: Browser smoke tests
         run: npm run test:browser
 

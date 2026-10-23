@@ -172,6 +172,8 @@ requirements. `pyproject.toml` defines the shared style, including LF line endin
 consistent with `.gitattributes`. Keep broad formatting changes separate from
 functional changes so reviews remain focused.
 
+`python scripts/coverage_check.py -q` measures `main`, `mcbe_editor`, and the shipped item/icon updaters. Its 75% gate combines executed lines and branches; the report also displays both percentages separately. Developer-only scripts are outside the gate. Code executed only in subprocesses is not instrumented by this parent-process measurement and needs separate behavioral checks.
+
 Docker uses a wheel-download stage with hash verification and installs those wheels offline in the runtime stage. The pinned pip bootstrap is shared with setup and CI. The runtime uses the project's Python storage implementation and contains neither native compilers nor LevelDB-specific system packages. Independent reference libraries stay outside this image.
 
 Both Docker stages use the same multi-architecture digest for `python:3.12-slim`. During a deliberate dependency or release refresh, inspect the current official digest with `docker buildx imagetools inspect python:3.12-slim`, review the reported Python/Debian version, update the single `PYTHON_BASE_IMAGE` argument in `Dockerfile`, and run the complete Docker and release checks. A digest update is a reviewed dependency change, not an automatic side effect of an ordinary build.
@@ -179,6 +181,8 @@ Both Docker stages use the same multi-architecture digest for `python:3.12-slim`
 ## Frontend tests and Node.js
 
 The frontend logic under `static/` is primarily tested without an npm build step: the `tests/test_frontend_*.py` files and a few backend test modules execute the browser modules directly through `run_node` from `tests/node_runner.py`. It starts one `node -e` process per script from the repository root, so scripts share no module state, fails the test on a non-zero exit with Node's output, and stops a script after 60 seconds unless the test passes its own `timeout`. `tests/test_frontend_syntax.py` syntax-checks every JS file with `node --check` (pure parsing, no execution).
+
+The standalone Node tests under `tests/javascript/` run with `npm run test:javascript`, including in the browser CI job. A non-zero test exit fails the job.
 
 In addition, there are Playwright browser smoke tests under `tests/browser/`. These use `package.json` and `package-lock.json`; locally, the dependencies are installed on demand with `npm ci --ignore-scripts`. The command `npm run test:browser` automatically re-launches through the repository's `.venv` when present, starts two local Flask test servers, runs Playwright, and shuts the servers down again afterwards. `node_modules/` is a local working artifact and is not committed.
 

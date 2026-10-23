@@ -29,7 +29,7 @@ def test_coverage_args_prune_stale_artifacts_with_explicit_basetemp(monkeypatch)
     assert calls == [{}]
 
 
-def test_coverage_runner_runs_tests_and_writes_thresholded_xml(monkeypatch, tmp_path):
+def test_coverage_runner_runs_tests_and_writes_thresholded_xml(monkeypatch, tmp_path, capsys):
     commands: list[list[str]] = []
     xml_path = tmp_path / "coverage.xml"
 
@@ -53,12 +53,15 @@ def test_coverage_runner_runs_tests_and_writes_thresholded_xml(monkeypatch, tmp_
 
     assert coverage_check.main(["-q"]) == 0
     assert commands[0][-2:] == ["coverage", "erase"]
-    assert "--source=mcbe_editor,main" in commands[1]
+    assert "--source=mcbe_editor,main,scripts" in commands[1]
     assert commands[1][-3:] == ["pytest", "tests", "-q"]
     assert commands[2][2:4] == ["coverage", "xml"]
-    assert "--include=main.py,mcbe_editor/*" in commands[2]
+    assert "--include=main.py,mcbe_editor/*,scripts/update_db.py,scripts/update_icons.py" in commands[2]
     assert "--fail-under=75" in commands[2]
     assert commands[2][-1] == str(xml_path)
+    output = capsys.readouterr().out
+    assert "combined line/branch coverage: 76.0% (minimum 75.0%)" in output
+    assert "Lines: 75.0%; branches: 80.0%" in output
 
 
 def test_coverage_runner_preserves_test_failure_after_writing_xml(monkeypatch, tmp_path):
@@ -95,6 +98,7 @@ def test_coverage_percent_combines_lines_and_branches(tmp_path):
     )
 
     assert coverage_check._coverage_percent_from_xml(xml_path) == 75.0
+    assert coverage_check._coverage_metrics_from_xml(xml_path) == {"lines": 75.0, "branches": 75.0, "combined": 75.0}
 
 
 def test_coverage_threshold_is_enforced_from_pyproject():

@@ -1,6 +1,7 @@
 {
   "private": true,
   "scripts": {
+    "test:javascript": "node --test \"tests/javascript/*.test.mjs\"",
     "test:browser": "python scripts/browser_smoke.py"
   },
   "devDependencies": {

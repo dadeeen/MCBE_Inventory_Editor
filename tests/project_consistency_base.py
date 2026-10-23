@@ -219,9 +219,11 @@ def test_ci_uses_full_test_runner_so_core_dependency_skips_do_not_pass_release_t
 
     coverage_runner = _read("scripts/coverage_check.py")
     assert "test_full._missing_core_dependencies" in coverage_runner
-    assert 'COVERAGE_TARGETS = ("mcbe_editor", "main")' in coverage_runner
+    from scripts.coverage_check import COVERAGE_INCLUDE, COVERAGE_TARGETS
+
+    assert {"mcbe_editor", "main", "scripts"} <= set(COVERAGE_TARGETS)
     assert 'COVERAGE_IGNORES = ("tests/test_frontend_*.py", "tests/test_world_locks.py")' in coverage_runner
-    assert 'COVERAGE_INCLUDE = "main.py,mcbe_editor/*"' in coverage_runner
+    assert {"main.py", "mcbe_editor/*", "scripts/update_db.py", "scripts/update_icons.py"} <= set(COVERAGE_INCLUDE.split(","))
     assert "f\"--source={','.join(COVERAGE_TARGETS)}\"" in coverage_runner
     assert "COVERAGE_XML.unlink(missing_ok=True)" in coverage_runner
     assert '"coverage",' in coverage_runner

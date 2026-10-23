@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure backend branch coverage with the same core dependency gate as CI tests."""
+"""Measure combined backend line/branch coverage, including shipped updaters."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ test_full = importlib.import_module("scripts.test_full")
 
 PYPROJECT = ROOT / "pyproject.toml"
 COVERAGE_XML = ROOT / "coverage.xml"
-COVERAGE_TARGETS = ("mcbe_editor", "main")
+COVERAGE_TARGETS = ("mcbe_editor", "main", "scripts")
 COVERAGE_IGNORES = ("tests/test_frontend_*.py", "tests/test_world_locks.py")
-COVERAGE_INCLUDE = "main.py,mcbe_editor/*"
+COVERAGE_INCLUDE = "main.py,mcbe_editor/*,scripts/update_db.py,scripts/update_icons.py"
 
 
 def _coverage_fail_under() -> float:
@@ -55,15 +55,21 @@ def _render_threshold(value: float) -> str:
 
 
 def _coverage_percent_from_xml(path: Path) -> float:
+    return _coverage_metrics_from_xml(path)["combined"]
+
+
+def _coverage_metrics_from_xml(path: Path) -> dict[str, float]:
     root = ET.parse(path).getroot()
     lines_valid = int(root.attrib.get("lines-valid", "0"))
     lines_covered = int(root.attrib.get("lines-covered", "0"))
     branches_valid = int(root.attrib.get("branches-valid", "0"))
     branches_covered = int(root.attrib.get("branches-covered", "0"))
     total_valid = lines_valid + branches_valid
-    if total_valid == 0:
-        return 100.0
-    return 100.0 * (lines_covered + branches_covered) / total_valid
+    return {
+        "lines": 100.0 * lines_covered / lines_valid if lines_valid else 100.0,
+        "branches": 100.0 * branches_covered / branches_valid if branches_valid else 100.0,
+        "combined": 100.0 * (lines_covered + branches_covered) / total_valid if total_valid else 100.0,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -112,8 +118,10 @@ def main(argv: list[str] | None = None) -> int:
         ]
     )
     if COVERAGE_XML.is_file():
-        measured = _coverage_percent_from_xml(COVERAGE_XML)
-        print(f"Backend branch coverage: {measured:.1f}% (minimum {threshold:.1f}%)")
+        measured = _coverage_metrics_from_xml(COVERAGE_XML)
+        print(f"Backend combined line/branch coverage: {measured['combined']:.1f}% (minimum {threshold:.1f}%)")
+        print(f"Lines: {measured['lines']:.1f}%; branches: {measured['branches']:.1f}%")
+        print("Scope: main, mcbe_editor and shipped item/icon updaters; subprocess-only execution is not measured.")
 
     if test_status == 0 and default_basetemp is not None:
         shutil.rmtree(default_basetemp, ignore_errors=True)
