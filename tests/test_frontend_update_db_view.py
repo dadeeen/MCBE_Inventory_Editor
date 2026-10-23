@@ -217,7 +217,7 @@ def test_app_wires_current_player_state_into_database_refresh_policy() -> None:
     assert "async onReloaded(data)" in callback
     assert "refreshLoadedPlayerAfterDbUpdate({" in callback
     assert "currentPlayerKey," in callback
-    assert "isDirty," in callback
+    assert "isDirty: hasUnsavedChanges()" in callback
     assert "loadPlayer," in callback
 
 
@@ -539,6 +539,165 @@ def test_current_check_disables_only_matching_apply_and_can_be_checked_again() -
                 await controller.run(false, true);
                 assert.equal(requests.length, beforeRepair + 1);
             })().catch(error => { console.error(error); process.exit(1); });
+            """
+        )
+    )
+
+
+def test_current_database_can_confirm_missing_full_verification() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("assert");
+            const fs = require("fs");
+            const vm = require("vm");
+            const context = {window: {}, console};
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
+            const element = () => ({
+                children: [], dataset: {}, disabled: false, text: "",
+                get textContent() { return this.text + this.children.map(child => child.textContent).join("\n"); },
+                set textContent(value) { this.text = value; this.children = []; },
+                get childElementCount() { return this.children.length; },
+                appendChild(child) { this.children.push(child); },
+                replaceChildren(...children) { this.text = ""; this.children = children; },
+                addEventListener(type, callback) { this[type] = callback; },
+            });
+            const result = element(), audit = element();
+            const doc = {
+                createElement: element,
+                getElementById: id => ({updateDbResult: result, updateDbAudit: audit})[id] || null,
+            };
+            const output = {...element(), textContent: "", ownerDocument: doc, scrollHeight: 0};
+            const apply = element(), check = element(), select = element(), hint = element();
+            select.value = "";
+            select.options = [{value: "", text: "Alles"}, {value: "items", text: "Nur Items"}];
+            const requests = [];
+            let confirmations = 0, reloads = 0;
+            let next = {
+                success: true, summary: {status: "current"}, verification_required: true,
+                update_review_token: "a".repeat(64), resource_pack_release: "v1",
+            };
+            const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                outputEl: output, applyButton: apply, dryRunButton: check, onlySelect: select, actionHint: hint,
+                withCsrf: () => ({}), parseJsonResponse: async response => response,
+                fetchImpl: async (_url, options) => { requests.push(JSON.parse(options.body)); return next; },
+                showConfirmDialog: async message => {
+                    confirmations++;
+                    assert.match(message, /zuvor geprüften Quellen/);
+                    return true;
+                },
+                onReloaded: () => { reloads++; },
+            });
+            (async () => {
+                await check.click();
+                assert.equal(apply.disabled, false, "Current content still needs a full verification receipt");
+                assert.match(hint.textContent, /bestätigt die vollständige Prüfung/);
+                assert.match(result.textContent, /bestätigt die vollständige Prüfung/);
+                assert.doesNotMatch(result.textContent, /Kein Update erforderlich/);
+                assert.doesNotMatch(output.textContent, /Kein Update erforderlich/);
+
+                next = {success: true, reloaded: true, summary: {status: "current"}, verification_required: false};
+                await apply.click();
+                assert.equal(confirmations, 1);
+                assert.equal(requests.length, 2);
+                assert.equal(requests[1].dry_run, false);
+                assert.equal(requests[1].force, true);
+                assert.equal(requests[1].only, null);
+                assert.equal(requests[1].expected_update_review_token, "a".repeat(64));
+                assert.equal(reloads, 1);
+                assert.equal(apply.disabled, true, "A verified current database needs no further apply");
+                assert.match(result.textContent, /Kein Update erforderlich/);
+                await apply.click();
+                assert.equal(requests.length, 2);
+
+                select.value = "items";
+                select.change();
+                next = {success: true, summary: {status: "current"}, verification_required: true};
+                await check.click();
+                assert.equal(apply.disabled, true, "A partial no-op cannot renew full verification");
+                assert.match(hint.textContent, /„Alles“ wählen, prüfen und anwenden/);
+                assert.match(result.textContent, /„Alles“ wählen, prüfen und anwenden/);
+                assert.doesNotMatch(result.textContent, /Kein Update erforderlich/);
+                await apply.click();
+                assert.equal(requests.length, 3);
+
+                select.value = "";
+                select.change();
+                await check.click();
+                assert.equal(apply.disabled, false, "Switching back to a full check permits verification");
+            })().catch(error => { console.error(error); process.exit(1); });
+            """
+        )
+    )
+
+
+def test_verified_current_database_stays_current_when_only_player_refresh_warns() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require("node:assert/strict");
+            const fs = require("node:fs");
+            const vm = require("node:vm");
+            const context = {window: {}, console: {error() {}}};
+            vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
+            vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
+            const view = context.window.MCBEUpdateDbView;
+            const element = () => ({disabled: false, addEventListener(type, callback) {this[type] = callback;}});
+
+            (async () => {
+                for (const mode of ["pending-draft", "client-error", "server-error"]) {
+                    const apply = element(), check = element(), select = element();
+                    select.value = "";
+                    const output = {textContent: "", scrollHeight: 0}, hint = {textContent: ""};
+                    const notices = [], toasts = [];
+                    const serverReloaded = mode !== "server-error";
+                    let requests = 0, reloads = 0, playerReads = 0, pendingDraft = true;
+                    const controller = view.createUpdateDbController({
+                        outputEl: output, applyButton: apply, dryRunButton: check, onlySelect: select, actionHint: hint,
+                        withCsrf: () => ({}), parseJsonResponse: async response => response,
+                        fetchImpl: async () => {
+                            requests++;
+                            return {
+                                success: true, update_committed: true, reloaded: serverReloaded,
+                                summary: {status: "current"}, verification_required: !serverReloaded,
+                                ...(serverReloaded ? {} : {reload_warning: "Server restart required"}),
+                            };
+                        },
+                        onReloaded: () => {
+                            reloads++;
+                            if (mode === "client-error") throw new Error("Synthetic client refresh failure");
+                            return view.refreshLoadedPlayerAfterDbUpdate({
+                                currentPlayerKey: "player-a", isDirty: pendingDraft,
+                                loadPlayer: async () => {playerReads++; pendingDraft = false; return true;},
+                            });
+                        },
+                        logStatus: (message, type) => notices.push({message, type}),
+                        showToast: (message, type) => toasts.push({message, type}),
+                        showConfirmDialog: async () => {throw new Error("No further Apply is needed");},
+                    });
+                    await controller.run(false, true);
+                    assert.equal(apply.disabled, serverReloaded, mode);
+                    assert.equal(check.disabled, false, mode);
+                    assert.equal(reloads, Number(serverReloaded), mode);
+                    assert.equal(playerReads, 0, mode);
+                    assert.equal(pendingDraft, true, mode);
+                    const warning = mode === "pending-draft" ? /wegen ungespeicherter Änderungen/
+                        : mode === "client-error" ? /Browseransicht konnte nicht vollständig aktualisiert werden/
+                            : /Server restart required/;
+                    assert.equal(notices.at(-1).type, "warning", mode);
+                    assert.equal(toasts.at(-1).type, "warning", mode);
+                    assert.match(notices.at(-1).message, warning, mode);
+                    assert.match(output.textContent, warning, mode);
+                    if (serverReloaded) {
+                        assert.match(hint.textContent, /Keine Änderungen bei der letzten Prüfung/, mode);
+                        await apply.click();
+                        assert.equal(requests, 1, mode);
+                    } else {
+                        assert.match(hint.textContent, /Prüfe zuerst die Vorschau/, mode);
+                    }
+                }
+            })().catch(error => {console.error(error); process.exitCode = 1;});
             """
         )
     )

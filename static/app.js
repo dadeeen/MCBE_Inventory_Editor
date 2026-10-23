@@ -1604,7 +1604,7 @@ const updateDbController = window.MCBEUpdateDbView.createInventoryUpdateDbContro
         else await loadItemDbStatus();
         return window.MCBEUpdateDbView.refreshLoadedPlayerAfterDbUpdate({
             currentPlayerKey,
-            isDirty,
+            isDirty: hasUnsavedChanges(),
             loadPlayer,
         });
     },

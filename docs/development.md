@@ -243,11 +243,19 @@ The API reloads confirmed writes even if skipped sections cause a nonzero exit,
 and the UI retains the partial-failure warning.
 
 A preview leaves persistent data unchanged. Applying uses the confirmed scope
-and matching review receipt; a failed request discards that receipt. A current
-result disables applying that scope until another check or scope change, while
-explicit repair workflows may request a verification write. Change details list
-actual changes and unresolved findings; deliberately preserved names appear in
-the separate technical log. See [Item names and source comparisons](item-localization.md).
+and matching review receipt; a failed request discards that receipt. Current
+contents and completed verification are separate: the API derives
+`verification_required` from the existing receipt status, using the reloaded
+status after an apply. A current result keeps applying available for the full
+scope when verification is still required, so a confirmed no-op apply can renew
+the receipt. Current verified results and current partial scopes disable
+applying; an unverified partial scope directs the user to check and apply
+"All". A warning while refreshing the player view does not invalidate this
+confirmed database state; a server-side reload warning still leaves it unconfirmed.
+A preview or partial update never grants full verification. Change
+details list actual changes and unresolved findings; deliberately preserved
+names appear in the separate technical log.
+See [Item names and source comparisons](item-localization.md).
 
 Each update replaces the browser's technical output. Successful source changes append metadata to `source_version_history.json`; unchanged sources do not extend this history. A full apply can refresh the verification timestamp without rewriting the item database. The Item-DB download keeps one replaceable archive and item-list snapshot; the icon updater keeps its current managed release ZIP. Progress snapshots are removed when requests finish; a later tracked request removes crash leftovers older than 24 hours.
 

@@ -62,6 +62,57 @@ def test_update_db_returns_structured_report_without_protocol_in_visible_output(
     assert result["output"] == "Details\n"
 
 
+@pytest.mark.parametrize("verified", [False, True])
+@pytest.mark.parametrize("only", [None, "items"])
+def test_current_dry_run_reports_verification_independently_of_content_diff(verified, only):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    report = {"schema": 1, "status": "current", "applied": False}
+    deps = _deps(
+        run_update_db=Mock(return_value=(0, REPORT_PREFIX + json.dumps(report))),
+        item_db_status_snapshot=Mock(return_value={"verification": {"verified": verified}}),
+    )
+    with patch.object(item_db_api_routes, "update_review_snapshot", return_value={"token": "a" * 64, "resource_pack_release": "v1"}):
+        result = item_db_api_routes.update_db({"dry_run": True, "only": only}, deps)[1]
+
+    assert result["success"] is True
+    assert result["summary"] == report
+    assert result["verification_required"] is not verified
+    assert result["update_review_token"] == "a" * 64
+    deps.reload_item_db_after_update.assert_not_called()
+
+
+def test_current_apply_uses_renewed_verification_from_reload():
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    report = {"schema": 1, "status": "current", "applied": True}
+    deps = _deps(
+        run_update_db=Mock(return_value=(0, REPORT_PREFIX + json.dumps(report))),
+        item_db_status_snapshot=Mock(return_value={"verification": {"verified": False}}),
+        reload_item_db_after_update=Mock(return_value={"reloaded": True, "item_db": {"verification": {"verified": True}}}),
+    )
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
+
+    assert result["success"] is True
+    assert result["summary"] == report
+    assert result["verification_required"] is False
+    assert result["update_committed"] is True
+    deps.item_db_status_snapshot.assert_not_called()
+
+
+def test_failed_reload_does_not_claim_current_database_is_verified():
+    deps = _deps(reload_item_db_after_update=Mock(side_effect=RuntimeError("reload failed")))
+
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
+
+    assert result["success"] is True
+    assert result["update_committed"] is True
+    assert result["reloaded"] is False
+    assert result["reload_warning"]
+    assert result["verification_required"] is True
+    deps.item_db_status_snapshot.assert_not_called()
+
+
 def test_failed_update_keeps_partial_report_without_a_success_receipt():
     from mcbe_editor.update_db_report import REPORT_PREFIX
 
@@ -129,6 +180,7 @@ def test_update_db_successful_non_dry_run_merges_reload_payload():
             "update_committed": True,
             "reloaded": True,
             "item_db": {"status": "ok"},
+            "verification_required": True,
         },
     )
     deps.run_update_db.assert_called_once_with(

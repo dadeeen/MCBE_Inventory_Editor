@@ -3026,6 +3026,8 @@
   "Abweichende Haltbarkeitswerte der Quellen": "Conflicting source durability values",
   "Update verfügbar": "Update available",
   "Keine inhaltlichen Änderungen": "No content changes",
+  "Keine inhaltlichen Änderungen. „Update anwenden“ bestätigt die vollständige Prüfung der Item-Datenbank.": "No content changes. “Apply update” confirms the full item database check.",
+  "Keine Änderungen im gewählten Bereich. Für die vollständige Prüfung „Alles“ wählen, prüfen und anwenden.": "No changes in the selected scope. For a full check, select “All”, check for changes, and apply.",
   "Nur Quelleninformationen geändert": "Only source metadata changed",
   "Prüfung unvollständig oder fehlgeschlagen": "Check incomplete or failed",
   "Keine Ergebniszusammenfassung verfügbar. Bitte Details prüfen.": "No result summary available. Please check the details.",

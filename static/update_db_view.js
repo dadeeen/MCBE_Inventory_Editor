@@ -33,7 +33,14 @@
         });
     }
 
-    function renderResult(outputEl, data, dryRun, scopeText) {
+    function currentResultMessage(verificationRequired, only) {
+        if (!verificationRequired) return t("Kein Update erforderlich.");
+        return only
+            ? t("Keine Änderungen im gewählten Bereich. Für die vollständige Prüfung „Alles“ wählen, prüfen und anwenden.")
+            : t("Keine inhaltlichen Änderungen. „Update anwenden“ bestätigt die vollständige Prüfung der Item-Datenbank.");
+    }
+
+    function renderResult(outputEl, data, dryRun, scopeText, only = null) {
         const doc = outputEl?.ownerDocument;
         const result = doc?.getElementById?.("updateDbResult");
         const auditEl = doc?.getElementById?.("updateDbAudit");
@@ -62,7 +69,7 @@
                 : data.update_committed ? t("Aktualisierung teilweise übernommen") : t("Aktualisierung fehlgeschlagen");
         add(result, title, "strong");
         if (state === "current") {
-            add(result, t("Kein Update erforderlich."), "p").className = "update-db-mode";
+            add(result, currentResultMessage(data.verification_required === true, only), "p").className = "update-db-mode";
         } else if (dryRun && ["available", "metadata_only"].includes(state)) {
             add(result, t("Vorschau – noch nicht übernommen"), "p").className = "update-db-mode";
         } else if (!dryRun && (data.update_committed || data.reloaded)) {
@@ -276,19 +283,22 @@
         let currentResult = null;
         let confirming = false;
 
-        function isCurrentScope(only = onlySelect?.value || null) {
-            return currentResult?.only === only;
+        function isApplyUnnecessary(only = onlySelect?.value || null) {
+            return currentResult?.only === only && (!currentResult.verificationRequired || only !== null);
         }
 
         function setUpdateControlsDisabled(disabled) {
-            const current = isCurrentScope();
+            const only = onlySelect?.value || null;
+            const current = currentResult?.only === only;
             if (dryRunButton) dryRunButton.disabled = disabled;
-            if (applyButton) applyButton.disabled = disabled || current;
+            if (applyButton) applyButton.disabled = disabled || isApplyUnnecessary(only);
             if (onlySelect) onlySelect.disabled = disabled;
             if (clearButton) clearButton.disabled = disabled;
-            if (actionHint) actionHint.textContent = current
-                ? t("Keine Änderungen bei der letzten Prüfung. Für einen neuen Abgleich „Änderungen prüfen“ wählen.")
-                : t("Prüfe zuerst die Vorschau. Erst „Update anwenden“ übernimmt Änderungen an der Item-Datenbank.");
+            if (actionHint) actionHint.textContent = current && currentResult.verificationRequired
+                ? currentResultMessage(true, only)
+                : current
+                    ? t("Keine Änderungen bei der letzten Prüfung. Für einen neuen Abgleich „Änderungen prüfen“ wählen.")
+                    : t("Prüfe zuerst die Vorschau. Erst „Update anwenden“ übernimmt Änderungen an der Item-Datenbank.");
         }
 
         async function run(dryRun, force = false, options = {}) {
@@ -351,7 +361,7 @@
                 const data = await parseJsonResponse(res);
 
                 if (data.output) append(data.output);
-                renderResult(outputEl, data, dryRun, selectedScopeText(onlySelect, only));
+                renderResult(outputEl, data, dryRun, selectedScopeText(onlySelect, only), only);
 
                 if (data.success || data.reloaded) progress?.finalizing();
                 let clientWarning = "";
@@ -377,9 +387,12 @@
                     } else if (!dryRun) {
                         reviewedSources = null;
                     }
-                    if (data.summary?.status === "current" && !clientWarning && !data.reload_warning) {
-                        currentResult = {only};
-                        const message = t("Kein Update erforderlich.");
+                    // A player-view warning does not invalidate the confirmed database state.
+                    if (data.summary?.status === "current" && !data.reload_warning) {
+                        currentResult = {only, verificationRequired: data.verification_required === true};
+                    }
+                    if (currentResult && !clientWarning) {
+                        const message = currentResultMessage(currentResult.verificationRequired, only);
                         append("\n" + message);
                         showToast(message, "success", 3000);
                         updateStatus(message, "success", false);
@@ -428,7 +441,7 @@
                 append(`\n${t("{mode} fehlgeschlagen: {error}", { mode, error: message })}`);
                 updateStatus(t("{mode} fehlgeschlagen: {error}", { mode, error: message }), "error", true);
                 showToast(message, "error", 5000);
-                renderResult(outputEl, {success: false, error: message}, dryRun, selectedScopeText(onlySelect, only));
+                renderResult(outputEl, {success: false, error: message}, dryRun, selectedScopeText(onlySelect, only), only);
                 return { success: false, error: message };
             } finally {
                 progress?.stop();
@@ -447,7 +460,7 @@
             if (summary) summary.textContent = selectedScopeText(onlySelect);
         });
         applyButton?.addEventListener("click", async () => {
-            if (updateRunning || confirming || isCurrentScope()) return;
+            if (updateRunning || confirming || isApplyUnnecessary()) return;
             confirming = true;
             const only = onlySelect?.value || null;
             const matchingReview = reviewedSources?.only === only ? reviewedSources : null;
@@ -460,7 +473,7 @@
                         ? t("Angewendet werden die zuvor geprüften Quellen (Mojang {release}).", { release: matchingReview.release })
                         : t("Empfohlen: Zuerst „Änderungen prüfen“ wählen und die Vorschau kontrollieren."))
                 );
-                if (ok && !isCurrentScope(only)) await run(false, true, {only});
+                if (ok && !isApplyUnnecessary(only)) await run(false, true, {only});
             } finally {
                 confirming = false;
             }

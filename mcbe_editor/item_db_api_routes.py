@@ -197,6 +197,12 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                     }
                 )
 
+        if result["success"]:
+            # A current diff does not imply a valid full verification receipt.
+            # After applying, use the reloaded status so a failed reload stays unverified.
+            status = deps.item_db_status_snapshot() if dry_run else result.get("item_db", {})
+            result["verification_required"] = status.get("verification", {}).get("verified") is not True
+
         return deps.jsonify(result)
     except ValueError as exc:
         return deps.api_error(str(exc), 400)
