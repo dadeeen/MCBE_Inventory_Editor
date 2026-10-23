@@ -24,12 +24,18 @@ if (process.platform === "win32") {
 
 export default defineConfig({
   testDir: "./tests/browser",
+  // The UI suites share the normal/viewer servers and persistent settings.
+  // Keep cross-file execution serial until each worker owns its own servers;
+  // read quota isolation in browser_smoke.py does not isolate writes/settings.
+  workers: 1,
   outputDir,
   timeout: 30_000,
   expect: {
     timeout: 10_000,
   },
   use: {
+    // Most assertions use German UI literals; locale-specific cases override it.
+    locale: "de-DE",
     baseURL: "http://127.0.0.1:8765",
     browserName: "chromium",
     launchOptions,

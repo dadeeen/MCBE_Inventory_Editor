@@ -21,6 +21,8 @@ else:
     from .test_artifacts import prune_stale_test_artifacts, unique_test_artifact_path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 TMP = unique_test_artifact_path("browser-smoke")
 SERVER_HOST = "127.0.0.1"
 SERVER_START_TIMEOUT_SECONDS = 30.0
@@ -34,11 +36,13 @@ class ServerSpec:
     data_root: str
     read_only: str
     require_server_offline: str
+    disk_workflow: bool = False
 
 
 SERVER_SPECS = (
     ServerSpec(8765, "data-normal", "false", "false"),
     ServerSpec(8766, "data-viewer", "true", "true"),
+    ServerSpec(8767, "data-disk", "false", "false", disk_workflow=True),
 )
 
 PROFILE_DIRS = {
@@ -52,7 +56,6 @@ COMMON_ENV = {
     "MCBE_OPEN_BROWSER": "false",
     "MCBE_LOCAL_HEARTBEAT_SHUTDOWN": "false",
     "MCBE_AUTH_REQUIRED": "false",
-    "MCBE_WORLDS_ROOT": "tests/fixtures/worlds",
     "MCBE_AUDIT_LOG_ENABLED": "false",
     "MCBE_STARTUP_NETWORK_CHECK": "false",
     "MCBE_STARTUP_SECURITY_REPORT": "false",
@@ -130,7 +133,9 @@ def _print_log_tail(log_path: Path, *, lines: int = 80) -> None:
 
 
 def _server_env(spec: ServerSpec) -> dict[str, str]:
-    env = os.environ.copy()
+    # Developer overrides (including secrets and real world paths) must never
+    # enter a disposable test server.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("MCBE_")}
     env.update(COMMON_ENV)
     env.update({key: str(TMP / relative) for key, relative in PROFILE_DIRS.items()})
     env.update(
@@ -138,11 +143,25 @@ def _server_env(spec: ServerSpec) -> dict[str, str]:
             "MCBE_EDITOR_HOST": SERVER_HOST,
             "MCBE_EDITOR_PORT": str(spec.port),
             "MCBE_DATA_ROOT": str(TMP / spec.data_root),
+            "MCBE_WORLDS_ROOT": str(TMP / spec.data_root / "worlds"),
+            "MCBE_BACKUP_ROOT": str(TMP / spec.data_root / "backups"),
             "MCBE_READ_ONLY": spec.read_only,
             "MCBE_REQUIRE_SERVER_OFFLINE": spec.require_server_offline,
         }
     )
+    if spec.disk_workflow:
+        env.update(MCBE_AUTH_REQUIRED="true", MCBE_AUTH_USERNAME="browser-test", MCBE_AUTH_PASSWORD="synthetic-browser-test-only")
     return env
+
+
+def _prepare_worlds(spec: ServerSpec) -> None:
+    destination = TMP / spec.data_root / "worlds"
+    if spec.disk_workflow:
+        from tests.browser.disk_fixture import create_world
+
+        create_world(destination / "SyntheticBrowserWorld")
+    else:
+        shutil.copytree(ROOT / "tests" / "fixtures" / "worlds", destination)
 
 
 def _serve_test_app() -> None:
@@ -175,6 +194,7 @@ def _start_server(spec: ServerSpec) -> tuple[subprocess.Popen, object, Path]:
     TMP.mkdir(parents=True, exist_ok=True)
     for relative in PROFILE_DIRS.values():
         (TMP / relative).mkdir(parents=True, exist_ok=True)
+    _prepare_worlds(spec)
 
     log_path = TMP / f"browser-smoke-server-{spec.port}.log"
     log_file = log_path.open("w", encoding="utf-8")
@@ -254,6 +274,8 @@ def _run_playwright(args: list[str]) -> int:
     env = os.environ.copy()
     env["MCBE_BROWSER_SMOKE_EXTERNAL_SERVER"] = "1"
     env["MCBE_BROWSER_SMOKE_OUTPUT_DIR"] = str(TMP / "playwright-results")
+    env["MCBE_BROWSER_SMOKE_DISK_ROOT"] = str(TMP / "data-disk")
+    env["MCBE_BROWSER_SMOKE_PYTHON"] = sys.executable
     cmd = [*_playwright_command(), "test", *args]
     return subprocess.run(cmd, cwd=ROOT, env=env).returncode
 

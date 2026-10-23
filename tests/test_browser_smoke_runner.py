@@ -64,8 +64,37 @@ def test_browser_smoke_runtime_paths_stay_in_external_run_root(tmp_path, monkeyp
     env = browser_smoke._server_env(browser_smoke.SERVER_SPECS[0])
 
     assert Path(env["MCBE_DATA_ROOT"]).is_relative_to(run_root)
+    assert Path(env["MCBE_WORLDS_ROOT"]).is_relative_to(run_root)
+    assert Path(env["MCBE_BACKUP_ROOT"]).is_relative_to(run_root)
     for key in browser_smoke.PROFILE_DIRS:
         assert Path(env[key]).is_relative_to(run_root)
+
+
+def test_browser_smoke_does_not_inherit_private_paths_or_credentials(tmp_path, monkeypatch):
+    monkeypatch.setattr(browser_smoke, "TMP", tmp_path)
+    monkeypatch.setenv("MCBE_ITEM_DB_PATH", "private-item-db.json")
+    monkeypatch.setenv("MCBE_AUTH_PASSWORD_HASH", "private-password-hash")
+    monkeypatch.setenv("MCBE_WORLDS_ROOT", "private-worlds")
+    env = browser_smoke._server_env(browser_smoke.SERVER_SPECS[0])
+    assert "MCBE_ITEM_DB_PATH" not in env
+    assert "MCBE_AUTH_PASSWORD_HASH" not in env
+    assert Path(env["MCBE_WORLDS_ROOT"]).is_relative_to(tmp_path)
+
+
+def test_browser_disk_fixture_is_synthetic_and_supports_independent_reread(tmp_path, monkeypatch):
+    from tests.browser.disk_fixture import inspect
+
+    monkeypatch.setattr(browser_smoke, "TMP", tmp_path)
+    spec = next(spec for spec in browser_smoke.SERVER_SPECS if spec.disk_workflow)
+    browser_smoke._prepare_worlds(spec)
+    world = tmp_path / spec.data_root / "worlds" / "SyntheticBrowserWorld"
+    assert not (world / "level.dat").exists()
+    result = inspect(tmp_path / spec.data_root)
+    assert result["count"] == 1
+    assert result["preserved"] == "preserve-me"
+    assert set(result["records"]) == {b"~local_player".hex(), b"synthetic-unrelated".hex()}
+    assert result["backups"] == {}
+    assert inspect(tmp_path / spec.data_root) == result
 
 
 def test_browser_smoke_read_quota_is_isolated_from_production_and_write_limits(monkeypatch):
