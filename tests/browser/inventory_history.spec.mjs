@@ -116,7 +116,7 @@ for (const width of [1440, 390, 320]) {
       await activate(page.locator('[data-slot="0"]'));
       if (width < 500) await activate(page.locator('.btn-toggle[data-panel="right"]'));
       await page.locator('#detailCount').fill('5');
-      await activate(page.locator('#btnApplySingle'));
+      await page.locator("#detailSlotNum").click();
       await openChangeHistory(page);
       await expect(page.locator('#historySaveState')).toHaveAttribute('data-state', 'dirty');
       await expect(page.locator('#undoRedoPanel')).toContainText('aktualisiert');
@@ -236,7 +236,7 @@ test("main item edits preserve untouched raw names and lore in both containers",
   for (const container of ["inventory", "ender_chest"]) {
     await page.locator(container === "inventory" ? '[data-slot="0"]' : '[data-ender-slot="0"]').click();
     await page.locator("#detailCount").fill("2");
-    await page.locator("#btnApplySingle").click();
+    await page.locator("#detailSlotNum").click();
     expect(await page.evaluate(name => (name === "inventory" ? inventory : enderChestInventory)[0], container)).toMatchObject({ ...original, count: 2 });
   }
 });
@@ -252,7 +252,7 @@ test("main item editor rejects oversized text without changing the item or losin
     ["detailLore", "x".repeat(511) + "🦜", "Beschreibung"],
   ]) {
     await page.locator(`#${id}`).fill(value);
-    await expect(page.locator("#btnApplySingle")).toBeDisabled();
+    await expect(page.locator("#btnApplySingle")).toHaveCount(0);
     await expect(page.locator("#detailFormError")).toContainText(message);
     await expect(page.locator(`#${id}`)).toHaveValue(value);
     expect(await page.evaluate(() => inventory[0])).toEqual(original);

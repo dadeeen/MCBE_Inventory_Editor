@@ -285,7 +285,7 @@
         const sourcePlayerKey = sameItem && previousItem.source_player_key ? previousItem.source_player_key : currentPlayerKey;
         const sourceContainer = sameItem && previousItem.source_container ? previousItem.source_container : containerName;
         const sourceWorldPath = sameItem && previousItem.source_world_path ? previousItem.source_world_path : worldPath;
-        const protectedNbtDropped = Boolean(previousItem && !sameItem && itemRequiresOriginalNbt(previousItem));
+        const protectedNbtDropped = Boolean(previousItem && !sameItem && (previousItem.protected_nbt_dropped || itemRequiresOriginalNbt(previousItem)));
         const specialNbtRequirement = specialItemNbtRequirement(name);
         const specialNbtDefaulted = Boolean(specialNbtRequirement && !sameItem);
         const builtItem = {
@@ -307,7 +307,7 @@
         if (!sameItem) builtItem.replace_original_nbt = true;
         if (protectedNbtDropped) {
             builtItem.protected_nbt_dropped = true;
-            builtItem.previous_name = previousItem.name || "";
+            builtItem.previous_name = previousItem.protected_nbt_dropped ? previousItem.previous_name || previousItem.name : previousItem.name || "";
         }
         if (sameItem && previousItem) {
             const visibleUnchanged = ["slot", "name", "count", "damage"].every(key => previousItem[key] === builtItem[key])
@@ -322,6 +322,7 @@
                 "has_unknown_enchantments",
                 "item_tag_opaque",
                 "entity_variant",
+                "entity_variant_edit",
                 "entity_variant_state",
                 "special_item",
                 "special_edit",
@@ -330,6 +331,10 @@
                 "source_item_digest",
                 "origin_world_mismatch",
                 "replace_original_nbt",
+                "protected_nbt_dropped",
+                "previous_name",
+                "special_nbt_defaulted",
+                "special_nbt_requirement",
             ].forEach(key => {
                 if (Object.prototype.hasOwnProperty.call(previousItem, key)) builtItem[key] = previousItem[key];
             });
@@ -530,6 +535,9 @@
         let currentEntityVariantModel = { visible: false, editable: false, kind: "" };
         let detailFormBaseline = null;
         let selectedItemVariant = null;
+        let inputSession = null;
+        let inputSessionTarget = null;
+        const composingInputs = new Set();
 
         const maxDisplayName = constants.maxDisplayName ?? 64;
         const maxLoreLines = constants.maxLoreLines ?? 10;
@@ -609,6 +617,10 @@
                 && detailFormBaseline.context === detailContextKey(target.slotId, target.containerName)
                 && detailFormBaseline.state !== detailFormState());
             if (!changed) return { pending: false, canApply: false, error: "" };
+            const name = logic.normalizedItemName(elements.detailItemSearch?.value);
+            if (!name || name === "minecraft:air") {
+                return { pending: true, canApply: false, error: t("Wähle einen Gegenstand oder verwende „Slot leeren“.") };
+            }
             // Validate a projected draft without resetting fields or changing
             // the accepted inventory. Compare with what the form loaded, so
             // equivalent input cannot become a stale draft after an undo.
@@ -638,26 +650,20 @@
                 elements.detailFormError.textContent = draft.error;
                 elements.detailFormError.hidden = !draft.error;
             }
-            for (const button of [elements.btnApplySingle, elements.btnApplySingleEnch]) {
-                window.MCBEWriteStatusView?.applyIntrinsicEditControlState(button, {
-                    disabled: !draft.canApply,
-                    title: draft.error,
-                    blocked: editingBlocked(),
-                    blockedTitle: getEditingBlockedReason(),
-                });
-            }
             onFormStateChanged(draft);
         }
 
         function guardSlotChanges(targets = null) {
+            applyCurrentSingleSlot();
             if (!hasPendingChanges()) return false;
             const current = currentDetailTarget();
             if (targets && !targets.some(target => target.slotId === current.slotId && target.containerName === current.containerName)) return false;
-            showToast?.(t("Bitte übernimm zuerst die offenen Eingaben im Slot-Editor. Die Aktion wurde nicht ausgeführt."), "warning", 4500);
+            showToast?.(t("Bitte korrigiere oder verwirf zuerst die offenen Eingaben im Slot-Editor. Die Aktion wurde nicht ausgeführt."), "warning", 4500);
             return true;
         }
 
         async function confirmDiscardChanges() {
+            applyCurrentSingleSlot();
             if (!hasPendingChanges()) return true;
             const baseline = detailFormBaseline;
             const discard = await showConfirmDialog(
@@ -948,6 +954,8 @@
         }
 
         function loadSingleSlotEditor(slotId, isEnderChest = false, { preserveView = false } = {}) {
+            finishInputSession();
+            composingInputs.clear();
             selectedItemVariant = null;
             currentEditingIsEnder = isEnderChest;
             const source = isEnderChest ? enderChestInventory() : inventory();
@@ -1062,6 +1070,7 @@
                 repairableDamage: itemCatalog.itemUsesDurabilityDamage(name) && damage > 0,
                 hasInspectableNbt: itemHasInspectableNbt(sourceItem),
             });
+            model.clearDisabled = !sourceItem && isEmpty;
             window.MCBESlotDisplay.applySlotQuickActionsModel({
                 title: elements.slotQuickTitle,
                 subtitle: elements.slotQuickSubtitle,
@@ -1130,6 +1139,7 @@
                     currentEditingEnchantments = entries;
                     updateEnchantmentActionButtons(itemName);
                     updateDetailPreview();
+                    applyCurrentSingleSlot();
                 },
             }));
         }
@@ -1192,12 +1202,23 @@
             updateDetailPreview();
         }
 
-        function applyCurrentSingleSlot() {
-            const target = window.MCBESelectionState.selectedSingleTarget(getCurrentSelectionState?.());
-            if (target) applySingleChanges(target.slotId);
+        function finishInputSession() {
+            const completed = inputSession;
+            inputSession = inputSessionTarget = null;
+            if (!completed?.actionMessage) return;
+            logStatus?.(completed.statusMessage, "info");
+            recordAction?.(completed.actionMessage, "edit");
         }
 
-        function applySingleChanges(slotId) {
+        function applyCurrentSingleSlot(options = {}) {
+            if (!options.mergeKey) finishInputSession();
+            if (composingInputs.size || editingBlocked() || !detailDraftState().canApply) return false;
+            const target = window.MCBESelectionState.selectedSingleTarget(getCurrentSelectionState?.());
+            return target ? applySingleChanges(target.slotId, options) : false;
+        }
+
+        function applySingleChanges(slotId, { mergeKey = null, quiet = false } = {}) {
+            if (!quiet) finishInputSession();
             if (guardEditingAction()) return;
             const containerName = currentEditingIsEnder ? "ender_chest" : "inventory";
             const protectedKnown = isProtectedKnownSlot(slotId, containerName);
@@ -1228,7 +1249,7 @@
                     slot: slotLabel, count: plan.item.count,
                     item: detailItemLabel(plan.item.name, plan.item.display_name, plan.item.damage, plan.item),
                 });
-            pushUndo?.(actionMessage);
+            pushUndo?.(actionMessage, { mergeKey });
             if (plan.operation === "clear") {
                 window.MCBEInventoryState.clearTargets([{ map: source, slotId }]);
             } else {
@@ -1238,22 +1259,28 @@
             const nextItem = source[slotId] || null;
             updateDataVariantEditor(nextItem?.name || "", nextItem?.damage || 0, nextItem);
             updateEntityVariantEditor(nextItem?.name || "", nextItem);
-            updateGridVisuals?.();
             updateDetailPreview();
             captureDetailFormBaseline(slotId, containerName);
+            updateGridVisuals?.();
             setDirty?.(true);
-            logStatus?.(currentEditingIsEnder ? t("Enderchest-Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }) : t("Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }), "info");
-            recordAction?.(actionMessage, "edit");
+            const statusMessage = currentEditingIsEnder ? t("Enderchest-Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId }) : t("Slot {slot} aktualisiert – noch nicht gespeichert", { slot: slotId });
+            if (quiet && mergeKey === inputSession) {
+                Object.assign(inputSession, { actionMessage, statusMessage });
+            } else {
+                logStatus?.(statusMessage, "info");
+                recordAction?.(actionMessage, "edit");
+            }
+            return true;
         }
 
         function applyQuickClearSlot() {
+            finishInputSession();
             if (guardEditingAction()) return;
             const target = currentDetailTarget();
-            if (guardSlotChanges()) return;
             const plan = logic.quickClearSlotPlan({
                 hasTarget: Boolean(target),
                 protectedKnown: Boolean(target && isProtectedKnownSlot(target.slotId, target.containerName)),
-                rawName: elements.detailItemSearch?.value,
+                rawName: target?.source?.[target.slotId]?.name || elements.detailItemSearch?.value,
             });
             if (plan.showProtected) {
                 showProtectedSlotMessage(target.slotId, target.containerName);
@@ -1339,6 +1366,7 @@
                 if (plan.toast) showToast?.(plan.toast.message, plan.toast.type, plan.toast.ms);
                 buildEnchantmentsList();
                 updateDetailPreview();
+                applyCurrentSingleSlot();
             });
 
             elements.btnClearAllEnch?.addEventListener("click", () => {
@@ -1346,13 +1374,30 @@
                 currentEditingEnchantments = [];
                 buildEnchantmentsList();
                 updateDetailPreview();
+                applyCurrentSingleSlot();
             });
         }
 
         function wireFormPreview() {
-            [elements.detailItemSearch, elements.detailCount, elements.detailDamage, elements.detailCustomName, elements.detailLore]
-                .filter(Boolean)
-                .forEach(input => input.addEventListener("input", updateDetailPreview));
+            const fields = [elements.detailItemSearch, elements.detailCount, elements.detailDamage, elements.detailCustomName, elements.detailLore].filter(Boolean);
+            const updateInput = event => {
+                updateDetailPreview();
+                // An ID may be a valid prefix of the item still being searched
+                // for. Picker selection or leaving that field commits its ID.
+                if (event.currentTarget === elements.detailItemSearch || event.isComposing) return;
+                if (inputSessionTarget !== event.currentTarget) {
+                    finishInputSession();
+                    inputSessionTarget = event.currentTarget;
+                    inputSession = {};
+                }
+                applyCurrentSingleSlot({ mergeKey: inputSession, quiet: true });
+            };
+            fields.forEach(input => {
+                input.addEventListener("input", updateInput);
+                input.addEventListener("compositionstart", () => composingInputs.add(input));
+                input.addEventListener("compositionend", event => { composingInputs.delete(input); updateInput(event); });
+                input.addEventListener("blur", finishInputSession);
+            });
             elements.detailItemSearch?.addEventListener("input", buildEnchantmentsList);
             elements.detailItemSearch?.addEventListener("input", updateVariantEditorsForCurrentForm);
             elements.detailDataVariant?.addEventListener("change", () => {
@@ -1361,6 +1406,7 @@
                     elements.detailDamage.value = damage;
                 }
                 updateDetailPreview();
+                applyCurrentSingleSlot();
             });
             [
                 elements.detailAxolotlColor,
@@ -1368,12 +1414,10 @@
                 elements.detailTropicalFishPattern,
                 elements.detailTropicalFishColor,
                 elements.detailTropicalFishColor2,
-            ].filter(Boolean).forEach(select => select.addEventListener("change", updateDetailPreview));
-        }
-
-        function wireApplyButtons() {
-            elements.btnApplySingle?.addEventListener("click", applyCurrentSingleSlot);
-            elements.btnApplySingleEnch?.addEventListener("click", applyCurrentSingleSlot);
+            ].filter(Boolean).forEach(select => select.addEventListener("change", () => {
+                updateDetailPreview();
+                applyCurrentSingleSlot();
+            }));
         }
 
         function wireQuickActions() {
@@ -1401,7 +1445,6 @@
         function wire() {
             wireEnchantments();
             wireFormPreview();
-            wireApplyButtons();
             wireQuickActions();
         }
 
@@ -1467,8 +1510,6 @@
             btnMaxAllEnch: doc.getElementById("btnMaxAllEnch"),
             btnClearAllEnch: doc.getElementById("btnClearAllEnch"),
             diagCountEl: doc.getElementById("enchCount"),
-            btnApplySingle: doc.getElementById("btnApplySingle"),
-            btnApplySingleEnch: doc.getElementById("btnApplySingleEnch"),
         };
     }
 

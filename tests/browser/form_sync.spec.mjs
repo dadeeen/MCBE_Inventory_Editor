@@ -21,7 +21,7 @@ for (const pending of [false, true]) {
       const selected = action === 'swap' ? 11 : 9;
       await slot(selected).click();
       if (pending) {
-        await page.locator('#detailCount').fill('7');
+        await page.locator('#detailCount').fill('');
         await page.locator('#detailCustomName').fill('Pending name');
         await page.locator('#detailLore').fill('Pending lore');
         await page.locator('#detailSlotNum').click(); // Blur without selecting/resetting the slot.
@@ -36,14 +36,14 @@ for (const pending of [false, true]) {
         await slot(selected).focus();
         await page.keyboard.press({ cut: 'Control+x', paste: 'Control+Shift+v', delete: 'Delete' }[action]);
       }
-      if (pending) {
+      if (pending && action !== 'quick-clear') {
         expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
-        await expect(page.locator('#detailCount')).toHaveValue('7');
+        await expect(page.locator('#detailCount')).toHaveValue('');
         await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
         await expect(page.locator('#detailLore')).toHaveValue('Pending lore');
         expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(true);
-        await expect(page.locator('.toast').filter({ hasText: 'Bitte übernimm zuerst' }).last()).toBeVisible();
-        await page.locator('#btnApplySingle').click();
+        await expect(page.locator('.toast').filter({ hasText: 'Bitte korrigiere oder verwirf zuerst' }).last()).toBeVisible();
+        await page.locator('#detailCount').fill('7');
         expect(await page.evaluate(id => inventory[id].display_name, selected)).toBe('Pending name');
         expect(await page.evaluate(id => inventory[id].count, selected)).toBe(7);
       } else {
@@ -52,7 +52,7 @@ for (const pending of [false, true]) {
         const currentName = await page.evaluate(id => inventory[id]?.name || '', selected);
         await expect(page.locator('#detailItemSearch')).toHaveValue(currentName);
         expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
-        await expect(page.locator('#btnApplySingle')).toBeDisabled();
+        await expect(page.locator('#btnApplySingle')).toHaveCount(0);
         expect(await page.evaluate(() => inventory)).toEqual(JSON.parse(after));
       }
       expect(errors).toEqual([]);
@@ -66,11 +66,11 @@ test("slot form synchronization refreshes a semantically unchanged catalog varia
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.evaluate(() => slotDetailController.selectDetailItemVariant({ damage: 4, banner_type: 0 }));
   expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
-  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await expect(page.locator("#btnApplySingle")).toHaveCount(0);
   await page.evaluate(() => { inventory[0].count = 2; updateGridVisuals(); });
   await expect(page.locator("#detailCount")).toHaveValue("2");
   await expect(page.locator("#detailFormError")).toBeHidden();
-  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await expect(page.locator("#btnApplySingle")).toHaveCount(0);
   expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
 });
 
@@ -78,6 +78,7 @@ test('slot form synchronization preserves unrelated drafts and rejects a stale s
   await openSlotSyncFixture(page);
   const slot = id => page.locator(`.main-inventory-grid [data-slot="${id}"]`);
   await slot(9).click();
+  await page.locator('#detailCount').fill('');
   await page.locator('#detailCustomName').fill('Keep this draft');
   await page.locator('#detailLore').fill('Two\nlines');
   await dragSlot(page, slot(11), slot(12));
@@ -87,7 +88,7 @@ test('slot form synchronization preserves unrelated drafts and rejects a stale s
   await expect(page.locator('#detailLore')).toHaveValue('Two\nlines');
   // A missed mutation notification must still never let an old form overwrite a newer item.
   await page.evaluate(() => { inventory[9] = { slot: 9, name: 'minecraft:diamond', count: 4, damage: 0 }; updateGridVisuals(); });
-  await expect(page.locator('#btnApplySingle')).toBeDisabled();
+  await expect(page.locator('#btnApplySingle')).toHaveCount(0);
   expect(await page.evaluate(() => inventory[9])).toEqual({ slot: 9, name: 'minecraft:diamond', count: 4, damage: 0 });
   await expect(page.locator('#detailCustomName')).toHaveValue('Keep this draft');
   await expect(page.locator('#detailLore')).toHaveValue('Two\nlines');
@@ -99,22 +100,22 @@ test('slot form synchronization protects drafts during undo redo and context sel
   const slot = id => page.locator(`.main-inventory-grid [data-slot="${id}"]`);
   await slot(9).click();
   await page.locator('#detailCount').fill('13');
-  await page.locator('#btnApplySingle').click();
+  await page.locator("#detailSlotNum").click();
   await page.locator('#btnUndo').click();
   expect(await page.evaluate(() => inventory[9].count)).toBe(12);
-  await page.locator('#detailCount').fill('7');
+  await page.locator('#detailCount').fill('');
   await page.locator('#btnRedo').click();
   expect(await page.evaluate(() => inventory[9].count)).toBe(12);
-  await expect(page.locator('#detailCount')).toHaveValue('7');
+  await expect(page.locator('#detailCount')).toHaveValue('');
   await slot(11).click({ button: 'right' });
   await page.locator('#slotContextMenu [data-action="copy"]').click();
   expect(await page.evaluate(() => selectedSlots)).toEqual([9]);
-  await expect(page.locator('#detailCount')).toHaveValue('7');
-  await page.locator('#btnApplySingle').click();
-  await page.locator('#detailCount').fill('8');
+  await expect(page.locator('#detailCount')).toHaveValue('');
+  await page.locator('#detailCount').fill('7');
+  await page.locator('#detailCount').fill('');
   await page.locator('#btnUndo').click();
   expect(await page.evaluate(() => inventory[9].count)).toBe(7);
-  await expect(page.locator('#detailCount')).toHaveValue('8');
+  await expect(page.locator('#detailCount')).toHaveValue('');
 });
 
 test('slot form synchronization also refreshes and protects the ender chest editor', async ({ page }) => {
@@ -125,11 +126,11 @@ test('slot form synchronization also refreshes and protects the ender chest edit
   await expect(page.locator('#detailItemSearch')).toHaveValue('');
   await page.keyboard.press('Control+Shift+v');
   await expect(page.locator('#detailCount')).toHaveValue('3');
-  await page.locator('#detailCount').fill('8');
+  await page.locator('#detailCount').fill('');
   await page.keyboard.press('Control+Shift+v');
   expect(await page.evaluate(() => enderChestInventory[0].count)).toBe(3);
-  await expect(page.locator('#detailCount')).toHaveValue('8');
-  await page.locator('#btnApplySingle').click();
+  await expect(page.locator('#detailCount')).toHaveValue('');
+  await page.locator('#detailCount').fill('8');
   expect(await page.evaluate(() => enderChestInventory[0].count)).toBe(8);
 });
 
@@ -141,7 +142,8 @@ for (const locale of ['de', 'en']) {
     const slot = id => page.locator(`.inventory-slot[data-slot="${id}"]`);
     await slot(9).click();
     await page.locator('#detailCount').fill('8');
-    await page.locator('#btnApplySingle').click();
+    await page.locator("#detailSlotNum").click();
+    await page.locator('#detailCount').fill('');
     await page.locator('#detailCustomName').fill('Pending name');
     const before = await page.evaluate(() => JSON.stringify(inventory));
     const actions = [
@@ -172,6 +174,7 @@ for (const locale of ['de', 'en']) {
     await page.locator('#confirmOk').click();
     await expect(page.locator('#detailCount')).toHaveValue('3');
     expect(await page.evaluate(() => JSON.stringify(inventory))).toBe(before);
+    await page.locator('#detailCount').fill('');
     await page.locator('#detailCustomName').fill('Ender draft');
     await page.locator('#btnCloseDetail').click();
     await page.locator('#confirmCancel').click();
@@ -185,7 +188,7 @@ for (const locale of ['de', 'en']) {
 }
 
 for (const form of ['slot', 'stats']) {
-  test(`pending form guards: save waits for ${form} inputs to be applied`, async ({ page }) => {
+  test(`pending form guards: save waits for ${form === 'slot' ? 'invalid slot input to be corrected' : 'stats to be applied'}`, async ({ page }) => {
     await page.route('**/api/server_status', route => route.fulfill({ json: {
       success: true, server_status: { status: 'offline' }, write_gate: { allowed: true, read_allowed: true },
     } }));
@@ -198,9 +201,9 @@ for (const form of ['slot', 'stats']) {
     });
     await page.locator('[data-slot="9"]').click();
     await page.locator('#detailCount').fill('8');
-    await page.locator('#btnApplySingle').click();
+    await page.locator("#detailSlotNum").click();
     if (form === 'slot') {
-      await page.locator('#detailCount').fill('7');
+      await page.locator('#detailCount').fill('');
       await page.locator('#detailCustomName').fill('Pending name');
     } else {
       await selectLayout(page, 'studio');
@@ -208,15 +211,15 @@ for (const form of ['slot', 'stats']) {
       await page.locator('#statHealth').fill('13');
     }
     await page.keyboard.press('Control+s');
-    await expect(page.locator('.toast').filter({ hasText: 'Bitte übernimm zuerst' }).last()).toBeVisible();
+    await expect(page.locator('.toast').filter({ hasText: form === 'slot' ? 'Bitte korrigiere oder verwirf zuerst' : 'Bitte übernimm zuerst' }).last()).toBeVisible();
     await expect(page.locator('#btnSaveReviewConfirm')).toBeHidden();
     expect(saves).toEqual([]);
     await expect(page.locator('#btnUndo')).toBeEnabled();
     if (form === 'slot') {
-      await expect(page.locator('#detailCount')).toHaveValue('7');
+      await expect(page.locator('#detailCount')).toHaveValue('');
       await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
       expect(await page.evaluate(() => inventory[9].count)).toBe(8);
-      await page.locator('#btnApplySingle').click();
+      await page.locator('#detailCount').fill('7');
     } else {
       await expect(page.locator('#statHealth')).toHaveValue('13');
       expect(await page.evaluate(() => playerStats.health)).toBe(20);
@@ -236,7 +239,7 @@ test('pending form guards: undo and redo retain unaccepted player stats', async 
   await openSlotSyncFixture(page);
   await page.locator('[data-slot="9"]').click();
   await page.locator('#detailCount').fill('8');
-  await page.locator('#btnApplySingle').click();
+  await page.locator("#detailSlotNum").click();
   await selectLayout(page, 'studio');
   await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
   const health = page.locator('#statHealth');
@@ -262,9 +265,10 @@ test('pending form guards: context and container search cannot discard a slot dr
     ] } } } });
   const dialog = page.locator('#specialItemDialog');
   const slot = page.locator('[data-slot="0"]');
+  const pendingName = 'Pending name'.repeat(60);
   await slot.click();
   for (const source of ['context', 'search']) {
-    await page.locator('#detailCustomName').fill('Pending name');
+    await page.locator('#detailCustomName').fill(pendingName);
     const open = async () => {
       if (source === 'context') {
         await slot.click({ button: 'right' });
@@ -277,7 +281,7 @@ test('pending form guards: context and container search cannot discard a slot dr
     await open();
     await page.locator('#confirmCancel').click();
     await expect(dialog).toBeHidden();
-    await expect(page.locator('#detailCustomName')).toHaveValue('Pending name');
+    await expect(page.locator('#detailCustomName')).toHaveValue(pendingName);
     await open();
     await page.locator('#confirmOk').click();
     await expect(dialog).toBeVisible();
@@ -370,7 +374,6 @@ test('write protection disables and restores every enchantment action', async ({
   await page.evaluate(() => refreshServerStatus());
   for (const control of [level, add, remove]) await expect(control).toBeEnabled();
   await remove.press('Enter');
-  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(true);
-  await page.locator('#btnApplySingleEnch').click();
+  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
   expect(await page.evaluate(() => inventory[0].enchantments)).toEqual([]);
 });

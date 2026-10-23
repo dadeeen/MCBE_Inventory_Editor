@@ -1147,12 +1147,11 @@
                                 <div class="detail-preview-kicker">{{ t("Live-Vorschau") }}</div>
                                 <div class="detail-preview-name" id="detailPreviewName">{{ t("Leerer Slot") }}</div>
                                 <span class="item-availability-badge" id="detailPreviewAvailability" hidden></span>
-                                <div class="detail-preview-meta" id="detailPreviewMeta">{{ t("Dieser Slot wird beim Anwenden geleert.") }}</div>
+                                <div class="detail-preview-meta" id="detailPreviewMeta">{{ t("Kein Gegenstand ausgewählt.") }}</div>
                                 <div class="detail-preview-lore" id="detailPreviewLore" style="display:none;"></div>
                                 <div class="detail-preview-enchants" id="detailPreviewEnchantments" style="display:none;"></div>
                             </div>
                         </div>
-                        <button id="btnApplySingle" class="btn btn-primary full-width" disabled>{{ t("Übernehmen") }}</button>
                     </div>
 
                     <!-- Tab Enchantments -->
@@ -1166,8 +1165,8 @@
                                 <!-- Shared enchantment editor -->
                             </div>
                         </div>
-                        <button id="btnApplySingleEnch" class="btn btn-primary full-width mt-10" disabled>{{ t("Übernehmen") }}</button>
                     </div>
+                    <p class="hint-text">{{ t("Gültige Änderungen werden direkt in den Slot übernommen. Erst „Speichern“ schreibt in die Welt.") }}</p>
                 </div>
 
             </div>

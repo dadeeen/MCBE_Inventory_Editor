@@ -169,8 +169,8 @@ for (const locale of ["de", "en"]) {
     await page.locator("#detailItemAutocomplete .autocomplete-item").first().click();
     await expect(page.locator("#detailCustomName")).toHaveValue("Draft name");
     await expect(page.locator("#detailDataVariant")).toBeHidden();
-    expect(await page.evaluate(() => inventory[0].display_name)).toBeUndefined();
-    await page.locator("#btnApplySingle").click();
+    expect(await page.evaluate(() => inventory[0].display_name)).toBe("Draft name");
+    await page.locator("#detailSlotNum").click();
     await page.locator("#btnSpecialItem").click();
     const dialog = page.locator("#specialItemDialog");
     await expect(dialog.getByLabel(locale === "de" ? "Bannerart" : "Banner type")).toHaveValue("1");
@@ -271,7 +271,12 @@ for (const locale of ["de", "en"]) {
             await expect(note).toContainText(locale === "de" ? "Verbleibende Haltbarkeit: 1524 von 1561" : "Remaining durability: 1524 of 1561");
             await wear.fill("38");
             await expect(note).toContainText("1523");
-            await wear.fill("37");
+            if (contained) await wear.fill("37");
+            else {
+              expect(await page.evaluate(() => inventory[1].damage)).toBe(38);
+              await page.locator("#btnUndo").click();
+              await expect(wear).toHaveValue("37");
+            }
           } else {
             await expect(wear).toBeHidden();
             await expect(variant).toBeVisible();
@@ -282,7 +287,12 @@ for (const locale of ["de", "en"]) {
             await expect(wear).toHaveValue("46");
             const custom = contained ? dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", { exact: true }) : page.locator("#detailCustomName");
             await expect(custom).toHaveValue("Personal label");
-            await variant.selectOption("21");
+            if (contained) await variant.selectOption("21");
+            else {
+              expect(await page.evaluate(() => inventory[2].damage)).toBe(46);
+              await page.locator("#btnUndo").click();
+              await expect(variant).toHaveValue("21");
+            }
           }
           if (contained) await dialog.locator('footer [data-special="cancel"]').click();
         }
@@ -329,7 +339,11 @@ for (const locale of ["de", "en"]) {
             await expect(variant.locator('option[value="99"]')).toContainText(locale === "de" ? "Unbekannter Datenwert" : "Unknown data value");
             await variant.selectOption("5");
             await expect(wear).toHaveValue("5");
-            await variant.selectOption("99");
+            if (contained) await variant.selectOption("99");
+            else {
+              expect(await page.evaluate(() => inventory[2].damage)).toBe(5);
+              await page.locator("#btnUndo").click();
+            }
             await expect(wear).toHaveValue("99");
             await expect(variant).toHaveAttribute("aria-invalid", "false");
           } else {
@@ -342,7 +356,7 @@ for (const locale of ["de", "en"]) {
           await custom.fill(`Renamed ${sample.slot}`);
           if (contained) await dialog.locator('[data-special="accept"]').click();
           else {
-            await page.locator("#btnApplySingle").click();
+            await page.locator("#detailSlotNum").click();
             expect(await page.evaluate(slot => inventory[slot], sample.slot)).toMatchObject({ ...sample, display_name: `Renamed ${sample.slot}` });
           }
         }
@@ -708,7 +722,7 @@ for (const locale of ["de", "en"]) {
     await page.locator('[data-tab="tabGeneral"]').click();
     await expect(page.locator("#detailCustomName")).toHaveValue("Slot draft");
     await expect(page.locator("#detailLore")).toHaveValue("Kept\nTogether");
-    expect(await page.evaluate(() => inventory[2].display_name)).toBe("Original");
+    expect(await page.evaluate(() => inventory[2].display_name)).toBe("Slot draft");
     expect(errors).toEqual([]);
   });
 }
@@ -764,7 +778,7 @@ for (const clearFirst of [false, true]) {
     if (clearFirst) await page.locator("#btnQuickClearSlot").click();
     else {
       await page.locator("#detailItemSearch").fill("minecraft:diamond");
-      await page.locator("#btnApplySingle").click();
+      await page.locator("#detailSlotNum").click();
     }
     await page.locator("#detailItemSearch").fill("minecraft:writable_book");
     await page.locator("#btnSpecialItem").click();
@@ -992,12 +1006,12 @@ test("item numeric previews agree with the applied numeric values", async ({page
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#detailCount").fill("1e1");
   await expect(page.locator("#detailPreviewMeta")).toContainText("10x");
-  await page.locator("#btnApplySingle").click();
+  await page.locator("#detailSlotNum").click();
   expect(await page.evaluate(() => inventory[0].count)).toBe(10);
   await page.locator('.inventory-slot[data-slot="1"]').click();
   await page.locator("#detailDamage").fill("1e1");
   await expect(page.locator("#detailPreviewMeta")).toContainText("Abnutzung 10");
-  await page.locator("#btnApplySingle").click();
+  await page.locator("#detailSlotNum").click();
   expect(await page.evaluate(() => inventory[1].damage)).toBe(10);
 });
 
@@ -1188,7 +1202,7 @@ test("special editors keep unknown formats read only and ordinary edits retain d
   await dialog.getByRole("button", { name: "Seite hinzufügen" }).click();
   await dialog.getByLabel("Seite 1", { exact: true }).fill("Text");
   await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
-  await page.locator("#detailCustomName").fill("Neuer Name"); await page.locator("#btnApplySingle").click();
+  await page.locator("#detailCustomName").fill("Neuer Name"); await page.locator("#detailSlotNum").click();
   expect(await page.evaluate(() => inventory[1])).toMatchObject({ display_name: "Neuer Name", special_edit: { kind: "book", data: { pages: [{ text: "Text" }] } } });
 });
 

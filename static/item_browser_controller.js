@@ -17,6 +17,7 @@
         equipmentRules = window.MCBEEquipmentRules,
         onDetailItemChanged = () => {},
         onDetailItemVariantSelected = () => {},
+        onApplyDetailItem = () => {},
         documentObj = document,
     } = {}) {
         const {
@@ -123,6 +124,7 @@
             } finally {
                 selectingAutocompleteItem = false;
             }
+            if (isDetailInput(inputEl)) onApplyDetailItem();
             inputEl.focus?.({ preventScroll: true });
         }
 
@@ -131,6 +133,7 @@
             autocompleteOptions.set(inputEl, options);
             autocompletes.set(inputEl, listEl);
             function dismissAutocomplete(event) {
+                if (event.isComposing || event.keyCode === 229) return false;
                 if (event.key !== "Escape" || listEl.style.display !== "block") return false;
                 event.preventDefault();
                 event.stopPropagation();
@@ -221,6 +224,7 @@
             });
 
             inputEl.addEventListener("keydown", event => {
+                if (event.isComposing || event.keyCode === 229) return;
                 if (dismissAutocomplete(event)) return;
                 if (event.key !== "Enter") return;
                 const query = String(inputEl.value || "").toLowerCase().trim();
@@ -339,6 +343,7 @@
                     onDetailItemVariantSelected({ ...metadata, id, damage: Number(metadata.damage) });
                 }
                 dispatchInput(browserActiveInput);
+                if (isDetailInput(browserActiveInput)) onApplyDetailItem();
             }
         }
 
@@ -469,7 +474,7 @@
 
         function wire() {
             setupAutocomplete(detailInput, detailAutocomplete, {
-                onCommit: onDetailItemChanged, browserButton: detailBrowserButton,
+                onCommit: () => onApplyDetailItem(), browserButton: detailBrowserButton,
             });
             setupAutocomplete(bulkInput, bulkAutocomplete);
             documentObj.addEventListener("pointerdown", hideAutocompleteLists, true);
@@ -532,6 +537,7 @@
         getEquipmentTargets = () => [],
         onDetailItemChanged = () => {},
         onDetailItemVariantSelected = () => {},
+        onApplyDetailItem = () => {},
     } = {}) {
         return createItemBrowserController({
             documentObj: doc,
@@ -548,6 +554,7 @@
             getEquipmentTargets,
             onDetailItemChanged,
             onDetailItemVariantSelected,
+            onApplyDetailItem,
         });
     }
 

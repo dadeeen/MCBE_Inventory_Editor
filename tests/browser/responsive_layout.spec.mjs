@@ -75,7 +75,7 @@ test(`inventory review actions stay in the global change workflow (${width}px)`,
     await page.locator('[data-slot="0"]').click();
     if (layout === 'classic' && width <= 1024) await page.locator('.btn-toggle[data-panel="right"]').click();
     await page.locator('#detailCount').fill(layout === 'classic' ? '2' : layout === 'studio' ? '3' : '4');
-    await page.locator('#btnApplySingle').click();
+    await page.locator("#detailSlotNum").click();
     await expect(page.locator('#safeEditBanner')).toBeHidden();
     if (width > 1024) expect(await page.locator('#inventoryContainer').evaluate(el => el.getBoundingClientRect().top + scrollY)).toBeCloseTo(before, 0);
     await page.locator(layout === 'classic' ? '.app-workflow-nav [data-workflow-view="save"]' : '#layoutSaveAction').click();
@@ -309,7 +309,7 @@ for (const width of [390, 1024, 1440]) {
     await selectLayout(page, 'studio');
     await page.locator('[data-slot="0"]').click();
     await page.locator('#detailCount').fill('12');
-    await page.locator('#btnApplySingle').click();
+    await page.locator("#detailSlotNum").click();
     await expect(page.locator('body')).toHaveClass(/app-dirty/);
     await page.locator('#detailCustomName').fill('Unapplied slot draft');
     await page.locator('#detailLore').fill('Draft line one\nDraft line two');

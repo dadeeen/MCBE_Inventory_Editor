@@ -2,6 +2,7 @@
 
 - Recover interrupted item database updates and keep bundled source metadata consistent.
 - Preserve unapplied slot inputs during catalog updates and retain usable icon caches after failed downloads.
+- Apply valid slot edits immediately, with grouped undo and world writes only on Save.
 - Strengthen database write guards and preserve Bedrock-specific item data.
 - Add read timeouts and restore presence polling after browser navigation.
 - Complete missing banner and axolotl previews from matching local archives, improve setup feedback and update dependencies.

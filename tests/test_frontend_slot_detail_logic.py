@@ -3,6 +3,43 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_followup_slot_edits_preserve_pending_nbt_warnings_and_entity_edits() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require('assert');
+            const fs = require('fs');
+            const vm = require('vm');
+            const context = {window: {}};
+            vm.runInNewContext(fs.readFileSync('static/slot_detail_logic.js', 'utf8'), context);
+            const build = context.window.MCBESlotDetailLogic.buildDetailItemFromForm;
+            const metadata = {
+                replace_original_nbt: true, protected_nbt_dropped: true,
+                previous_name: 'minecraft:written_book',
+                special_nbt_defaulted: true, special_nbt_requirement: 'book',
+                entity_variant_edit: {kind: 'axolotl', variant: 4, is_baby: true},
+            };
+            let previousItem = {slot: 0, name: 'minecraft:stone', count: 1, damage: 0, ...metadata};
+            for (const rawCustomName of ['A', 'Ab', 'Abc']) {
+                const result = build({slotId: 0, rawName: previousItem.name,
+                    rawCount: 2, rawDamage: 0, rawCustomName, previousItem});
+                assert.equal(result.ok, true);
+                for (const [key, value] of Object.entries(metadata)) {
+                    assert.equal(JSON.stringify(result.item[key]), JSON.stringify(value), key);
+                }
+                previousItem = result.item;
+            }
+            const replaced = build({slotId: 0, rawName: 'minecraft:dirt', rawCount: 1,
+                rawDamage: 0, previousItem, itemRequiresOriginalNbt: () => false});
+            assert.equal(replaced.item.protected_nbt_dropped, true);
+            assert.equal(replaced.item.previous_name, 'minecraft:written_book');
+            assert.equal(replaced.item.special_nbt_defaulted, undefined);
+            assert.equal(replaced.item.entity_variant_edit, undefined);
+            """
+        )
+    )
+
+
 def test_frontend_slot_detail_logic_builds_and_preserves_same_item_nbt() -> None:
     run_node(
         textwrap.dedent(

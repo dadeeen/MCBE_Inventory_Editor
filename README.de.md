@@ -61,7 +61,9 @@ Diese Herkunft erklärt den Zuschnitt: ein geprüfter Satz von Spielerfeldern, b
 
 Items lassen sich im Inventar sowie in Bündeln und Shulkerkisten bearbeiten. Die Editoren bieten passende Felder für Abnutzung und bekannte Varianten an.
 
-Unbekannte Originalwerte und nicht bearbeitete Zusatzdaten bleiben erhalten. Behälter berücksichtigen ihre Kapazität und erlaubte Verschachtelungen. Änderungen werden zunächst als Entwurf übernommen und erst beim Speichern des Spielers in die Welt geschrieben.
+Gültige Änderungen an Inventar-, Ausrüstungs- und Endertruhen-Slots werden direkt in den Editor übernommen. Die Item-Suche übernimmt die Auswahl beim Auswählen oder Verlassen des Feldes; ungültige Eingaben bleiben im Formular. Spezialdialoge für Bücher, Banner, Feuerwerk und Behälter behalten „Übernehmen“ und „Abbrechen“. Erst das Speichern des Spielers schreibt Änderungen in die Welt.
+
+Unbekannte Originalwerte und nicht bearbeitete Zusatzdaten bleiben erhalten. Behälter berücksichtigen ihre Kapazität und erlaubte Verschachtelungen.
 
 ## Portable Windows-App
 

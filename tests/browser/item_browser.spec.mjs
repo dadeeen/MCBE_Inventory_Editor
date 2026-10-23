@@ -217,8 +217,8 @@ test("item browser shows restrained availability labels including potion variant
   await expect(page.locator("#detailPreviewAvailability")).toHaveText("Kreativ");
   await page.locator("#detailDataVariant").selectOption("0");
   await expect(page.locator("#detailPreviewAvailability")).toBeHidden();
-  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:apple");
-  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:potion");
+  await page.locator("#detailSlotNum").click();
   expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:potion");
 
   await page.locator("#btnBrowserDetail").click();
@@ -389,8 +389,8 @@ test("slot editor suggestions rank exact names first and close after Enter", asy
   await page.locator("#detailItemSearch").press("Enter");
   await expect(autocomplete).toBeHidden();
 
-  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:cobblestone");
-  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:dark_oak_fence");
+  await page.locator("#detailSlotNum").click();
   expect(await page.evaluate(() => inventory[0].name)).toBe("minecraft:dark_oak_fence");
 
   await page.locator("#detailItemSearch").fill("Zaun");

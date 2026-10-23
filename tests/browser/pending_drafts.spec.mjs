@@ -86,164 +86,48 @@ test("item dialogs and menus suppress the browser save shortcut without changing
   }
 });
 
-test("ordinary unaccepted slot drafts warn before closing without changing save or undo state", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await openSpecialFixture(page, {
-    0: { slot: 0, name: "minecraft:diamond_sword", count: 1, damage: 3,
-      display_name: "Erste\nZweite", lore: ["Erste\r\nZweite"], enchantments: [{ id: 9, lvl: 2 }, { id: 17, lvl: 1 }] },
-    1: { slot: 1, name: "minecraft:axolotl_bucket", count: 1, damage: 0,
-      entity_variant: { entity_id: "minecraft:axolotl", variant: 1, is_baby: false, can_edit: true } },
-    2: { slot: 2, name: "minecraft:diamond", count: 1, damage: 0 },
-  }, {
-    ender_chest: { 0: { slot: 0, name: "minecraft:diamond", count: 2, damage: 0 } },
-    items_db: { "minecraft:diamond_sword": ["Diamantschwert", "Diamond Sword"], "minecraft:diamond": ["Diamant", "Diamond"], "minecraft:axolotl_bucket": ["Axolotleimer", "Axolotl Bucket"] },
-    max_damage: { "minecraft:diamond_sword": 1561, __default__: 0 },
-    ench_db: { 9: { name_de: "Schärfe", name_en: "Sharpness", max_lvl: 5 }, 17: { name_de: "Haltbarkeit", name_en: "Unbreaking", max_lvl: 3 } },
-    enchantment_compatibility: { item_slots: { "minecraft:diamond_sword": ["sword"] }, compatible_slots: { 9: ["sword"], 17: ["sword"] } },
-  });
-  await selectLayout(page, "focus");
-  const apply = page.locator("#btnApplySingle");
-  const status = page.locator("#layoutSaveStatus");
-  const pending = async (expected, committed = false) => {
+test("invalid slot drafts warn before closing and preserve accepted changes", async ({ page }) => {
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:diamond", count: 2, damage: 0 } });
+  await page.locator('.inventory-slot[data-slot="0"]').click();
+  const pending = async (draft, dirty) => {
     expect(await page.evaluate(() => {
       const event = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(event);
-      return { desktop: window.MCBEDesktop.closeState().dirty, browser: event.defaultPrevented, inventory: isDirty };
-    })).toEqual({ desktop: expected || committed, browser: expected || committed, inventory: committed });
+      return { desktop: window.MCBEDesktop.closeState().dirty, browser: event.defaultPrevented,
+        inventory: isDirty, draft: slotDetailController.hasPendingChanges() };
+    })).toEqual({ desktop: draft || dirty, browser: draft || dirty, inventory: dirty, draft });
   };
-  await page.locator('.inventory-slot[data-slot="0"]').click();
-  await pending(false);
-  await expect(status).toBeVisible();
-  await expect(status).toHaveText("Keine Änderungen");
-  await expect(apply).toBeDisabled();
-  await expect(page.locator("#detailCount")).toHaveAttribute("readonly");
-  for (const [id, value] of [["detailDamage", "8"], ["detailCustomName", "Entwurf"], ["detailLore", "Neue Beschreibung"]]) {
-    const field = page.locator(`#${id}`);
-    const original = await field.inputValue();
-    await field.fill(value); await pending(true);
-    await expect(status).toHaveText("Eingaben offen");
-    await expect(apply).toBeEnabled();
-    await field.fill(original); await pending(false);
-    await expect(status).toHaveText("Keine Änderungen");
-    await expect(apply).toBeDisabled();
-  }
-  await page.locator('[data-tab="tabEnchants"]').click();
-  const sharpness = page.locator(".ench-row").filter({ hasText: "Schärfe" });
-  await sharpness.getByRole("button", { name: "Schärfe entfernen" }).click(); await pending(true);
-  await page.locator("#enchantsContainer").getByLabel("Verzauberung hinzufügen", { exact: true }).selectOption("9"); await pending(true);
-  await sharpness.getByLabel("Stufe", { exact: true }).selectOption("2"); await pending(false);
-  await sharpness.getByLabel("Stufe", { exact: true }).selectOption("3"); await pending(true);
-  await sharpness.getByLabel("Stufe", { exact: true }).selectOption("2"); await pending(false);
-  await page.locator('[data-tab="tabGeneral"]').click();
-  await page.locator("#detailItemSearch").fill("minecraft:");
-  await expect(apply).toBeDisabled();
-  await expect(status).toHaveText("Eingaben offen");
-  await pending(true);
+  await pending(false, false);
+  await page.locator("#detailCount").fill("");
+  await pending(true, false);
+  expect(await page.evaluate(() => inventory[0].count)).toBe(2);
   await expect(page.locator("#btnUndo")).toBeDisabled();
-  await page.locator('.inventory-slot[data-slot="0"]').click();
-  await page.locator("#confirmOk").click(); await pending(false);
-
-  await page.locator('.inventory-slot[data-slot="2"]').click(); await pending(false);
-  await page.locator("#detailCount").fill(""); await pending(true);
-  await page.locator("#detailCount").fill("1"); await pending(false);
-  await page.locator("#detailItemSearch").fill("minecraft:axolotl_bucket"); await pending(true);
-  await page.locator("#detailItemSearch").fill("minecraft:diamond"); await pending(false);
-
-  await page.locator('.inventory-slot[data-slot="1"]').click(); await pending(false);
-  await page.locator("#detailAxolotlColor").selectOption("4"); await pending(true);
-  await page.locator("#detailAxolotlColor").selectOption("1"); await pending(false);
-  await page.locator("#detailAxolotlAge").selectOption("baby"); await pending(true);
-  await page.locator("#btnCloseDetail").click();
-  await page.locator("#confirmOk").click(); await pending(false);
-  await page.locator('.inventory-slot[data-slot="1"]').click(); await pending(false);
-
-  await page.locator('.inventory-slot[data-ender-slot="0"]').click(); await pending(false);
-  await page.locator("#detailCustomName").fill("Ender-Entwurf"); await pending(true);
-  await expect(status).toHaveText("Eingaben offen");
-  await apply.click(); await pending(false, true);
-  await expect(status).toHaveText("1 Änderung");
-  await expect(apply).toBeDisabled();
-  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
   await page.locator("#detailCount").fill("2.0");
-  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
-  await expect(apply).toBeDisabled();
-  await expect(status).toHaveText("1 Änderung");
-  await page.locator("#btnUndo").click();
-  await expect(page.locator("#detailCustomName")).toHaveValue("");
-  await expect(status).toHaveText("Keine Änderungen");
-  await expect(page.locator("#detailFormError")).toBeHidden();
-  await page.locator("#btnRedo").click();
-  await expect(page.locator("#detailCustomName")).toHaveValue("Ender-Entwurf");
-  await expect(status).toHaveText("1 Änderung");
-
-  // Partial inputs on a still-empty slot remain guarded until chosen or discarded.
-  await page.locator('.inventory-slot[data-slot="3"]').click();
-  await page.locator("#detailCustomName").fill("Name vor Itemwahl");
-  await page.locator("#detailLore").fill("Beschreibung vor Itemwahl");
-  await pending(true, true);
-  await expect(status).toHaveText("Eingaben offen");
-  await expect(apply).toBeDisabled();
-  await page.locator('.inventory-slot[data-slot="2"]').click();
-  await expect(page.locator("#confirmOverlay")).toBeVisible();
-  await page.locator("#confirmCancel").click();
-  await expect(page.locator("#detailCustomName")).toHaveValue("Name vor Itemwahl");
-  await expect(page.locator("#detailLore")).toHaveValue("Beschreibung vor Itemwahl");
-  await page.locator("#detailCustomName").fill("");
-  await page.locator("#detailLore").fill("");
+  await pending(false, false);
+  await page.locator("#detailCustomName").fill("Accepted");
   await pending(false, true);
-  await expect(status).toHaveText("1 Änderung");
-
-  // A second, still unaccepted form must retain the first applied change.
-  await page.locator('.inventory-slot[data-slot="2"]').click();
-  await page.setViewportSize({ width: 390, height: 844 });
-  if (!(await page.locator("#detailCustomName").isVisible())) {
-    await page.locator('.btn-toggle[data-panel="right"]').click();
-  }
-  await expect(apply).toBeVisible();
-  await expect(apply).toBeDisabled();
-  const applyAppearance = () => apply.evaluate(button => {
-    const style = getComputedStyle(button);
-    return { opacity: style.opacity, color: style.color, backgroundColor: style.backgroundColor };
-  });
-  const disabledAppearance = await applyAppearance();
-  await page.locator("#detailCustomName").fill("Zweiter Entwurf");
+  await page.locator("#detailCount").fill("");
+  await page.locator("#detailCustomName").fill("Invalid draft");
   await pending(true, true);
-  await expect(status).toHaveText("Eingaben offen");
-  await expect(apply).toBeEnabled();
-  await expect.poll(applyAppearance).not.toEqual(disabledAppearance);
-  expect(await page.evaluate(() => enderChestInventory[0].display_name)).toBe("Ender-Entwurf");
-  expect(await page.evaluate(() => inventory[2].display_name)).toBeUndefined();
-  await expect(page.locator("#layoutSaveAction")).toBeDisabled();
-  await page.evaluate(() => setWorkflowView("save", { user: true }));
-  await expect(page.locator("body")).toHaveAttribute("data-workflow-view", "inventory");
-  await expect(page.locator(".toast").filter({ hasText: "Bitte übernimm zuerst" }).last()).toBeVisible();
-  await expect(page.locator("#detailCustomName")).toHaveValue("Zweiter Entwurf");
+  expect(await page.evaluate(() => inventory[0].display_name)).toBe("Accepted");
   await page.keyboard.press("Control+s");
   await expect(page.locator("#saveReviewOverlay")).toBeHidden();
-  await expect(page.locator("#confirmOverlay")).toBeHidden();
-  expect(await page.evaluate(() => inventory[2].display_name)).toBeUndefined();
+  await page.locator('.inventory-slot[data-slot="1"]').click();
+  await expect(page.locator("#confirmOverlay")).toBeVisible();
+  await page.locator("#confirmCancel").click();
+  await expect(page.locator("#detailCustomName")).toHaveValue("Invalid draft");
+  await page.locator('.inventory-slot[data-slot="1"]').click();
+  await page.locator("#confirmOk").click();
+  await pending(false, true);
+  expect(await page.evaluate(() => inventory[0].display_name)).toBe("Accepted");
+  // An incomplete empty slot cannot erase a previously accepted item edit.
+  await page.locator("#detailCustomName").fill("Name before item selection");
+  await pending(true, true);
   await page.locator("#detailCustomName").fill("");
   await pending(false, true);
-  await expect(status).toHaveText("1 Änderung");
-  await expect(apply).toBeDisabled();
-  await page.locator("#detailCustomName").fill("Zweiter Entwurf");
-  await apply.click();
-  await pending(false, true);
-  await expect(apply).toBeDisabled();
-  await expect(status).toHaveText("2 Änderungen");
-  expect(await page.evaluate(() => inventory[2].display_name)).toBe("Zweiter Entwurf");
-  expect(await page.evaluate(() => enderChestInventory[0].display_name)).toBe("Ender-Entwurf");
-  await page.locator("#layoutSaveAction").click();
-  await expect(page.locator("body")).toHaveAttribute("data-workflow-view", "save");
-
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.locator('.app-workflow-nav [data-workflow-view="inventory"]').click();
-  await page.locator('.inventory-slot[data-ender-slot="0"]').click();
-  await page.locator("#btnQuickClearSlot").click();
-  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
   await page.locator("#btnUndo").click();
-  expect(await page.evaluate(() => slotDetailController.hasPendingChanges())).toBe(false);
-  expect(await page.evaluate(() => enderChestInventory[0].display_name)).toBe("Ender-Entwurf");
+  expect(await page.evaluate(() => inventory[0].display_name || "")).toBe("");
+  await pending(false, false);
 });
 
 test("special contained enchantment replacements count as unaccepted drafts", async ({ page }) => {
@@ -473,11 +357,11 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
         // A temporary search query does not replace the item represented by the form.
         await page.locator("#detailItemSearch").fill(ids[slot].slice(10));
         await activate(page.locator("#detailItemAutocomplete .autocomplete-item").filter({has: page.locator(".item-id", {hasText: ids[slot]})}));
-        expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toBeUndefined();
-        await activate(page.locator("#btnApplySingle"));
+        expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual(edit);
+        await page.locator("#detailSlotNum").click();
         expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual(edit);
         for (const [id, value] of controls) await expect(page.locator(`#${id}`)).toHaveValue(value);
-        // The catalogue also preserves a subsequent unaccepted change.
+        // The catalogue also preserves a subsequent direct change.
         const [control] = controls[0];
         const nextValue = slot === 0 ? "2" : "1:4";
         await page.locator(`#${control}`).selectOption(nextValue);
@@ -485,8 +369,6 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
         await page.locator("#browserSearchInput").fill(ids[slot]);
         await activate(page.locator("#browserGrid .browser-item").filter({has: page.locator(".browser-item-id", {hasText: ids[slot]})}));
         await expect(page.locator(`#${control}`)).toHaveValue(nextValue);
-        expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual(edit);
-        await activate(page.locator("#btnApplySingle"));
         expect(await page.evaluate(slot => inventory[slot].entity_variant_edit, slot)).toEqual({...edit, ...(slot === 0 ? {variant: 2} : {mark_variant: 4})});
       }
       expect(errors).toEqual([]);
@@ -551,8 +433,7 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
           await activate(dialog.locator('[data-special="accept"]'));
           await activate(dialog.locator('[data-special="accept"]'));
         } else {
-          expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
-          await activate(page.locator("#btnApplySingle"));
+          expect(await page.evaluate(() => inventory[0])).toMatchObject({...original, display_name: "Browser draft"});
         }
         expect(await page.evaluate(contained => contained ? inventory[0].special_edit.data.items[0] : inventory[0], contained))
           .toMatchObject({...original, display_name: "Browser draft"});
@@ -579,15 +460,14 @@ for (const [locale, width] of [["de", 1440], ["en", 390]]) {
       await page.locator("#detailItemSearch").fill("diam");
       await activate(page.locator("#detailItemAutocomplete .autocomplete-item").filter({has: page.locator(".item-id", {hasText: /^minecraft:diamond$/})}));
       expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
-      await expect(page.locator("#btnApplySingle")).toBeDisabled();
+      await expect(page.locator("#btnApplySingle")).toHaveCount(0);
       await expect(page.locator("#btnUndo")).toBeDisabled();
       await expect(page.locator("#detailCustomName")).toHaveValue("Keep name");
       await page.locator("#detailItemSearch").fill("minecraft:diamond_sword");
       await page.locator("#detailItemSearch").press("Enter");
       await expect(page.locator("#detailCount")).toHaveValue("1");
       await expect(page.locator("#detailCustomName")).toHaveValue("");
-      expect(await page.evaluate(() => inventory[0])).toMatchObject(original);
-      await activate(page.locator("#btnApplySingle"));
+      expect(await page.evaluate(() => inventory[0])).toMatchObject({name: "minecraft:diamond_sword", count: 1, damage: 0, display_name: ""});
       await selectSlot(1);
       await activate(page.locator("#btnSpecialItem"));
       const dialog = page.locator("#specialItemDialog");
@@ -658,7 +538,7 @@ for (const [locale, width, height] of [["de", 1440, 800], ["en", 390, 844]]) {
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   });
 
-  test(`unaccepted slot drafts survive cancelled player reloads (${locale}/${width}px)`, async ({ page }) => {
+  test(`invalid slot drafts survive cancelled player reloads (${locale}/${width}px)`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await page.context().addCookies([{ name: "mcbe_locale", value: locale, url: NORMAL_BASE_URL }]);
     await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:diamond", count: 1, damage: 0 } });
@@ -666,7 +546,7 @@ for (const [locale, width, height] of [["de", 1440, 800], ["en", 390, 844]]) {
     page.on("request", request => { if (request.url().endsWith("/api/player/load")) loads++; });
     await page.locator('.inventory-slot[data-slot="0"]').click();
     if (!(await page.locator("#detailCount").isVisible())) await page.locator('.btn-toggle[data-panel="right"]').click();
-    await page.locator("#detailCount").fill("7");
+    await page.locator("#detailCount").fill("");
     expect(await page.evaluate(() => isDirty)).toBe(false);
     await page.locator('.app-workflow-nav [data-workflow-view="player"]').click();
     const player = page.locator('.player-row[data-player-key="drag-player"]');
@@ -679,7 +559,7 @@ for (const [locale, width, height] of [["de", 1440, 800], ["en", 390, 844]]) {
     expect(loads).toBe(0);
     await page.locator('.app-workflow-nav [data-workflow-view="inventory"]').click();
     if (!(await page.locator("#detailCount").isVisible())) await page.locator('.btn-toggle[data-panel="right"]').click();
-    await expect(page.locator("#detailCount")).toHaveValue("7");
+    await expect(page.locator("#detailCount")).toHaveValue("");
     expect(await page.evaluate(() => inventory[0].count)).toBe(1);
     await page.locator('.app-workflow-nav [data-workflow-view="player"]').click();
     await player.click();

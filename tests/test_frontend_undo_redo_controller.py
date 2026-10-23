@@ -101,6 +101,52 @@ def test_frontend_undo_redo_controller_undo_redo_transitions_and_reset() -> None
     )
 
 
+def test_frontend_undo_groups_typing_but_separates_other_actions_and_history() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+            const assert = require('assert');
+            const fs = require('fs');
+            const vm = require('vm');
+            const context = {window: {}};
+            vm.runInNewContext(fs.readFileSync('static/undo_redo_controller.js', 'utf8'), context);
+            let current = {name: '', count: 1};
+            const controller = context.window.MCBEUndoRedoController.createUndoRedoController({
+                takeSnapshot: () => ({...current}), snapshotHash: JSON.stringify,
+            });
+            const mergeKey = {};
+            for (const name of ['A', 'Ab', 'Abc']) {
+                controller.pushUndo(name, {mergeKey});
+                current.name = name;
+            }
+            assert.equal(controller.state().undoCount, 1);
+            current = controller.undo().snapshot;
+            assert.equal(current.name, '');
+            current = controller.redo().snapshot;
+            assert.equal(current.name, 'Abc');
+            controller.pushUndo('after redo', {mergeKey});
+            current.name = 'Abcd';
+            assert.equal(controller.state().undoCount, 2);
+            controller.pushUndo('different action');
+            current.count = 2;
+            controller.pushUndo('new typing', {mergeKey});
+            current.name = 'Abcde';
+            current = controller.undo().snapshot;
+            assert.equal(current.name, 'Abcd');
+            assert.equal(current.count, 2);
+            current = controller.undo().snapshot;
+            assert.equal(current.count, 1);
+            controller.reset();
+            controller.pushUndo('after save', {mergeKey});
+            current.name = 'F';
+            assert.equal(controller.state().undoCount, 1);
+            current = controller.undo().snapshot;
+            assert.equal(current.name, 'Abcd');
+            """
+        )
+    )
+
+
 def test_frontend_undo_redo_app_restores_mount_drafts_and_dirty_state() -> None:
     run_node(
         textwrap.dedent(

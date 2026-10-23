@@ -201,8 +201,6 @@
         ["detailPreviewMeta", "detailPreviewMeta"],
         ["detailPreviewLore", "detailPreviewLore"],
         ["detailPreviewEnchantments", "detailPreviewEnchantments"],
-        ["btnApplySingle", "btnApplySingle"],
-        ["btnApplySingleEnch", "btnApplySingleEnch"],
         ["slotQuickActions", "slotQuickActions"],
         ["slotQuickTitle", "slotQuickTitle"],
         ["slotQuickSubtitle", "slotQuickSubtitle"],

@@ -3412,5 +3412,9 @@
   "Das Update-Skript wurde unterbrochen, bevor eine neue Item-Datenbank übernommen wurde.": "The update script was interrupted before a new item database was committed.",
   "Die unterbrochene Item-DB-Aktualisierung konnte nicht sicher wiederhergestellt werden. Bitte die Dateizugriffsrechte prüfen und die Anwendung neu starten.": "The interrupted item database update could not be recovered safely. Please check file access permissions and restart the application.",
   "Zeitüberschreitung beim Lesen der Serverantwort.": "Timed out while reading the server response.",
-  "Leseanfrage abgebrochen.": "Read request canceled."
+  "Leseanfrage abgebrochen.": "Read request canceled.",
+  "Wähle einen Gegenstand oder verwende „Slot leeren“.": "Choose an item or use “Clear slot”.",
+  "Bitte korrigiere oder verwirf zuerst die offenen Eingaben im Slot-Editor. Die Aktion wurde nicht ausgeführt.": "Please correct or discard the pending input in the slot editor first. The action was not performed.",
+  "Kein Gegenstand ausgewählt.": "No item selected.",
+  "Gültige Änderungen werden direkt in den Slot übernommen. Erst „Speichern“ schreibt in die Welt.": "Valid changes are applied to the slot immediately. Only “Save” writes to the world."
 }

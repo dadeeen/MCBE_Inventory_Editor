@@ -1131,7 +1131,7 @@ const undoRedoAppController = window.MCBEUndoRedoController.createInventoryUndoR
     guardPendingChanges: guardPendingEditorChanges,
 });
 function markCleanState() { return undoRedoAppController.markCleanState(); }
-function pushUndo(label = t("Änderung")) { return undoRedoAppController.pushUndo(label); }
+function pushUndo(label = t("Änderung"), options) { return undoRedoAppController.pushUndo(label, options); }
 function undo() { return undoRedoAppController.undo(); }
 function redo() { return undoRedoAppController.redo(); }
 function updateUndoButtons() { return undoRedoAppController.updateUndoButtons(); }
@@ -1735,6 +1735,7 @@ const itemBrowserController = window.MCBEItemBrowserController.createInventoryIt
             .map(slotId => ({ slotId, container: "inventory" })),
     onDetailItemChanged: resetDetailFormForNewItem,
     onDetailItemVariantSelected: selectDetailItemVariant,
+    onApplyDetailItem: applyCurrentSingleSlot,
 });
 
 itemBrowserController.wire();

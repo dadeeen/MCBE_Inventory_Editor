@@ -22,8 +22,6 @@
         "#btnBulkSetCount",
         "#btnBulkRepairSelected",
         "#btnRepairAll",
-        "#btnApplySingle",
-        "#btnApplySingleEnch",
         "#btnQuickClearSlot",
         "#btnQuickMaxStack",
         "#btnQuickRepairSlot",

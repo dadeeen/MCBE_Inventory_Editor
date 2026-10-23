@@ -280,12 +280,12 @@ test("unverified stack limits preserve amounts and disable maximum actions", asy
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.locator("#detailCount").fill("8");
-  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await expect(page.locator("#btnApplySingle")).toHaveCount(0);
   await expect(page.locator("#detailCount")).toHaveAttribute("aria-invalid", "true");
   await expect(page.locator("#detailFormError")).toBeVisible();
   await expect(page.locator('[data-slot="0"] .item-count')).toHaveText("16");
   await page.locator("#detailCount").fill("16");
-  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await expect(page.locator("#btnApplySingle")).toHaveCount(0);
   await expect(page.locator("#detailFormError")).toBeHidden();
   await page.locator('[data-slot="1"]').click();
   await expect(page.locator("#btnQuickMaxStack")).toBeEnabled();
@@ -294,7 +294,7 @@ test("unverified stack limits preserve amounts and disable maximum actions", asy
   await expect(page.locator('[data-slot="1"] .item-count')).toHaveText("16");
   await page.locator('[data-slot="0"]').click();
   await expect(page.locator("#detailCount")).toHaveValue("16");
-  await expect(page.locator("#btnApplySingle")).toBeDisabled();
+  await expect(page.locator("#btnApplySingle")).toHaveCount(0);
   await expect(page.locator('[data-slot="0"] .item-count')).toHaveText("16");
   await expect(page.locator("#slotQuickSubtitle")).toContainText("Stacklimit ungeprüft");
   await expect(page.locator("#btnQuickMaxStack")).toBeDisabled();

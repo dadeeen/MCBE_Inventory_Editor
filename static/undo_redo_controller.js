@@ -21,6 +21,7 @@
         let redoStack = [];
         let undoLabels = [];
         let redoLabels = [];
+        let lastMergeKey = null;
 
         function trim(stack, labels) {
             if (stack.length > maxUndo) {
@@ -39,6 +40,7 @@
         }
 
         function reset() {
+            lastMergeKey = null;
             undoStack = [];
             redoStack = [];
             undoLabels = [];
@@ -46,21 +48,25 @@
             return state();
         }
 
-        function pushUndo(label = DEFAULT_LABEL()) {
+        function pushUndo(label = DEFAULT_LABEL(), { mergeKey = null } = {}) {
             const snap = takeSnapshot();
             const hash = snapshotHash(snap);
             const lastHash = undoStack.length ? snapshotHash(undoStack[undoStack.length - 1]) : null;
-            if (hash !== lastHash) {
+            if (mergeKey !== null && mergeKey === lastMergeKey && undoStack.length) {
+                undoLabels[undoLabels.length - 1] = normalizedLabel(label);
+            } else if (hash !== lastHash) {
                 undoStack.push(snap);
                 undoLabels.push(normalizedLabel(label));
                 trim(undoStack, undoLabels);
             }
             redoStack = [];
             redoLabels = [];
+            lastMergeKey = mergeKey;
             return state();
         }
 
         function undo() {
+            lastMergeKey = null;
             if (undoStack.length === 0) return null;
             redoStack.push(takeSnapshot());
             redoLabels.push(undoLabels[undoLabels.length - 1] || DEFAULT_LABEL());
@@ -71,6 +77,7 @@
         }
 
         function redo() {
+            lastMergeKey = null;
             if (redoStack.length === 0) return null;
             undoStack.push(takeSnapshot());
             undoLabels.push(redoLabels[redoLabels.length - 1] || DEFAULT_LABEL());
@@ -171,8 +178,8 @@
             updateUndoButtons();
         }
 
-        function pushUndo(label = DEFAULT_LABEL()) {
-            stack.pushUndo(label);
+        function pushUndo(label = DEFAULT_LABEL(), options) {
+            stack.pushUndo(label, options);
             updateUndoButtons();
         }
 

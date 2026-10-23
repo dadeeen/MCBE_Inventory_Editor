@@ -80,7 +80,8 @@ test("real browser authenticates, saves with backup, rejects stale/CSRF writes a
   expect(resumed.request().postDataJSON().world_path).toBe(request.world_path);
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#detailCount").fill("7");
-  await page.locator("#btnApplySingle").click();
+  expect(await page.evaluate(() => inventory[0].count)).toBe(7);
+  expect(inspectDisk()).toEqual(before);
   await page.keyboard.press("Control+s");
   await expect(page.locator("#saveReviewOverlay")).toBeVisible();
   const savedPromise = page.waitForResponse(response => response.url().endsWith("/api/player/save") && response.status() === 200);

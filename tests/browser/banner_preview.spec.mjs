@@ -11,6 +11,7 @@ test("shared banner icons render color and fixed motifs without replacing pendin
     special_item: { kind: "banner", editable: true, data: { type, patterns: [] } } });
   await openSpecialFixture(page, { 0: banner(0, 4), 1: banner(1, 15, 1) });
   await page.locator('.inventory-slot[data-slot="0"]').click();
+  await page.locator("#detailCount").fill("");
   await page.locator("#detailCustomName").fill("Keep pending name");
   const { assets } = await prepareBannerTextures(page, { synthetic: true });
   const pixels = await page.evaluate(async assets => {

@@ -514,7 +514,7 @@ test.describe("item variant editors", () => {
     await expect(page.locator("#detailPreviewName")).toHaveText("Cyan Axolotl");
     await page.locator("#detailAxolotlColor").selectOption("4");
     await page.locator("#detailAxolotlAge").selectOption("baby");
-    await page.locator("#btnApplySingle").click();
+    await page.locator("#detailSlotNum").click();
     await expect(page.locator("#detailPreviewName")).toContainText("Blue Axolotl");
     await expect(page.locator("#detailAxolotlColor")).toHaveValue("4");
     await expect(page.locator("#detailAxolotlAge")).toHaveValue("baby");

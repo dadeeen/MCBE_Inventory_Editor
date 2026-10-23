@@ -278,7 +278,7 @@
             iconHtml: detailPreviewIconHtml({ isEmpty, iconUrl, fallbackIcon, iconTint }),
             nameText: displayName || t("Leerer Slot"),
             metaText: isEmpty
-                ? t("Dieser Slot wird beim Anwenden geleert.")
+                ? t("Kein Gegenstand ausgewählt.")
                 : `${itemId}${known ? "" : ` · ${t("unbekannt/future")}`} · ${count}x · ${
                     usesDurability
                         ? Number.isInteger(damage) && damage >= 0 && damage <= maxDamage

@@ -61,7 +61,9 @@ That origin explains the scope: a reviewed set of player fields, edited with the
 
 Items can be edited in the inventory and inside bundles and shulker boxes. The editors offer appropriate controls for wear and known variants.
 
-Unknown original values and untouched additional data are preserved. Containers enforce their capacity and nesting rules. Changes are applied to a draft first and written to the world only when the player is saved.
+Valid edits in inventory, equipment and ender chest slots apply immediately to the editor state. Item searches commit on selection or when leaving the field; invalid input stays in the form. Special dialogs for books, banners, fireworks and containers keep their Apply and Cancel buttons. Only saving the player writes changes to the world.
+
+Unknown original values and untouched additional data are preserved. Containers enforce their capacity and nesting rules.
 
 ## Portable Windows app
 

@@ -3,7 +3,7 @@ import textwrap
 from tests.node_runner import run_node
 
 
-def test_frontend_item_browser_controller_autocomplete_selects_detail_draft_without_applying() -> None:
+def test_frontend_item_browser_controller_autocomplete_applies_detail_selection() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -69,7 +69,7 @@ def test_frontend_item_browser_controller_autocomplete_selects_detail_draft_with
 
             assert.strictEqual(detailInput.value, "minecraft:apple");
             assert.strictEqual(detailList.style.display, "none");
-            assert.deepStrictEqual(calls, [{ changed: "minecraft:apple" }]);
+            assert.deepStrictEqual(calls, [{ changed: "minecraft:apple" }, { applied: true }]);
             assert.strictEqual(detailInput.dispatched[0].type, "input");
             assert.strictEqual(detailInput.dispatched[0].options.bubbles, true);
             """
@@ -129,8 +129,14 @@ def test_frontend_item_browser_controller_enter_resolves_names_without_guessing(
                 target.listeners.keydown({ key: "Enter", preventDefault() { prevented = true; } });
                 assert.strictEqual(target.value, expected || query, query);
                 assert.strictEqual(prevented, Boolean(expected), query);
-                assert.strictEqual(applied.length - before, 0);
+                assert.strictEqual(applied.length - before, Number(Boolean(expected) && target === detailInput));
             }
+            detailInput.value = "minecraft:stone";
+            for (const key of ["Enter", "Escape"]) {
+                detailInput.listeners.keydown({key, isComposing: true, keyCode: 229,
+                    preventDefault() { throw new Error('IME keys must be left to the input method'); }});
+            }
+            assert.deepStrictEqual(applied, []);
             for (const query of ["Stein", "  StEiN  ", "stone", "minecraft:stone"]) {
                 enter(query, "minecraft:stone");
             }
@@ -226,7 +232,7 @@ def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selecti
             assert.strictEqual(detailInput.value, "minecraft:stone");
             assert.strictEqual(detailList.style.display, "none");
             assert.strictEqual(detailList.rows.length, 0);
-            assert.deepStrictEqual(applied, []);
+            assert.deepStrictEqual(applied, ["minecraft:stone"]);
 
             type("stein");
             assert.strictEqual(detailList.style.display, "block");
@@ -234,7 +240,7 @@ def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selecti
             assert.strictEqual(detailInput.value, "minecraft:stone_stairs");
             assert.strictEqual(detailList.style.display, "none");
             assert.strictEqual(detailList.rows.length, 0);
-            assert.deepStrictEqual(applied, []);
+            assert.deepStrictEqual(applied, ["minecraft:stone", "minecraft:stone_stairs"]);
 
             // Later input still opens the list again.
             type("stein");
@@ -245,7 +251,7 @@ def test_frontend_item_browser_controller_keeps_suggestions_closed_after_selecti
     )
 
 
-def test_frontend_item_browser_controller_selects_bed_damage_without_applying_the_draft() -> None:
+def test_frontend_item_browser_controller_applies_only_after_selecting_bed_damage() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -283,7 +289,7 @@ def test_frontend_item_browser_controller_selects_bed_damage_without_applying_th
 
             // The controller selects the ID even when it equals the
             // query; only the item form knows the identity of its draft.
-            assert.deepStrictEqual(calls, [["changed", "minecraft:bed"], ["variant", 15]]);
+            assert.deepStrictEqual(calls, [["changed", "minecraft:bed"], ["variant", 15], ["apply"]]);
             assert.strictEqual(detailInput.value, "minecraft:bed");
             assert.strictEqual(detailInput.dispatched.length, 1);
             """
@@ -291,7 +297,7 @@ def test_frontend_item_browser_controller_selects_bed_damage_without_applying_th
     )
 
 
-def test_frontend_item_browser_controller_browser_selects_main_and_bulk_drafts_without_applying() -> None:
+def test_frontend_item_browser_controller_applies_detail_but_keeps_bulk_as_draft() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -412,7 +418,7 @@ def test_frontend_item_browser_controller_browser_selects_main_and_bulk_drafts_w
             assert.strictEqual(detailButton.focused, true);
             assert.strictEqual(detailInput.dispatched[0].type, "input");
             assert.deepStrictEqual(changed, ["minecraft:apple"]);
-            assert.deepStrictEqual(applied, []);
+            assert.deepStrictEqual(applied, ["minecraft:apple"]);
             """
         )
     )

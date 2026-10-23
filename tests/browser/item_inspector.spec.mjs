@@ -341,7 +341,7 @@ test("item inspector retains the loaded baseline after editing and moving an ite
   await openInspectorFixture(page);
   await page.locator('.inventory-slot[data-slot="0"]').click();
   await page.locator("#detailDamage").fill("238");
-  await page.locator("#btnApplySingle").click();
+  await page.locator("#detailSlotNum").click();
   expect(await page.evaluate(() => inventory[0].nbt_view)).toBeUndefined();
   let dialog = await openInspector(page);
   await expect(dialog).toContainText("238");
