@@ -134,7 +134,7 @@ def _check_member_hygiene(name: str, rel: str) -> list[str]:
         failures.append(f"forbidden path part: {name}")
     if any(is_generated_world_work_dir(part) for part in rel_posix.parts):
         failures.append(f"forbidden generated world work directory: {name}")
-    if rel_posix.suffix.casefold() in BAD_SUFFIXES or is_rotated_log_name(rel_posix.name):
+    if rel_posix.name.casefold().endswith(tuple(BAD_SUFFIXES)) or is_rotated_log_name(rel_posix.name):
         failures.append(f"forbidden generated or log file: {name}")
     basename = rel_posix.name.casefold()
     if basename in BAD_FILE_NAMES or any(basename == prefix or basename.startswith(prefix + ".") for prefix in BAD_FILE_PREFIXES):

@@ -67,7 +67,7 @@ def should_include(path: Path, *, root: Path = ROOT) -> bool:
         return False
     if any(is_generated_world_work_dir(part) for part in rel.parts):
         return False
-    if path.suffix.casefold() in EXCLUDED_SUFFIXES or is_rotated_log_name(path.name):
+    if path.name.casefold().endswith(tuple(EXCLUDED_SUFFIXES)) or is_rotated_log_name(path.name):
         return False
     name = path.name.casefold()
     if name in EXCLUDED_FILE_NAMES or any(name == prefix or name.startswith(prefix + ".") for prefix in EXCLUDED_FILE_PREFIXES):

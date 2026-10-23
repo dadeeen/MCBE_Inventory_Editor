@@ -7,7 +7,7 @@ This document is for contributors and maintainers working in the full Git source
 | Structure and dependencies | [Architecture](architecture.md), [dependency portability](dependency-portability-assessment.md), [lockfiles](../requirements/README.md) |
 | Windows EXE | [Desktop architecture, build and validation](desktop.md) |
 | Saving and storage | [Save contract](save_contract.md), [LevelDB writer](leveldb-writer.md) |
-| Item catalog | [Names and source comparisons](item-localization.md), [stack limits](item-stack-limits.md), [icons](icon-resolution.md) |
+| Item catalog | [Names and source comparisons](item-localization.md), [stack limits](item-stack-limits.md), [publication and recovery](item_db_transactions.md), [icons](icon-resolution.md) |
 | Experimental mounts | [Creation contract](experimental_mount_creation_status.md), [in-game validation](mount-game-validation.md) |
 | Compatibility evidence | [Bedrock engine checks](engine-checks.md), [NBT source comparison](nbt-source-comparison.md), [NBT performance](nbt-performance.md) |
 

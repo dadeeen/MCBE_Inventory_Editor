@@ -23,6 +23,9 @@
 **/*.jsonl
 **/*.jsonl.*
 **/*.tmp
+**/*.rollback
+**/*.transaction.json
+**/.operation_locks/
 **/*.bak
 **/*.orig
 **/*.swp
@@ -135,6 +138,9 @@ fixtures/private/
 **/*.[jJ][sS][oO][nN][lL]
 **/*.[jJ][sS][oO][nN][lL].*
 **/*.[tT][mM][pP]
+**/*.[rR][oO][lL][lL][bB][aA][cC][kK]
+**/*.[tT][rR][aA][nN][sS][aA][cC][tT][iI][oO][nN].[jJ][sS][oO][nN]
+**/.[oO][pP][eE][rR][aA][tT][iI][oO][nN]_[lL][oO][cC][kK][sS]/
 **/*.[bB][aA][kK]
 **/*.[oO][rR][iI][gG]
 **/*.[sS][wW][pP]

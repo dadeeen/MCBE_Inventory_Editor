@@ -11,10 +11,23 @@ from pathlib import Path
 from typing import Any
 
 from mcbe_editor.i18n import SUPPORTED_LOCALES
+from mcbe_editor.item_db_transaction import PARENT_LOCK_ENV, configured_targets, item_db_update_operation, recover_item_db
+from mcbe_editor.update_db_report import extract_report
 from mcbe_editor.update_output_i18n import UPDATE_LOCALE_ENV
 from mcbe_editor.update_progress import PROGRESS_ENV, write_progress
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+class ItemDbUpdateInterruptedError(RuntimeError):
+    """A terminated worker with the independently recovered disk outcome."""
+
+    def __init__(self, *, returncode: int, output: str, recovery: str, timed_out: bool = False):
+        super().__init__("Item database worker terminated")
+        self.returncode = returncode
+        self.output = output
+        self.recovery = recovery
+        self.timed_out = timed_out
 
 
 def _run_update(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
@@ -102,17 +115,46 @@ def run_update_db(
         }
     )
 
-    proc = _run_update(
-        cmd,
-        cwd=str(app_root),
-        env=env,
-        text=True,
-        encoding="utf-8",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=180,
-        check=False,
-    )
+    targets = configured_targets(app_config.item_db_path, app_config.source_version_path, app_config.source_version_history_path)
+    env[PARENT_LOCK_ENV] = str(targets[0])
+    with item_db_update_operation(targets):
+        return _run_item_db_worker(cmd, app_root, env, targets, progress_path)
+
+
+def _run_item_db_worker(cmd: list[str], app_root: Path, env: dict[str, str], targets: tuple[Path, ...], progress_path: Path | None) -> tuple[int, str]:
+    recover_item_db(targets)
+    try:
+        proc = _run_update(
+            cmd,
+            cwd=str(app_root),
+            env=env,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=180,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run kills and waits for the child before raising (also in
+        # the frozen runner). Recovery cannot race a surviving worker.
+        recovery = recover_item_db(targets)
+        output = exc.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        raise ItemDbUpdateInterruptedError(returncode=-1, output=strip_terminal_formatting(output), recovery=recovery, timed_out=True) from exc
+    except Exception as exc:
+        recovery = recover_item_db(targets)
+        if recovery != "none":
+            raise ItemDbUpdateInterruptedError(returncode=-1, output="", recovery=recovery) from exc
+        raise
+    recovery = recover_item_db(targets)
+    _, report = extract_report(strip_terminal_formatting(proc.stdout))
+    # A completed update can intentionally return nonzero for blocked sections
+    # while reporting its applied sections. Preserve that ordinary result.
+    reported_commit = report is not None and report.get("applied") is True
+    if recovery == "rolled_back" or (proc.returncode != 0 and recovery == "committed" and not reported_commit):
+        raise ItemDbUpdateInterruptedError(returncode=proc.returncode or 1, output=strip_terminal_formatting(proc.stdout), recovery=recovery)
     if progress_path is not None:
         write_progress(progress_path, "finalizing")
     return proc.returncode, strip_terminal_formatting(proc.stdout)

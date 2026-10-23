@@ -50,6 +50,40 @@ def _deps(**overrides):
     return deps
 
 
+@pytest.mark.parametrize("timed_out", [False, True])
+@pytest.mark.parametrize("recovery", ["none", "rolled_back", "committed"])
+def test_update_db_reports_recovered_worker_outcome(recovery, timed_out):
+    from mcbe_editor.update_script_runner import ItemDbUpdateInterruptedError
+
+    interrupted = ItemDbUpdateInterruptedError(returncode=-1, output="partial output", recovery=recovery, timed_out=timed_out)
+    deps = _deps(run_update_db=Mock(side_effect=interrupted))
+
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
+
+    assert result["success"] is False
+    assert result["recovery"] == recovery
+    assert result["output"] == "partial output"
+    assert bool(result.get("update_committed")) is (recovery == "committed")
+    assert deps.reload_item_db_after_update.call_count == int(recovery == "committed")
+    assert deps.audit_event.call_args.kwargs["details"]["category"] == ("timeout" if timed_out else "worker-interrupted")
+    if recovery == "committed":
+        assert "vollständig übernommen" in result["error"]
+    elif recovery == "rolled_back":
+        assert "wiederhergestellt" in result["error"]
+
+
+def test_update_db_reports_failed_persistent_recovery():
+    from mcbe_editor.item_db_transaction import ItemDbRecoveryError
+
+    deps = _deps(run_update_db=Mock(side_effect=ItemDbRecoveryError("private path details")))
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)
+    assert result[0] == "error"
+    assert result[2] == 500
+    assert "nicht sicher wiederhergestellt" in result[1]
+    assert "private path" not in result[1]
+    deps.reload_item_db_after_update.assert_not_called()
+
+
 def test_update_db_returns_structured_report_without_protocol_in_visible_output():
     from mcbe_editor.update_db_report import REPORT_PREFIX
 
@@ -143,6 +177,7 @@ def test_partial_update_preserves_confirmed_writes_and_reloads_them(reload_fails
     assert "update_review_token" not in result
     reload.assert_called_once()
     assert deps.audit_event.call_args.kwargs["details"]["update_committed"] is True
+    assert deps.audit_event.call_args.kwargs["details"]["category"] == "script-error"
 
 
 def test_update_db_rejects_invalid_scope_without_running_update():

@@ -35,6 +35,9 @@ pip-wheel-metadata/
 *.jsonl
 *.jsonl.*
 *.tmp
+*.rollback
+*.transaction.json
+.operation_locks/
 *.bak
 *.orig
 *.swp

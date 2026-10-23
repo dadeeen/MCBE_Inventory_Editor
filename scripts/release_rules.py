@@ -12,6 +12,7 @@ BLOCKED_RELEASE_DIR_NAMES = frozenset(
         ".idea",
         ".lockcheck",
         ".mypy_cache",
+        ".operation_locks",
         ".pip-tools-cache",
         ".playwright-cli",
         ".pytest_cache",
@@ -35,7 +36,7 @@ BLOCKED_RELEASE_DIR_NAMES = frozenset(
 )
 BLOCKED_RELEASE_DIR_PREFIXES = (".pytest-",)
 
-BLOCKED_RELEASE_SUFFIXES = frozenset({".bak", ".jsonl", ".log", ".orig", ".pyc", ".pyo", ".swp", ".tmp"})
+BLOCKED_RELEASE_SUFFIXES = frozenset({".bak", ".jsonl", ".log", ".orig", ".pyc", ".pyo", ".rollback", ".swp", ".tmp", ".transaction.json"})
 BLOCKED_RELEASE_FILE_PREFIXES = (".coverage",)
 BLOCKED_RELEASE_FILE_NAMES = frozenset(
     {

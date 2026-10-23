@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    from mcbe_editor import item_db_verification
+    from mcbe_editor import item_db_transaction, item_db_verification
     from mcbe_editor.item_name_policy import reviewed_item_label_repairs
     from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
     from mcbe_editor.numeric_catalog_policy import canonical_numeric_name, reconcile_numeric_catalog
@@ -36,6 +36,7 @@ def _load_runtime_dependencies():
         BUNDLED_ITEM_DB_JSON,
         atomic_seed_file,
         item_db_verification,
+        item_db_transaction,
         is_non_item_lang_key_id,
         is_technical_block_only_item_id,
         output_t,
@@ -50,6 +51,7 @@ def _load_runtime_dependencies():
     BUNDLED_ITEM_DB_JSON,
     atomic_seed_file,
     item_db_verification,
+    item_db_transaction,
     is_non_item_lang_key_id,
     is_technical_block_only_item_id,
     tr,
@@ -77,6 +79,9 @@ RELEASE_METADATA_PATH = CACHE_DIR / "release_metadata.json"
 ITEM_LISTING_CACHE_PATH = CACHE_DIR / item_db_verification.ITEM_LISTING_CACHE_FILENAME
 SOURCE_VERSION_JSON = _env_path("MCBE_SOURCE_VERSION_PATH", DATA_ROOT / "source_version.json")
 SOURCE_VERSION_HISTORY = _env_path("MCBE_SOURCE_VERSION_HISTORY_PATH", DATA_ROOT / "source_version_history.json")
+# Writers and the recovery journal must address the same canonical targets,
+# including when a direct CLI invocation configures relative paths or symlinks.
+ITEM_DB_PATH, SOURCE_VERSION_JSON, SOURCE_VERSION_HISTORY = item_db_transaction.configured_targets(ITEM_DB_PATH, SOURCE_VERSION_JSON, SOURCE_VERSION_HISTORY)
 
 RP_OWNER = "Mojang"
 RP_REPO = "bedrock-samples"
@@ -409,6 +414,8 @@ def atomic_write_text(path: Path, content: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_name, path)
     except Exception:
         with contextlib.suppress(OSError):
@@ -2390,32 +2397,6 @@ def append_source_version_history(entry: dict) -> None:
     atomic_write_text(SOURCE_VERSION_HISTORY, json.dumps(history, indent=2, ensure_ascii=False) + "\n")
 
 
-def _file_snapshot(path: Path) -> bytes | None:
-    try:
-        return path.read_bytes()
-    except FileNotFoundError:
-        return None
-
-
-def _restore_file_snapshot(path: Path, content: bytes | None) -> None:
-    if content is None:
-        with contextlib.suppress(FileNotFoundError):
-            path.unlink()
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".rollback", dir=path.parent)
-    try:
-        with os.fdopen(fd, "wb") as target:
-            target.write(content)
-            target.flush()
-            os.fsync(target.fileno())
-        os.replace(tmp_name, path)
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.remove(tmp_name)
-        raise
-
-
 def commit_update_files(
     items: dict[str, tuple[str, str]],
     effects: dict[int, tuple[str, str, str, str]],
@@ -2437,13 +2418,8 @@ def commit_update_files(
 
     if verify_item_db and source_metadata is None:
         raise ValueError(tr("Ein Item-DB-Prüfbeleg benötigt Quellenmetadaten."))
-    touched_paths = [ITEM_DB_PATH]
-    if source_metadata is not None:
-        touched_paths.append(SOURCE_VERSION_JSON)
-        if append_source_history:
-            touched_paths.append(SOURCE_VERSION_HISTORY)
-    snapshots = {path: _file_snapshot(path) for path in touched_paths}
-    try:
+    targets = item_db_transaction.configured_targets(ITEM_DB_PATH, SOURCE_VERSION_JSON, SOURCE_VERSION_HISTORY)
+    with item_db_transaction.item_db_transaction(targets):
         if write_item_db:
             write_all_dicts(
                 items,
@@ -2468,21 +2444,6 @@ def commit_update_files(
             write_source_version(committed_metadata)
             if append_source_history:
                 append_source_version_history(committed_metadata)
-    except Exception as exc:
-        rollback_failures = []
-        for path, content in snapshots.items():
-            try:
-                _restore_file_snapshot(path, content)
-            except Exception as rollback_exc:
-                rollback_failures.append(f"{path}: {rollback_exc}")
-        if rollback_failures:
-            raise RuntimeError(
-                tr(
-                    "Update fehlgeschlagen und konnte nicht vollständig zurückgerollt werden: {failures}",
-                    failures="; ".join(rollback_failures),
-                )
-            ) from exc
-        raise
 
 
 # ─── DIFF ───────────────────────────────────────────────────────────────────
@@ -2558,8 +2519,6 @@ def report_blocked_sections(blocked_sections: list[tuple[str, str]]) -> int:
 def main() -> int:
     import argparse
 
-    from mcbe_editor.update_db_report import REPORT_PREFIX, audit_items, build_report
-
     parser = argparse.ArgumentParser(
         description=tr("Aktualisiert item_db.json aus Mojang/bedrock-samples und lokal geprüften Vanilla-Fakten."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2591,10 +2550,19 @@ def main() -> int:
         if not re.fullmatch(r"[0-9a-f]{64}", args.expected_review_token):
             raise RuntimeError(tr("Der Dry-Run-Prüfbeleg ist ungültig."))
 
+    targets = item_db_transaction.configured_targets(ITEM_DB_PATH, SOURCE_VERSION_JSON, SOURCE_VERSION_HISTORY)
+    with item_db_transaction.item_db_update_operation(targets, allow_parent_lock=True):
+        return _run_update(args)
+
+
+def _run_update(args) -> int:
+    from mcbe_editor.update_db_report import REPORT_PREFIX, audit_items, build_report
+
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
     log(f"{Colors.BOLD}  {tr('Minecraft Bedrock Item-DB-Updater (Items + Effekte + Verzauberungen)')}{Colors.END}")
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
 
+    item_db_transaction.recover_item_db(item_db_transaction.configured_targets(ITEM_DB_PATH, SOURCE_VERSION_JSON, SOURCE_VERSION_HISTORY))
     ensure_data_paths()
     report_progress("checking")
     log(f"  Item-DB: {ITEM_DB_PATH}", Colors.DIM)

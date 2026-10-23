@@ -12,8 +12,10 @@ from typing import Any
 
 from . import item_db_verification
 from .i18n import t
+from .item_db_transaction import ItemDbRecoveryError
 from .service_errors import public_error_text
 from .update_db_report import extract_report
+from .update_script_runner import ItemDbUpdateInterruptedError
 
 _UPDATE_REVIEW_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -104,13 +106,18 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                 raise ValueError("Die im Dry-Run geprüften Quellen oder Ausgangsdaten haben sich geändert. Bitte den Dry-Run erneut ausführen.")
             use_cache = True
 
-        returncode, output = deps.run_update_db(
-            dry_run=dry_run,
-            force=force,
-            only=only,
-            use_cache=use_cache,
-            expected_review_token=expected_review_token,
-        )
+        interruption = None
+        try:
+            returncode, output = deps.run_update_db(
+                dry_run=dry_run,
+                force=force,
+                only=only,
+                use_cache=use_cache,
+                expected_review_token=expected_review_token,
+            )
+        except ItemDbUpdateInterruptedError as exc:
+            interruption = exc
+            returncode, output = exc.returncode, exc.output
 
         output, report = extract_report(output)
         result = {
@@ -145,6 +152,8 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
         category = "ok"
         if receipt_failed:
             category = "review-receipt-error"
+        elif interruption:
+            category = "timeout" if interruption.timed_out else "worker-interrupted"
         elif returncode != 0:
             category = "network-or-dns" if deps.looks_like_network_failure(output) else "script-error"
         if category != "ok":
@@ -165,8 +174,22 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                     "Der Container/App-Host hat vermutlich keinen funktionierenden DNS-/HTTPS-Ausgang. "
                     "Die App läuft weiter; nur das Item-DB-Update braucht Internet."
                 )
+            if interruption:
+                result["recovery"] = interruption.recovery
+                if interruption.recovery == "committed":
+                    result["error"] = t(
+                        "Das Update-Skript wurde unterbrochen. Die neue Item-Datenbank und ihre Quellenmetadaten wurden vollständig übernommen."
+                    )
+                elif interruption.recovery == "rolled_back":
+                    result["error"] = t(
+                        "Das Update-Skript wurde unterbrochen. Die vorherige Item-Datenbank und ihre Quellenmetadaten wurden wiederhergestellt."
+                    )
+                else:
+                    result["error"] = t("Das Update-Skript wurde unterbrochen, bevor eine neue Item-Datenbank übernommen wurde.")
 
-        update_committed = bool(not dry_run and (returncode == 0 or (report and report.get("applied") is True)))
+        update_committed = bool(
+            not dry_run and ((interruption.recovery == "committed") if interruption else (returncode == 0 or (report and report.get("applied") is True)))
+        )
         deps.audit_event(
             "item_db.update",
             "success" if result["success"] else "failure",
@@ -206,6 +229,14 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
         return deps.jsonify(result)
     except ValueError as exc:
         return deps.api_error(str(exc), 400)
+    except ItemDbRecoveryError as exc:
+        deps.log_api_exception("item_db_recovery", exc)
+        deps.audit_event("item_db.update", "failure", details={"category": "recovery-failed"})
+        return deps.api_error(
+            "Die unterbrochene Item-DB-Aktualisierung konnte nicht sicher wiederhergestellt werden. "
+            "Bitte die Dateizugriffsrechte prüfen und die Anwendung neu starten.",
+            500,
+        )
     except TimeoutExpired:
         deps.logger.warning("item_db_update timeout seconds=180 app_continues=true")
         deps.audit_event("item_db.update", "failure", details={"category": "timeout", "timeout_seconds": 180})
