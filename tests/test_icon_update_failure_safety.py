@@ -40,7 +40,7 @@ class IconUpdateFailureSafetyTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.target = self.root / "vanilla"
 
     def _existing_cache(self):
@@ -240,7 +240,7 @@ updater.build_icon_cache(pathlib.Path(sys.argv[1]), ['apple'], updater.ICON_ROOT
 
         for copy_publish in (False, True):
             with self.subTest(copy_publish=copy_publish):
-                observed = {}
+                observed = {"copy_fallback": False}
 
                 def run_build(command, *, copy_publish=copy_publish, observed=observed, **kwargs):
                     staging = Path(kwargs["env"]["MCBE_ICON_STAGING_DIR"])
@@ -250,6 +250,7 @@ updater.build_icon_cache(pathlib.Path(sys.argv[1]), ['apple'], updater.ICON_ROOT
 
                     def replace(source, destination):
                         if copy_publish and Path(source) == staging and Path(destination) == target:
+                            observed["copy_fallback"] = True
                             raise PermissionError("simulate Windows directory rename restriction")
                         return real_replace(source, destination)
 
@@ -264,6 +265,7 @@ updater.build_icon_cache(pathlib.Path(sys.argv[1]), ['apple'], updater.ICON_ROOT
                 with patch.object(update_script_runner, "_run_update", side_effect=run_build):
                     self.assertEqual(update_script_runner.run_update_icons(ROOT, config), (0, "done"))
 
+                self.assertEqual(observed["copy_fallback"], copy_publish)
                 self.assertFalse(observed["staging"].exists())
                 self.assertTrue((target / "textures/items/apple.png").is_file())
                 self.assertFalse(list(target.parent.glob(".vanilla.staging-*")))
