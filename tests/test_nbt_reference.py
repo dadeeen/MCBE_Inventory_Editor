@@ -52,6 +52,42 @@ def test_every_empty_list_type_matches_reference():
         assert nbt.load(raw).tag.list_data_type == tag_id
 
 
+def test_bundle_stack_keys_match_reference_and_preserve_hidden_typed_distinctions(monkeypatch):
+    from copy import deepcopy
+
+    from mcbe_editor import item_containers
+    from mcbe_editor.bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
+
+    base = nbt.CompoundTag(
+        {
+            "Slot": nbt.ByteTag(0),
+            "Count": nbt.ByteTag(1),
+            "Name": nbt.StringTag("minecraft:torch"),
+            "Damage": nbt.ShortTag(0),
+            "tag": nbt.CompoundTag({"opaque": nbt.IntTag(9), "raw": nbt.StringTag("Grüße 世界 ␛xff")}),
+        }
+    )
+    moved = deepcopy(base)
+    moved["Slot"], moved["Count"] = nbt.ByteTag(8), nbt.ByteTag(3)
+    typed = deepcopy(base)
+    typed["tag"]["opaque"] = nbt.LongTag(9)
+    changed = deepcopy(base)
+    changed["tag"]["raw"] = nbt.StringTag("Grüße 世界 ␛xfe")
+    wider_count = deepcopy(base)
+    wider_count["Count"] = nbt.ShortTag(1)
+    originals = [base, moved, typed, changed, wider_count]
+    encoded = [nbt.NamedTag(item).save_to(**SAVE_KWARGS) for item in originals]
+    keys = []
+    for codec in (nbt, reference):
+        monkeypatch.setattr(item_containers, "nbt", codec)
+        loaded = [codec.load(raw, **LOAD_KWARGS).tag for raw in encoded]
+        keys.append([item_containers._stack_key(item) for item in loaded])
+        assert [codec.NamedTag(item).save_to(**SAVE_KWARGS) for item in loaded] == encoded
+    assert keys[0] == keys[1]
+    assert keys[0][0] == keys[0][1]
+    assert len(set(keys[0])) == 4
+
+
 def test_reviewed_entity_records_match_reference():
     files = list((Path(__file__).parent / "data").glob("*.hex"))
     assert files, "Reviewed reference records must be present"

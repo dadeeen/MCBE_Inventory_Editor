@@ -113,7 +113,7 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
     from mcbe_editor import nbt
     from mcbe_editor.bedrock_nbt import save_player_nbt
     from mcbe_editor.inventory import build_inventory_nbt, nbt_to_json
-    from mcbe_editor.item_data import ENCHANTMENTS
+    from mcbe_editor.item_data import ENCHANTMENTS, canonical_item_id, catalog_values
 
     found = carriers(records, {case["carrier"] for case in cases})
     grouped = {}
@@ -139,12 +139,19 @@ def build_item_writes(records: dict[bytes, bytes], cases: list[dict]) -> dict[by
                 raise ProbeError("Engine reference omitted an existing item")
             if case["mode"] == "preserve":
                 continue
+            damage = case["damage"]
+            if existing is not None and case.get("durable") and canonical_item_id(case["id"]) not in catalog_values()["DURABILITY"]:
+                # Engine durability is opaque for unregistered add-on items.
+                # The editor exposes their root Damage variant instead; keep
+                # that original form value while independently checking the
+                # engine's tag.Damage against case["damage"] on disk/reload.
+                damage = existing["damage"]
             payloads[slot] = {
                 **(existing or {}),
                 "slot": slot,
                 "name": case["id"],
                 "count": case["amount"],
-                "damage": case["damage"],
+                "damage": damage,
                 "display_name": case["name"],
                 "lore": case["lore"],
                 "enchantments": [{"id": ENCHANTMENT_IDS[entry["id"]], "lvl": entry["level"]} for entry in case["enchantments"]],

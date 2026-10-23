@@ -283,6 +283,53 @@ def test_actual_nbt_builder_preserves_controls_and_unknown_existing_items(monkey
         assert load_player_nbt(raw).tag["Untouched"].save_to() == load_player_nbt(before[key]).tag["Untouched"].save_to()
 
 
+def test_addon_adapter_preserves_unknown_durability_without_changing_its_variant():
+    from mcbe_editor import nbt
+    from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt
+    from mcbe_editor.inventory import build_inventory_nbt, nbt_to_json
+    from mcbe_editor.item_data import ENCHANTMENTS
+    from scripts.engine_checks.addon import ADDON_DURABILITY, ADDON_LIMITS, make_addon_cases
+    from scripts.engine_checks.nbt_roundtrip import verify_unknown_creations
+
+    observations = {"minecraft:stone": {"max_amount": 64}}
+    observations.update(
+        {name: {"max_amount": maximum, "max_durability": ADDON_DURABILITY if name.endswith(":durable") else None} for name, maximum in ADDON_LIMITS.items()}
+    )
+    cases = make_addon_cases(observations)
+    records = synthetic_carriers(cases)
+    for key, raw in list(records.items()):
+        if not key.startswith(b"actorprefix"):
+            continue
+        actor = load_player_nbt(raw)
+        for item in actor.tag["ChestItems"]:
+            if item["Name"].py_data == "mcbe_probe:durable":
+                item["tag"]["Damage"] = nbt.IntTag(ADDON_DURABILITY - 1)
+        records[key] = save_player_nbt(actor)
+
+    before = dict(records)
+    records.update(build_item_writes(records, cases))
+    assert verify_saved_items(records, cases)["status"] == "pass"
+    assert verify_unknown_creations(cases) == 2
+    assert before != records
+    for key, raw in records.items():
+        if not key.startswith(b"actorprefix"):
+            continue
+        actor = load_player_nbt(raw)
+        durable = next(item for item in actor.tag["ChestItems"] if item["Name"].py_data == "mcbe_probe:durable")
+        assert durable["Damage"].py_data == 0
+        assert durable["tag"]["Damage"].py_data == ADDON_DURABILITY - 1
+        wrapper = nbt.CompoundTag({"Inventory": nbt.ListTag([durable])})
+        parsed, _ = nbt_to_json(wrapper)
+        invalid = {**next(iter(parsed.values())), "damage": ADDON_DURABILITY - 1}
+        with pytest.raises(ValueError, match="Datenwert"):
+            build_inventory_nbt(wrapper, [invalid], ENCHANTMENTS)
+        durable["tag"]["Damage"] = nbt.IntTag(ADDON_DURABILITY - 2)
+        records[key] = save_player_nbt(actor)
+        with pytest.raises(ProbeError, match="semantics"):
+            verify_saved_items(records, cases)
+        break
+
+
 def test_saved_nbt_verification_rejects_clamping():
     from mcbe_editor import nbt
     from mcbe_editor.bedrock_nbt import load_player_nbt, save_player_nbt

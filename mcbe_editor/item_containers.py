@@ -6,6 +6,7 @@ import hashlib
 from copy import deepcopy
 
 from . import nbt
+from .bedrock_nbt import SAVE_KWARGS
 from .item_data import get_max_stack, has_verified_stack_limit
 from .special_items import LIMITS, compound, compound_list, exact_fields, integer, kind_for_item, kind_for_name, reject, rows, scalar, set_scalar
 
@@ -69,7 +70,7 @@ def read_contents(item, kind, parse_child, *, depth, budget):
 def _stack_key(item):
     # Compare complete typed values, including opaque data and raw strings.
     # Only position and quantity differ between otherwise identical stacks.
-    data = nbt.CompoundTag({key: item[key] for key in sorted(item) if key not in {"Slot", "Count"}}).save_to()
+    data = nbt.CompoundTag({key: item[key] for key in sorted(item) if key not in {"Slot", "Count"}}).save_to(**SAVE_KWARGS)
     count_type = type(item.get("Count")).__name__.encode("ascii")
     return hashlib.sha256(count_type + data).hexdigest()
 
