@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import sys
+import tempfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -166,9 +167,8 @@ def data_root_snapshot(data_root: str | None) -> dict[str, Any]:
     try:
         root.mkdir(parents=True, exist_ok=True)
         created = not exists
-        probe = root / ".write-test.tmp"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".write-test-", suffix=".tmp", dir=root) as probe:
+            probe.write("ok")
         exists = True
         writable = True
     except OSError:

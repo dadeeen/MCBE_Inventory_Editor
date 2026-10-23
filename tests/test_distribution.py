@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import PurePath
+from threading import Barrier
 
+from mcbe_editor import distribution
 from mcbe_editor.distribution import build_manifest, data_root_snapshot, distribution_snapshot, release_manifest_hash, write_tree_manifest
 from scripts.release_check import check_archive
 from scripts.runtime_layout import REQUIRED_RUNTIME_FILES
@@ -58,6 +62,51 @@ def test_data_root_snapshot_reports_portable_and_writable(tmp_path):
     assert status["exists"] is True
     assert status["writable"] is True
     assert isinstance(status["known_entries"], list)
+
+
+def test_data_root_snapshot_preserves_existing_probe_file(tmp_path):
+    existing = tmp_path / ".write-test.tmp"
+    existing.write_bytes(b"existing user content")
+
+    status = data_root_snapshot(str(tmp_path))
+
+    assert status["writable"] is True
+    assert existing.read_bytes() == b"existing user content"
+    assert list(tmp_path.iterdir()) == [existing]
+
+
+def test_data_root_snapshot_concurrent_probes_are_independent(tmp_path, monkeypatch):
+    original_temporary_file = distribution.tempfile.NamedTemporaryFile
+    both_created = Barrier(2)
+    names = []
+
+    @contextmanager
+    def simultaneous_temporary_file(*args, **kwargs):
+        with original_temporary_file(*args, **kwargs) as probe:
+            names.append(probe.name)
+            both_created.wait(timeout=10)
+            yield probe
+
+    monkeypatch.setattr(distribution.tempfile, "NamedTemporaryFile", simultaneous_temporary_file)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(data_root_snapshot, [str(tmp_path)] * 2))
+
+    assert all(result["writable"] for result in results)
+    assert len(set(names)) == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_data_root_snapshot_reports_permission_failure(tmp_path, monkeypatch):
+    def denied_temporary_file(*args, **kwargs):
+        raise PermissionError("write denied")
+
+    monkeypatch.setattr(distribution.tempfile, "NamedTemporaryFile", denied_temporary_file)
+
+    status = data_root_snapshot(str(tmp_path))
+
+    assert status["exists"] is True
+    assert status["writable"] is False
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_release_manifest_hash_is_stable():
@@ -267,6 +316,22 @@ def test_release_check_rejects_private_tool_and_diagnostic_artifacts(tmp_path):
         },
     )
 
+    assert check_archive(str(archive)) == 1
+
+
+def test_catalog_transaction_artifacts_never_ship(tmp_path):
+    from scripts.make_release_zip import ROOT, should_include
+
+    artifacts = {
+        "mcbe_editor/resources/.item_db.json.transaction.json": b"old catalog and configured paths",
+        "mcbe_editor/resources/.custom.json.TRANSACTION.JSON": b"custom catalog paths",
+        "mcbe_editor/resources/.item_db.json.random.rollback": b"old catalog",
+        "mcbe_editor/resources/.operation_locks/catalog.lock": b"0",
+    }
+    for name in artifacts:
+        assert should_include(ROOT / name) is False
+    archive = tmp_path / "bad_catalog_transaction.zip"
+    _write_minimal_release_archive(archive, extra_files=artifacts)
     assert check_archive(str(archive)) == 1
 
 
