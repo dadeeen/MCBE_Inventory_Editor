@@ -168,12 +168,12 @@ Replace `mcbe-editor` with your container name when necessary.
 
 #### Recommended: targeted ACL for UID 10001
 
-This keeps the server files' existing owner and group while granting only the editor additional access. On Debian/Ubuntu, install the `acl` package first when needed (use the corresponding package manager on other distributions), then set `WORLDS_ROOT` to the host path mounted at `/worlds`:
+This keeps the server files' existing owner and group while granting only the editor additional access. On Debian/Ubuntu, install the `acl` package first when needed (use the corresponding package manager on other distributions), then set `WORLDS_ROOT` to the host path that `docker inspect` shows for `/worlds`:
 
 ```bash
 sudo apt-get install -y acl
 
-WORLDS_ROOT=/var/lib/docker/volumes/MY_VOLUME/_data/worlds
+WORLDS_ROOT="/var/lib/docker/volumes/MY_VOLUME/_data/worlds" # Replace this example path
 
 sudo setfacl -R -m u:10001:rwX "$WORLDS_ROOT"
 sudo find "$WORLDS_ROOT" -type d -exec setfacl -m d:u:10001:rwX {} +
@@ -212,7 +212,7 @@ services:
 On the host, the world files must belong to that group, be group-writable, and make new subdirectories inherit the group:
 
 ```bash
-WORLDS_ROOT=/var/lib/docker/volumes/MY_VOLUME/_data/worlds
+WORLDS_ROOT="/var/lib/docker/volumes/MY_VOLUME/_data/worlds" # Replace this example path
 
 sudo chgrp -R 12000 "$WORLDS_ROOT"
 sudo chmod -R g+rwX "$WORLDS_ROOT"

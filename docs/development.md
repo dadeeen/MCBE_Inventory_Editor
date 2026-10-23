@@ -13,7 +13,7 @@ This document is for contributors and maintainers working in the full Git source
 
 ## HTTP servers
 
-`python main.py` uses Waitress (four worker threads), including `--debug`; debug
+`python main.py` uses Waitress (eight worker threads), including `--debug`; debug
 mode does not enable an interactive debugger or reloader. The local server binds
 to loopback by default. `mcbe_editor.local_server` integrates the pinned Waitress
 dispatcher and socket loop with graceful shutdown. Browser startup leaves the
