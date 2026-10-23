@@ -12,3 +12,5 @@ urllib3>=2.8.0
 # pip-tools 7.6.2 supports pip 26.2 and Click 8.5.
 pip==26.2.2
 pip-tools>=7.6.2,<8
+# Fix Windows wheel path validation (GHSA-xmj3-9gf7-h52w).
+setuptools>=84.1.0,<85
