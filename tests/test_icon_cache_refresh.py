@@ -1,6 +1,7 @@
 """Offline cache migration uses synthetic art and never touches game data."""
 
 import json
+import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -198,6 +199,62 @@ def test_corrupt_archive_is_not_retried_until_replaced(cache_case, monkeypatch):
     assert len(attempts) == 2
 
 
+@pytest.mark.parametrize("damage", ["missing", "empty"])
+def test_status_invalidates_display_entries_when_offline_repair_is_unavailable(cache_case, damage):
+    case = cache_case
+    first = icon_api_routes.icons_status(case.deps)
+    assert first["missing_banner_patterns"] == []
+    case.archive.unlink()
+    path = case.target / "textures/display/banner_illager.png"
+    if damage == "missing":
+        path.unlink()
+    else:
+        path.write_bytes(b"")
+    second = icon_api_routes.icons_status(case.deps)
+    assert second["missing_banner_patterns"] == ["illager"]
+    assert second["count"] == first["count"]
+    assert icon_api_routes.icons_status(case.deps)["missing_banner_patterns"] == ["illager"]
+
+
+def test_read_only_status_rejects_a_stale_display_index_without_writes(cache_case):
+    case = cache_case
+    assert icon_api_routes.icons_status(case.deps)["missing_banner_patterns"] == []
+    (case.target / "textures/display/banner_illager.png").unlink()
+    before = snapshot(Path(case.deps.data_root))
+    case.deps.read_only = True
+    result = icon_api_routes.icons_status(case.deps)
+    assert "illager" in result["missing_banner_patterns"]
+    assert result["warnings"]
+    assert snapshot(Path(case.deps.data_root)) == before
+
+
+def test_status_refreshes_replaced_display_image_without_rebuilding_cache(cache_case):
+    case = cache_case
+    first = icon_api_routes.icons_status(case.deps)
+    case.archive.unlink()
+    path = case.target / "textures/display/banner_illager.png"
+    replacement = encode_rgba_png(20, 40, bytes((77, 88, 99, 255)) * 800)
+    path.write_bytes(replacement)
+    second = icon_api_routes.icons_status(case.deps)
+    entry = second["banner_patterns"]["illager"]
+    assert entry["token"] != first["banner_patterns"]["illager"]["token"]
+    assert case.stored["_by_token"][entry["token"]].read_bytes() == replacement
+    assert second["missing_banner_patterns"] == []
+
+
+@pytest.mark.parametrize("size", [float("inf"), float("-inf"), float("nan")])
+def test_invalid_release_size_keeps_existing_icons_available(cache_case, size):
+    case = cache_case
+    manifest = json.loads(case.manifest.read_text())
+    manifest["release"]["resource_pack_asset_size"] = size
+    case.manifest.write_text(json.dumps(manifest), encoding="utf-8")
+    before = snapshot(case.target)
+    result = icon_api_routes.icons_status(case.deps)
+    assert "minecraft:apple" in result["icons"]
+    assert result["missing_banner_patterns"] == ["illager"]
+    assert snapshot(case.target) == before
+
+
 def test_archive_limits_leave_existing_icons_available(cache_case, monkeypatch):
     monkeypatch.setattr(update_icons, "MAX_RESOURCE_PACK_MEMBERS", 1)
     before = snapshot(cache_case.target)
@@ -230,6 +287,114 @@ def test_failed_repair_rolls_back_and_cleans_staging(cache_case, monkeypatch, fa
     assert snapshot(case.target) == before
     assert not list(case.target.parent.glob(".vanilla.staging-*"))
     assert not list(case.target.parent.glob(".vanilla.rollback-*"))
+
+
+@pytest.mark.parametrize("damage", ["missing", "empty"])
+@pytest.mark.parametrize("phase", ["rename", "copy"])
+def test_interrupted_repair_recovers_existing_icons_and_can_retry(cache_case, monkeypatch, damage, phase):
+    case = cache_case
+    path = case.target / "textures/display/banner_base.png"
+    if damage == "missing":
+        path.unlink()
+    else:
+        path.write_bytes(b"")
+    before = snapshot(case.target)
+    replace, copytree = icon_cache.os.replace, icon_cache.shutil.copytree
+
+    def interrupt_publish(source, destination):
+        if Path(source).name.startswith(".vanilla.staging-") and Path(destination) == case.target:
+            if phase == "rename":
+                raise KeyboardInterrupt("Simulated process interruption")
+            raise PermissionError("Exercise Windows copy fallback")
+        return replace(source, destination)
+
+    def interrupt_copy(source, destination, *args, **kwargs):
+        if Path(destination) == case.target:
+            case.target.mkdir()
+            shutil.copy2(Path(source) / "manifest.json", case.manifest)
+            raise KeyboardInterrupt("Simulated process interruption")
+        return copytree(source, destination, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(icon_cache.os, "replace", interrupt_publish)
+        patch.setattr(icon_cache.shutil, "copytree", interrupt_copy)
+        with pytest.raises(KeyboardInterrupt, match="Simulated process interruption"):
+            refresh(case)
+    icon_cache.recover_icon_cache(case.target)
+    assert snapshot(case.target) == before
+    assert not list(case.target.parent.glob(".vanilla.rollback-*"))
+    assert refresh(case, force=True)
+    assert path.read_bytes() == FACE
+    assert (case.target / "textures/items/apple.png").read_bytes() == APPLE
+
+
+def test_recovery_prefers_complete_rollback_over_newer_missing_previews(cache_case):
+    case = cache_case
+    complete = case.target.parent / ".vanilla.rollback-complete"
+    shutil.copytree(case.target, complete)
+    before = snapshot(complete)
+    (case.target / "textures/display/banner_base.png").unlink()
+    partial = case.target.parent / ".vanilla.rollback-partial"
+    case.target.rename(partial)
+    os.utime(complete, ns=(1, 1))
+    os.utime(partial, ns=(2, 2))
+    icon_cache.recover_icon_cache(case.target)
+    assert snapshot(case.target) == before
+    assert not list(case.target.parent.glob(".vanilla.rollback-*"))
+
+
+@pytest.mark.parametrize("damage", ["missing-item", "empty-item", "invalid-display-id", "display-directory"])
+def test_recovery_does_not_accept_invalid_partial_rollbacks(cache_case, damage):
+    case = cache_case
+    (case.target / "textures/display/banner_base.png").unlink()
+    item = case.target / "textures/items/apple.png"
+    if damage == "missing-item":
+        item.unlink()
+    elif damage == "empty-item":
+        item.write_bytes(b"")
+    elif damage == "display-directory":
+        (case.target / "textures/display/banner_base.png").mkdir()
+    else:
+        manifest = json.loads(case.manifest.read_text())
+        manifest["display_assets"]["mcbe:../outside"] = "entity/banner/banner_base"
+        case.manifest.write_text(json.dumps(manifest), encoding="utf-8")
+    rollback = case.target.parent / ".vanilla.rollback-invalid"
+    case.target.rename(rollback)
+    before = snapshot(rollback)
+    case.target.mkdir()
+    (case.target / "partial.txt").write_bytes(b"unfinished")
+    icon_cache.recover_icon_cache(case.target)
+    assert snapshot(case.target) == {Path("partial.txt"): b"unfinished"}
+    assert snapshot(rollback) == before
+
+
+def test_recovery_rejects_linked_display_directory(cache_case, tmp_path):
+    from tests.test_path_safety_regressions import directory_link
+
+    case = cache_case
+    (case.target / "textures/display/banner_base.png").unlink()
+    outside = tmp_path / "outside"
+    display = case.target / "textures/display"
+    display.rename(outside)
+    rollback = case.target.parent / ".vanilla.rollback-linked"
+    case.target.rename(rollback)
+    before = snapshot(outside)
+    with directory_link(outside, rollback / "textures/display"):
+        icon_cache.recover_icon_cache(case.target)
+        assert not case.target.exists()
+        assert rollback.exists()
+        assert snapshot(outside) == before
+
+
+def test_publication_still_rejects_missing_declared_previews(cache_case):
+    case = cache_case
+    staging = case.target.parent / ".vanilla.staging-incomplete"
+    shutil.copytree(case.target, staging)
+    (staging / "textures/display/banner_base.png").unlink()
+    before = snapshot(case.target)
+    with pytest.raises(ValueError, match="unvollständig"):
+        icon_cache.publish_icon_cache(staging, case.target)
+    assert snapshot(case.target) == before
 
 
 @pytest.mark.parametrize("same_manifest", [False, True])

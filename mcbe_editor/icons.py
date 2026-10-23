@@ -919,6 +919,31 @@ def configured_icon_sources(settings_path: str | None = None, extra_sources: Ite
     return result
 
 
+def _vanilla_display_signature(root: Path):
+    directory = root / "textures" / "display"
+    for path in (root, root / "textures", directory):
+        info = _safe_stat(path)
+        if info is None or not stat.S_ISDIR(info.st_mode):
+            return None
+    files = []
+    try:
+        with os.scandir(directory) as entries:
+            for index, entry in enumerate(entries):
+                if index >= _MAX_SCAN_FILES:
+                    break
+                if Path(entry.name).suffix.lower() not in _ALLOWED_EXTENSIONS:
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    stamp = (info.st_mode, info.st_size, info.st_mtime_ns, info.st_dev, info.st_ino, is_linklike_stat(info))
+                except OSError:
+                    stamp = None
+                files.append((entry.name, stamp))
+    except OSError as exc:
+        return {"error": type(exc).__name__}
+    return sorted(files)
+
+
 def _source_signature(source: dict) -> dict:
     raw_path = str(source.get("path") or "")
     path = Path(raw_path).expanduser()
@@ -951,8 +976,9 @@ def _source_signature(source: dict) -> dict:
     if source.get("vanilla"):
         info = _safe_stat(path / "manifest.json")
         signature["manifest"] = (info.st_size, info.st_mtime_ns, info.st_ino) if info else None
+        signature["display_files"] = _vanilla_display_signature(path)
     # Loose icon folders retain the explicit rescan path for nested changes;
-    # declared packs track their files, while Vanilla tracks its publication.
+    # Vanilla also tracks damaged previews when an offline repair is unavailable.
     return signature
 
 

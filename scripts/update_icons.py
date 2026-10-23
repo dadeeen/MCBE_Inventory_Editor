@@ -738,7 +738,7 @@ def _validate_final_response_url(resp, allowed_hosts: set[str], *, label: str) -
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 

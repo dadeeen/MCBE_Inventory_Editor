@@ -108,10 +108,16 @@ Repairs publish a staging copy through the rollback-safe cache publisher. If a
 concurrent full update changes the manifest, its result wins. Unchanged inputs
 are remembered in a bounded process-local cache to avoid repeating failed work
 on every status request; changed files or an explicit rescan allow a retry.
+After an interrupted publication, recovery prefers a complete rollback. If none
+exists, it can restore a cache with intact item icons and missing or empty
+display previews so that repair can retry. New publications require every
+declared image to be present and nonempty; linked cache entries are rejected.
 The first repair needs archive-validation time and temporary space for a second
 icon cache. Read-only status requests, disabled/custom sources and explicitly
 removed caches do not trigger repairs. Missing or incompatible source archives
-leave usable icons available and retain the setup hint. New item/model rendering
+leave usable icons available and retain the setup hint. Vanilla index validation
+tracks display-file metadata so deleted, empty or replaced previews invalidate
+stale entries even when offline repair is unavailable. New item/model rendering
 rules and Minecraft content still use the explicit full Vanilla updater.
 
 `missing_banner_patterns` compares the indexed faces with the

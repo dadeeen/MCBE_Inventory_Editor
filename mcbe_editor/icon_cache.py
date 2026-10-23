@@ -4,11 +4,13 @@ import contextlib
 import json
 import os
 import shutil
+import stat
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 from mcbe_editor.banner_patterns import BANNER_TEXTURES
+from mcbe_editor.path_safety import is_linklike_stat
 from mcbe_editor.update_output_i18n import output_t as tr
 
 WarningHandler = Callable[[str], None]
@@ -25,11 +27,22 @@ def _remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
-def _complete_cache_manifest(path: Path) -> dict | None:
-    if not path.is_dir():
-        return None
+def _complete_cache_manifest(path: Path, *, allow_missing_display: bool = False) -> dict | None:
+    for directory in (path, path / "textures", path / "textures" / "items", path / "textures" / "display"):
+        try:
+            info = directory.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+        if not stat.S_ISDIR(info.st_mode) or is_linklike_stat(info):
+            return None
     try:
-        manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+        manifest_path = path / "manifest.json"
+        info = manifest_path.stat(follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode) or is_linklike_stat(info):
+            return None
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return None
     if not isinstance(manifest, dict):
@@ -48,7 +61,7 @@ def _complete_cache_manifest(path: Path) -> dict | None:
             icon_stat = icon_path.stat(follow_symlinks=False)
         except OSError:
             return None
-        if not icon_path.is_file() or icon_path.is_symlink() or icon_stat.st_size <= 0:
+        if not stat.S_ISREG(icon_stat.st_mode) or is_linklike_stat(icon_stat) or icon_stat.st_size <= 0:
             return None
     display_assets = manifest.get("display_assets", {})
     if not isinstance(display_assets, dict):
@@ -62,9 +75,15 @@ def _complete_cache_manifest(path: Path) -> dict | None:
         icon_path = path / "textures" / "display" / f"{asset_name}.png"
         try:
             icon_stat = icon_path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            if allow_missing_display:
+                continue
+            return None
         except OSError:
             return None
-        if not icon_path.is_file() or icon_path.is_symlink() or icon_stat.st_size <= 0:
+        if not stat.S_ISREG(icon_stat.st_mode) or is_linklike_stat(icon_stat):
+            return None
+        if icon_stat.st_size <= 0 and not allow_missing_display:
             return None
     return manifest
 
@@ -139,6 +158,10 @@ def _recover_icon_cache_unlocked(target_root: Path, *, warn: WarningHandler | No
 
     valid_rollback = next((path for path in rollbacks if _cache_is_complete(path)), None)
     if valid_rollback is None:
+        # Display repair starts from a usable cache with missing previews. A
+        # process exit during publication must still restore its item icons.
+        valid_rollback = next((path for path in rollbacks if _complete_cache_manifest(path, allow_missing_display=True) is not None), None)
+    if valid_rollback is None:
         return
 
     if _path_exists(target_root):
@@ -152,7 +175,7 @@ def _recover_icon_cache_unlocked(target_root: Path, *, warn: WarningHandler | No
 
 
 def recover_icon_cache(target_root: Path, *, warn: WarningHandler | None = None) -> None:
-    """Recover the last complete cache after an interrupted publication."""
+    """Recover a complete cache, or its usable item icons, after interruption."""
 
     with _cache_lock(target_root):
         _recover_icon_cache_unlocked(target_root, warn=warn)
