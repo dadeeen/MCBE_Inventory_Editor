@@ -8,8 +8,9 @@ import {
   selectSetting,
 } from "./fixtures/app.mjs";
 
-test("contained drag copies preserve drafts, reject overwrite and undo as one edit", async ({ page }) => {
+test("contained drag without randomUUID preserves drafts, rejects overwrite and undoes as one edit", async ({ page }) => {
   const errors = collectBrowserErrors(page);
+  await page.addInitScript(() => Object.defineProperty(window.crypto, "randomUUID", { value: undefined }));
   await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:undyed_shulker_box", count: 1, damage: 0,
     special_item: { kind: "shulker", editable: true, data: { items: [
       { slot: 0, source_index: 3, name: "minecraft:diamond", count: 2, damage: 0, lore: ["Keep"], has_preserved_nbt: true },
@@ -37,6 +38,28 @@ test("contained drag copies preserve drafts, reject overwrite and undo as one ed
     { slot: 0, source_index: 3, count: 3, lore: ["Keep"] },
     { slot: 2, copy_source_index: 3, count: 3, lore: ["Keep"] },
   ]);
+  await page.locator("#btnUndo").click();
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  expect(errors).toEqual([]);
+});
+
+test("bundle drag copies work without randomUUID and wait for confirmation", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  await page.addInitScript(() => Object.defineProperty(window.crypto, "randomUUID", { value: undefined }));
+  await openSpecialFixture(page, { 0: { slot: 0, name: "minecraft:bundle", count: 1, damage: 0,
+    special_item: { kind: "bundle", editable: true, data: { items: [
+      { slot: 0, source_index: 0, name: "minecraft:diamond", count: 2, damage: 0 },
+    ] } } } });
+  await page.locator('[data-slot="0"]').click();
+  await page.locator("#btnSpecialItem").click();
+  const dialog = page.locator("#specialItemDialog");
+  await page.keyboard.down("Control");
+  await dialog.locator('[data-special-slot="0"]').dragTo(dialog.getByRole("button", { name: "Item hinzufügen", exact: true }));
+  await page.keyboard.up("Control");
+  await expect(dialog.locator(".special-slot-count")).toHaveText("4");
+  expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
+  await dialog.getByRole("button", { name: "Übernehmen", exact: true }).click();
+  expect(await page.evaluate(() => inventory[0].special_edit.data.items[0].count)).toBe(4);
   await page.locator("#btnUndo").click();
   expect(await page.evaluate(() => inventory[0].special_edit)).toBeUndefined();
   expect(errors).toEqual([]);

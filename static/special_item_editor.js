@@ -238,7 +238,7 @@
                 slotButton.draggable = Boolean(original);
                 slotButton.addEventListener("dragstart", event => {
                     if (!original || !canEdit() || !isCurrentContext(context) || !event.dataTransfer) { event.preventDefault(); return; }
-                    containerDrag = { frame, slot, item: original, token: window.crypto.randomUUID() };
+                    containerDrag = { frame, slot, item: original, token: window.crypto.getRandomValues(new Uint32Array(4)).join("-") };
                     event.dataTransfer.setData("application/x-mcbe-contained-item", containerDrag.token);
                     event.dataTransfer.effectAllowed = isBundle ? "copy" : "copyMove";
                     slotButton.classList.add("dragging");
