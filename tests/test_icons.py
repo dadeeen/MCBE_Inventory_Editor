@@ -284,6 +284,37 @@ def test_parallel_icon_source_additions_are_serialized(monkeypatch, tmp_path):
     assert {Path(source["path"]).name for source in load_icon_sources(str(settings))["sources"]} == {"pack_a", "pack_b"}
 
 
+def test_icon_source_limit_preserves_existing_sources_and_allows_reactivation(tmp_path):
+    from mcbe_editor.icons import set_icon_source_enabled
+
+    settings = tmp_path / "icon_sources.json"
+    packs = [tmp_path / f"pack_{index}" for index in range(51)]
+    for pack in packs:
+        pack.mkdir()
+    for pack in packs[:50]:
+        add_icon_source(str(settings), str(pack))
+
+    before = settings.read_bytes()
+    with pytest.raises(ValueError, match="Maximal 50 manuelle Icon-Quellen"):
+        add_icon_source(str(settings), str(packs[50]))
+    assert settings.read_bytes() == before
+    original_paths = [source["path"] for source in load_icon_sources(str(settings))["sources"]]
+    assert set(original_paths) == {str(pack.resolve()) for pack in packs[:50]}
+
+    existing = str(packs[0].resolve())
+    set_icon_source_enabled(str(settings), existing, False)
+    assert add_icon_source(str(settings), existing)["enabled"] is True
+    sources = load_icon_sources(str(settings))["sources"]
+    assert [source["path"] for source in sources] == original_paths
+    assert next(source for source in sources if source["path"] == existing)["enabled"] is True
+
+    remove_icon_source(str(settings), existing)
+    add_icon_source(str(settings), str(packs[50]))
+    sources = load_icon_sources(str(settings))["sources"]
+    assert len(sources) == 50
+    assert {source["path"] for source in sources} == {str(pack.resolve()) for pack in packs[1:]}
+
+
 def test_icon_scan_supports_manual_mcpack_archive(monkeypatch, tmp_path):
     monkeypatch.delenv("MCBE_ICON_ROOTS", raising=False)
     pack = tmp_path / "test.mcpack"

@@ -29,6 +29,7 @@ _DISPLAY_DIR_HINTS = {"display"}
 _MAX_FILE_BYTES = 2_000_000
 _MAX_SCAN_FILES = 12000
 _MAX_ARCHIVE_MEMBERS = 20000
+_MAX_MANUAL_SOURCES = 50
 _SOURCE_FILE_VERSION = 2
 _INDEX_FILE_VERSION = 9
 _MAX_CONTEXT_INDEXES = 8
@@ -749,7 +750,7 @@ def _locked_icon_sources(settings_path: str | None):
 def _normalize_manual_sources(sources: list[dict]) -> list[dict]:
     normalized: list[dict] = []
     seen: set[str] = set()
-    for index, source in enumerate(sources[:50]):
+    for index, source in enumerate(sources[:_MAX_MANUAL_SOURCES]):
         if not isinstance(source, dict):
             continue
         raw_path = str(source.get("path") or "").strip()
@@ -820,6 +821,8 @@ def add_icon_source(settings_path: str | None, source_path: str) -> dict:
                 save_icon_sources(settings_path, sources)
                 clear_icon_cache(settings_path)
                 return source
+        if len(sources) >= _MAX_MANUAL_SOURCES:
+            raise ValueError(t("Maximal {limit} manuelle Icon-Quellen erlaubt. Entferne zuerst eine vorhandene Quelle.", limit=_MAX_MANUAL_SOURCES))
         source = {"path": resolved, "enabled": True, "label": path.name or resolved, "manual": True, "priority": 0}
         sources.insert(0, source)
         save_icon_sources(settings_path, sources)

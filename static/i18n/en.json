@@ -1937,6 +1937,7 @@
   "Icon-Quelle konnte nicht hinzugefügt werden: {error}": "Icon source could not be added: {error}",
   "Icon-Quelle konnte nicht verschoben werden: {error}": "Icon source could not be moved: {error}",
   "Icon-Quelle nicht gefunden.": "Icon source not found.",
+  "Maximal {limit} manuelle Icon-Quellen erlaubt. Entferne zuerst eine vorhandene Quelle.": "At most {limit} manual icon sources are allowed. Remove an existing source first.",
   "Icon-Staging und Ziel müssen im selben Verzeichnis liegen.": "Icon staging and target must be in the same directory.",
   "Import": "Import",
   "Import als neuer Spieler abgelehnt: Export-Key und NBT-Daten ergeben keinen bearbeitbaren Spieler.": "Import as new player rejected: export key and NBT data do not form an editable player.",
