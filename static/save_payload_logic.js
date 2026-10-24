@@ -236,10 +236,6 @@
             const enderChestInventory = getEnderChestInventory();
             const playerEffects = getPlayerEffects();
             const playerAbilities = getPlayerAbilities();
-            const invList = Object.values(inventory)
-                .filter(item => !isEchoedRootEquipmentItem(item))
-                .map(item => itemForSavePayload(item, "inventory"));
-            const ecList = Object.values(enderChestInventory).map(item => itemForSavePayload(item, "ender_chest"));
             const statsPayload = buildChangedStatsPayload();
             const before = getCleanSnapshot() || null;
             const inventoryChanged = !before || sectionChanged(before.inv, inventory);
@@ -257,7 +253,9 @@
             };
 
             if (inventoryChanged) {
-                payload.inventory = invList;
+                payload.inventory = Object.values(inventory)
+                    .filter(item => !isEchoedRootEquipmentItem(item))
+                    .map(item => itemForSavePayload(item, "inventory"));
                 // Signalisiert dem Backend, dass dieser Client editierbare
                 // Root-Ausrüstungslisten kennt und Items in den Slots
                 // 100-103/-106 mitsendet. Nur dann darf ein fehlendes
@@ -265,7 +263,7 @@
                 payload.root_equipment_editable = true;
             }
             if (enderChestChanged) {
-                payload.ender_chest = ecList;
+                payload.ender_chest = Object.values(enderChestInventory).map(item => itemForSavePayload(item, "ender_chest"));
             }
             if (effectsChanged && !(getProtectedNbt() || {}).active_effects_opaque) {
                 payload.effects = playerEffects;

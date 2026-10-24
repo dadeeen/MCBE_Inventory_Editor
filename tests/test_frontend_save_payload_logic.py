@@ -36,6 +36,7 @@ def test_frontend_save_payload_logic_builds_delta_sections() -> None:
                     abilitiesTouched: false,
                     syncEffectsCount: 0,
                     collectAbilitiesCount: 0,
+                    preparedItems: [],
                     collectedAbilities: null,
                     protectedStats: new Set(),
                     ...overrides,
@@ -61,7 +62,10 @@ def test_frontend_save_payload_logic_builds_delta_sections() -> None:
                     getWorldPath: () => state.worldPath,
                     getWorldPresenceSessionId: () => "presence-1",
                     itemIsVisiblePresent: item => Boolean(item && item.name && item.name !== "minecraft:air"),
-                    itemRequiresOriginalNbt: item => Boolean(item && (item.has_protected_nbt || item.has_preserved_nbt || item.requires_original_nbt)),
+                    itemRequiresOriginalNbt: item => {
+                        state.preparedItems.push(item);
+                        return Boolean(item && (item.has_protected_nbt || item.has_preserved_nbt || item.requires_original_nbt));
+                    },
                     removeProtectedStatsFromPayload: stats => Object.fromEntries(Object.entries(stats).filter(([key]) => !state.protectedStats.has(key))),
                     sectionChanged: changed,
                     setPlayerAbilities: value => {
@@ -72,6 +76,37 @@ def test_frontend_save_payload_logic_builds_delta_sections() -> None:
                     },
                 });
                 return { logic, state };
+            }
+
+            for (const [inventoryChanged, enderChestChanged, hasSnapshot] of [
+                [false, false, true], [true, false, true], [false, true, true],
+                [true, true, true], [false, false, false],
+            ]) {
+                const inventory = {0: {slot: 0, name: "minecraft:stone", count: 1}};
+                const enderChestInventory = {2: {slot: 2, name: "minecraft:diamond", count: 1}};
+                const cleanSnapshot = JSON.parse(JSON.stringify({
+                    inv: inventory, ec: enderChestInventory, stats: {health: 20}, effects: [], abilities: {},
+                }));
+                if (inventoryChanged) inventory[0].count = 2;
+                if (enderChestChanged) enderChestInventory[2].count = 3;
+                const { logic, state } = makeLogic({
+                    inventory, enderChestInventory, playerStats: {health: 19},
+                    cleanSnapshot: hasSnapshot ? cleanSnapshot : null,
+                });
+                const before = JSON.stringify([inventory, enderChestInventory, cleanSnapshot]);
+                const payload = logic.buildSavePayload();
+                const expectedPreparedItems = [];
+                if (inventoryChanged || !hasSnapshot) expectedPreparedItems.push(inventory[0]);
+                if (enderChestChanged || !hasSnapshot) expectedPreparedItems.push(enderChestInventory[2]);
+                assert.deepStrictEqual(state.preparedItems, expectedPreparedItems,
+                    "unchanged inventory sections must not prepare items for saving");
+                assert.strictEqual(Object.hasOwn(payload, "inventory"), inventoryChanged || !hasSnapshot);
+                assert.strictEqual(Object.hasOwn(payload, "root_equipment_editable"), inventoryChanged || !hasSnapshot);
+                assert.strictEqual(Object.hasOwn(payload, "ender_chest"), enderChestChanged || !hasSnapshot);
+                if (payload.inventory) assert.deepStrictEqual(JSON.parse(JSON.stringify(payload.inventory)), [inventory[0]]);
+                if (payload.ender_chest) assert.deepStrictEqual(JSON.parse(JSON.stringify(payload.ender_chest)), [enderChestInventory[2]]);
+                assert.deepStrictEqual(JSON.parse(JSON.stringify(payload.stats)), {health: 19});
+                assert.strictEqual(JSON.stringify([inventory, enderChestInventory, cleanSnapshot]), before);
             }
 
             {
