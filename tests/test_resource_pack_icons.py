@@ -309,6 +309,58 @@ def test_rp_can_redirect_vanilla_atlas_key_without_item_definition(tmp_path, mon
     assert not public["warnings"]
 
 
+@pytest.mark.parametrize(
+    ("atlas", "definitions", "expected"),
+    [
+        ({"minecraft:fruit_icon": ["items/actual_apple"]}, {}, b"inferred apple"),
+        ({"fruit_icon": ["items/actual_apple"], "alias": ["textures/items/actual_apple"]}, {}, b"vanilla apple"),
+        ({"fruit_icon": ["items/actual_apple"], "alias": ["items/actual_apple"], "third": ["items/actual_apple"]}, {}, b"vanilla apple"),
+        ({"fruit_icon": ["items/actual_apple", "items/actual_apple"]}, {}, b"vanilla apple"),
+        ({"fruit_icon": ["items/actual_apple", "items/other"]}, {}, b"vanilla apple"),
+        ({"fruit_icon": []}, {}, b"vanilla apple"),
+        ({}, {}, b"vanilla apple"),
+        ({"fruit_icon": ["items/actual_apple"]}, {"apple": {"texture": "explicit_icon"}}, b"explicit apple"),
+        ({"fruit_icon": ["items/actual_apple"]}, {"apple": None}, b"vanilla apple"),
+        ({"fruit_icon": ["items/actual_apple"]}, {"apple": ""}, b"vanilla apple"),
+    ],
+    ids=["unique", "ambiguous", "three-aliases", "repeated-path", "variants", "empty-paths", "no-atlas", "explicit", "null-binding", "empty-binding"],
+)
+def test_vanilla_binding_inference_requires_one_unambiguous_path(tmp_path, monkeypatch, atlas, definitions, expected):
+    vanilla = _vanilla(tmp_path, monkeypatch)
+    manifest = {
+        "items": {"minecraft:apple": "items/actual_apple"},
+        "item_texture_data": atlas,
+        "item_icon_definitions": definitions,
+    }
+    (vanilla / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _, rp = _pack(
+        tmp_path / "resource_packs",
+        "rp",
+        {
+            "textures/item_texture.json": {
+                "texture_data": {
+                    "fruit_icon": {"textures": "textures/custom/inferred"},
+                    "alias": {"textures": "textures/custom/inferred"},
+                    "third": {"textures": "textures/custom/inferred"},
+                    "explicit_icon": {"textures": "textures/custom/explicit"},
+                }
+            },
+            "textures/custom/inferred.png": b"inferred apple",
+            "textures/custom/explicit.png": b"explicit apple",
+        },
+    )
+    world = _world(tmp_path, "world", [rp])
+    _, worker = _scan(tmp_path, world)
+    assert _bytes(worker, "minecraft:apple") == expected
+
+    # A later scan derives bindings from the current manifest.
+    manifest["item_texture_data"] = {"explicit_icon": ["items/actual_apple"]}
+    manifest["item_icon_definitions"] = {}
+    (vanilla / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _, worker = _scan(tmp_path, world)
+    assert _bytes(worker, "minecraft:apple") == b"explicit apple"
+
+
 def test_custom_item_can_reference_an_existing_vanilla_sprite(tmp_path, monkeypatch):
     _vanilla(tmp_path, monkeypatch)
     _, rp = _pack(

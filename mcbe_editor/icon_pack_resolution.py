@@ -191,11 +191,14 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
 
     # Existing Vanilla manifests contain resolved paths. New publications also
     # retain the declarations, so an RP may remap a key without replacing a PNG.
+    unique_paths = {}
+    for key, paths in base_atlas.items():
+        if len(paths) == 1:
+            path = paths[0]
+            unique_paths[path] = None if path in unique_paths else key
     for item, path in base_paths.items():
-        if item not in base_bindings:
-            matches = [key for key, paths in base_atlas.items() if paths == [path]]
-            if len(matches) == 1:
-                base_bindings[item] = matches[0]
+        if item not in base_bindings and unique_paths.get(path) is not None:
+            base_bindings[item] = unique_paths[path]
     targets = set(definitions) | set(base_paths) | set(base_bindings) | set(catalog_values()["ITEMS"])
     result = {}
     for item in targets:
