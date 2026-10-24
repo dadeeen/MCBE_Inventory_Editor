@@ -1,4 +1,7 @@
 import json
+import tempfile
+import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -290,10 +293,62 @@ def test_native_language_ignores_a_foreign_document(urls):
     remember.assert_not_called()
 
 
+@contextmanager
+def native_profile_directory():
+    temporary = tempfile.TemporaryDirectory(prefix="mcbe-navigation-")
+    try:
+        yield temporary.name
+    finally:
+        # WebView2 can release its profile locks after the window has closed.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                temporary.cleanup()
+                break
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.1)
+
+
+@pytest.mark.parametrize("probe_fails", [False, True])
+def test_native_profile_cleanup_retries_locks_without_hiding_probe_failures(monkeypatch, probe_fails):
+    temporary = SimpleNamespace(name="synthetic-profile", cleanup=Mock(side_effect=[PermissionError("locked"), None]))
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", Mock(return_value=temporary))
+    sleep = Mock()
+    monkeypatch.setattr(time, "sleep", sleep)
+
+    def exercise():
+        with native_profile_directory() as path:
+            assert path == temporary.name
+            if probe_fails:
+                raise AssertionError("navigation failed")
+
+    if probe_fails:
+        with pytest.raises(AssertionError, match="navigation failed"):
+            exercise()
+    else:
+        exercise()
+    assert temporary.cleanup.call_count == 2
+    sleep.assert_called_once()
+
+
+@pytest.mark.parametrize("error", [PermissionError("still locked"), OSError("cleanup failed")])
+def test_native_profile_cleanup_propagates_persistent_errors(monkeypatch, error):
+    temporary = SimpleNamespace(name="synthetic-profile", cleanup=Mock(side_effect=error))
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", Mock(return_value=temporary))
+    monkeypatch.setattr(time, "monotonic", Mock(side_effect=[0, 1, 5]))
+    sleep = Mock()
+    monkeypatch.setattr(time, "sleep", sleep)
+    with pytest.raises(type(error), match=str(error)), native_profile_directory():
+        pass
+    assert temporary.cleanup.call_count == (2 if isinstance(error, PermissionError) else 1)
+    assert sleep.call_count == (1 if isinstance(error, PermissionError) else 0)
+
+
 def run_native_navigation_probe():
     """Windows integration check; only synthetic pages on two loopback servers."""
     import json
-    import tempfile
     import threading
     import webbrowser
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -486,7 +541,7 @@ def run_native_navigation_probe():
             window.destroy()
 
     try:
-        with tempfile.TemporaryDirectory(prefix="mcbe-navigation-") as temporary, patch.object(webbrowser, "open", side_effect=opened.append):
+        with native_profile_directory() as temporary, patch.object(webbrowser, "open", side_effect=opened.append):
             webview.start(exercise, gui="edgechromium", storage_path=str(Path(temporary) / "webview"))
     finally:
         for server in servers:
