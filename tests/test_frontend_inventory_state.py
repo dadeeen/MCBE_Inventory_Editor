@@ -112,6 +112,11 @@ def test_frontend_inventory_state_visible_targets_and_set_counts() -> None:
             assert.strictEqual(inventory[0].count, 64);
             assert.strictEqual(inventory[1].count, 1);
             assert.strictEqual(inventory[2].count, 16);
+            assert.strictEqual(state.setTargetCounts(visibleTargets, {
+                desired: 99,
+                getMaxStack: name => name === "minecraft:snowball" ? 16 : 64,
+                maxBedrockStackCount: 127,
+            }), 0);
             """
         )
     )

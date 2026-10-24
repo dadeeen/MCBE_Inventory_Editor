@@ -13,6 +13,50 @@ async function showEffects(page) {
   await page.locator('[data-tab-dash="dashEffects"]').click();
 }
 
+for (const action of ["clear", "count"]) {
+  test(`unchanged bulk ${action} preserves redo and changed targets undo together`, async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    await openDragFixture(page, { stack_limits: { __default__: 64, "minecraft:stone": 64, "minecraft:carrot": 64 } });
+    await page.locator('[data-slot="0"]').click();
+    await page.locator("#detailCount").fill("2");
+    await page.locator("#detailSlotNum").click();
+    await page.locator("#btnUndo").click();
+    const before = await page.evaluate(() => inventory);
+    const selectPair = async (first, second) => {
+      await page.locator(`[data-slot="${first}"]`).click();
+      await page.locator(`[data-slot="${second}"]`).click({ modifiers: ["Control"] });
+    };
+    await selectPair(...(action === "clear" ? [9, 10] : [0, 2]));
+    if (action === "count") await page.locator("#bulkCount").fill("1");
+    const button = page.locator(action === "clear" ? "#btnBulkClear" : "#btnBulkSetCount");
+    await button.click();
+    expect(await page.evaluate(() => inventory)).toEqual(before);
+    expect(await page.evaluate(() => isDirty)).toBe(false);
+    await expect(page.locator("#btnUndo")).toBeDisabled();
+    await expect(page.locator("#btnRedo")).toHaveAttribute("data-history-count", "1");
+    await page.locator("#btnRedo").click();
+    expect(await page.evaluate(() => inventory[0].count)).toBe(2);
+
+    await selectPair(0, 2);
+    const beforeChanged = await page.evaluate(() => inventory);
+    if (action === "count") await page.locator("#bulkCount").fill("5");
+    await button.click();
+    const afterChanged = await page.evaluate(() => inventory);
+    if (action === "clear") {
+      expect(afterChanged[0]).toBeUndefined();
+      expect(afterChanged[2]).toBeUndefined();
+    } else {
+      expect(afterChanged[0].count).toBe(5);
+      expect(afterChanged[2].count).toBe(5);
+    }
+    await page.locator("#btnUndo").click();
+    expect(await page.evaluate(() => inventory)).toEqual(beforeChanged);
+    await page.locator("#btnRedo").click();
+    expect(await page.evaluate(() => inventory)).toEqual(afterChanged);
+    expect(errors).toEqual([]);
+  });
+}
+
 test("fractional speed values remain editable and do not block saving other changes", async ({ page }) => {
   await openDragFixture(page, precisePlayerFields);
   expect(await page.evaluate(() => hasUnsavedChanges())).toBe(false);

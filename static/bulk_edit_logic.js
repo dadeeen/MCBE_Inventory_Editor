@@ -317,10 +317,12 @@
                     if (plan.toast) showToast?.(plan.toast.message, plan.toast.type, plan.toast.ms);
                     return;
                 }
-                pushUndo?.(plan.undoLabel);
-                window.MCBEInventoryState.clearTargets(writableTargets);
-                finishBulkEdit();
                 if (plan.skippedProtected) showToast?.(t("Geschützte Slots wurden übersprungen."), "warning", 3000);
+                const occupiedTargets = writableTargets.filter(({ map, slotId }) => Object.hasOwn(map, slotId));
+                if (!occupiedTargets.length) return;
+                pushUndo?.(plan.undoLabel);
+                window.MCBEInventoryState.clearTargets(occupiedTargets);
+                finishBulkEdit();
                 logStatus?.(plan.statusMessage, "info");
                 recordAction?.(plan.actionMessage, "edit");
             });
@@ -338,13 +340,14 @@
                     if (plan.toast) showToast?.(plan.toast.message, plan.toast.type, plan.toast.ms);
                     return;
                 }
-                pushUndo?.(plan.undoLabel);
                 const changed = window.MCBEInventoryState.setTargetCounts(targets, {
                     desired: plan.desired,
                     getMaxStack: itemCatalog.getMaxStack,
                     hasVerifiedStackLimit: itemCatalog.hasVerifiedStackLimit,
                     maxBedrockStackCount,
+                    beforeChange: () => pushUndo?.(plan.undoLabel),
                 });
+                if (!changed) return;
                 finishBulkEdit({ clear: false });
                 const outcome = logic.bulkSetCountOutcome(changed);
                 recordAction?.(outcome.recordMessage, "edit");

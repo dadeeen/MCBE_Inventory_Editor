@@ -214,3 +214,60 @@ def test_frontend_bulk_edit_controller_guards_every_mutation_entrypoint() -> Non
             """
         )
     )
+
+
+def test_unchanged_bulk_actions_preserve_redo_and_do_not_record_edits() -> None:
+    run_node(
+        r"""
+        const assert = require('assert');
+        const fs = require('fs');
+        global.window = {};
+        global.t = text => text;
+        for (const file of ['selection_state', 'inventory_state', 'undo_redo_controller', 'bulk_edit_logic']) {
+            eval(fs.readFileSync(`static/${file}.js`, 'utf8'));
+        }
+        for (const scenario of ['empty', 'protected-empty', 'same', 'clamped', 'unverified']) {
+            const clear = scenario.endsWith('empty');
+            const initialCount = scenario === 'clamped' ? 64 : 1;
+            let inventory = { 0: { slot: 0, name: 'minecraft:stone', count: initialCount } };
+            const history = window.MCBEUndoRedoController.createUndoRedoController({
+                takeSnapshot: () => structuredClone(inventory), snapshotHash: JSON.stringify,
+            });
+            history.pushUndo('Earlier change');
+            inventory[0].count += 1;
+            inventory = history.undo().snapshot;
+            const before = structuredClone(inventory);
+            const historyBefore = history.state();
+            const writes = [];
+            const warnings = [];
+            let click;
+            const elements = {
+                [clear ? 'clearButton' : 'setCountButton']: {
+                    addEventListener(_event, listener) { click = listener; },
+                },
+                bulkCount: { value: scenario === 'same' ? '1' : '99' },
+            };
+            window.MCBEBulkEditLogic.createBulkEditController({
+                elements,
+                itemCatalog: { getMaxStack: () => scenario === 'unverified' ? 1 : 64,
+                    hasVerifiedStackLimit: () => scenario !== 'unverified' },
+                getSelectedSlots: () => clear ? [1, 2] : [0, 1],
+                getInventory: () => inventory,
+                getCurrentSelectionState: () => ({ selectedSlots: [0, 1] }),
+                itemIsVisiblePresent: item => Boolean(item?.count),
+                isProtectedKnownSlot: slotId => scenario === 'protected-empty' && slotId === 1,
+                pushUndo: label => history.pushUndo(label),
+                setDirty: () => writes.push('dirty'),
+                recordAction: () => writes.push('action'),
+                showToast: message => warnings.push(message),
+            }).wire();
+            click();
+            assert.deepStrictEqual(inventory, before, scenario);
+            assert.deepStrictEqual(history.state(), historyBefore, scenario);
+            assert.deepStrictEqual(writes, [], scenario);
+            assert.deepStrictEqual(warnings, scenario === 'protected-empty' ? ['Geschützte Slots wurden übersprungen.'] : [], scenario);
+            inventory = history.redo().snapshot;
+            assert.strictEqual(inventory[0].count, initialCount + 1, scenario);
+        }
+        """
+    )

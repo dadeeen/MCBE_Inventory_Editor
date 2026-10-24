@@ -159,8 +159,8 @@
         return damagedItemTargets(writableTargets(targets, isProtectedKnownSlot), { maxDamage, isItemVisiblePresent });
     }
 
-    function setTargetCounts(targets, { desired, getMaxStack = () => 64, hasVerifiedStackLimit = () => true, maxBedrockStackCount = 127 } = {}) {
-        let changed = 0;
+    function setTargetCounts(targets, { desired, getMaxStack = () => 64, hasVerifiedStackLimit = () => true, maxBedrockStackCount = 127, beforeChange = () => {} } = {}) {
+        const changes = [];
         targets.forEach(({ map, slotId }) => {
             const item = map?.[slotId];
             if (!item) return;
@@ -168,10 +168,12 @@
             // Do not silently replace an existing amount with our safe fallback.
             if (!hasVerifiedStackLimit(item.name) && desired > maxStack) return;
             const upperBound = Math.min(maxStack, maxBedrockStackCount);
-            item.count = Math.min(Math.max(desired, 1), upperBound);
-            changed += 1;
+            const count = Math.min(Math.max(desired, 1), upperBound);
+            if (item.count !== count) changes.push({ item, count });
         });
-        return changed;
+        if (changes.length) beforeChange();
+        changes.forEach(({ item, count }) => { item.count = count; });
+        return changes.length;
     }
 
     function moveOrCopySlotState({
