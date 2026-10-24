@@ -369,6 +369,7 @@
         }
 
         let activeDrag = null;
+        let iconRefreshPending = false;
 
         function clearDragContext() {
             if (!activeDrag) return;
@@ -409,6 +410,7 @@
                 clearDragContext();
                 el.classList.remove("dragging");
                 doc.querySelectorAll(".inventory-slot").forEach(s => s.classList.remove("drag-over"));
+                if (iconRefreshPending) updateGridVisuals();
             });
             el.addEventListener("dragover", (e) => {
                 if (!dragContextIsCurrent()) { clearDragContext(); return; }
@@ -656,7 +658,17 @@
             });
         }
 
+        function refreshIcons() {
+            // Icon responses can arrive while the user is dragging a slot.
+            if (dragContextIsCurrent()) {
+                iconRefreshPending = true;
+                return;
+            }
+            updateGridVisuals();
+        }
+
         function updateGridVisuals() {
+            iconRefreshPending = false;
             clearDragContext();
             updateUndoButtons();
             getInventoryViewPreferences()?.applyInventoryViewPreferences?.();
@@ -786,6 +798,7 @@
             hideSlotHover,
             makeSlotDraggable,
             moveOrCopySlot,
+            refreshIcons,
             renderSlots,
             showSlotHover,
             slotMatchesGridFilter,

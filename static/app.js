@@ -1081,7 +1081,7 @@ const iconSourcesController = window.MCBEIconSourcesController.createInventoryIc
     onIconDataApplied() {
         renderDataSourcePanels();
         renderStatusCenter();
-        updateGridVisuals();
+        getInventoryGridController().refreshIcons();
         updateDetailPreview();
         specialItemEditor.refreshPreview();
     },

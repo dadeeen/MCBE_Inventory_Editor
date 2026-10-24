@@ -8,6 +8,53 @@ import {
   selectSetting,
 } from "./fixtures/app.mjs";
 
+for (const action of ["drop", "cancel"]) {
+  test(`icon refresh preserves an active drag until ${action}`, async ({ page }) => {
+    let releaseIcons;
+    const iconsReady = new Promise(resolve => { releaseIcons = resolve; });
+    const iconUrl = "/api/icons/drag-refresh-fixture";
+    await page.route("**/api/icons/drag-refresh-fixture", route => route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><path fill="#aaa" d="M0 0h32v32H0z"/></svg>',
+    }));
+    await page.route("**/api/icons/status*", async route => {
+      const world = new URL(route.request().url()).searchParams.has("world_path");
+      if (world) await iconsReady;
+      await route.fulfill({ json: {
+        success: true, count: world ? 1 : 0, sources: [], warnings: [],
+        icons: world ? { "minecraft:stone": { url: iconUrl } } : {},
+      } });
+    });
+    await openDragFixture(page);
+    const source = page.locator('[data-slot="0"]');
+    const target = page.locator('[data-slot="2"]');
+    await source.scrollIntoViewIfNeeded();
+    const from = await source.boundingBox();
+    const to = await target.boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 12, from.y + from.height / 2, { steps: 4 });
+    await expect(source).toHaveClass(/dragging/);
+    releaseIcons();
+    await expect.poll(() => page.evaluate(() => itemIconIndex["minecraft:stone"]?.url)).toBe(iconUrl);
+    await expect(source).toHaveClass(/dragging/);
+    await expect(source.locator("img")).toHaveCount(0);
+
+    if (action === "drop") {
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+    } else {
+      await page.keyboard.press("Escape");
+    }
+    await page.mouse.up();
+    await expect(source).not.toHaveClass(/dragging/);
+    const stoneSlot = action === "drop" ? target : source;
+    await expect(stoneSlot.locator("img")).toHaveAttribute("src", iconUrl);
+    expect(await page.evaluate(() => [inventory[0].name, inventory[2].name])).toEqual(
+      action === "drop" ? ["minecraft:carrot", "minecraft:stone"] : ["minecraft:stone", "minecraft:carrot"],
+    );
+  });
+}
+
 for (const scenario of ["foreign_text", "foreign_internal", "drag_ended", "previous_drag", "world_changed", "player_changed", "source_replaced"]) {
   test(`inventory drag rejects ${scenario}`, async ({ page }) => {
     const browserErrors = collectBrowserErrors(page);
