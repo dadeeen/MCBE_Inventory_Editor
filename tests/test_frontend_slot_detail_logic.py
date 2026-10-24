@@ -36,6 +36,18 @@ def test_reverted_slot_restores_representation_but_preserves_identity_and_nbt_in
         assert.equal(restore(null, baseline), null);
         assert.equal(restore(candidate, null), candidate);
 
+        const rawText = { ...baseline, display_name: 'First\r\nSecond', lore: ['A\r\nB', 'C\rD'] };
+        const normalizedText = { ...rawText, count: 7, display_name: 'FirstSecond', lore: ['A', 'B', 'C', 'D'] };
+        const preservedText = restore(normalizedText, rawText);
+        assert.equal(preservedText.count, 7);
+        assert.equal(preservedText.display_name, rawText.display_name);
+        assert.equal(JSON.stringify(preservedText.lore), JSON.stringify(rawText.lore));
+        assert.equal(normalizedText.display_name, 'FirstSecond');
+        for (const identity of [{ source_item_digest: 'b'.repeat(64) }, { replace_original_nbt: true }]) {
+            const replacement = { ...normalizedText, ...identity };
+            assert.equal(restore(replacement, rawText), replacement);
+        }
+
         const entity = context.window.MCBEEntityVariantEditor;
         for (const [name, metadata, edit] of [
             ['minecraft:axolotl_bucket', { entity_id: 'minecraft:axolotl', variant: 1, is_baby: false, can_edit: true },

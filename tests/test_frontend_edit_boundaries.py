@@ -31,7 +31,8 @@ class Element {
     getAttribute(name) { return this[name] ?? null; }
 }
 const container = new Element();
-global.document = { getElementById: id => id === 'effectsContainer' ? container : null, createElement: () => new Element() };
+global.document = { getElementById: id => id === 'effectsContainer' ? container : null,
+    querySelectorAll: () => container.children, createElement: () => new Element() };
 for (const file of ['ability_state', 'ability_view', 'effects_view', 'effects_logic', 'undo_redo_controller']) {
     require('./static/' + file + '.js');
 }
@@ -39,7 +40,8 @@ let effects = [1, 2].map(id => ({ id, amplifier: 0, duration: 200, show_particle
 const clone = value => JSON.parse(JSON.stringify(value));
 const undo = MCBEUndoRedoController.createUndoRedoController({ takeSnapshot: () => clone(effects), snapshotHash: JSON.stringify });
 const controller = MCBEEffectsLogic.createEffectsAbilitiesController({
-    getPlayerEffects: () => effects, getEffectsDb: () => ({ 1: ['A'], 2: ['B'] }), pushUndo: () => undo.pushUndo(),
+    getPlayerEffects: () => effects, getEffectsDb: () => ({ 1: ['A'], 2: ['B'] }),
+    pushUndo: (...args) => undo.pushUndo(...args), finishUndoGroup: key => undo.finishUndoGroup(key),
 });
 controller.renderEffectsList();
 function edit(index, seconds, blur = true) {

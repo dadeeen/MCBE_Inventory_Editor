@@ -14,18 +14,32 @@
 
     function restoreEquivalentItem(item, baseline) {
         if (!item || !baseline) return item;
-        // Only derived inspection/stack caches and empty form defaults are
-        // irrelevant here. Origins, replacement intent and NBT edits must match.
+        const originFields = ["name", "source_slot", "source_container", "source_player_key", "source_world_path",
+            "source_item_digest", "root_equipment_source_tag", "root_equipment_source_index",
+            "replace_original_nbt", "protected_nbt_dropped", "origin_world_mismatch"];
+        if (originFields.some(key => item[key] !== baseline[key])) return item;
+        const displayText = value => String(value ?? "").replace(/[\r\n]/g, "");
+        const loreText = value => (value || []).join("\n").replace(/\r\n?/g, "\n");
+        let restored = item;
+        for (const [key, rendered] of [["display_name", displayText], ["lore", loreText]]) {
+            if (rendered(restored[key]) !== rendered(baseline[key])) continue;
+            if (!Object.prototype.hasOwnProperty.call(baseline, key)
+                || JSON.stringify(restored[key]) === JSON.stringify(baseline[key])) continue;
+            if (restored === item) restored = cloneJson(item);
+            restored[key] = cloneJson(baseline[key]);
+        }
+        // Compare text as rendered by HTML controls and ignore derived caches.
+        // Origins, replacement intent and other NBT edits must still match.
         const comparable = value => {
             const result = cloneJson(value);
             delete result.nbt_view;
             delete result.stack_key;
-            result.display_name ??= "";
-            result.lore ??= [];
+            result.display_name = displayText(result.display_name);
+            result.lore = loreText(result.lore);
             result.enchantments ??= [];
             return result;
         };
-        const candidate = comparable(item);
+        const candidate = comparable(restored);
         const original = comparable(baseline);
         const editor = window.MCBEEntityVariantEditor;
         if (candidate.entity_variant_edit && !original.entity_variant_edit && editor) {
@@ -39,7 +53,7 @@
             : value && typeof value === "object"
                 ? Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])]))
                 : value;
-        return JSON.stringify(ordered(candidate)) === JSON.stringify(ordered(original)) ? cloneJson(baseline) : item;
+        return JSON.stringify(ordered(candidate)) === JSON.stringify(ordered(original)) ? cloneJson(baseline) : restored;
     }
 
     function clampInteger(value, fallback, min, max) {

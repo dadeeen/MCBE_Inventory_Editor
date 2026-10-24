@@ -396,6 +396,7 @@
         onStatsApplied = () => {},
         getPlayerEffects,
         getPlayerAbilities,
+        getCleanSnapshot = () => null,
         setPlayerAbilities,
         getEffectsDb,
         getEffectsTouched,
@@ -403,7 +404,9 @@
         setAbilitiesTouched,
         getShouldSyncAbilitiesFromUIForSave,
         editingBlocked = () => false,
+        hasPlayer = () => true,
         pushUndo,
+        finishUndoGroup = () => true,
         setDirty,
         logStatus,
         showToast,
@@ -412,6 +415,65 @@
         const abilityState = window.MCBEAbilityState;
         const abilityView = window.MCBEAbilityView;
         const effectsView = window.MCBEEffectsView;
+        let inputSession = null;
+        let renderedAbilities = null;
+        let renderedEffects = null;
+
+        function invalidNumericInput(input, ignoreStepMismatch = false) {
+            if (!input) return false;
+            // Loading temporarily disables controls before asking about drafts.
+            if (input.disabled) return input.getAttribute?.("aria-invalid") === "true";
+            const invalid = String(input.value ?? "").trim() === "" || !Number.isFinite(Number(input.value))
+                || input.validity?.badInput === true || input.validity?.rangeUnderflow === true
+                || input.validity?.rangeOverflow === true || (!ignoreStepMismatch && input.validity?.stepMismatch === true);
+            input.setAttribute?.("aria-invalid", String(invalid));
+            return invalid;
+        }
+
+        function invalidAbilityInputs() {
+            // Speed controls use coarse arrow steps but accept finer Bedrock values.
+            return Object.values(ABILITY_SPEED_INPUT_IDS).some(id => invalidNumericInput(doc.getElementById(id), true));
+        }
+
+        function invalidEffectRow(row) {
+            return [row?.querySelector?.(".eff-level"), row?.querySelector?.(".eff-duration")].some(input => invalidNumericInput(input));
+        }
+
+        function invalidEffectInputs() {
+            return Array.from(doc.querySelectorAll("#effectsContainer .effect-row")).some(invalidEffectRow);
+        }
+
+        function hasPendingChanges() {
+            return hasPlayer() && (invalidAbilityInputs() || invalidEffectInputs());
+        }
+
+        function guardPendingChanges() {
+            if (!hasPendingChanges()) return false;
+            showToast?.(t("Bitte korrigiere zuerst die offenen Effekt- oder Fähigkeitswerte."), "warning", 4500);
+            return true;
+        }
+
+        function finishInputSession() {
+            const completed = inputSession;
+            inputSession = null;
+            if (completed?.actionMessage && finishUndoGroup(completed) !== false) {
+                recordAction?.(completed.actionMessage, "edit");
+            }
+        }
+
+        function beginInputSession(input) {
+            if (inputSession?.input !== input) {
+                finishInputSession();
+                inputSession = { input, abilities: JSON.parse(JSON.stringify(playerAbilities())),
+                    effects: JSON.parse(JSON.stringify(playerEffects())) };
+            }
+            return inputSession;
+        }
+
+        function captureInputUndo(session, actionMessage) {
+            pushUndo?.(actionMessage, { mergeKey: session });
+            session.actionMessage = actionMessage;
+        }
 
         function protectedNbt() {
             return getProtectedNbt?.() || {};
@@ -494,7 +556,10 @@
         }
 
         function loadAbilitiesUI() {
+            if (renderedAbilities === playerAbilities() && invalidAbilityInputs()) return;
+            finishInputSession();
             let abilities = playerAbilities();
+            renderedAbilities = abilities;
             if (!abilities || typeof abilities !== "object") abilities = {};
             const nbt = protectedNbt();
             const abilitiesOpaque = nbt.abilities_opaque === true || abilities._opaque === true;
@@ -507,28 +572,56 @@
                 verticalFlySpeedValue: formatAbilitySpeed(abilities.vertical_fly_speed, defaults.vertical_fly_speed),
             });
             abilityView.applyAbilityFormModel(doc, model);
+            Object.values(ABILITY_SPEED_INPUT_IDS).forEach(id => doc.getElementById(id)?.removeAttribute?.("aria-invalid"));
+            invalidAbilityInputs();
             abilityView.applyMovementLockNoteModel(doc.getElementById("abilityMovementLockNote"), abilityView.movementLockNoteModel({
                 abilitiesOpaque,
                 reason: abilityState.movementSpeedLock(nbt),
             }));
         }
 
-        function collectAbilitiesFromUI() {
-            return abilityState.collectAbilitiesFromValues(
-                playerAbilities(),
+        function collectAbilitiesFromUI(baseline = playerAbilities()) {
+            if (invalidAbilityInputs()) return null;
+            const collected = abilityState.collectAbilitiesFromValues(
+                baseline,
                 protectedNbt(),
                 abilityView.readAbilitySpeedValues(doc),
             );
+            if (collected === null) return null;
+            // Reverts preserve exact values and absent defaults, including after
+            // another field or view ended the original typing group.
+            for (const original of [baseline, getCleanSnapshot()?.abilities]) {
+                if (!original) continue;
+                for (const [key, fallback] of Object.entries(abilityState.ABILITY_SPEED_DEFAULTS)) {
+                    if (!Object.prototype.hasOwnProperty.call(collected, key)
+                        || formatAbilitySpeed(collected[key], fallback) !== formatAbilitySpeed(original[key], fallback)) continue;
+                    if (Object.prototype.hasOwnProperty.call(original, key)) collected[key] = original[key];
+                    else delete collected[key];
+                }
+            }
+            return collected;
+        }
+
+        function effectRowPatch(index, row, baseline = null) {
+            const effects = playerEffects();
+            if (!Number.isInteger(index) || !effects[index] || !row || invalidEffectRow(row)) return null;
+            if (effects[index].opaque === true || !effectsDb()[effects[index].id]) return null;
+            const values = effectsView.readEffectRowValues(row);
+            const patch = effectsView.effectPatchFromRowValues(values, baseline || effects[index]);
+            const original = getCleanSnapshot()?.effects?.find(effect => effect.id === effects[index].id);
+            const seconds = Number(values.durationSecondsValue);
+            if (Number.isFinite(original?.duration) && original.duration >= 0
+                && Math.floor(effects[index].duration / 20) !== seconds
+                && Math.floor((baseline || effects[index]).duration / 20) !== seconds
+                && Math.floor(original.duration / 20) === seconds) {
+                patch.duration = original.duration;
+            }
+            return patch;
         }
 
         function syncEffectRow(index, row) {
-            const effects = playerEffects();
-            if (!Number.isInteger(index) || !effects[index] || !row) return;
-            if (effects[index].opaque === true || !effectsDb()[effects[index].id]) return;
-            Object.assign(
-                effects[index],
-                effectsView.effectPatchFromRowValues(effectsView.readEffectRowValues(row), effects[index]),
-            );
+            const patch = effectRowPatch(index, row);
+            if (patch) Object.assign(playerEffects()[index], patch);
         }
 
         function renderEffectPicker() {
@@ -573,10 +666,11 @@
             });
         }
 
-        function applyLiveEffectRowChange({ index, row, model, captureLiveEffectUndo }) {
-            if (isEditingBlocked() || model.isProtectedEffect) return false;
+        function applyLiveEffectRowChange({ index, row, model, captureLiveEffectUndo, initialEffect = null }) {
+            if (isEditingBlocked() || model.isProtectedEffect || invalidEffectRow(row)) return false;
             const effect = playerEffects()[index];
-            const patch = effectsView.effectPatchFromRowValues(effectsView.readEffectRowValues(row), effect);
+            const patch = effectRowPatch(index, row, initialEffect);
+            if (!patch) return false;
             if (Object.entries(patch).every(([key, value]) => effect[key] === value)) return false;
             const actionMessage = captureLiveEffectUndo();
             Object.assign(effect, patch);
@@ -587,9 +681,12 @@
         }
 
         function renderEffectsList() {
+            if (renderedEffects === playerEffects() && invalidEffectInputs()) return;
+            finishInputSession();
             renderEffectPicker();
             const container = doc.getElementById("effectsContainer");
             if (!container) return;
+            renderedEffects = playerEffects();
             container.innerHTML = "";
 
             const listModel = effectsView.effectsListModel({
@@ -602,7 +699,6 @@
                 return;
             }
 
-            let liveUndoInput = null;
             listModel.rowModels.forEach(model => {
                 const index = model.index;
                 const row = effectsView.effectRowElement(model);
@@ -617,27 +713,22 @@
                     [".eff-particles", "change"],
                 ].forEach(([selector, eventName]) => {
                     const input = row.querySelector(selector);
-                    const captureLiveEffectUndo = () => {
-                        // Group typing only within this focused control. Checkbox
-                        // changes are discrete actions, including repeated clicks.
-                        if (liveUndoInput !== input || eventName === "change") {
-                            const actionMessage = t("Effekt {name} bearbeitet", { name: model.nameDe });
-                            pushUndo?.(actionMessage);
-                            liveUndoInput = input;
-                            return actionMessage;
-                        }
-                    };
-                    input?.addEventListener("blur", () => {
-                        if (liveUndoInput === input) liveUndoInput = null;
-                    });
+                    input?.addEventListener("blur", finishInputSession);
                     input?.addEventListener(eventName, () => {
                         if (isEditingBlocked()) return;
+                        if (eventName === "change") finishInputSession();
+                        const session = eventName === "input" ? beginInputSession(input) : null;
+                        const captureLiveEffectUndo = () => {
+                            const actionMessage = t("Effekt {name} bearbeitet", { name: model.nameDe });
+                            if (session) captureInputUndo(session, actionMessage);
+                            else { pushUndo?.(actionMessage); return actionMessage; }
+                        };
                         logic.clampInputToDeclaredRange(input);
-                        applyLiveEffectRowChange({ index, row, model, captureLiveEffectUndo });
+                        applyLiveEffectRowChange({ index, row, model, captureLiveEffectUndo, initialEffect: session?.effects[index] });
                     });
                 });
                 row.querySelector(".effect-remove")?.addEventListener("click", () => {
-                    if (isEditingBlocked()) return;
+                    if (isEditingBlocked() || guardPendingChanges()) return;
                     const decision = logic.removeEffectDecision({
                         protectedEffect: model.isProtectedEffect,
                     });
@@ -658,13 +749,14 @@
             });
         }
 
-        function applyLiveAbilityInputChange(captureLiveAbilityUndo) {
-            if (isEditingBlocked()) return false;
-            const collected = collectAbilitiesFromUI();
+        function applyLiveAbilityInputChange(captureLiveAbilityUndo, initialAbilities = null) {
+            if (isEditingBlocked() || invalidAbilityInputs()) return false;
+            const collected = collectAbilitiesFromUI(initialAbilities || playerAbilities());
             if (collected === null) return false;
             if (JSON.stringify(collected) === JSON.stringify(getPlayerAbilities?.() || {})) return false;
             const actionMessage = captureLiveAbilityUndo();
             setPlayerAbilities?.(collected);
+            renderedAbilities = playerAbilities();
             setAbilitiesTouched?.(true);
             setDirty?.(true);
             if (actionMessage) recordAction?.(actionMessage, "edit");
@@ -733,7 +825,7 @@
             });
             doc.getElementById("effectCatalogSearch")?.addEventListener("input", renderEffectPicker);
             doc.getElementById("btnAddEffect")?.addEventListener("click", () => {
-                if (isEditingBlocked()) return;
+                if (isEditingBlocked() || guardPendingChanges()) return;
                 const decision = logic.addEffectDecision({
                     protectedActiveEffects: protectedNbt().active_effects_opaque,
                     effects: playerEffects(),
@@ -774,11 +866,13 @@
                     return;
                 }
                 const actionMessage = t("Bewegungsgeschwindigkeiten zurückgesetzt");
-                pushUndo?.(actionMessage);
                 inputs.forEach(([input, value]) => { input.value = String(value); });
                 const collected = collectAbilitiesFromUI();
                 if (collected === null) return;
+                if (JSON.stringify(collected) === JSON.stringify(playerAbilities())) return;
+                pushUndo?.(actionMessage);
                 setPlayerAbilities?.(collected);
+                renderedAbilities = playerAbilities();
                 setAbilitiesTouched?.(true);
                 setDirty?.(true);
                 showToast?.(t("Bewegungsgeschwindigkeiten auf Vanilla-Standardwerte zurückgesetzt."));
@@ -788,7 +882,7 @@
 
         function wireApplyEffects() {
             doc.getElementById("btnApplyEffects")?.addEventListener("click", () => {
-                if (isEditingBlocked()) return;
+                if (isEditingBlocked() || guardPendingChanges()) return;
                 const nbt = protectedNbt();
                 const plan = logic.effectsAbilitiesApplyPlan({
                     protectedActiveEffects: nbt.active_effects_opaque,
@@ -801,19 +895,28 @@
                     plan,
                     collectedAbilities: plan.syncAbilities ? collectAbilitiesFromUI() : null,
                 });
-                if (!outcome.hasWork) {
+                const effectsChanged = outcome.syncEffects && Array.from(doc.querySelectorAll("#effectsContainer .effect-row"))
+                    .some(row => {
+                        const index = Number.parseInt(row.dataset.index, 10);
+                        const patch = effectRowPatch(index, row);
+                        return patch && Object.entries(patch).some(([key, value]) => playerEffects()[index][key] !== value);
+                    });
+                const abilitiesChanged = outcome.applyAbilities
+                    && JSON.stringify(outcome.collectedAbilities) !== JSON.stringify(playerAbilities());
+                if (!effectsChanged && !abilitiesChanged) {
                     logStatus?.(t("Keine Effekt-/Fähigkeitsänderung erkannt."), "warning");
                     showToast?.(t("Keine Änderung erkannt."), "warning", 2500);
                     return;
                 }
                 const actionMessage = t("Effekte & Fähigkeiten aktualisiert");
                 pushUndo?.(actionMessage);
-                if (outcome.syncEffects) {
+                if (effectsChanged) {
                     syncEffectsFromUI();
                     setEffectsTouched?.(true);
                 }
-                if (outcome.applyAbilities) {
+                if (abilitiesChanged) {
                     setPlayerAbilities?.(outcome.collectedAbilities);
+                    renderedAbilities = playerAbilities();
                     setAbilitiesTouched?.(true);
                 }
                 setDirty?.(true);
@@ -833,28 +936,19 @@
 
         function wireLiveAbilityInputs() {
             doc.querySelectorAll("#dashEffects .abilities-section input").forEach(input => {
-                const captureLiveAbilityUndo = () => {
-                    if (input.type === "checkbox" || input.dataset.undoCaptured !== "1") {
+                const applyInput = () => {
+                    if (isEditingBlocked()) return;
+                    const session = beginInputSession(input);
+                    logic.clampInputToDeclaredRange(input);
+                    syncWalkSpeedWithMovement(input);
+                    applyLiveAbilityInputChange(() => {
                         const label = input.labels?.[0]?.textContent?.trim() || input.ariaLabel || t("Fähigkeiten");
-                        const actionMessage = t("{name} bearbeitet", { name: label });
-                        pushUndo?.(actionMessage);
-                        input.dataset.undoCaptured = "1";
-                        return actionMessage;
-                    }
+                        captureInputUndo(session, t("{name} bearbeitet", { name: label }));
+                    }, session.abilities);
                 };
-                input.addEventListener("focus", () => {
-                    input.dataset.undoCaptured = "0";
-                });
-                input.addEventListener("input", () => {
-                    logic.clampInputToDeclaredRange(input);
-                    syncWalkSpeedWithMovement(input);
-                    applyLiveAbilityInputChange(captureLiveAbilityUndo);
-                });
-                input.addEventListener("change", () => {
-                    logic.clampInputToDeclaredRange(input);
-                    syncWalkSpeedWithMovement(input);
-                    applyLiveAbilityInputChange(captureLiveAbilityUndo);
-                });
+                input.addEventListener("input", applyInput);
+                input.addEventListener("change", applyInput);
+                input.addEventListener("blur", finishInputSession);
             });
         }
 
@@ -868,6 +962,9 @@
 
         return {
             collectAbilitiesFromUI,
+            finishInputSession,
+            guardPendingChanges,
+            hasPendingChanges,
             loadAbilitiesUI,
             protectedAbilityFields,
             protectedStatFields,

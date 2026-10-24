@@ -60,6 +60,7 @@ let stackLimits = {};    // Explicit per-item limits; missing values use the saf
 let maxDamage = {};      // From backend: item_name -> max_damage (or __default__ = 32767)
 let isDirty = false;
 let slotDetailController = null;
+let effectsAbilitiesController = null;
 let players = [];
 let currentPlayerKey = "";
 let currentPlayer = null;
@@ -1182,11 +1183,13 @@ function openSpecialEditor(slot, container = "inventory", draft = null, childSlo
 
 function hasUnsavedChanges() {
     return isDirty || specialItemEditor.hasPendingChanges() || slotDetailController.hasPendingChanges()
-        || statsFormController.hasPendingChanges();
+        || statsFormController.hasPendingChanges() || Boolean(effectsAbilitiesController?.hasPendingChanges());
 }
 
 function guardPendingEditorChanges() {
     if (slotDetailController.guardSlotChanges()) return true;
+    if (effectsAbilitiesController?.guardPendingChanges()) return true;
+    effectsAbilitiesController?.finishInputSession();
     const message = statsFormController.hasPendingChanges()
         ? t("Bitte übernimm zuerst die offenen Spielerwerte. Die Aktion wurde nicht ausgeführt.")
         : specialItemEditor.hasPendingChanges()
@@ -1492,8 +1495,9 @@ function switchDashTab(tabId) { return dashboardTabController.switchTo(tabId); }
 dashboardTabController.wire();
 
 // Player stats, effects and abilities controller
-const effectsAbilitiesController = window.MCBEEffectsLogic.createEffectsAbilitiesController({
+effectsAbilitiesController = window.MCBEEffectsLogic.createEffectsAbilitiesController({
     doc: document,
+    hasPlayer: () => Boolean(currentPlayerKey),
     statsFormElements,
     onStatsApplied: () => {
         statsFormController.resetConversion();
@@ -1505,6 +1509,7 @@ const effectsAbilitiesController = window.MCBEEffectsLogic.createEffectsAbilitie
     setPlayerStats: value => { playerStats = value; },
     getPlayerEffects: () => playerEffects,
     getPlayerAbilities: () => playerAbilities,
+    getCleanSnapshot: () => undoRedoAppController.getCleanSnapshot(),
     setPlayerAbilities: value => { playerAbilities = value; },
     getEffectsDb: () => effectsDb,
     getEffectsTouched: () => effectsTouched,
@@ -1513,6 +1518,7 @@ const effectsAbilitiesController = window.MCBEEffectsLogic.createEffectsAbilitie
     getShouldSyncAbilitiesFromUIForSave: () => getSaveAppController().shouldSyncAbilitiesFromUIForSave(),
     editingBlocked: () => writeGateController.editingBlocked(),
     pushUndo,
+    finishUndoGroup: key => undoRedoAppController.finishUndoGroup(key),
     setDirty,
     logStatus,
     showToast,
