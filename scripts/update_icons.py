@@ -1118,8 +1118,8 @@ def normalize_identifier(value: str) -> str:
     return re.sub(r"_+", "_", text)
 
 
-def load_item_icon_targets(path: Path = ITEM_DB_PATH) -> tuple[list[str], list[str], int]:
-    """Load addable icon targets and excluded recognition-catalog IDs.
+def load_icon_targets(path: Path) -> tuple[list[str], list[str], int, set[str]]:
+    """Load icon targets and the block-item registry from one catalog snapshot.
 
     ``items`` remains the complete recognition catalog for lossless handling of
     existing worlds. The regular icon QA/cache target list follows Mojang's
@@ -1133,9 +1133,11 @@ def load_item_icon_targets(path: Path = ITEM_DB_PATH) -> tuple[list[str], list[s
         raise RuntimeError(tr("Item-DB JSON nicht gefunden: {path}", path=path)) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise RuntimeError(tr("Item-DB JSON ist ungültig oder nicht lesbar: {path}", path=path)) from exc
+    block_items_raw = data.get("block_items", []) if isinstance(data, dict) else []
+    block_items = {normalized for value in (block_items_raw if isinstance(block_items_raw, list) else []) if (normalized := normalize_identifier(str(value)))}
     items = data.get("items") if isinstance(data, dict) else {}
     if not isinstance(items, dict):
-        return [], [], 0
+        return [], [], 0, block_items
     addable_raw = data.get("addable_items") if isinstance(data, dict) else None
     block_only_raw = data.get("block_only_items", []) if isinstance(data, dict) else []
     block_only = {normalized for key in (block_only_raw if isinstance(block_only_raw, list) else []) if (normalized := normalize_identifier(str(key)))}
@@ -1150,22 +1152,7 @@ def load_item_icon_targets(path: Path = ITEM_DB_PATH) -> tuple[list[str], list[s
         # Rückwärtskompatibilität für ältere externe Item-Datenbanken.
         targets = {item_id for item_id in catalog_items - block_only if not is_technical_block_only_item_id(f"minecraft:{item_id}")}
     excluded = sorted(catalog_items - targets)
-    return sorted(targets), excluded, len(catalog_items)
-
-
-def load_block_item_targets(path: Path = ITEM_DB_PATH) -> set[str]:
-    """Load the positive block-item registry used to gate model rendering."""
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise RuntimeError(tr("Item-DB JSON nicht gefunden: {path}", path=path)) from exc
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError(tr("Item-DB JSON ist ungültig oder nicht lesbar: {path}", path=path)) from exc
-    raw = data.get("block_items", []) if isinstance(data, dict) else []
-    if not isinstance(raw, list):
-        return set()
-    return {normalized for value in raw if (normalized := normalize_identifier(str(value)))}
+    return sorted(targets), excluded, len(catalog_items), block_items
 
 
 def candidate_texture_keys(item_id: str, data_driven_aliases: dict[str, list[str]] | None = None) -> list[str]:
@@ -2026,8 +2013,7 @@ def main(argv: list[str] | None = None) -> int:
     # avoids a redundant large download.
     reuse_matching_download = not args.force and _same_resource_pack_release(cached_metadata, info)
     zip_path = download_release_zip(info, use_cache=reuse_matching_download)
-    known_items, excluded_non_addable, catalog_item_count = load_item_icon_targets()
-    block_item_ids = load_block_item_targets()
+    known_items, excluded_non_addable, catalog_item_count, block_item_ids = load_icon_targets(ITEM_DB_PATH)
     if metadata_needs_write:
         write_release_metadata(info)
     # Release metadata describes the downloaded source cache, while the target

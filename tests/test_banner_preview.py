@@ -197,8 +197,7 @@ def test_legacy_cache_gains_banner_faces_from_validated_zip_without_redownload(m
     monkeypatch.setattr(update_icons, "ICON_ROOT", target)
     monkeypatch.setattr(update_icons, "read_release_metadata", lambda: info)
     monkeypatch.setattr(update_icons, "get_latest_full_release_info", lambda: info)
-    monkeypatch.setattr(update_icons, "load_item_icon_targets", lambda: (["apple"], [], 1))
-    monkeypatch.setattr(update_icons, "load_block_item_targets", set)
+    monkeypatch.setattr(update_icons, "load_icon_targets", lambda _path: (["apple"], [], 1, set()))
     monkeypatch.setattr(update_icons, "_build_validating_opener", lambda *a, **kw: pytest.fail("The validated ZIP must be reused"))
     assert update_icons.main([]) == 0
 

@@ -40,7 +40,7 @@ def test_updater_failures_use_forwarded_english_locale(monkeypatch, tmp_path):
     monkeypatch.setenv(update_output_i18n.UPDATE_LOCALE_ENV, "en")
 
     with pytest.raises(RuntimeError, match="Item DB JSON not found"):
-        update_icons.load_item_icon_targets(tmp_path / "missing-item-db.json")
+        update_icons.load_icon_targets(tmp_path / "missing-item-db.json")
 
     staging = tmp_path / "staging-parent" / "staging"
     target = tmp_path / "target-parent" / "target"

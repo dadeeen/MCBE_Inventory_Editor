@@ -1972,7 +1972,7 @@ def test_icon_main_commits_source_metadata_before_cache_publication(monkeypatch,
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
     download = mock.Mock(return_value=tmp_path / "download.zip")
     monkeypatch.setattr(update_icons_module, "download_release_zip", download)
-    monkeypatch.setattr(update_icons_module, "load_item_icon_targets", lambda: ([], [], 0))
+    monkeypatch.setattr(update_icons_module, "load_icon_targets", lambda _path: ([], [], 0, set()))
     monkeypatch.setattr(
         update_icons_module,
         "build_icon_cache",
@@ -2023,8 +2023,7 @@ def test_icon_normal_mode_reuses_download_only_for_matching_release(monkeypatch,
     monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: info)
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
     monkeypatch.setattr(update_icons_module, "download_release_zip", download)
-    monkeypatch.setattr(update_icons_module, "load_item_icon_targets", lambda: ([], [], 0))
-    monkeypatch.setattr(update_icons_module, "load_block_item_targets", lambda: set())
+    monkeypatch.setattr(update_icons_module, "load_icon_targets", lambda _path: ([], [], 0, set()))
     monkeypatch.setattr(
         update_icons_module,
         "build_icon_cache",
@@ -2062,6 +2061,39 @@ def test_icon_internal_cache_mode_skips_online_release_lookup(monkeypatch):
     latest_lookup.assert_not_called()
 
 
+def test_icon_update_reads_one_catalog_snapshot_per_run(monkeypatch, tmp_path):
+    import scripts.update_icons as update_icons_module
+
+    item_db = tmp_path / "item_db.json"
+    item_db.write_text(json.dumps({"items": {"minecraft:apple": [], "minecraft:stone": []}, "block_items": ["minecraft:stone"]}), encoding="utf-8")
+    original_read = Path.read_text
+    reads = []
+
+    def read_then_replace(path, *args, **kwargs):
+        text = original_read(path, *args, **kwargs)
+        if path == item_db:
+            reads.append(path)
+            path.write_text(json.dumps({"items": {"minecraft:dirt": []}, "block_items": ["minecraft:dirt"]}), encoding="utf-8")
+        return text
+
+    monkeypatch.setattr(Path, "read_text", read_then_replace)
+    monkeypatch.setattr(update_icons_module, "ITEM_DB_PATH", item_db)
+    info = {"resource_pack_release": "test", "resource_pack_asset": "test.zip"}
+    monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
+    monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: info)
+    monkeypatch.setattr(update_icons_module, "download_release_zip", lambda *_args, **_kwargs: tmp_path / "download.zip")
+    monkeypatch.setattr(update_icons_module, "prune_cached_icon_release_zips", lambda _path: {"removed_count": 0, "removed_bytes": 0, "warnings": []})
+    build = mock.Mock(return_value={"mapped_items": 0, "inventory_item_targets": 0, "excluded_non_addable_items": 0, "missing_count": 0})
+    monkeypatch.setattr(update_icons_module, "build_icon_cache", build)
+
+    for run, (targets, blocks) in enumerate([(["apple", "stone"], {"stone"}), (["dirt"], {"dirt"})], start=1):
+        assert update_icons_module.main([]) == 0
+        assert len(reads) == run
+        assert build.call_args.args[1] == targets
+        assert build.call_args.kwargs["block_item_ids"] == blocks
+        assert build.call_args.kwargs["catalog_item_count"] == len(targets)
+
+
 def test_icon_metadata_failure_does_not_publish_new_cache(monkeypatch, tmp_path):
     import scripts.update_icons as update_icons_module
 
@@ -2074,7 +2106,7 @@ def test_icon_metadata_failure_does_not_publish_new_cache(monkeypatch, tmp_path)
     build = mock.Mock()
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
     monkeypatch.setattr(update_icons_module, "download_release_zip", lambda *_args, **_kwargs: tmp_path / "download.zip")
-    monkeypatch.setattr(update_icons_module, "load_item_icon_targets", lambda: ([], [], 0))
+    monkeypatch.setattr(update_icons_module, "load_icon_targets", lambda _path: ([], [], 0, set()))
     monkeypatch.setattr(update_icons_module, "build_icon_cache", build)
     monkeypatch.setattr(
         update_icons_module,
@@ -2206,14 +2238,15 @@ def test_icon_persistent_metadata_tolerates_invalid_utf8(monkeypatch, tmp_path):
     assert update_icons_module.read_release_metadata() == {}
 
 
-def test_icon_item_database_reports_invalid_utf8(tmp_path):
+@pytest.mark.parametrize("contents", [b"\xff\xfe", b"{invalid", b"[" * 2000])
+def test_icon_item_database_reports_invalid_content(tmp_path, contents):
     import scripts.update_icons as update_icons_module
 
     item_db = tmp_path / "item_db.json"
-    item_db.write_bytes(b"\xff\xfe")
+    item_db.write_bytes(contents)
 
     with pytest.raises(RuntimeError, match="Item-DB JSON ist ungültig"):
-        update_icons_module.load_item_icon_targets(item_db)
+        update_icons_module.load_icon_targets(item_db)
 
 
 def test_icon_targets_follow_positive_addable_registry(tmp_path):
@@ -2246,11 +2279,12 @@ def test_icon_targets_follow_positive_addable_registry(tmp_path):
         encoding="utf-8",
     )
 
-    targets, excluded, catalog_count = update_icons_module.load_item_icon_targets(item_db)
+    targets, excluded, catalog_count, block_items = update_icons_module.load_icon_targets(item_db)
 
     assert targets == ["allow", "apple", "white_cushion"]
     assert excluded == ["black_wool_double_slab", "element_32", "oak_double_slab"]
     assert catalog_count == 5
+    assert block_items == set()
 
 
 def test_block_icon_targets_follow_positive_block_registry(tmp_path):
@@ -2262,4 +2296,22 @@ def test_block_icon_targets_follow_positive_block_registry(tmp_path):
         encoding="utf-8",
     )
 
-    assert update_icons_module.load_block_item_targets(item_db) == {"stone", "acacia_slab", "invalid:custom_block"}
+    assert update_icons_module.load_icon_targets(item_db) == ([], [], 0, {"stone", "acacia_slab", "invalid:custom_block"})
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (None, ([], [], 0, set())),
+        ([], ([], [], 0, set())),
+        ({"items": [], "block_items": ["minecraft:stone"]}, ([], [], 0, {"stone"})),
+        ({"items": {"apple": []}, "block_items": None}, (["apple"], [], 1, set())),
+        ({"items": {"apple": [], "stone": []}, "block_only_items": ["stone"]}, (["apple"], ["stone"], 2, set())),
+    ],
+)
+def test_icon_targets_preserve_missing_and_legacy_registry_handling(tmp_path, data, expected):
+    import scripts.update_icons as update_icons_module
+
+    item_db = tmp_path / "item_db.json"
+    item_db.write_text(json.dumps(data), encoding="utf-8")
+    assert update_icons_module.load_icon_targets(item_db) == expected
