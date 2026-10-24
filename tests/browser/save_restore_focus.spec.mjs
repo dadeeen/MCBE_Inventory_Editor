@@ -3,7 +3,67 @@ import {
   collectBrowserErrors,
   openDragFixture,
   captureBrowserEvidence,
+  selectLayout,
 } from "./fixtures/app.mjs";
+
+for (const draft of ["stats", "slot", "ability", "effect"]) {
+  test(`external-change reload confirms an uncommitted ${draft} draft`, async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    const stored = { revision: "draft-revision", fingerprint: "draft-world" };
+    await page.route("**/api/world/presence", route => route.fulfill({ json: {
+      success: true, other_sessions: 0, world_fingerprint: stored.fingerprint,
+      player_revision: stored.revision,
+    } }));
+    let loads = 0;
+    await openDragFixture(page, () => {
+      loads++;
+      return { player_revision: stored.revision, world_fingerprint: stored.fingerprint,
+        stack_limits: { __default__: 64, "minecraft:stone": 64 },
+        abilities: { movement_speed: 0.1, walk_speed: 0.1, fly_speed: 0.05, vertical_fly_speed: 1 },
+        effects: [{ id: 1, amplifier: 0, duration: 600, show_particles: true }],
+        effects_db: { 1: ["Tempo", "Speed"] },
+        protected_nbt: { has_inventory_tag: true, has_ender_chest_tag: true,
+          has_abilities_tag: true, has_active_effects_tag: true } };
+    });
+    let field;
+    if (draft === "stats") {
+      await selectLayout(page, "studio");
+      await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
+      field = page.locator("#statHealth");
+    } else if (draft === "slot") {
+      await page.locator('[data-slot="0"]').click();
+      field = page.locator("#detailCount");
+    } else {
+      await page.locator('.app-workflow-nav [data-workflow-view="player"]').click();
+      await page.locator('[data-tab-dash="dashEffects"]').click();
+      field = page.locator(draft === "ability" ? "#abFlySpeed" : ".eff-duration");
+    }
+    const original = await field.inputValue();
+    const pending = draft === "stats" ? "7" : "";
+    await field.fill(pending);
+    expect(await page.evaluate(() => ({ dirty: isDirty, pending: hasUnsavedChanges() })))
+      .toEqual({ dirty: false, pending: true });
+    stored.revision = "external-revision";
+    stored.fingerprint = "external-world";
+    await page.evaluate(() => updateWorldPresence());
+    await page.evaluate(() => updateWorldPresence());
+    const reload = page.locator(".toast-error").getByRole("button", { name: "Spieler neu laden" });
+    await reload.click();
+    await expect(page.locator("#confirmOverlay")).toBeVisible();
+    await page.locator("#confirmCancel").click();
+    await expect(field).toHaveValue(pending);
+    expect(loads).toBe(1);
+    await page.locator("#statusStackButton").click();
+    await page.locator("#statusStackPanel").getByRole("button", { name: "Spieler neu laden" }).click();
+    await page.locator("#confirmOk").click();
+    await expect.poll(() => loads).toBe(2);
+    await expect(page.locator("#loadingOverlay")).toBeHidden();
+    if (draft === "slot") await page.locator('[data-slot="0"]').click();
+    await expect(field).toHaveValue(original);
+    expect(await page.evaluate(() => hasUnsavedChanges())).toBe(false);
+    expect(errors).toEqual([]);
+  });
+}
 
 test("a player changed outside the editor shows an error until it is reloaded", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);

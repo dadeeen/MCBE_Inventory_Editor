@@ -838,7 +838,7 @@ const worldPresenceController = window.MCBEPresenceView.createConfiguredWorldPre
         getCurrentPlayerLabel: currentPlayerLabel,
         getCurrentPlayerRevision: () => currentPlayerRevision,
         getLoadedWorldFingerprint: () => loadedWorldFingerprint,
-        getIsDirty: () => isDirty,
+        getIsDirty: hasUnsavedChanges,
         getIsBusy: () => Boolean(saveAppController?.isSaving() || playerLoadApp?.isLoading()),
     },
     helpers: {
