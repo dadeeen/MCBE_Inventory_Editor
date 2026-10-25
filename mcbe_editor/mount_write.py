@@ -194,6 +194,10 @@ def merge_digp_value(existing_value: bytes | None, actor_entry: bytes) -> bytes:
     chunks = split_digp_value(existing_value)
     if actor_entry in chunks:
         return existing_value or b""
+    # Workspace batches validate only after committing. Refuse the new entry
+    # here, before preparing a batch our own bounded reader cannot validate.
+    if len(existing_value or b"") + len(actor_entry) > MAX_DIGP_VALUE_BYTES:
+        raise ValueError("digp-Wert ist unerwartet groß und wird nicht verändert.")
     return (existing_value or b"") + actor_entry
 
 

@@ -14,7 +14,7 @@ The synthetic writer supports:
 - skeleton horse (`minecraft:skeleton_horse`);
 - camel (`minecraft:camel`).
 
-Creation is limited to the Overworld. A known non-zero `dimension_id` is rejected. If the dimension is absent from player NBT, the UI warns that the loaded Overworld context is being assumed.
+Creation requires a known Overworld `dimension_id`. A non-zero, absent, or unreadable dimension blocks creation; the UI asks the user to reload the player when its dimension cannot be determined.
 
 The normal UI uses `synthetic_full`. Compatibility and comparison modes may remain in the backend, but they are not separate user workflows.
 
@@ -122,6 +122,8 @@ At minimum, validation must confirm:
 - expected definitions, attributes, and equipment tag types.
 
 A failure before the batch is a normal rejected save and must leave the world unchanged.
+
+The editor accepts at most 4096 actor entries in one `digp` chunk index. Preparation checks the combined result of all staged mounts against this reader limit. If an addition would exceed it, the entire workspace save is rejected before the batch, including any accompanying player changes.
 
 A validation failure after the batch has committed uses `success=false`, `write_committed=true`, and `validation_failed=true`. The frontend adopts the returned revision, removes already written drafts, shows the backup notice, and prevents an unchanged retry. An uncertain write outcome instead requires a reload without marking drafts as written; see [write outcomes](save_contract.md#write-outcomes-and-post-write-validation). Repeating either operation could create duplicate entities.
 
