@@ -116,8 +116,6 @@ jobs:
     name: Browser smoke tests
     # Keep browser dependencies on an explicitly supported Ubuntu release.
     runs-on: ubuntu-24.04
-    env:
-      MCBE_TEST_ARTIFACT_ROOT: ${{ runner.temp }}/browser-smoke
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -138,6 +136,8 @@ jobs:
       - name: JavaScript unit tests
         run: npm run test:javascript
       - name: Browser smoke tests
+        env:
+          MCBE_TEST_ARTIFACT_ROOT: ${{ runner.temp }}/browser-smoke
         run: npm run test:browser
       - name: Upload browser diagnostics
         if: failure()
