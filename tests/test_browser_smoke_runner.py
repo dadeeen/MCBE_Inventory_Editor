@@ -70,6 +70,43 @@ def test_browser_smoke_runtime_paths_stay_in_external_run_root(tmp_path, monkeyp
         assert Path(env[key]).is_relative_to(run_root)
 
 
+def test_browser_smoke_relaunches_when_venv_python_links_to_global_python(tmp_path, monkeypatch):
+    global_python = tmp_path / "global-python"
+    global_python.write_text("", encoding="utf-8")
+    project_python = tmp_path / ".venv" / "bin" / "python"
+    project_python.parent.mkdir(parents=True)
+    try:
+        project_python.symlink_to(global_python)
+    except OSError:
+        pytest.skip("Creating symlinks is not supported by this account")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(browser_smoke, "ROOT", tmp_path)
+    monkeypatch.setattr(browser_smoke, "_project_venv_python", lambda: project_python)
+    monkeypatch.setattr(browser_smoke.sys, "executable", str(global_python))
+    monkeypatch.setattr(browser_smoke.sys, "prefix", str(tmp_path / "global-env"))
+    monkeypatch.delenv(browser_smoke.VENV_REEXEC_ENV, raising=False)
+    monkeypatch.setattr(browser_smoke.subprocess, "run", fake_run)
+
+    assert browser_smoke._run_in_project_venv([]) == 0
+    assert calls[0][0] == str(project_python)
+
+
+def test_browser_smoke_keeps_active_project_venv(tmp_path, monkeypatch):
+    project_python = tmp_path / ".venv" / "bin" / "python"
+    monkeypatch.setattr(browser_smoke, "ROOT", tmp_path)
+    monkeypatch.setattr(browser_smoke, "_project_venv_python", lambda: project_python)
+    monkeypatch.setattr(browser_smoke.sys, "prefix", str(tmp_path / ".venv"))
+    monkeypatch.delenv(browser_smoke.VENV_REEXEC_ENV, raising=False)
+    monkeypatch.setattr(browser_smoke.subprocess, "run", lambda *args, **kwargs: pytest.fail("Already in the project venv"))
+
+    assert browser_smoke._run_in_project_venv([]) is None
+
+
 def test_browser_smoke_does_not_inherit_private_paths_or_credentials(tmp_path, monkeypatch):
     monkeypatch.setattr(browser_smoke, "TMP", tmp_path)
     monkeypatch.setenv("MCBE_ITEM_DB_PATH", "private-item-db.json")

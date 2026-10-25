@@ -95,6 +95,7 @@ def check_language(locale, catalog):
                 "auth_enabled": False,
             },
             i18n_catalog=catalog if locale == "en" else {},
+            special_item_schema={},  # This check only verifies rendered labels.
         )
     )
     match = re.search(r'<label for="detailLore">([^<]+)</label>', rendered)

@@ -45,6 +45,7 @@ def render_template(root=ROOT, locale="de", *, authenticated=False):
         url_for=lambda name, **params: "/static/" + params["filename"] if name == "static" else "/" + name,
         csrf_token="offline-preview",
         i18n_catalog=catalog,
+        special_item_schema={},  # The isolated fixture does not run special-item editors.
         app_config={
             "mode": "docker" if authenticated else "local",
             "auth_enabled": authenticated,
@@ -126,7 +127,7 @@ def create_page(page, root=ROOT, locale="de", layout="studio", view="inventory",
         buildSlotTooltipLines:(slot,container)=>[window.MCBESlotDisplay.slotAreaLabel(slot,container)],
         loadSingleSlotEditor:slot=>{
           byId('detailSlotNum').textContent=String(slot);
-          byId('detailItemId').value=inventory[slot]?.name||'';
+          byId('detailItemSearch').value=inventory[slot]?.name||'';
           byId('detailCount').value=inventory[slot]?.count||1;
           byId('detailDamage').value=0;
         },

@@ -91,11 +91,14 @@ def _run_in_project_venv(args: list[str]) -> int | None:
     project_python = _project_venv_python()
     if project_python is None:
         return None
+    project_prefix = ROOT / ".venv"
     try:
-        if project_python.resolve() == Path(sys.executable).resolve():
+        # POSIX virtual environments commonly link to the global Python
+        # binary. Its resolved executable does not identify the active venv.
+        if project_prefix.resolve() == Path(sys.prefix).resolve():
             return None
     except OSError:
-        if os.path.normcase(str(project_python)) == os.path.normcase(sys.executable):
+        if os.path.normcase(str(project_prefix)) == os.path.normcase(sys.prefix):
             return None
 
     env = os.environ.copy()

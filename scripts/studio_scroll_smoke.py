@@ -37,6 +37,7 @@ def render_template():
             csrf_token="preview",
             app_config=APP_CONFIG,
             i18n_catalog={},
+            special_item_schema={},  # Layout-only fixture; no special-item editor runtime.
         )
     )
     return without_automatic_assets(html)
