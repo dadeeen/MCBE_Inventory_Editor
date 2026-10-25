@@ -2963,12 +2963,18 @@ input.item-count-fixed::-webkit-inner-spin-button, input.item-count-fixed::-webk
     margin-top: 16px;
 }
 
-.update-db-output-wrapper {
+.update-db-output-wrapper,
+.icon-update-output-wrapper {
     background: var(--workspace-well-bg);
     border: 1px solid var(--slot-border);
     border-radius: 12px;
     padding: 12px;
 }
+
+.icon-update-output-wrapper { margin-bottom: 16px; }
+#iconUpdateHint { margin: 8px 0; }
+.icon-update-output-wrapper > details > summary,
+#btnClearIconUpdateOutput { min-height: 44px; }
 
 .update-db-output-header {
     display: flex;
@@ -5498,9 +5504,9 @@ input.item-count-fixed::-webkit-inner-spin-button, input.item-count-fixed::-webk
 #dashUpdate .item-db-status-hero { border: 0; border-left: 3px solid var(--border-color); border-radius: 0; background: none; }
 #dashUpdate .item-db-status-hero.warning { border-left-color: var(--warning); }
 #dashUpdate .item-db-version-line { display: flex; flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
-#updateDbResult { overflow-wrap: anywhere; }
+#updateDbResult, #iconUpdateResult, #iconUpdateHint { overflow-wrap: anywhere; }
 #updateDbResult p { margin: 8px 0; }
-#updateDbResult[data-state="incomplete"] { border-left: 3px solid var(--warning); padding-left: 12px; }
+#updateDbResult[data-state="incomplete"], #iconUpdateResult[data-state="incomplete"] { border-left: 3px solid var(--warning); padding-left: 12px; }
 #updateDbAudit { overflow-wrap: anywhere; }
 #updateDbAudit p { margin: 8px 0; }
 #dashIcons .icon-source-row { border: 0; border-bottom: 1px solid var(--border-color); border-radius: 0; background: none; padding: 12px 0; }
@@ -5517,7 +5523,7 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 .tool-source-dialog label { display: block; margin-bottom: 8px; }
 .tool-source-dialog .hint-text { margin-top: 12px; }
 .tool-source-dialog [role="status"] { margin-top: 12px; overflow-wrap: anywhere; }
-.update-db-output-wrapper[hidden], .data-source-panel[hidden] { display: none; }
+.update-db-output-wrapper[hidden], .icon-update-output-wrapper[hidden], .data-source-panel[hidden] { display: none; }
 @media (max-width: 600px) {
     .tool-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
     .tool-source-dialog { padding: 16px; }

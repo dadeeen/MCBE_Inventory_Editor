@@ -31,6 +31,7 @@ from .icons import (
 )
 from .resource_packs import select_world_packs
 from .service_errors import public_error_text
+from .update_http_errors import extract_http_failure, failure_fields
 from .world_locks import locked_operation
 
 _ICON_OPERATION_LOCK = threading.RLock()
@@ -210,6 +211,7 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
             # itself reuses a validated ZIP automatically when it already
             # matches that release.
             returncode, output = deps.run_update_icons(force=force, use_cache=False)
+            output, http_failure = extract_http_failure(output)
             manifest_path = Path(deps.data_root or "data").expanduser() / "icons" / "vanilla" / "manifest.json"
             manifest = {}
             if manifest_path.exists():
@@ -238,6 +240,8 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
             else:
                 result["error"] = t("Vanilla-Icons konnten nicht geladen werden.")
                 result["category"] = "network-or-dns" if deps.looks_like_network_failure(output) else "script-error"
+                if http_failure:
+                    result.update(failure_fields(http_failure))
             deps.audit_event(
                 "icons.vanilla_update",
                 "partial" if returncode == 0 and "scan_warning" in result else ("success" if returncode == 0 else "failure"),

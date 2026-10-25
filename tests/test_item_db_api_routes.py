@@ -84,6 +84,30 @@ def test_update_db_reports_failed_persistent_recovery():
     deps.reload_item_db_after_update.assert_not_called()
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("category,status", [("github-rate-limit", 403), ("github-rate-limit", 429), ("http-error", 403), ("http-error", 503)])
+def test_update_http_failure_reaches_api_without_reloading_or_review_receipt(monkeypatch, dry_run, category, status):
+    from mcbe_editor import update_http_errors
+
+    monkeypatch.setattr(update_http_errors.time, "time", lambda: 2_000_000_000)
+    record = {"schema": 1, "category": category, "http_status": status, "retry_at": 2_000_000_120}
+    output = "technical cause\n" + update_http_errors.ERROR_PREFIX + json.dumps(record) + "\n"
+    deps = _deps(run_update_db=Mock(return_value=(1, output)))
+
+    result = item_db_api_routes.update_db({"dry_run": dry_run, "force": not dry_run}, deps)[1]
+
+    assert result["success"] is False
+    assert result["category"] == category
+    assert result["http_status"] == status
+    assert result["output"] == "technical cause\n"
+    assert result["retry_at"] == 2_000_000_120
+    assert "UTC" in result["hint"]
+    assert ("GitHub" in result["error"]) is (category == "github-rate-limit")
+    assert "update_committed" not in result and "update_review_token" not in result
+    assert deps.audit_event.call_args.kwargs["details"]["category"] == category
+    deps.reload_item_db_after_update.assert_not_called()
+
+
 def test_update_db_returns_structured_report_without_protocol_in_visible_output():
     from mcbe_editor.update_db_report import REPORT_PREFIX
 

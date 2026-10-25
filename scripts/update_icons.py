@@ -36,6 +36,7 @@ def _load_runtime_dependencies():
     from mcbe_editor.icon_resolution import IconResolution, resolve_icon_definition
     from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
+    from mcbe_editor.update_http_errors import report_http_errors
     from mcbe_editor.update_output_i18n import output_t
     from mcbe_editor.update_progress import report_progress
 
@@ -56,6 +57,7 @@ def _load_runtime_dependencies():
         report_progress,
         BANNER_TEXTURES,
         crop_banner_texture,
+        report_http_errors,
     )
 
 
@@ -76,6 +78,7 @@ def _load_runtime_dependencies():
     report_progress,
     BANNER_TEXTURES,
     crop_banner_texture,
+    report_http_errors,
 ) = _load_runtime_dependencies()
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DATA_ROOT = Path(os.environ.get("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser()
@@ -1982,6 +1985,7 @@ def build_icon_cache(
             return manifest
 
 
+@report_http_errors
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=tr("Lädt Vanilla-Item-Icons aus dem offiziellen Mojang/bedrock-samples Full-Release."))
     parser.add_argument("--force", action="store_true", help=tr("Release neu abfragen und Cache neu bauen."))

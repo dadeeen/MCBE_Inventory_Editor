@@ -3419,5 +3419,10 @@
   "Bitte korrigiere oder verwirf zuerst die offenen Eingaben im Slot-Editor. Die Aktion wurde nicht ausgeführt.": "Please correct or discard the pending input in the slot editor first. The action was not performed.",
   "Bitte korrigiere zuerst die offenen Effekt- oder Fähigkeitswerte.": "Please correct the pending effect or ability values first.",
   "Kein Gegenstand ausgewählt.": "No item selected.",
-  "Gültige Änderungen werden direkt in den Slot übernommen. Erst „Speichern“ schreibt in die Welt.": "Valid changes are applied to the slot immediately. Only “Save” writes to the world."
+  "Gültige Änderungen werden direkt in den Slot übernommen. Erst „Speichern“ schreibt in die Welt.": "Valid changes are applied to the slot immediately. Only “Save” writes to the world.",
+  "GitHub-Anfragelimit erreicht. Bitte später erneut versuchen.": "GitHub request limit reached. Please try again later.",
+  "Die Online-Quelle meldet einen Fehler (HTTP {status}).": "The online source returned an error (HTTP {status}).",
+  "Erneuter Versuch frühestens ab {time} (UTC).": "Try again no earlier than {time} (UTC).",
+  "Fehler beim Laden von {url}: HTTP {status}": "Failed to load {url}: HTTP {status}",
+  "Technisches Protokoll des Icon-Updates": "Technical log of the icon update"
 }

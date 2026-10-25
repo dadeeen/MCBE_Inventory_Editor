@@ -91,6 +91,7 @@
         }
         add(result, t("Bereich: {scope}", {scope: scopeText})).className = "hint-text";
         if (data.error) add(result, data.error);
+        if (data.hint) add(result, data.hint).className = "hint-text";
         if (data.reload_warning) add(result, data.reload_warning);
         if (!data.success && data.update_committed) add(result, t("Einige Bereiche konnten nicht aktualisiert werden. Die übernommenen Bereiche sind bereits gespeichert."));
         const changes = doc.createElement("ul");
@@ -282,6 +283,8 @@
         let reviewedSources = null;
         let currentResult = null;
         let confirming = false;
+        let failedPreviewScope;
+        let failedApplyScope;
 
         function isApplyUnnecessary(only = onlySelect?.value || null) {
             return currentResult?.only === only && (!currentResult.verificationRequired || only !== null);
@@ -330,10 +333,15 @@
                 ? (options.only || null)
                 : (onlySelect?.value || null);
             const matchingReview = !dryRun && reviewedSources?.only === only ? reviewedSources : null;
+            const resolveKeys = [];
+            const coversFailure = scope => scope !== undefined && (only === null || only === scope);
+            if (dryRun) failedPreviewScope = undefined;
+            else failedApplyScope = undefined;
             if (dryRun) reviewedSources = null;
             const updateStatus = (message, type, active = undefined) => logStatus(message, type, {
                 key: statusKey,
                 active,
+                resolveKeys: [...resolveKeys],
             });
             append(`\n${t("=== {mode} gestartet ===", { mode })}`);
             append(t("Bereich: {scope}", { scope: selectedScopeText(onlySelect, only) }));
@@ -377,6 +385,16 @@
                     if (clientWarning) append(clientWarning);
                 }
                 if (data.success) {
+                    // Applying a checked scope resolves its earlier preview failure.
+                    // A preview can only resolve a failed write when it confirms that
+                    // the database is already current and fully verified.
+                    if (!dryRun && coversFailure(failedPreviewScope)) {
+                        resolveKeys.push("database-update:dry-run");
+                        failedPreviewScope = undefined;
+                    } else if (dryRun && data.summary?.status === "current" && data.verification_required === false && coversFailure(failedApplyScope)) {
+                        resolveKeys.push("database-update:apply");
+                        failedApplyScope = undefined;
+                    }
                     const reviewToken = data.update_review_token || data.release_cache_token;
                     if (dryRun && reviewToken && data.resource_pack_release) {
                         reviewedSources = {
@@ -420,6 +438,8 @@
                         updateStatus(t("{mode} erfolgreich.", { mode }), "success", false);
                     }
                 } else {
+                    if (dryRun) failedPreviewScope = only;
+                    else if (!data.update_committed && !data.reload_warning && !clientWarning) failedApplyScope = only;
                     reviewedSources = null;
                     append(`\n${t("Fehler (Code {code}): {error}", { code: data.returncode, error: data.error || t("Unbekannter Fehler") })}`);
                     // The backend message already says what failed.
@@ -434,6 +454,7 @@
                 }
                 return data;
             } catch (e) {
+                if (dryRun) failedPreviewScope = only;
                 reviewedSources = null;
                 currentResult = null;
                 console.error("runUpdateDb:", e);

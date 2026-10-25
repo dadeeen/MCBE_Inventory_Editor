@@ -1068,7 +1068,6 @@ const iconSourcesController = window.MCBEIconSourcesController.createInventoryIc
     showLoading,
     hideLoading,
     logStatus,
-    appendUpdateOutput,
     onIconData({ icons, summary }) {
         itemIconIndex = icons || {};
         iconSourceSummary = summary || { count: 0, roots: [], warnings: [] };
@@ -1617,10 +1616,6 @@ const updateDbController = window.MCBEUpdateDbView.createInventoryUpdateDbContro
         });
     },
 });
-
-function appendUpdateOutput(text) {
-    updateDbController.appendOutput(text);
-}
 
 firstRunSetupController = window.MCBEFirstRunSetupView.createInventoryFirstRunSetupController({
     doc: document,

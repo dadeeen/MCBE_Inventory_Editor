@@ -29,6 +29,7 @@ def _load_runtime_dependencies():
     from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
     from mcbe_editor.numeric_catalog_policy import canonical_numeric_name, reconcile_numeric_catalog
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
+    from mcbe_editor.update_http_errors import report_http_errors
     from mcbe_editor.update_output_i18n import output_t
     from mcbe_editor.update_progress import report_progress
 
@@ -44,6 +45,7 @@ def _load_runtime_dependencies():
         reviewed_item_label_repairs,
         canonical_numeric_name,
         reconcile_numeric_catalog,
+        report_http_errors,
     )
 
 
@@ -59,6 +61,7 @@ def _load_runtime_dependencies():
     reviewed_item_label_repairs,
     canonical_numeric_name,
     reconcile_numeric_catalog,
+    report_http_errors,
 ) = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
@@ -2516,6 +2519,7 @@ def report_blocked_sections(blocked_sections: list[tuple[str, str]]) -> int:
     return 1
 
 
+@report_http_errors
 def main() -> int:
     import argparse
 

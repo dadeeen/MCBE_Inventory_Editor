@@ -28,7 +28,6 @@
         showLoading = () => {},
         hideLoading = () => {},
         logStatus = () => {},
-        appendUpdateOutput = () => {},
         consoleObj = console,
         startUpdateProgress = title => window.MCBEAssetUpdateProgress?.start(title),
     } = {}) {
@@ -44,6 +43,7 @@
             emptyStateHint,
             emptyStateVanillaButton,
             sourceDialog, openSourceButton, closeSourceButton, sourceFeedback,
+            updateFeedback, updateResult, updateHint, updateOutput, updateLogDetails, clearUpdateOutputButton,
         } = elements;
         let iconSourceSummary = { count: 0, roots: [], warnings: [] };
         let iconRescanRunning = false;
@@ -347,6 +347,25 @@
             }
         }
 
+        function showUpdateResult(message, state, data = {}) {
+            if (updateFeedback) updateFeedback.hidden = false;
+            if (updateResult) {
+                updateResult.textContent = message;
+                updateResult.dataset.state = state;
+            }
+            if (updateHint) {
+                updateHint.textContent = data.hint || "";
+                updateHint.hidden = !data.hint;
+            }
+            if (updateOutput) {
+                let output = String(data.output || "");
+                for (const detail of [message, data.hint]) {
+                    if (detail && !output.includes(detail)) output += (output ? "\n" : "") + detail;
+                }
+                updateOutput.textContent = output;
+            }
+        }
+
         async function updateVanillaIcons() {
             if (window.MCBEAssetUpdateProgress?.isRunning()) {
                 return { success: false, busy: true, error: t("Ein Update läuft bereits.") };
@@ -359,6 +378,8 @@
                 if (control) control.disabled = true;
             }
             showLoading(t("Vanilla-Icons werden geladen..."));
+            if (updateLogDetails) updateLogDetails.open = false;
+            showUpdateResult(t("Vanilla-Icons werden geladen..."), "running");
             const progress = startUpdateProgress(t("Vanilla-Icons laden"));
             const updateStatus = (message, type, active = undefined) => logStatus(message, type, {
                 key: "vanilla-icons-update",
@@ -366,18 +387,20 @@
             });
             updateStatus(t("Vanilla-Icons werden aus Mojang/bedrock-samples geladen..."), "running", true);
             const request = beginIconRequest();
+            let responseData = {};
             try {
                 const data = await postJson("/api/icons/vanilla/update", { world_path: request.world }, progress?.headers);
+                responseData = data || {};
                 if (data.success) progress?.finalizing();
-                if (data.output) appendUpdateOutput(`\n=== ${t("Vanilla-Icons")} ===\n${data.output}`);
                 if (!data.success) {
                     const message = data.error || t("Vanilla-Icons konnten nicht geladen werden.");
+                    showUpdateResult(message, "incomplete", data);
                     updateStatus(message, "error", true);
                     showToast(message, "error", 6000);
                     return { ...data, success: false, error: message };
                 }
                 if (data.scan_warning) {
-                    appendUpdateOutput(`\n${data.scan_warning}`);
+                    showUpdateResult(data.scan_warning, "incomplete", data);
                     updateStatus(data.scan_warning, "warning", true);
                     showToast(data.scan_warning, "warning", 8000);
                     return { ...data, success: false, error: data.scan_warning };
@@ -385,6 +408,7 @@
                 const summary = await applyMutationIconIndexData(data, request);
                 if (summary?.missing_banner_patterns?.length) {
                     const message = t("Vanilla-Icons wurden geladen, aber es fehlen weiterhin Bannermuster. Prüfe die Icon-Quellen unter Werkzeuge & Einstellungen.");
+                    showUpdateResult(message, "incomplete", data);
                     updateStatus(message, "warning", true);
                     showToast(message, "warning", 8000);
                     return data;
@@ -392,12 +416,14 @@
                 const mapped = data.manifest?.mapped_items ?? data.count ?? 0;
                 const known = data.manifest?.known_items ?? "?";
                 const message = t("Vanilla-Icons aktualisiert: {mapped} von {known} Item-IDs zugeordnet.", { mapped, known });
+                showUpdateResult(message, "success", data);
                 updateStatus(message, "success", false);
                 showToast(message, "success", 5000);
                 return data;
             } catch (err) {
                 consoleObj.error("updateVanillaIcons:", err);
                 const message = err?.message || t("Verbindungsfehler beim Laden der Vanilla-Icons.");
+                showUpdateResult(message, "incomplete", responseData);
                 updateStatus(message, "error", true);
                 showToast(message, "error", 6000);
                 return { success: false, error: message };
@@ -420,6 +446,17 @@
         }
         function wire() {
             applyAppStateControlLocks();
+            clearUpdateOutputButton?.addEventListener("click", () => {
+                if (updateFeedback) updateFeedback.hidden = true;
+                if (updateResult) updateResult.textContent = "";
+                if (updateHint) {
+                    updateHint.textContent = "";
+                    updateHint.hidden = true;
+                }
+                if (updateOutput) updateOutput.textContent = "";
+                if (updateLogDetails) updateLogDetails.open = false;
+                updateVanillaButton?.focus();
+            });
             openSourceButton?.addEventListener("click", openSourceDialog);
             closeSourceButton?.addEventListener("click", () => sourceDialog?.close());
             sourceDialog?.addEventListener("click", event => {
@@ -497,6 +534,12 @@
             pickFolderButton: doc.getElementById("btnPickIconFolder"),
             rescanButton: doc.getElementById("btnRescanIcons"),
             updateVanillaButton: doc.getElementById("btnUpdateVanillaIcons"),
+            updateFeedback: doc.getElementById("iconUpdateFeedback"),
+            updateResult: doc.getElementById("iconUpdateResult"),
+            updateHint: doc.getElementById("iconUpdateHint"),
+            updateOutput: doc.getElementById("iconUpdateOutput"),
+            updateLogDetails: doc.getElementById("iconUpdateLogDetails"),
+            clearUpdateOutputButton: doc.getElementById("btnClearIconUpdateOutput"),
             hintBanner: doc.getElementById("iconHintBanner"),
             emptyStateHint: doc.getElementById("emptyStateIconHint"),
             emptyStateVanillaButton: doc.getElementById("btnEmptyStateVanillaIcons"),
@@ -521,7 +564,6 @@
         showLoading = () => {},
         hideLoading = () => {},
         logStatus = () => {},
-        appendUpdateOutput = () => {},
         onIconData = () => {},
         onIconDataApplied = () => {},
         onIconStatusUnavailable = () => {},
@@ -546,7 +588,6 @@
             showLoading,
             hideLoading,
             logStatus,
-            appendUpdateOutput,
             onIconData,
             onIconDataApplied,
             onIconStatusUnavailable,

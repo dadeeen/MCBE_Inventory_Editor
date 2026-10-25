@@ -47,6 +47,7 @@
             key = "",
             active = undefined,
             action = null,
+            resolveKeys = [],
         } = {}) {
             const normalizedType = normalizeStatusType(type);
             const normalizedCategory = normalizeText(category);
@@ -63,6 +64,11 @@
                 action: normalizeText(key) ? normalizeAction(action) : null,
             };
             if (!normalized.message) return;
+
+            const resolved = new Set(Array.isArray(resolveKeys) ? resolveKeys.map(normalizeText).filter(Boolean) : []);
+            for (const entry of notices) {
+                if (resolved.has(entry.key)) entry.active = false;
+            }
 
             if (normalized.key) {
                 const previousIndex = notices.findIndex(entry => entry.key === normalized.key);

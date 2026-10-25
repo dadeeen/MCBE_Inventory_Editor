@@ -62,7 +62,7 @@ function createHarness() {
         return {};
     };
     const wiringStart = appSource.indexOf("const updateDbController = ");
-    const wiringEnd = appSource.indexOf("\nfunction appendUpdateOutput", wiringStart);
+    const wiringEnd = appSource.indexOf("\nfirstRunSetupController = ", wiringStart);
     assert.ok(wiringStart >= 0 && wiringEnd > wiringStart);
     vm.runInNewContext(appSource.slice(wiringStart, wiringEnd), context);
     return {context, pending, calls, state};

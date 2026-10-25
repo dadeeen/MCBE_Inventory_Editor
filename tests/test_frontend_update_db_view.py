@@ -9,6 +9,60 @@ from tests.node_runner import run_node
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_success_resolves_only_covered_update_failures_and_preserves_history() -> None:
+    run_node(r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+        const context = {window: {}, console};
+        for (const name of ['status_store', 'status_stack_view', 'session_log', 'api_client', 'update_db_view']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        (async () => {
+            const applied = {success: true, reloaded: true};
+            const current = {success: true, summary: {status: 'current'}, verification_required: false};
+            for (const [firstDryRun, firstScope, nextScope, next, resolved] of [
+                [true, null, null, applied, true],
+                [true, 'items', null, applied, true],
+                [true, 'items', 'items', applied, true],
+                [true, null, 'items', applied, false],
+                [true, 'effects', 'items', applied, false],
+                [true, null, null, {success: false, error: 'Retry failed'}, false],
+                [false, null, null, current, true],
+                [false, 'items', 'items', current, true],
+                [false, null, 'items', current, false],
+                [false, null, null, {...current, verification_required: true}, false],
+                [false, null, null, {...current, summary: {status: 'available'}}, false],
+            ]) {
+                const store = context.window.MCBEStatusStore.createStatusStore();
+                const session = context.window.MCBESessionLog.createStatusSessionController({
+                    statusNoticeStore: store, elements: {statusMsg: {innerText: '', className: ''}},
+                });
+                const responses = [{success: false, error: 'Previous failure'}, next];
+                const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                    outputEl: {textContent: '', scrollTop: 0, scrollHeight: 0},
+                    fetchImpl: async () => responses.shift(), parseJsonResponse: async value => value,
+                    withCsrf: () => ({}), logStatus: session.logStatus,
+                });
+                const oldKey = firstDryRun ? 'database-update:dry-run' : 'database-update:apply';
+                await controller.run(firstDryRun, !firstDryRun, {only: firstScope});
+                const original = {...store.allNotices().find(entry => entry.key === oldKey)};
+                store.addNotice({key: 'vanilla-icons-update', type: 'error', message: 'Unrelated icon failure', active: true});
+                await controller.run(!firstDryRun, firstDryRun, {only: nextScope});
+                const oldNotice = store.allNotices().find(entry => entry.key === oldKey);
+                assert.equal(oldNotice.active, !resolved);
+                assert.equal(oldNotice.message, original.message);
+                assert.equal(oldNotice.time, original.time);
+                assert.equal(oldNotice.type, 'error');
+                assert.equal(store.allNotices().find(entry => entry.key === 'vanilla-icons-update').active, true);
+                store.removeNotice('vanilla-icons-update');
+                const model = context.window.MCBEStatusStackView.statusStackModel({visibleNotices: store.allNotices()});
+                assert.equal(model.hasError, !resolved);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
 def test_database_update_replaces_running_status_with_success() -> None:
     run_node(
         textwrap.dedent(
@@ -312,7 +366,7 @@ def test_dry_run_does_not_resolve_apply_reload_warning() -> None:
             const store = context.window.MCBEStatusStore.createStatusStore();
             const responses = [
                 { success: true, update_committed: true, reload_warning: "Neustart erforderlich." },
-                { success: true, reloaded: false },
+                { success: true, reloaded: false, summary: {status: 'current'}, verification_required: false },
             ];
             const outputEl = { textContent: "Noch keine Prüfung ausgeführt.", scrollTop: 0, scrollHeight: 0 };
             const controller = context.window.MCBEUpdateDbView.createUpdateDbController({

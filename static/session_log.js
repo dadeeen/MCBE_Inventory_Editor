@@ -140,6 +140,7 @@
                 key,
                 active: typeof options.active === "boolean" ? options.active : undefined,
                 action: options.action,
+                resolveKeys: options.resolveKeys,
             });
             updateHeaderStatusStack();
         }

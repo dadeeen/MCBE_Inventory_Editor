@@ -862,6 +862,19 @@
                                 <button id="btnOpenIconSource" class="btn btn-secondary btn-sm" type="button" aria-haspopup="dialog" aria-controls="iconSourceDialog">{{ t("Quelle hinzufügen …") }}</button>
                             </div>
                         </div>
+                        <div id="iconUpdateFeedback" class="icon-update-output-wrapper" hidden>
+                            <div class="update-db-output-header">
+                                <strong>{{ t("Ergebnis") }}</strong>
+                                <button id="btnClearIconUpdateOutput" class="btn-text" type="button">{{ t("Leeren") }}</button>
+                            </div>
+                            <div role="status" aria-live="polite">
+                                <div id="iconUpdateResult"></div>
+                                <p id="iconUpdateHint" class="hint-text" hidden></p>
+                            </div>
+                            <details id="iconUpdateLogDetails" class="tool-details"><summary>{{ t("Technisches Protokoll") }}</summary>
+                                <pre id="iconUpdateOutput" class="update-db-output" tabindex="0" aria-label="{{ t('Technisches Protokoll des Icon-Updates') }}"></pre>
+                            </details>
+                        </div>
                         <div id="assetDataStatusPanel" class="data-source-panel">
                             <div class="no-backups">{{ t("Datenquellen werden geladen...") }}</div>
                         </div>

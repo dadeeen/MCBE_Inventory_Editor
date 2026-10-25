@@ -278,7 +278,7 @@ Erst beim Speichern werden Spieleränderungen und vorgemerkte Reittiere gemeinsa
 
 ## Datensicherheit und Datenschutz
 
-- Bearbeiten funktioniert offline. Updates von **Item-DB** und **Vanilla-Icons** sowie die optionale Netzwerkprüfung benötigen Internetzugriff über HTTPS.
+- Bearbeiten funktioniert offline. Updates von **Item-DB** und **Vanilla-Icons** sowie die optionale Netzwerkprüfung benötigen Internetzugriff über HTTPS. Jeder Update-Tab zeigt Fehler und ein aufklappbares technisches Protokoll. Bei GitHub-Anfragelimits wird der früheste erneute Versuch angezeigt, sofern GitHub den Zeitpunkt liefert.
 - Vor dem Speichern prüft der Editor Serverstatus, Dateisperren und zwischenzeitliche Änderungen. Vor jeder tatsächlichen Änderung erstellt er ein vollständiges Welt-Backup.
 - Bei einer unterbrochenen Wiederherstellung oder ungewissem Ausgang behalte Backup und Wiederherstellungsdateien und folge vor weiteren Bearbeitungen der [Recovery-Anleitung](SECURITY.de.md#unterbrochene-wiederherstellungen).
 - Weltordner müssen reguläre Dateien und Verzeichnisse enthalten. Symlinks, Windows-Junctions und andere Reparse-Points werden nicht unterstützt.

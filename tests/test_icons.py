@@ -770,6 +770,43 @@ def test_vanilla_icon_update_ignores_legacy_manual_cache_choice(tmp_path):
     assert calls == [{"force": False, "use_cache": False}]
 
 
+@pytest.mark.parametrize("category,status", [("github-rate-limit", 403), ("github-rate-limit", 429), ("http-error", 403), ("http-error", 503)])
+def test_icon_http_failure_reaches_api_without_rescanning(monkeypatch, tmp_path, category, status):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from mcbe_editor import icon_api_routes, update_http_errors
+
+    monkeypatch.setattr(update_http_errors.time, "time", lambda: 2_000_000_000)
+    record = {"schema": 1, "category": category, "http_status": status, "retry_at": 2_000_000_120}
+    output = "technical cause\n" + update_http_errors.ERROR_PREFIX + json.dumps(record) + "\n"
+    scan = Mock(side_effect=AssertionError("Failed download must not rescan"))
+    monkeypatch.setattr(icon_api_routes, "_scan_and_store_icons", scan)
+    deps = SimpleNamespace(
+        data_root=str(tmp_path),
+        settings_path=str(tmp_path / "sources.json"),
+        get_icon_index=lambda: {},
+        json_bool=lambda data, key, default: data.get(key, default),
+        run_update_icons=lambda **_kwargs: (1, output),
+        looks_like_network_failure=lambda _output: False,
+        audit_event=Mock(),
+        jsonify=lambda value: value,
+        api_error=lambda message, status=400: ({"error": message}, status),
+        log_api_exception=Mock(),
+    )
+
+    result = icon_api_routes.icons_vanilla_update({}, deps)
+
+    assert result["success"] is False
+    assert result["category"] == category and result["http_status"] == status
+    assert result["output"] == "technical cause\n"
+    assert result["retry_at"] == 2_000_000_120 and "UTC" in result["hint"]
+    assert ("GitHub" in result["error"]) is (category == "github-rate-limit")
+    assert "update_committed" not in result
+    scan.assert_not_called()
+    deps.log_api_exception.assert_not_called()
+
+
 def test_icon_sources_tolerate_invalid_priority_in_settings(tmp_path):
     settings = tmp_path / "icon_sources.json"
     settings.write_text(
@@ -914,10 +951,10 @@ def test_icon_frontend_keeps_existing_index_when_post_commit_rescan_failed():
             const api = context.window.MCBEIconSourcesController;
             const toasts = [];
             const statuses = [];
-            const outputs = [];
+            const output = {textContent: ''};
             let applied = 0;
             const controller = api.createIconSourcesController({
-                elements: { updateVanillaButton: { disabled: false }, useCacheCheckbox: { checked: true, disabled: false } },
+                elements: { updateVanillaButton: { disabled: false }, updateOutput: output },
                 fetchImpl: async () => ({
                     json: async () => ({
                         success: true,
@@ -930,7 +967,6 @@ def test_icon_frontend_keeps_existing_index_when_post_commit_rescan_failed():
                 withCsrf: () => ({}),
                 showToast: (...args) => toasts.push(args),
                 logStatus: (...args) => statuses.push(args),
-                appendUpdateOutput: text => outputs.push(text),
                 onIconData: () => { applied += 1; },
                 onIconDataApplied: () => { applied += 1; },
             });
@@ -940,7 +976,7 @@ def test_icon_frontend_keeps_existing_index_when_post_commit_rescan_failed():
                 assert.strictEqual(updateResult.success, false);
                 assert.strictEqual(updateResult.error, "Icons gespeichert, Scan fehlgeschlagen.");
                 assert.strictEqual(applied, 0);
-                assert.match(outputs.join("\n"), /Scan fehlgeschlagen/);
+                assert.match(output.textContent, /Scan fehlgeschlagen/);
                 assert.strictEqual(statuses[0][1], "running");
                 assert.strictEqual(statuses[0][2].key, "vanilla-icons-update");
                 assert.strictEqual(statuses[0][2].active, true);

@@ -15,6 +15,7 @@ from .i18n import t
 from .item_db_transaction import ItemDbRecoveryError
 from .service_errors import public_error_text
 from .update_db_report import extract_report
+from .update_http_errors import extract_http_failure, failure_fields
 from .update_script_runner import ItemDbUpdateInterruptedError
 
 _UPDATE_REVIEW_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -120,6 +121,7 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
             returncode, output = exc.returncode, exc.output
 
         output, report = extract_report(output)
+        output, http_failure = extract_http_failure(output)
         result = {
             "success": returncode == 0,
             "returncode": returncode,
@@ -154,6 +156,8 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
             category = "review-receipt-error"
         elif interruption:
             category = "timeout" if interruption.timed_out else "worker-interrupted"
+        elif returncode != 0 and http_failure:
+            category = http_failure["category"]
         elif returncode != 0:
             category = "network-or-dns" if deps.looks_like_network_failure(output) else "script-error"
         if category != "ok":
@@ -174,6 +178,8 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                     "Der Container/App-Host hat vermutlich keinen funktionierenden DNS-/HTTPS-Ausgang. "
                     "Die App läuft weiter; nur das Item-DB-Update braucht Internet."
                 )
+            if http_failure and not interruption and not receipt_failed:
+                result.update(failure_fields(http_failure))
             if interruption:
                 result["recovery"] = interruption.recovery
                 if interruption.recovery == "committed":

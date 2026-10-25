@@ -888,7 +888,7 @@ def test_vanilla_update_feedback_uses_current_banner_completeness() -> None:
     )
 
 
-def test_frontend_icon_update_output_localizes_its_heading() -> None:
+def test_frontend_icon_update_keeps_its_own_output_and_clears_stale_failure_details() -> None:
     run_node(
         textwrap.dedent(
             r"""
@@ -905,29 +905,58 @@ def test_frontend_icon_update_output_localizes_its_heading() -> None:
             };
             vm.runInNewContext(code, context, { filename: "static/icon_sources_controller.js" });
 
-            const output = [];
+            const output = {textContent: ''};
+            const result = {textContent: '', dataset: {}};
+            const hint = {textContent: '', hidden: true};
+            const feedback = {hidden: true};
+            const logDetails = {open: false};
+            let response = {success: false, error: 'GitHub request limit reached.',
+                hint: 'Try again later', output: '<script>technical HTTP 403</script>'};
+            let refreshFails = false;
+            let requestFails = false;
             const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
-                fetchImpl: async () => ({ ok: true, headers: { get: () => "application/json" }, text: async () => "{}" }),
-                parseJsonResponse: async () => ({
-                    success: true,
-                    output: "Icons: 1/1 inventory items mapped",
-                    icons: {},
-                    count: 1,
-                    sources: [],
-                    manifest: { mapped_items: 1, known_items: 1 },
-                }),
+                elements: {updateOutput: output, updateResult: result, updateHint: hint,
+                    updateFeedback: feedback, updateLogDetails: logDetails},
+                fetchImpl: async () => {
+                    if (requestFails) throw new Error('connection failed');
+                    return {ok: true, headers: {get: () => 'application/json'}, text: async () => '{}'};
+                },
+                parseJsonResponse: async () => response,
                 withCsrf: () => ({ "Content-Type": "application/json" }),
                 iconManagerView: {
                     iconManagerHtml() { return ""; },
                     iconManagerSummaryText() { return ""; },
                 },
-                appendUpdateOutput: message => output.push(message),
+                appendUpdateOutput: () => { throw new Error('Item DB output must not be touched'); },
+                onIconDataApplied: () => { if (refreshFails) throw new Error('refresh failed'); },
+                consoleObj: {error() {}},
             });
 
             await controller.updateVanillaIcons();
 
-            assert.ok(output[0].startsWith("\n=== Vanilla icons ===\n"));
-            assert.ok(output[0].includes("Icons: 1/1 inventory items mapped"));
+            assert.ok(output.textContent.includes(response.output));
+            assert.equal(result.textContent, response.error);
+            assert.equal(hint.textContent, response.hint);
+            assert.equal(hint.hidden, false);
+            assert.equal(feedback.hidden, false);
+            assert.equal(logDetails.open, false);
+            response = {success: true, output: 'Icons: 1/1 inventory items mapped', icons: {},
+                count: 1, sources: [], manifest: {mapped_items: 1, known_items: 1}};
+            await controller.updateVanillaIcons();
+            assert.ok(output.textContent.includes(response.output));
+            assert.equal(result.dataset.state, 'success');
+            assert.equal(hint.textContent, '');
+            assert.equal(hint.hidden, true);
+            assert.ok(!result.textContent.includes('limit'));
+            refreshFails = true;
+            await controller.updateVanillaIcons();
+            assert.equal(result.textContent, 'refresh failed');
+            assert.ok(output.textContent.includes(response.output));
+            assert.ok(output.textContent.includes('refresh failed'));
+            requestFails = true;
+            await controller.updateVanillaIcons();
+            assert.equal(result.textContent, 'connection failed');
+            assert.ok(!output.textContent.includes(response.output));
             })();
             """
         )
