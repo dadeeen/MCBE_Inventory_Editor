@@ -101,8 +101,8 @@
 
         function updateSelectedPlacementRadiusFromDom() {
             const raw = elements().placementRadiusInput?.value;
-            const parsed = Number.parseInt(raw, 10);
-            if (Number.isFinite(parsed)) selectedPlacementRadius = Math.max(2, Math.min(16, parsed));
+            const parsed = raw == null || String(raw).trim() === "" ? NaN : Number(raw);
+            if (Number.isFinite(parsed)) selectedPlacementRadius = Math.max(2, Math.min(16, Math.trunc(parsed)));
             return selectedPlacementRadius;
         }
 

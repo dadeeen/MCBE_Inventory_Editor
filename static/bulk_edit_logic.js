@@ -8,12 +8,13 @@
     }
 
     function clampInteger(value, fallback, min, max) {
-        const parsed = parseInt(value, 10);
+        // Number inputs accept exponent notation; parseInt("1e1") is only 1.
+        const parsed = value == null || String(value).trim() === "" ? NaN : Number(value);
         if (!Number.isFinite(parsed)) return fallback;
         let lower = min;
         let upper = max;
         if (lower > upper) [lower, upper] = [upper, lower];
-        return Math.min(Math.max(parsed, lower), upper);
+        return Math.min(Math.max(Math.trunc(parsed), lower), upper);
     }
 
     function noWritableTargets() {
@@ -124,7 +125,7 @@
                 },
             };
         }
-        const desired = Number.parseInt(rawDesired, 10);
+        const desired = Math.trunc(Number(rawDesired));
         if (!Number.isFinite(desired) || desired < 1) {
             return {
                 ok: false,

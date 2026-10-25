@@ -88,8 +88,11 @@
     }
 
     function effectPatchFromRowValues(values = {}, currentEffect = null) {
-        const level = Math.max(1, Math.min(256, parseInt(values.levelValue, 10) || 1));
-        const seconds = Math.max(0, parseInt(values.durationSecondsValue, 10) || 0);
+        // Read the whole number-input value, including valid exponent notation.
+        const rawLevel = Number(values.levelValue);
+        const rawSeconds = Number(values.durationSecondsValue);
+        const level = Math.max(1, Math.min(256, Number.isFinite(rawLevel) ? Math.trunc(rawLevel) : 1));
+        const seconds = Math.max(0, Number.isFinite(rawSeconds) ? Math.trunc(rawSeconds) : 0);
         let duration = Math.min(seconds * 20, 2147483647);
         // Die Anzeige rundet Ticks auf ganze Sekunden ab. Solange das Sekundenfeld
         // unverändert aussieht, muss der exakte Tickwert erhalten bleiben -- der
