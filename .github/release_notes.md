@@ -1,9 +1,11 @@
 ## What's changed in v0.8.2
 
-- Fix undo history and preserve equipment metadata when reverting edits.
-- Confirm pending edits before reloading.
+- Preserve equipment metadata when saving, copying and undoing edits.
+- Fix numeric inputs, import clicks and pending edits on reload.
 - Fix inventory dragging during icon refresh and container dragging over HTTP.
-- Preserve icon source configuration and reduce redundant save and icon processing.
+- Correct resource-pack aliases and legacy slab icons.
+- Handle long Unicode backup/export names and reject oversized mount indexes.
+- Preserve icon source settings and reduce redundant save and icon processing.
 
 ## Updating
 
