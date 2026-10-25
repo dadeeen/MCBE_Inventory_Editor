@@ -1,9 +1,9 @@
-## What's changed in v0.8.1
+## What's changed in v0.8.2
 
-- Apply valid slot edits immediately; write to the world only on Save.
-- Fix undo history, repeated edits and preservation of item data.
-- Recover interrupted database updates and cached banner and axolotl previews.
-- Improve request timeouts, presence polling and write guards; update dependencies.
+- Fix undo history and preserve equipment metadata when reverting edits.
+- Confirm pending edits before reloading.
+- Fix inventory dragging during icon refresh and container dragging over HTTP.
+- Preserve icon source configuration and reduce redundant save and icon processing.
 
 ## Updating
 
@@ -13,4 +13,4 @@ Download `_windows_x64.zip` (WebView2 required, unsigned) or `_runtime.zip`, wit
 
 Back up your world and stop Minecraft or the Bedrock server before editing. Mount creation remains experimental.
 
-[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.1/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.1/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.1/SECURITY.md)
+[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.2/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.2/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.2/SECURITY.md)
