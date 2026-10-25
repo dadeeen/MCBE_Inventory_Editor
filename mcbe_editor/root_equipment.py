@@ -378,24 +378,18 @@ def root_equipment_inventory_fallbacks(
         if not _is_list_tag(root_list):
             continue
         for index, item in enumerate(root_list):
-            slot = slot_for_entry(index, item)
+            # Dense modern lists use their position before any occupied-slot
+            # check. A name-inferred slot can coincide with another item and
+            # hide this entry, whose omission would later be treated as a clear.
+            if tag_name == "Armor" and writable_slots >= ARMOR_SLOTS:
+                slot = ARMOR_ROOT_SLOT_BY_INDEX[index] if index < len(ARMOR_ROOT_SLOT_BY_INDEX) else None
+            elif tag_name == "Offhand" and OFFHAND_SLOT in writable_slots:
+                slot = OFFHAND_SLOT if index == 0 else None
+            else:
+                slot = slot_for_entry(index, item)
             if slot is None or slot in occupied or slot in result:
                 continue
             editable = slot in writable_slots
-            if editable:
-                # Im verifizierten modernen Shape ist der Listenindex die
-                # verbindliche Position; Namens-Heuristiken greifen nur für
-                # Legacy-Shapes.
-                if tag_name == "Armor":
-                    if index >= len(ARMOR_ROOT_SLOT_BY_INDEX):
-                        continue
-                    slot = ARMOR_ROOT_SLOT_BY_INDEX[index]
-                else:
-                    if index != 0:
-                        continue
-                    slot = OFFHAND_SLOT
-                if slot in occupied or slot in result:
-                    continue
             parsed = _parse_root_equipment_item(
                 item,
                 slot,
@@ -640,12 +634,6 @@ def apply_root_equipment_writes(
         if slot in new_items_by_slot:
             raise ValueError(t("Doppelter Ausrüstungs-Slot empfangen: {slot}", slot=slot))
         name = validated_item["name"]
-        if not item_allowed_in_equipment_slot(slot, name):
-            raise ValueError(
-                f"Speichern abgelehnt: '{name}' ist kein im {equipment_slot_label(slot)}-Slot tragbares Item. "
-                "Bedrock akzeptiert dort nur passende Ausrüstung "
-                "(Schildhand: Schild, Pfeile, Feuerwerksraketen, Totem, gefüllte Karten, Nautilusschale)."
-            )
         base_item_tag = _resolve_base_item_tag(
             validated_item,
             original_items,
@@ -658,6 +646,17 @@ def apply_root_equipment_writes(
         # Root-Listen-Einträge tragen keinen Slot-Key; die Position ist der Index.
         if "Slot" in item_compound:
             del item_compound["Slot"]
+        if not item_allowed_in_equipment_slot(slot, name):
+            original = original_items.get(slot)
+            # An untouched command/add-on item in an unusual equipment slot
+            # must not block edits elsewhere. Only its exact existing bytes
+            # may remain there; new, moved or changed incompatible items fail.
+            if original is None or item_compound.save_to() != original.save_to():
+                raise ValueError(
+                    f"Speichern abgelehnt: '{name}' ist kein im {equipment_slot_label(slot)}-Slot tragbares Item. "
+                    "Bedrock akzeptiert dort nur passende Ausrüstung "
+                    "(Schildhand: Schild, Pfeile, Feuerwerksraketen, Totem, gefüllte Karten, Nautilusschale)."
+                )
         new_items_by_slot[slot] = item_compound
 
     for tag_name, index_by_slot in (

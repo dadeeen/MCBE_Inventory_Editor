@@ -34,15 +34,15 @@
         // wird, und ein Ziel mit schreibbaren Root-Listen würde stattdessen
         // geleert. Deshalb werden solche Items gar nicht erst übernommen.
         const inventory = {};
-        let skipped = 0;
+        const skippedSlots = [];
         Object.entries(inventoryMap || {}).forEach(([slotKey, item]) => {
             if (isUntransferableRootEquipmentItem(item)) {
-                skipped += 1;
+                skippedSlots.push(slotKey);
                 return;
             }
             inventory[slotKey] = item;
         });
-        return { inventory, skipped };
+        return { inventory, skipped: skippedSlots.length, skippedSlots };
     }
 
     function createPlayerToolsController(deps = {}) {
@@ -378,10 +378,18 @@
                 if (useInv) {
                     const copied = stripUntransferableRootEquipment(JSON.parse(JSON.stringify(data.inventory || {})));
                     annotateItemOrigins(copied.inventory, key, "inventory");
+                    // A skipped source slot is not an intentional empty slot.
+                    // Keep the target entry and its own NBT provenance; only
+                    // ordinary source omissions mean clearing the destination.
+                    const targetInventory = getInventory();
+                    copied.skippedSlots.forEach(slot => {
+                        if (targetInventory[slot]) copied.inventory[slot] = JSON.parse(JSON.stringify(targetInventory[slot]));
+                    });
                     setInventory(copied.inventory);
                     if (copied.skipped > 0) {
                         showToast(
-                            t("{count} Ausrüstungs-Slot(s) des Quellspielers wurden nicht übernommen: read-only Root-Ausrüstung kann nur beim Quellspieler erhalten bleiben.", { count: copied.skipped }),
+                            t("{count} Ausrüstungs-Slot(s) des Quellspielers wurden nicht übernommen: read-only Root-Ausrüstung kann nur beim Quellspieler erhalten bleiben.", { count: copied.skipped })
+                                + " " + t("Vorhandene Zielausrüstung in den übersprungenen Slots bleibt erhalten."),
                             "warning",
                             5200,
                         );

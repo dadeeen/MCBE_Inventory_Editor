@@ -875,6 +875,7 @@
   "Vergleich fehlgeschlagen.": "Comparison failed.",
   "Übernahme abgebrochen: Welt oder Zielspieler wurde inzwischen gewechselt.": "Copy canceled: the world or target player has changed in the meantime.",
   "{count} Ausrüstungs-Slot(s) des Quellspielers wurden nicht übernommen: read-only Root-Ausrüstung kann nur beim Quellspieler erhalten bleiben.": "{count} equipment slot(s) of the source player were not copied: read-only root equipment can only be preserved on the source player.",
+  "Vorhandene Zielausrüstung in den übersprungenen Slots bleibt erhalten.": "Existing target equipment in the skipped slots is preserved.",
   "Spielerdaten werden für die Übernahme geladen...": "Loading player data to copy...",
   "Daten von {player} übernommen": "Data copied from {player}",
   "Daten lokal übernommen. Prüfe die Änderungen vor dem Speichern.": "Data copied locally. Review the changes before saving.",

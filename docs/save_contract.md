@@ -115,6 +115,7 @@ A missing field always means: "Do not modify this NBT section." This applies to 
 - A change in another section must not pull the unchanged inventory into the payload.
 - Writable root equipment may require `root_equipment_editable=true`; read-only echo items must never be sent as changes.
 - A root equipment entry hidden by an existing legacy Inventory equipment slot is not a missing visible item. Unrelated inventory changes must preserve that hidden root entry, even when `root_equipment_editable=true`.
+- Modern dense `Armor` lists use their stored index before occupied-slot checks, regardless of an item's usual equipment category. Existing incompatible equipment may be echoed byte-for-byte in its original slot; creating, moving or modifying an incompatible item there remains rejected.
 
 If multiple visible original entries share one Inventory or EnderChestInventory slot, the slot is ambiguous and read-only through the existing `*_protected_known_slots` metadata. An unchanged echo preserves every original entry byte-for-byte and in its original list position; it does not create a backup by itself. Other slots remain editable. Changing, deleting, moving, replacing or using the ambiguous slot as a copy source is rejected before writing, including copies between containers or players. Omitting the entire section preserves it; sending an empty complete list is rejected when it would clear an ambiguous slot.
 

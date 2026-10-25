@@ -96,6 +96,52 @@ def test_native_inventory_change_keeps_hidden_root_equipment(tmp_path, monkeypat
     assert records[UNRELATED_KEY] == UNRELATED_VALUE
 
 
+@pytest.mark.parametrize("inventory_helmet", [False, True])
+def test_native_inventory_change_preserves_unusual_armor_at_its_stored_index(tmp_path, monkeypatch, inventory_helmet):
+    player = make_minimal_player_tag()
+    player["Inventory"] = nbt.ListTag([_item("minecraft:stone", 0)])
+    if inventory_helmet:
+        player["Inventory"].append(_item("minecraft:iron_helmet", 103))
+    player["Armor"] = _armor(_item("minecraft:diamond_helmet"))
+    # Dense modern Armor uses the list index, even for equipment placed in an
+    # unusual slot by a command/add-on. A second helmet must not be hidden by
+    # the first helmet's inferred category and then cleared on an unrelated save.
+    player["Armor"][1] = _item("minecraft:diamond_helmet", FutureData=nbt.StringTag("keep this equipment"))
+    root_before = player["Armor"].save_to()
+    world, _raw, service = _seed(tmp_path, monkeypatch, {LOCAL_PLAYER_KEY: player})
+    key = encode_player_key(LOCAL_PLAYER_KEY)
+    loaded = service.load_player(str(world), key)
+    assert loaded["inventory"][102]["name"] == "minecraft:diamond_helmet"
+    assert loaded["inventory"][102]["root_equipment_source_index"] == 1
+    payload = deepcopy(list(loaded["inventory"].values()))
+    next(entry for entry in payload if entry["slot"] == 0)["count"] = 2
+
+    result = service.save_player(
+        str(world),
+        key,
+        payload,
+        {},
+        base_revision=loaded["player_revision"],
+        root_equipment_editable=True,
+    )
+
+    assert result["success"] is True and result["no_op"] is False
+    records = _read_all(service, world)
+    saved = load_player_nbt(records[LOCAL_PLAYER_KEY]).tag
+    assert saved["Armor"].save_to() == root_before
+    assert records[UNRELATED_KEY] == UNRELATED_VALUE
+    reloaded = service.load_player(str(world), key)
+    echoed = service.save_player(
+        str(world),
+        key,
+        list(reloaded["inventory"].values()),
+        {},
+        base_revision=reloaded["player_revision"],
+        root_equipment_editable=True,
+    )
+    assert echoed["no_op"] is True
+
+
 @pytest.mark.parametrize("target_slot", [1, 103])
 @pytest.mark.parametrize("source_inventory_shape", ["absent", "empty", "placeholder"])
 def test_native_cross_player_root_copy_preserves_source_and_item_nbt(tmp_path, monkeypatch, target_slot, source_inventory_shape):

@@ -549,6 +549,23 @@ def test_apply_root_equipment_writes_rejects_non_wearable_items():
     assert player["Offhand"][0]["Name"].py_data == "minecraft:shield"
 
 
+@pytest.mark.parametrize("tag_name,index,slot,name", [("Armor", 1, 102, "minecraft:diamond_helmet"), ("Offhand", 0, -106, "minecraft:diamond_sword")])
+def test_existing_incompatible_equipment_may_only_be_echoed_unchanged(tag_name, index, slot, name):
+    player = modern_equipped_player()
+    player[tag_name][index] = item(name)
+    before = player[tag_name].save_to()
+    inventory, _ = nbt_to_json(player)
+    merge_root_equipment_fallbacks(inventory, player)
+
+    apply_root_equipment_writes(player, [inventory[slot]], ENCHANTMENTS)
+    assert player[tag_name].save_to() == before
+
+    changed = {**inventory[slot], "display_name": "Changed incompatible equipment"}
+    with pytest.raises(ValueError, match="tragbares Item"):
+        apply_root_equipment_writes(player, [changed], ENCHANTMENTS)
+    assert player[tag_name].save_to() == before
+
+
 def test_apply_root_equipment_writes_rejects_non_writable_shape():
     legacy = nbt.CompoundTag({"Armor": nbt.ListTag([item("minecraft:diamond_boots")])})
     with pytest.raises(ValueError, match="nicht bearbeitbar"):
