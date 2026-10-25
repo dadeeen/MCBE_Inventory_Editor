@@ -922,3 +922,59 @@ def test_frontend_player_import_preview_surfaces_cleanup_warning_on_failure() ->
         """
         ),
     )
+
+
+def test_frontend_import_path_blur_keeps_matching_preview_stable() -> None:
+    run_node(
+        textwrap.dedent(
+            r"""
+        const assert = require("assert");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/api_client.js", "utf8"), context);
+        vm.runInNewContext(fs.readFileSync("static/player_transfer_logic.js", "utf8"), context);
+        const handlers = {};
+        const importPathInput = {
+            value: "C:/exports/player.mcbe-player.zip",
+            addEventListener: (name, handler) => { handlers[name] = handler; },
+        };
+        let worldPath = "C:/World";
+        let currentPreview = {
+            export_path: importPathInput.value,
+            world_path: worldPath,
+            importable: true,
+            import_token: { version: 1 },
+        };
+        let refreshes = 0;
+        let scheduled = 0;
+        const controller = context.window.MCBEPlayerTransferLogic.createPlayerTransferController({
+            elements: { importPathInput },
+            getWorldPath: () => worldPath,
+            getCurrentImportPreview: () => currentPreview,
+            refreshPlayerImportPreview: () => { refreshes += 1; },
+            schedulePlayerImportPreview: () => { scheduled += 1; },
+        });
+        controller.wire();
+
+        // The debounced preview has already settled while the path still has
+        // focus. Blurring it must not replace the tall preview with a loading
+        // row and move the checkbox/button between pointer-down and click.
+        handlers.change();
+        assert.strictEqual(refreshes, 0, "Matching preview must survive path blur");
+
+        worldPath = "C:/OtherWorld";
+        handlers.change();
+        assert.strictEqual(refreshes, 1);
+        worldPath = "C:/World";
+        importPathInput.value = "C:/exports/other.mcbe-player.zip";
+        handlers.change();
+        assert.strictEqual(refreshes, 2);
+        currentPreview = null;
+        handlers.change();
+        assert.strictEqual(refreshes, 3);
+        handlers.input();
+        assert.strictEqual(scheduled, 1);
+        """
+        ),
+    )

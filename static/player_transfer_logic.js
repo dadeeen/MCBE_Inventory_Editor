@@ -799,7 +799,14 @@
             browseExportButton?.addEventListener("click", browseExportSelection);
             importAsExportedCheckbox?.addEventListener("change", updateImportControls);
             importPathInput?.addEventListener("input", schedulePlayerImportPreview);
-            importPathInput?.addEventListener("change", refreshPlayerImportPreview);
+            importPathInput?.addEventListener("change", () => {
+                const preview = getCurrentImportPreview();
+                // A completed debounce already reviewed this value. Reloading
+                // on blur shifts the centered dialog during the next click.
+                if (preview?.export_path === cleanPath(importPathInput.value)
+                    && cleanPath(preview.world_path) === cleanPath(getWorldPath())) return;
+                refreshPlayerImportPreview();
+            });
             importButton?.addEventListener("click", importPlayer);
         }
 

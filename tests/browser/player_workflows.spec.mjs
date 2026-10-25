@@ -15,6 +15,52 @@ import {
   selectSetting,
 } from "./fixtures/app.mjs";
 
+test("import preview stays stable when clicking the new-player checkbox after typing", async ({ page }) => {
+  const errors = collectBrowserErrors(page);
+  let previews = 0;
+  let writes = 0;
+  await page.route("**/api/server_status", route => route.fulfill({ json: { success: true, status: "offline", write_gate: { allowed: true, read_allowed: true } } }));
+  await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
+  await page.route("**/api/player/import_preview", route => {
+    previews += 1;
+    return route.fulfill({ json: {
+      success: true, importable: true, import_token: { version: 1 },
+      player: { player_key: "exported-player", label: "Archivspieler" },
+      source_world_name: "Exportwelt", created_at: "2026-10-25",
+      preview: { inventory_count: 36, stats: { pos: [128.5, 64, -2048] } },
+      cleanup_warning: "Synthetischer Hinweis: Unbekannte Felder bleiben erhalten.",
+    } });
+  });
+  await page.route("**/api/player/import", route => {
+    writes += 1;
+    return route.fulfill({ json: { success: false, error: "Unexpected test write" } });
+  });
+  await openDragFixture(page);
+  await expect(page.locator("#loadingOverlay")).toBeHidden();
+  await page.locator('.app-section-nav [data-workflow-view="player"]').click();
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.locator('[data-player-tool="playerImportDialog"]').click();
+    await page.locator("#playerImportPath").fill(`/synthetic/player-${width}.mcbe-player.zip`);
+    await expect(page.locator("#btnImportPlayer")).toBeEnabled();
+    await expect(page.locator("#playerImportPreview")).toContainText("Archivspieler");
+    const completedPreviews = previews;
+    // Keep focus in the path until this real pointer click. An unconditional
+    // change refresh used to move the centered dialog between down and up.
+    await page.locator("#playerImportAsExportedKey").check();
+    await expect(page.locator("#playerImportAsExportedKey")).toBeChecked();
+    expect(previews).toBe(completedPreviews);
+    await page.locator("#btnImportPlayer").click();
+    await expect(page.locator("#confirmOverlay")).toBeVisible();
+    await page.locator("#confirmCancel").click();
+    await page.locator("#playerImportAsExportedKey").uncheck();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#playerImportDialog")).toBeHidden();
+  }
+  expect(writes).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 test("copy keeps target stats and asks to create the target ender chest", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
   // Icon rescanning is unrelated to copying and shares a server-wide rate limit.
@@ -503,8 +549,10 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
       }),
     });
   });
+  let releaseTransferResponse;
+  const transferResponseGate = new Promise(resolve => { releaseTransferResponse = resolve; });
   await page.route("**/api/player/state_transfer", async route => {
-    await new Promise(resolve => setTimeout(resolve, 350));
+    await transferResponseGate;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -602,6 +650,7 @@ test("safe local-to-multiplayer migration is directly accessible and writes afte
   await expect(page.locator("#stateTransferTargetPlayerSelect")).toBeDisabled();
   await expect(page.locator("#btnPreviewStateTransfer")).toBeDisabled();
   await expect(page.locator("#btnApplyStateTransfer")).toBeDisabled();
+  releaseTransferResponse();
   await expect(page.locator("#stateTransferPreview")).toContainText("Migration validiert");
   await expect(page.locator("#loadingOverlay")).toBeHidden();
   await expect(page.locator("#stateTransferPreview .state-transfer-result-path code")).toContainText("Smoke_Test_World__automatic__20260726T182657Z__f6466a9132f41373.zip");
