@@ -31,7 +31,7 @@ _MAX_SCAN_FILES = 12000
 _MAX_ARCHIVE_MEMBERS = 20000
 _MAX_MANUAL_SOURCES = 50
 _SOURCE_FILE_VERSION = 2
-_INDEX_FILE_VERSION = 9
+_INDEX_FILE_VERSION = 10
 _MAX_CONTEXT_INDEXES = 8
 _ICON_SOURCES_LOCK = threading.RLock()
 _LOGGER = logging.getLogger(__name__)
@@ -334,6 +334,31 @@ _STONE_BLOCK_SLAB_BY_DAMAGE = {
     5: "stone_brick_slab",
     6: "quartz_slab",
     7: "nether_brick_slab",
+}
+# Each numbered legacy slab family has its own material table. See Microsoft's
+# Aux Value to Block State Map (stone_block_slab2/3/4); bit 8 is only the top half.
+_NUMBERED_STONE_SLABS_BY_FAMILY = {
+    "2": (
+        "red_sandstone_slab",
+        "purpur_slab",
+        "prismarine_slab",
+        "dark_prismarine_slab",
+        "prismarine_brick_slab",
+        "mossy_cobblestone_slab",
+        "smooth_sandstone_slab",
+        "red_nether_brick_slab",
+    ),
+    "3": (
+        "end_stone_brick_slab",
+        "smooth_red_sandstone_slab",
+        "polished_andesite_slab",
+        "andesite_slab",
+        "diorite_slab",
+        "polished_diorite_slab",
+        "granite_slab",
+        "polished_granite_slab",
+    ),
+    "4": ("mossy_stone_brick_slab", "smooth_quartz_slab", "normal_stone_slab", "cut_sandstone_slab", "cut_red_sandstone_slab"),
 }
 
 
@@ -1057,6 +1082,7 @@ def _alias_variant_icon(icons: dict[str, IconCandidate], alias_id: str, target_i
         archive_path=target.archive_path,
         archive_member=target.archive_member,
         source_root=target.source_root,
+        declared=target.declared,
     )
     return True
 
@@ -1085,12 +1111,17 @@ def _add_variant_alias_icons(icons: dict[str, IconCandidate]) -> int:
         added += int(_alias_variant_icon(icons, _variant_key("minecraft:red_flower", damage), f"minecraft:{item}"))
     for damage, item in _DOUBLE_PLANT_BY_DAMAGE.items():
         added += int(_alias_variant_icon(icons, _variant_key("minecraft:double_plant", damage), f"minecraft:{item}"))
-    for base in ["minecraft:double_stone_slab", "minecraft:double_stone_slab2", "minecraft:double_stone_slab3", "minecraft:double_stone_slab4"]:
-        for damage, item in _DOUBLE_STONE_SLAB_BY_DAMAGE.items():
-            added += int(_alias_variant_icon(icons, _variant_key(base, damage), f"minecraft:{item}"))
-    for base in ["minecraft:stone_block_slab", "minecraft:stone_block_slab2", "minecraft:stone_block_slab3", "minecraft:stone_block_slab4"]:
-        for damage, item in _STONE_BLOCK_SLAB_BY_DAMAGE.items():
-            added += int(_alias_variant_icon(icons, _variant_key(base, damage), f"minecraft:{item}"))
+    slab_variants = {
+        "minecraft:double_stone_slab": _DOUBLE_STONE_SLAB_BY_DAMAGE,
+        "minecraft:stone_block_slab": _STONE_BLOCK_SLAB_BY_DAMAGE,
+    }
+    for family, items in _NUMBERED_STONE_SLABS_BY_FAMILY.items():
+        for prefix in ("double_stone_slab", "stone_block_slab"):
+            slab_variants[f"minecraft:{prefix}{family}"] = dict(enumerate(items))
+    for base, variants in slab_variants.items():
+        for damage, item in variants.items():
+            for top_bit in (0, 8):
+                added += int(_alias_variant_icon(icons, _variant_key(base, damage + top_bit), f"minecraft:{item}"))
     return added
 
 

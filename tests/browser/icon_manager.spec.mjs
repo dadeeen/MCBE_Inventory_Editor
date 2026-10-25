@@ -160,8 +160,9 @@ for (const layout of ['classic', 'studio', 'focus']) for (const theme of ['dark'
 test("icon setup and missing-source previews remain usable on narrow screens", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectBrowserErrors(page);
-  const iconData = { success: true, count: 0, icons: {}, warnings: [], sources: [{
-    label: "Vanilla Icons aus Mojang/bedrock-samples", path: "", enabled: true, exists: false, count: 0,
+  const missingPath = `/synthetic/${"Resource_Pack_with_a_long_filename_".repeat(7)}.mcpack`;
+  const iconData = { success: true, count: 0, icons: {}, warnings: [`Not found: ${missingPath}`], sources: [{
+    label: "Vanilla Icons aus Mojang/bedrock-samples", path: missingPath, enabled: true, exists: false, count: 0,
   }], health: { enabled_sources: 1, existing_sources: 0, sample_found: 0, sample_total: 8,
     sample: ["diamond_sword", "apple", "stone", "bow", "carrot", "chest", "firework_rocket", "banner"]
       .map(id => ({ item_id: `minecraft:${id}`, found: false })),
@@ -181,6 +182,8 @@ test("icon setup and missing-source previews remain usable on narrow screens", a
       const panel = page.locator("#dashIcons");
       for (const width of [1440, 390, 320]) {
         await page.setViewportSize({ width, height: 900 });
+        await page.locator("#iconManagerPanel [data-icon-details]").evaluate(el => { el.open = true; });
+        await expect(panel.locator(".diagnostic-warning-list")).toContainText(missingPath);
         await expect(page.locator("#btnFocusIconSource")).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
         expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth), `${locale}/${layout}/${width}`).toBeLessThanOrEqual(1);

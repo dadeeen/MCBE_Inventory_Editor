@@ -5527,6 +5527,7 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 .path-inline { display: flex; gap: .5rem; align-items: center; }
 .path-inline input { flex: 1; min-width: 12rem; }
 .icon-manager-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+.icon-manager-panel .diagnostic-warning-list { overflow-wrap: anywhere; }
 .icon-manager-status, .workspace-current { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; }
 .icon-manager-status > div { border: 1px solid var(--border); border-radius: 14px; padding: .85rem; background: var(--surface); }
 .icon-manager-status span, .workspace-current span { display: block; font-size: .78rem; color: var(--text-muted); margin-bottom: .2rem; }

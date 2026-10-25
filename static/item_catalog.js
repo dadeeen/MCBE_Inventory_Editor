@@ -222,6 +222,15 @@
         6: "quartz_slab",
         7: "nether_brick_slab",
     };
+    // Microsoft's Aux Value to Block State Map gives each numbered legacy
+    // family its own materials; bit 8 selects the top half, not another material.
+    const NUMBERED_STONE_SLABS_BY_FAMILY = {
+        2: ["red_sandstone_slab", "purpur_slab", "prismarine_slab", "dark_prismarine_slab",
+            "prismarine_brick_slab", "mossy_cobblestone_slab", "smooth_sandstone_slab", "red_nether_brick_slab"],
+        3: ["end_stone_brick_slab", "smooth_red_sandstone_slab", "polished_andesite_slab", "andesite_slab",
+            "diorite_slab", "polished_diorite_slab", "granite_slab", "polished_granite_slab"],
+        4: ["mossy_stone_brick_slab", "smooth_quartz_slab", "normal_stone_slab", "cut_sandstone_slab", "cut_red_sandstone_slab"],
+    };
     const POTION_ICON_DAMAGE_VALUES = new Set([
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
@@ -477,11 +486,12 @@
             if (dyeColor && name === "minecraft:dye") return `minecraft:${dyeColor}_dye`;
             if (name === "minecraft:red_flower" && RED_FLOWER_BY_DAMAGE[damage]) return `minecraft:${RED_FLOWER_BY_DAMAGE[damage]}`;
             if (name === "minecraft:double_plant" && DOUBLE_PLANT_BY_DAMAGE[damage]) return `minecraft:${DOUBLE_PLANT_BY_DAMAGE[damage]}`;
-            if ((name === "minecraft:double_stone_slab" || name === "minecraft:double_stone_slab2" || name === "minecraft:double_stone_slab3" || name === "minecraft:double_stone_slab4") && DOUBLE_STONE_SLAB_BY_DAMAGE[damage]) {
-                return `minecraft:${DOUBLE_STONE_SLAB_BY_DAMAGE[damage]}`;
-            }
-            if ((name === "minecraft:stone_block_slab" || name === "minecraft:stone_block_slab2" || name === "minecraft:stone_block_slab3" || name === "minecraft:stone_block_slab4") && STONE_BLOCK_SLAB_BY_DAMAGE[damage]) {
-                return `minecraft:${STONE_BLOCK_SLAB_BY_DAMAGE[damage]}`;
+            const slabFamily = name.match(/^minecraft:(double_stone_slab|stone_block_slab)([234]?)$/);
+            if (slabFamily && damage >= 0 && damage < 16) {
+                const variants = slabFamily[2] ? NUMBERED_STONE_SLABS_BY_FAMILY[slabFamily[2]]
+                    : slabFamily[1] === "double_stone_slab" ? DOUBLE_STONE_SLAB_BY_DAMAGE : STONE_BLOCK_SLAB_BY_DAMAGE;
+                const target = variants[damage & 7];
+                return target ? `minecraft:${target}` : "";
             }
             return "";
         }
