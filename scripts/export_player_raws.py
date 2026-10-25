@@ -41,7 +41,8 @@ def _now() -> datetime:
 
 def _safe_filename(value: str, *, fallback: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in value).strip("_")
-    return safe[:64] or fallback
+    # Reserve room for the timestamp and bundle suffix on byte-limited filesystems.
+    return safe[:64].encode("utf-8")[:192].decode("utf-8", errors="ignore") or fallback
 
 
 def _json_dump(data: dict[str, Any]) -> str:

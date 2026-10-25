@@ -37,6 +37,7 @@ MAX_BACKUP_MEMBERS = 50000
 MAX_BACKUP_BASENAME_LENGTH = 80
 MAX_BACKUP_FILENAME_LENGTH = 180
 BACKUP_DIR_HASH_LENGTH = 12
+_MAX_DIRECTORY_COMPONENT_BYTES = 255
 RESTORE_TOKEN_VERSION = 1
 BACKUP_METADATA_VERSION = 1
 BACKUP_KIND_AUTOMATIC = "automatic"
@@ -252,9 +253,14 @@ def _load_restore_transaction(journal_path: str) -> JsonObject:
         raise ValueError("Restore-Transaktionskennung stimmt nicht überein.")
     if not _valid_transaction_basename(world_name):
         raise ValueError("Ungültiger Weltordner im Restore-Transaktionsmarker.")
-    if not _valid_transaction_basename(rollback_name, prefix=f".{world_name}_rollback_") or not rollback_name.endswith(f"_{transaction_id}"):
+    # Retain old journals, including long names legal on Windows. New bounded
+    # names must be derived from this exact target, never an arbitrary prefix.
+    stems = {world_name, _restore_directory_stem(os.path.join(os.path.dirname(journal_path), world_name))}
+    rollback_prefixes = tuple(f".{stem}_rollback_" for stem in stems)
+    staging_prefixes = tuple(f".{stem}_restoring_" for stem in stems)
+    if not _valid_transaction_basename(rollback_name) or not rollback_name.startswith(rollback_prefixes) or not rollback_name.endswith(f"_{transaction_id}"):
         raise ValueError("Ungültiger Rollback-Ordner im Restore-Transaktionsmarker.")
-    if not _valid_transaction_basename(staging_name, prefix=f".{world_name}_restoring_"):
+    if not _valid_transaction_basename(staging_name) or not staging_name.startswith(staging_prefixes):
         raise ValueError("Ungültiger Staging-Ordner im Restore-Transaktionsmarker.")
     return payload
 
@@ -584,6 +590,19 @@ def _world_backup_id(world_path: StrPath) -> str:
     return hashlib.sha256(normalized.encode("utf-8", errors="surrogatepass")).hexdigest()[:BACKUP_DIR_HASH_LENGTH]
 
 
+def _short_world_directory_name(world_path: str) -> str:
+    name = _safe_backup_name(os.path.basename(os.path.normpath(world_path)))
+    name = name.encode("utf-8")[:MAX_BACKUP_BASENAME_LENGTH].decode("utf-8", errors="ignore").rstrip(" ._-") or "world"
+    return f"{name}_{_world_backup_id(world_path)}"
+
+
+def _restore_directory_stem(world_path: str) -> str:
+    name = os.path.basename(os.path.normpath(world_path))
+    # Rollback uses the longest suffix: timestamp plus the 16-character ID.
+    longest = f".{name}_rollback_2000-01-01_00-00-00-000000_0000000000000000"
+    return name if len(os.fsencode(longest)) <= _MAX_DIRECTORY_COMPONENT_BYTES else _short_world_directory_name(world_path)
+
+
 def get_backups_dir(world_path: str) -> str:
     config = load_config()
     world_dir_name = os.path.basename(os.path.normpath(world_path))
@@ -594,9 +613,17 @@ def get_backups_dir(world_path: str) -> str:
         # wrong world.  Keep the human-readable folder name, but isolate it with
         # a short hash of the normalized real world path.
         backup_dir_name = f"{_safe_backup_name(world_dir_name)}_{_world_backup_id(world_path)}"
-        return os.path.join(os.path.abspath(os.path.normpath(config.backup_root)), backup_dir_name)
-    parent_dir = os.path.dirname(os.path.normpath(world_path))
-    return os.path.join(parent_dir, f"{world_dir_name}_backups")
+        parent_dir = os.path.abspath(os.path.normpath(config.backup_root))
+    else:
+        parent_dir = os.path.dirname(os.path.normpath(world_path))
+        backup_dir_name = f"{world_dir_name}_backups"
+    candidate = os.path.join(parent_dir, backup_dir_name)
+    if len(os.fsencode(backup_dir_name)) > _MAX_DIRECTORY_COMPONENT_BYTES and not os.path.isdir(candidate):
+        # Keep existing legal Windows paths and all ordinary directory IDs.
+        # Only previously uncreatable names need a bounded, collision-safe form.
+        backup_dir_name = _short_world_directory_name(world_path) + ("" if config.backup_root else "_backups")
+        candidate = os.path.join(parent_dir, backup_dir_name)
+    return candidate
 
 
 def ensure_safe_backup_location(world_path: str) -> str:
@@ -843,8 +870,10 @@ def _backup_target_path(backups_dir: str, display_name: str, timestamp: str, kin
 
     for _attempt in range(32):
         suffix = f"__{kind}__{timestamp}__{secrets.token_hex(8)}.zip"
-        max_display_length = max(1, MAX_BACKUP_FILENAME_LENGTH - len(suffix))
-        safe_display_name = _safe_backup_name(display_name)[:max_display_length].rstrip(" ._-") or "world"
+        # POSIX filename limits count encoded bytes, not Unicode characters.
+        # Keep the existing portable limit without splitting a UTF-8 character.
+        max_display_bytes = max(1, MAX_BACKUP_FILENAME_LENGTH - len(suffix))
+        safe_display_name = _safe_backup_name(display_name).encode("utf-8")[:max_display_bytes].decode("utf-8", errors="ignore").rstrip(" ._-") or "world"
         path = os.path.join(
             backups_dir,
             f"{safe_display_name}{suffix}",
@@ -1675,11 +1704,12 @@ def restore_backup(
     unpacked = _archive_size(backup_zip_path, world_path)
     _ensure_space(parent_dir or ".", unpacked)
     world_dir_name = os.path.basename(os.path.normpath(world_path))
+    transaction_stem = _restore_directory_stem(world_path)
     transaction_id = secrets.token_hex(8)
-    temp_restore_dir = tempfile.mkdtemp(prefix=f".{world_dir_name}_restoring_", dir=parent_dir)
+    temp_restore_dir = tempfile.mkdtemp(prefix=f".{transaction_stem}_restoring_", dir=parent_dir)
     rollback_dir = os.path.join(
         parent_dir,
-        f".{world_dir_name}_rollback_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')}_{transaction_id}",
+        f".{transaction_stem}_rollback_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')}_{transaction_id}",
     )
     transaction_journal = None
     transaction_resolved = False
