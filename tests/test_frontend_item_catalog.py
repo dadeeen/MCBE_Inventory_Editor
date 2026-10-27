@@ -220,6 +220,13 @@ def test_frontend_icon_lookup_falls_back_to_base_potion_icons() -> None:
             assert.strictEqual(catalog.getItemIconMeta("minecraft:mundane_lingering_potion").token, "lingering-potion");
             assert.strictEqual(catalog.getItemIconMeta("minecraft:mundane_tipped_arrow").token, "tipped-arrow");
             assert.strictEqual(catalog.getItemIconMeta({ name: "minecraft:tipped_arrow", damage: 14 }).token, "tipped-swift");
+            for (const [name, token] of [["minecraft:potion", "base-potion"],
+                ["minecraft:splash_potion", "splash-potion"], ["minecraft:lingering_potion", "lingering-potion"]]) {
+                for (const damage of [47, 48]) {
+                    assert.strictEqual(catalog.getItemIconMeta({name, damage}).token, token);
+                    assert.deepStrictEqual(Array.from(catalog.iconLookupCandidates({name, damage})), [name]);
+                }
+            }
             assert.deepStrictEqual(
                 Array.from(catalog.iconLookupCandidates({ name: "minecraft:potion", damage: 12 }).slice(0, 2)),
                 ["minecraft:potion#12", "minecraft:potion"],
@@ -327,7 +334,7 @@ def test_frontend_potion_damage_values_have_variant_names_and_data_label() -> No
     )
 
 
-def test_frontend_potion_selector_offers_only_documented_delivery_types_and_values() -> None:
+def test_frontend_potion_selector_offers_only_reviewed_delivery_types_and_values() -> None:
     run_node(
         r"""
         const assert = require('assert');
@@ -340,7 +347,7 @@ def test_frontend_potion_selector_offers_only_documented_delivery_types_and_valu
             getItemIconIndex: () => ({}), getStackLimits: () => ({}), getMaxDamageMap: () => ({}),
             itemIdRe: /^minecraft:[a-z0-9_.-]+$/, defaultMaxDamage: 32767, maxBedrockStackCount: 127,
         });
-        const expected = Array.from({length: 47}, (_, index) => index);
+        const expected = Array.from({length: 49}, (_, index) => index);
         const cases = [
             ['minecraft:potion', ['Wasserflasche', 'Water Bottle'], ['Trank: Verseuchung', 'Potion of Infestation']],
             ['minecraft:splash_potion', ['Werfbare Wasserflasche', 'Splash Water Bottle'], ['Wurftrank: Verseuchung', 'Splash Potion of Infestation']],
@@ -352,6 +359,12 @@ def test_frontend_potion_selector_offers_only_documented_delivery_types_and_valu
             assert.deepStrictEqual(Array.from(variants, entry => entry.damage), expected);
             assert.deepStrictEqual(Array.from(variants[0].names), water);
             assert.deepStrictEqual(Array.from(variants[46].names), last);
+            const prefix = name === 'minecraft:potion' ? ['Trank', 'Potion']
+                : name === 'minecraft:splash_potion' ? ['Wurftrank', 'Splash Potion'] : ['Verweiltrank', 'Lingering Potion'];
+            assert.deepStrictEqual(Array.from(variants[47].names),
+                [`${prefix[0]}: Gefrieren (experimentell)`, `${prefix[1]} of Freezing (Experimental)`]);
+            assert.deepStrictEqual(Array.from(variants[48].names),
+                [`${prefix[0]}: Gefrieren (experimentell) (verlängert)`, `${prefix[1]} of Freezing (Experimental) (Long)`]);
             assert.deepStrictEqual(Array.from(catalog.addableItemVariantsForId(name), entry => entry.damage), expected);
             assert.ok(variants.every(entry => entry.id === name
                 && entry.names.length === 2 && entry.names.every(label => typeof label === 'string' && label.length > 0)));
@@ -359,6 +372,9 @@ def test_frontend_potion_selector_offers_only_documented_delivery_types_and_valu
         }
         for (const name of ['minecraft:tipped_arrow', 'minecraft:arrow', 'minecraft:future_potion', 'minecraft:stone']) {
             assert.strictEqual(catalog.dataValueVariantsForId(name).length, 0);
+        }
+        for (const damage of [47, 48]) {
+            assert.strictEqual(catalog.variantItemNamesForId({name: 'minecraft:tipped_arrow', damage}), null);
         }
         const original = {name: 'minecraft:potion', damage: 99};
         assert.strictEqual(catalog.variantItemNamesForId(original), null);

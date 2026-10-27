@@ -50,6 +50,7 @@ def measured_matrix():
         "typed-pair",
         "level",
         "new-enchantment",
+        "new-potion",
         "wrong-potion-id",
     ],
 )
@@ -71,6 +72,8 @@ def test_extended_matrix_never_accepts_missing_or_malformed_domains(measured_mat
         events[0]["enchantments"]["unbreaking"] += 1
     elif mutation == "new-enchantment":
         events[0]["enchantments"]["future"] = 1
+    elif mutation == "new-potion":
+        events[0]["effects"].append("minecraft:future_potion")
     else:
         events[-1]["id"] = "minecraft:stone"
     with pytest.raises(ProbeError):
@@ -88,7 +91,14 @@ def test_extended_plan_covers_levels_pairs_variants_and_metadata_merge_cases(mea
     }
     assert levels == {1, 2, 3, 4, 5}
     assert plan["counts"]["enchantment_pairs"] == 3
-    assert plan["counts"]["potion_variants"] == 2 * len(POTION_DATA_VALUES) * len(POTION_ITEMS)
+    assert plan["counts"]["potion_variants"] == 3 * len(POTION_DATA_VALUES) * len(POTION_ITEMS)
+    freezing = [case for case in cases if case.get("potion", {}).get("effect") == "minecraft:freezing"]
+    long_freezing = [case for case in cases if case.get("potion", {}).get("effect") == "minecraft:long_freezing"]
+    assert {case["damage"] for case in freezing} == {47}
+    assert {case["damage"] for case in long_freezing} == {48}
+    assert {(case["mode"], case["id"]) for case in freezing} == {
+        (mode, item_id) for mode in ("create", "preserve", "decorate") for item_id in POTION_ITEMS.values()
+    }
     assert plan["counts"]["data_variants"] == 2 * sum(len(values) for values in DATA_VARIANTS.values())
     assert plan["counts"]["gameplay_cases"] == 6
     assert all(case["slot"] != 26 for case in cases)

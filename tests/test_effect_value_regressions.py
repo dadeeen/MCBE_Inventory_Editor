@@ -19,6 +19,27 @@ def _effect(effect_id=1, **fields):
     )
 
 
+def test_engine_reviewed_freezing_effect_can_be_added_and_edited_without_losing_future_effects():
+    future = _effect(39, AddonData=nbt.StringTag("preserve"))
+    player = nbt.CompoundTag({"ActiveEffects": nbt.ListTag([future])})
+    original_future = future.save_to()
+    request = {"id": 38, "amplifier": 1, "duration": 1200}
+
+    inventory.apply_effects(player, [request])
+
+    assert player["ActiveEffects"][0].save_to() == original_future
+    freezing = player["ActiveEffects"][1]
+    assert type(freezing["Id"]) is nbt.ByteTag
+    assert freezing["Id"].py_data == 38
+    assert freezing["Amplifier"].py_data == 1
+    assert freezing["Duration"].py_data == 1200
+    parsed = inventory.parse_effects(player)
+    parsed[1]["duration"] = 600
+    inventory.apply_effects(player, parsed)
+    assert player["ActiveEffects"][0].save_to() == original_future
+    assert player["ActiveEffects"][1]["Duration"].py_data == 600
+
+
 @pytest.mark.parametrize("field", ["Ambient", "ShowParticles", "ShowIcon"])
 @pytest.mark.parametrize("value", [-128, -1, 2, 127])
 def test_unchanged_truthy_effect_byte_survives_duration_edit(field, value):

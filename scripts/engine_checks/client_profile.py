@@ -3,38 +3,15 @@
 from __future__ import annotations
 
 import json
-import struct
 from pathlib import Path
 
 from .cases import expected_snapshot
 from .protocol import ProbeError
 from .service_profile import assignments
 
-CLIENT_API_VERSION = "2.11.0-beta"
+CLIENT_API_VERSION = "2.11.0"
 CONTROL_SLOTS = {"Inventory": 34, "EnderChestInventory": 25}
 CONTROL_NAME = "MCBE client untouched control"
-
-
-def enable_client_experiment(server: Path) -> None:
-    """Only the fresh, already bootstrapped disposable world is accepted."""
-    from mcbe_editor import nbt
-
-    from .runner import WORLD_NAME
-
-    path = server / "worlds" / WORLD_NAME / "level.dat"
-    raw = path.read_bytes()
-    if len(raw) < 8 or struct.unpack("<I", raw[4:8])[0] != len(raw) - 8:
-        raise ProbeError("Unexpected generated level.dat framing")
-    level = nbt.load(raw[8:], compressed=False, little_endian=True)
-    level.tag["experiments"] = nbt.CompoundTag(
-        {
-            "gametest": nbt.ByteTag(1),
-            "experiments_ever_used": nbt.ByteTag(1),
-            "saved_with_toggled_experiments": nbt.ByteTag(1),
-        }
-    )
-    payload = level.save_to(compressed=False, little_endian=True)
-    path.write_bytes(raw[:4] + struct.pack("<I", len(payload)) + payload)
 
 
 def player_items(root, field: str) -> dict:

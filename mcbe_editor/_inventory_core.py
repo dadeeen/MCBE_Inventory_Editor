@@ -50,11 +50,11 @@ DATA_VALUE_VARIANT_DAMAGE_VALUES = {
     "minecraft:suspicious_stew": frozenset(range(13)),
     "minecraft:empty_map": frozenset({0, 2}),
     "minecraft:emptymap": frozenset({0, 2}),
-    # Match the named values already exposed by the item catalog. Unknown
-    # future potion values are preserved from an original, never synthesized.
-    "minecraft:potion": frozenset(range(47)),
-    "minecraft:splash_potion": frozenset(range(47)),
-    "minecraft:lingering_potion": frozenset(range(47)),
+    # BDS 1.26.60.6 persists freezing/long_freezing as ShortTag values 47/48.
+    # Unknown future potion values remain preservation-only.
+    "minecraft:potion": frozenset(range(49)),
+    "minecraft:splash_potion": frozenset(range(49)),
+    "minecraft:lingering_potion": frozenset(range(49)),
 }
 AXOLOTL_VARIANTS = {
     0: {"key": "lucy", "label_de": "Leuzistisch", "label_en": "Leucistic", "display_de": "Leuzistischer Axolotl", "display_en": "Leucistic Axolotl"},

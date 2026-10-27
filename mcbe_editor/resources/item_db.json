@@ -3472,6 +3472,12 @@
       "Hält den Sauerstoffvorrat des Ziels auf seinem aktuellen Stand.",
       "Keeps the target's oxygen supply at its current level."
     ],
+    "38": [
+      "Gefrieren",
+      "Freezing",
+      "Experimenteller Effekt aus Minecraft 26.60: Friert das Ziel schrittweise ein, verringert die Sprunghöhe und verursacht schließlich Schaden. Redaktionelle Bezeichnung; die Verfügbarkeit hängt von den Welt-Experimenten ab.",
+      "Experimental effect from Minecraft 26.60: Gradually freezes the target, reduces jump height and eventually deals damage. Editorial name; availability depends on the world's experiments."
+    ],
     "4": [
       "Abbaulähmung",
       "Mining Fatigue",

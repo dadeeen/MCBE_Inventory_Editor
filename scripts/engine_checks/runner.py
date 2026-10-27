@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 
 from .addon import ADDON_LIMITS, DATA_MODULE_ID, make_addon_cases, prepare_addon
 from .cases import make_cases, validate_case_events
-from .client_profile import CLIENT_API_VERSION, CONTROL_NAME, CONTROL_SLOTS, enable_client_experiment
+from .client_profile import CLIENT_API_VERSION, CONTROL_NAME, CONTROL_SLOTS
 from .equipment import make_equipment_cases
 from .extended import enchantment_registry_result, extend_cases, matrix_result, validate_behavior_events
 from .protocol import ProbeError, Transcript, catalog_result
@@ -112,6 +112,7 @@ def prepare_pack(server: Path, config: dict) -> None:
         prepare_addon(pack)
     if config.get("client_profile"):
         manifest["dependencies"][0]["version"] = CLIENT_API_VERSION
+        manifest["header"]["min_engine_version"] = [1, 26, 60]
     write_json(pack / "manifest.json", manifest)
     for script in (PACK / "scripts").glob("*.js"):
         (pack / "scripts" / script.name).write_bytes(script.read_bytes())
@@ -630,19 +631,18 @@ def run_probe(
                 cases = make_service_cases(catalog["observations"], db["stack_limits"], db["enchantments"])
             if suite == "client":
                 cases.extend(make_equipment_cases(catalog["observations"], db["stack_limits"]))
-                enable_client_experiment(server)
                 configure_server(server, client_port=client_port)
                 config.update(
                     {"client_profile": True, "client_locations": assignments(cases), "client_control_slots": CONTROL_SLOTS, "client_control_name": CONTROL_NAME}
                 )
                 report["engine"].update(
-                    {"api_version": CLIENT_API_VERSION, "experiments": True, "network": "bridge; IPv4 loopback TCP+UDP only; NetherNet loopback candidate"}
+                    {"api_version": CLIENT_API_VERSION, "experiments": False, "network": "bridge; IPv4 loopback TCP+UDP only; NetherNet loopback candidate"}
                 )
                 report["client"] = {
                     "status": "incomplete",
                     "required_connections": reload_cycles + 1,
                     "completed_connections": 0,
-                    "profile": "real client; offline local dedicated server; Beta API Ender Chest observer",
+                    "profile": "real client; offline local dedicated server; stable API Ender Chest observer",
                 }
                 if reload_cycles == 1:
                     report["not_covered"].append("second real-client reload after the first engine save (limited client run)")
@@ -739,7 +739,7 @@ def run_probe(
                 report["nbt_edit"]["player_service"]["client_login_verified"] = True
                 report["not_covered"].remove("real-player login and save")
                 report["not_covered"].remove("real-player Ender Chest persistence")
-                report["not_covered"].extend(["online authentication", "stable-API-only Ender Chest observer"])
+                report["not_covered"].append("online authentication")
         else:
             report["not_covered"].append("item NBT persistence (catalog-only run)")
         # Phases and fresh workers load source files at different times. Do not

@@ -199,6 +199,9 @@ test("item browser shows restrained availability labels including potion variant
   }
   await expect(cardFor(/^minecraft:apple$/).locator(".item-availability-badge")).toHaveCount(0);
   await expect(cardFor(/^minecraft:potion · Datenwert 0$/).locator(".item-availability-badge")).toHaveCount(0);
+  for (const damage of [47, 48]) {
+    await expect(cardFor(new RegExp(`^minecraft:potion · Datenwert ${damage}$`))).toContainText("experimentell");
+  }
   await expect(cardFor(/^minecraft:black_wool_double_slab$/)).toHaveCount(0);
   await expect(cardFor(/^minecraft:bedrock$/).locator(".item-availability-badge")).toHaveAttribute(
     "title",

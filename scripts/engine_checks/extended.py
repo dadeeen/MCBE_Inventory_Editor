@@ -111,6 +111,9 @@ POTION_EFFECTS = (
     "weaving",
     "oozing",
     "infested",
+    # Engine-created BDS 1.26.60.6 references persist these as Damage 47/48.
+    "freezing",
+    "long_freezing",
 )
 POTION_DATA_VALUES = {"minecraft:" + effect: value for value, effect in enumerate(POTION_EFFECTS)}
 POTION_ITEMS = {"Consume": "minecraft:potion", "ThrownSplash": "minecraft:splash_potion", "ThrownLingering": "minecraft:lingering_potion"}
@@ -299,9 +302,9 @@ def extend_cases(cases: list[dict], observations: dict, matrix: dict) -> dict:
                 add(item_id, mode, damage=value, data_value=value, seeded_metadata=mode == "preserve", coverage="data-variant")
                 counts["data_variants"] += 1
     for potion in matrix["potions"]:
-        # These are engine-created references. The editor changes their display
-        # fields without reconstructing a potion from guessed numeric values.
-        for mode in ("preserve", "decorate"):
+        # Preserve/decorate engine-created references and create the same
+        # measured numeric variants through the production editor.
+        for mode in ("create", "preserve", "decorate"):
             add(
                 potion["id"],
                 mode,

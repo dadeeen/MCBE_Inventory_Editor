@@ -9,6 +9,9 @@ certifi>=2026.10.19
 # urllib3 comes through pip-audit's requests; 2.8.0 fixes CVE-2026-97687,
 # CVE-2026-97688 and CVE-2026-97689.
 urllib3>=2.8.0
+# Fix strict_map_key validation memory leaks in pip-audit's CacheControl cache
+# dependency (CVE-2026-114613); keep the update within the 1.2 patch line.
+msgpack>=1.2.3,<1.3
 # pip-tools 7.6.2 supports pip 26.2 and Click 8.5.
 pip==26.2.2
 pip-tools>=7.6.2,<8

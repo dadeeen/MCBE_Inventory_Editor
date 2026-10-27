@@ -303,13 +303,24 @@ for (const locale of ["de", "en"]) {
           } else {
             await expect(wear).toBeHidden();
             await expect(variant).toBeVisible();
-            await expect(variant.locator("option")).toHaveCount(47);
+            await expect(variant.locator("option")).toHaveCount(49);
             await expect(variant).toHaveValue("21");
             await expect(variant.locator('option[value="46"]')).toContainText(locale === "de" ? "Verseuchung" : "Infestation");
             await variant.selectOption("46");
             await expect(wear).toHaveValue("46");
             const custom = contained ? dialog.getByLabel(locale === "de" ? "Anzeigename" : "Custom name", { exact: true }) : page.locator("#detailCustomName");
             await expect(custom).toHaveValue("Personal label");
+            for (const damage of [47, 48]) {
+              await expect(variant.locator(`option[value="${damage}"]`)).toContainText(locale === "de" ? "experimentell" : "Experimental");
+              await variant.selectOption(String(damage));
+              await expect(wear).toHaveValue(String(damage));
+              await expect(custom).toHaveValue("Personal label");
+              if (!contained) {
+                expect(await page.evaluate(() => inventory[2].damage)).toBe(damage);
+                await page.locator("#btnUndo").click();
+                await expect(variant).toHaveValue("46");
+              }
+            }
             if (contained) await variant.selectOption("21");
             else {
               expect(await page.evaluate(() => inventory[2].damage)).toBe(46);

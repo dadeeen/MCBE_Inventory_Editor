@@ -290,6 +290,10 @@
         44: { de: "Weben", en: "Weaving" },
         45: { de: "Sickern", en: "Oozing" },
         46: { de: "Verseuchung", en: "Infestation" },
+        // BDS 1.26.60.6 stores these registered, experimental potion types as
+        // values 47 and 48. Their names do not establish gameplay availability.
+        47: { de: "Gefrieren (experimentell)", en: "Freezing (Experimental)" },
+        48: { de: "Gefrieren (experimentell)", en: "Freezing (Experimental)", modifierDe: "verlängert", modifierEn: "Long" },
     };
     const POTION_WATER_NAMES = {
         "minecraft:potion": ["Wasserflasche", "Water Bottle"],
@@ -372,6 +376,8 @@
             const damage = damageKey(item ? item.damage : damageArg);
             const variant = POTION_VARIANT_BY_DAMAGE[damage];
             if (!variant) return null;
+            // The 26.60 measurements cover bottled potions, not arrow data.
+            if (name === "minecraft:tipped_arrow" && !POTION_ICON_DAMAGE_VALUES.has(damage)) return null;
             if (variant.water) return name === "minecraft:tipped_arrow"
                 ? ["Pfeil des Spritzens", "Arrow of Splashing"] : POTION_WATER_NAMES[name];
             const prefixes = POTION_ITEM_LABEL_PREFIXES[name];
@@ -399,7 +405,8 @@
         function dataValueVariantsForId(itemId) {
             const normalized = String(itemId || "").trim().toLowerCase();
             const canonical = canonicalItemId(normalized);
-            // The three potion item IDs share the documented Bedrock values.
+            // The three potion item IDs share reviewed values from Bedrock
+            // documentation and independent engine-created references.
             // tipped_arrow is only an existing display/icon compatibility ID;
             // its presence in that table is not evidence for editable variants.
             if (Object.hasOwn(POTION_WATER_NAMES, canonical)) {

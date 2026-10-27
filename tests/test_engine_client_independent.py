@@ -27,6 +27,7 @@ def client_run(tmp_path, monkeypatch):
     selected_fault = None
     selected_reloads = 2
     catalog_status = "pass"
+    bootstrapped_level = None
     prepare_pack = runner.prepare_pack
 
     def prepare(server, current):
@@ -35,14 +36,20 @@ def client_run(tmp_path, monkeypatch):
         prepare_pack(server, current)
 
     def phase(server, directory, name, *_args, **kwargs):
+        nonlocal bootstrapped_level
         trace.append(name)
         if name == "catalog":
-            # A fake engine creates only the minimal framing needed by the
-            # real client-experiment setup. No player data is fabricated here.
+            # Preserve engine-created world metadata without enabling experiments.
+            # No player data is fabricated here.
             payload = nbt.NamedTag(nbt.CompoundTag()).save_to(compressed=False, little_endian=True)
-            (server / "worlds" / runner.WORLD_NAME / "level.dat").write_bytes(struct.pack("<II", 10, len(payload)) + payload)
+            bootstrapped_level = struct.pack("<II", 10, len(payload)) + payload
+            (server / "worlds" / runner.WORLD_NAME / "level.dat").write_bytes(bootstrapped_level)
             assert kwargs == {}
             return []
+        assert (server / "worlds" / runner.WORLD_NAME / "level.dat").read_bytes() == bootstrapped_level
+        manifest = json.loads((server / "behavior_packs" / "mcbe_engine_probe" / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["dependencies"] == [{"module_name": "@minecraft/server", "version": "2.11.0"}]
+        assert manifest["header"]["min_engine_version"] == [1, 26, 60]
         assert kwargs == {"client_port": 19134, "client_connections": selected_reloads + 1}
         persisted_cases = json.loads((directory / "cases.json").read_text(encoding="utf-8"))
         assert persisted_cases == config["cases"]
@@ -88,7 +95,7 @@ def client_run(tmp_path, monkeypatch):
         nonlocal selected_fault, selected_reloads, catalog_status
         selected_fault, selected_reloads = fault, reloads
         catalog_status = "partial" if partial_catalog else "pass"
-        directory, report = runner.run_probe(archive, digest, "1.26.52.3", "unused", tmp_path / "runs", "client", 30, client_reloads=reloads)
+        directory, report = runner.run_probe(archive, digest, "1.26.60.6", "unused", tmp_path / "runs", "client", 30, client_reloads=reloads)
         summary = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
         status = json.loads((directory / "client-status.json").read_text(encoding="utf-8"))
         return report, summary, status, trace
@@ -100,6 +107,8 @@ def client_run(tmp_path, monkeypatch):
 def test_client_runner_keeps_batched_coverage_and_reports_actual_reload_scope(client_run, reloads):
     report, summary, status, trace = client_run(reloads)
     assert report["status"] == summary["status"] == status["status"] == "pass"
+    assert report["engine"]["api_version"] == summary["engine"]["api_version"] == "2.11.0"
+    assert report["engine"]["experiments"] is summary["engine"]["experiments"] is False
     expected = ["catalog", "seed", "edit", "reload1", "reload1-disk"]
     if reloads == 2:
         expected += ["reload2", "reload2-disk"]
@@ -118,6 +127,7 @@ def test_client_runner_keeps_batched_coverage_and_reports_actual_reload_scope(cl
     assert any("special-item gameplay" in gap for gap in report["not_covered"])
     assert "singleplayer local-player engine saves" in report["not_covered"]
     assert "UI interactions" in report["not_covered"]
+    assert "stable-API-only Ender Chest observer" not in report["not_covered"]
 
 
 @pytest.mark.parametrize(

@@ -82,7 +82,7 @@ def test_unknown_variant_or_out_of_range_wear_survives_other_edits(location, nam
 
 @pytest.mark.parametrize(
     "name,value",
-    [("minecraft:stone", 1), ("minecraft:empty_map", 1), ("minecraft:potion", 47), ("minecraft:diamond_sword", 1562)],
+    [("minecraft:stone", 1), ("minecraft:empty_map", 1), ("minecraft:potion", 49), ("minecraft:diamond_sword", 1562)],
 )
 def test_new_values_require_documented_item_semantics(location, name, value):
     with pytest.raises(ValueError, match="Datenwert|Damage-Wert"):
@@ -94,6 +94,27 @@ def test_documented_values_remain_creatable(location, name, value):
     saved = _save(location, None, name=name, damage=value)
     player = nbt.CompoundTag({"Inventory": nbt.ListTag([saved], 10)})
     assert inventory.nbt_to_json(player)[0][6]["damage"] == value
+
+
+@pytest.mark.parametrize("name", ["minecraft:potion", "minecraft:splash_potion", "minecraft:lingering_potion"])
+@pytest.mark.parametrize("value", [47, 48])
+def test_engine_reviewed_freezing_potion_values_are_editable(location, name, value):
+    saved = _save(location, None, name=name, damage=value)
+    player = nbt.CompoundTag({"Inventory": nbt.ListTag([saved], 10)})
+    assert inventory.nbt_to_json(player)[0][6]["damage"] == value
+    assert type(saved["Damage"]) is nbt.ShortTag
+    assert saved["Damage"].py_data == value
+
+
+@pytest.mark.parametrize("name", ["minecraft:potion", "minecraft:splash_potion", "minecraft:lingering_potion"])
+def test_future_potion_values_remain_preservation_only(location, name):
+    original = _item(name, 49)
+    saved = _save(location, original, display_name="Future potion")
+    expected = deepcopy(original)
+    expected["tag"]["display"] = nbt.CompoundTag({"Name": nbt.StringTag("Future potion")})
+    assert saved.save_to() == expected.save_to()
+    with pytest.raises(ValueError, match="Datenwert|Damage-Wert"):
+        _save(location, None, name=name, damage=49)
 
 
 def test_unknown_value_can_only_be_kept_or_explicitly_reset(location):

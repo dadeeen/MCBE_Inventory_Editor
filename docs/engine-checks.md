@@ -43,6 +43,46 @@ to load its chunks and actors even without a connected player. References:
 [ItemTypes](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/itemtypes?view=minecraft-bedrock-stable),
 [ItemStack](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/itemstack?view=minecraft-bedrock-stable).
 
+## Verified builds
+
+The automated reference build is **BDS 1.26.60.6** for Linux amd64. Its official
+archive SHA-256 is `cbbd5414fa6a310353ed1fc76a0ba691c3fd1ea852fd04bb76764ee4c1afdb98`;
+the executable SHA-256 is `ea16b541a448e07c337848d2c5f37321b706554b5216dd942f3f11e7a8ed2bad`.
+The editor 0.8.4 catalog SHA-256 is
+`c3d11c43d2e035c629a846872fffc98015d9f04c3062b100c2c3d618379fc192`.
+The measured registry contains exactly the catalog's 1,623 addable IDs, with all
+recorded stack limits and 84 durability components agreeing. The stable sample
+source remains **v1.26.50.4**; engine-reviewed potion/effect facts have their own
+provenance and do not change that release identity.
+
+The extended profile passes **13,312** item cases through two engine save/reload
+cycles, including **441** potion cases (49 types, three delivery types, creation,
+preservation and display-field edits). It also verifies 42 enchantment identities
+and maximum levels, 68,166 applicability checks, 1,648 stack-merge pairs and six
+bounded item-transport cases. Its probe source SHA-256 is
+`fe76e8f9f7a25652c85e74c5cd485b715a734e2734044fc75a28ed7de0e33dad`;
+the editor source SHA-256 is
+`908051fe2c1a7682764af13ba85d13c707d145bc00cd89473e14e76f962fe610`.
+
+All four default profiles pass with those source and catalog hashes:
+
+| Profile | Cases | Scope |
+| --- | ---: | --- |
+| `extended` | 13,312 | Item creation, preservation, metadata, variants, enchantments and bounded transport |
+| `special` | 18 | Six specialized item editors, 14 second edits and 15 rejected edits |
+| `service` | 48 | Production player service with two synthetic player formats, backups and revision checks |
+| `addons` | 12 | Owned conformance pack with two custom item types; no Vanilla catalog overrides |
+
+Each profile checks two engine save/reload cycles. Synthetic player records do
+not establish real-client Inventory or Ender Chest persistence.
+
+The optional real-client profile uses stable API 2.11.0 and requires its own
+client-connected run. That API loads successfully in network-isolated BDS
+1.26.60.6 and exposes `EntityComponentTypes.EnderInventory` as
+`minecraft:ender_inventory` without experiments. This API-availability check and
+the automated profiles do not establish actual client login,
+singleplayer persistence, version migration or experimental Freezing gameplay.
+
 ## Catalog suite
 
 - Compare every bundled addable ID with the runtime registry and try every ID in
@@ -113,9 +153,13 @@ coverage. It tests:
   engine creates the preserved/original states; the editor creates the changed states.
 - All reviewed data values for beds, banners, goat horns, ominous bottles,
   suspicious stews and empty maps, created by both engine commands and the editor.
-- All 47 potion effects across all three runtime delivery types. Engine-created
-  potion references are preserved or renamed, with raw NBT data values checked
-  against an independent reviewed table.
+- All 49 potion types across all three runtime delivery types. The editor creates
+  each measured numeric variant and preserves or renames engine-created references,
+  with raw NBT data values checked against an independent reviewed table. On
+  BDS 1.26.60.6, `freezing` and `long_freezing` persist as short-tag data values
+  47 and 48. Their registration and persistence without experiments do not
+  establish normal gameplay availability; the 26.60 changelog lists Freezing
+  among experimental game-drop features.
 - Real `isStackableWith` checks in both directions and `Container.addItem` calls
   for all item types, plus equal/different names, lore and durability. Engine-built
   references provide the comparison. Quantity conservation, stack boundaries,
@@ -234,11 +278,11 @@ excludes only the observed index schema (exactly two string fields, `MsaId` and
 `ServerId`); ambiguous or unreadable player-like records still fail. Index records
 are preserved byte for byte alongside every other unrelated database record.
 
-This profile explicitly enables the Beta APIs experiment and
-`@minecraft/server` **2.11.0-beta**, because the
-[Ender Chest component](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/entityenderinventorycomponent?view=minecraft-bedrock-experimental)
-is experimental. It uses no simulated player. The report records this different
-API/experiment/network profile. Current clients require NetherNet: local
+This profile requires Bedrock **26.60** or later and the stable
+`@minecraft/server` **2.11.0** API, including the
+[Ender Chest component](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/entityenderinventorycomponent?view=minecraft-bedrock-stable).
+It enables no experiments and uses no simulated player. The report records this
+API/network profile. Current clients require NetherNet: local
 HTTP/TCP signaling on the selected port plus UDP gameplay on that same port.
 The generated `server-udp-ports` explicitly advertises the loopback mapping;
 Docker publishes both protocols **only on IPv4 loopback**. See the official BDS
@@ -384,9 +428,9 @@ SHA-256 and pass the actual server version (which may differ from the client
 version or `bedrock-samples` release):
 
 ```powershell
-$archive = '.engine-tests/downloads/bedrock-server-1.26.52.3.zip'
+$archive = '.engine-tests/downloads/bedrock-server-1.26.60.6.zip'
 $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
-.venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.52.3
+.venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.60.6
 ```
 
 The default `--suite all` sequentially runs `extended`, `special`, `service` and `addons`,

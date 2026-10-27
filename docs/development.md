@@ -237,7 +237,9 @@ preservation and fallback rules. The locale parsers accept Mojang's `potion.*`
 effect labels and `enchantment.*` names, including their source aliases, while
 excluding potion item names, levels, durations and description text. Legacy
 `effect.*` and `enchant.*` names remain supported. These validation semantics use
-updater contract version 3, so older receipts require a fresh check.
+updater contract version 4, including retention of all bundled reviewed effect
+facts when the source registry is older; receipts from earlier contracts require
+a fresh preview and check.
 
 That table is maintained by hand, so two situations need a maintainer:
 
@@ -308,7 +310,7 @@ Ordinary inventory, equipment and ender chest forms apply valid input directly t
 
 The selected container slot is fixed in the UI, item builder, and `withChild` update. Existing bundle capacity, stack, and nesting rules remain in the shared container model and writer. Special-item dialogs retain explicit Apply and Cancel controls. Only the save controller writes accepted editor state to the world.
 
-The common backend validator enforces the same damage policy for every write entry point, including bulk edits. Without documented durability or variants it permits `0` or the unchanged original value. Changing another field does not normalize unknown data or replace untouched NBT tags. The three potion item IDs reuse the existing 0–46 table, which matches [Microsoft's documented Bedrock potion values](https://learn.microsoft.com/en-us/minecraft/creator/documents/create-custom-potions?view=minecraft-bedrock-stable) (documented version 1.21.111) and the project's existing engine-check definitions. Display/icon compatibility for `tipped_arrow` does not establish editable variants.
+The common backend validator enforces the same damage policy for every write entry point, including bulk edits. Without documented durability or variants it permits `0` or the unchanged original value. Changing another field does not normalize unknown data or replace untouched NBT tags. The three potion item IDs expose values 0–48: values 0–46 match [Microsoft's documented Bedrock potion values](https://learn.microsoft.com/en-us/minecraft/creator/documents/create-custom-potions?view=minecraft-bedrock-stable) (documented version 1.21.111), while engine-created BDS 1.26.60.6 references establish 47 (`freezing`) and 48 (`long_freezing`) for all three delivery types. The selector marks these two variants as experimental; registry membership and saved NBT do not attest their gameplay availability. Display/icon compatibility for `tipped_arrow` does not establish editable variants.
 
 Regression coverage is in `tests/test_item_damage_policy.py`, the catalog/slot-detail/container frontend tests, and the `item damage policy` DE/EN browser cases. The writer tests compare untouched NBT values and types, including unusual originals; browser tests cover visible controls, variant round trips, fixed slots, adjacent items, and undo.
 

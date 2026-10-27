@@ -1950,14 +1950,18 @@ def merge_effects(
     de_names: dict[str, str],
     local_numeric_ids: dict[str, int],
 ) -> dict[int, tuple[str, str, str, str]]:
-    """Merge Mojang identifiers/names with locally reviewed Bedrock IDs."""
+    """Merge Mojang labels while retaining all bundled reviewed effect facts."""
     identifiers = {_canonical_effect_identifier(value) for value in json_ids}
     missing = sorted(identifiers - set(local_numeric_ids))
     if missing:
         raise RuntimeError(tr("Lokale numerische IDs fehlen für neue Mojang-Effekte: {identifiers}", identifiers=", ".join(missing)))
     _validate_numeric_targets(identifiers, local_numeric_ids)
     bundled = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))["effects"]
-    reviewed = {}
+    # Engine-reviewed effects can precede the stable samples registry. Seed the
+    # same curated facts used by runtime loading, then prefer Mojang labels for
+    # identifiers actually present in this release. This does not change source
+    # metadata or present a curated label as a translation from that release.
+    reviewed = {int(numeric_id): tuple(values) for numeric_id, values in bundled.items()}
     for json_id in json_ids:
         identifier = _canonical_effect_identifier(json_id)
         numeric_id = local_numeric_ids[identifier]

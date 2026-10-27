@@ -79,3 +79,31 @@ def test_effect_numeric_ids_cannot_be_reused():
 def test_disagreeing_language_names_do_not_guess_an_id():
     with pytest.raises(RuntimeError, match="Widersprüchliche"):
         update_db.merge_effects({1: ("Slowness", "Speed", "", "")}, ["speed", "slowness"], {}, {}, {"speed": 1, "slowness": 2})
+
+
+def test_engine_reviewed_effect_survives_older_samples_and_persistent_catalog(tmp_path, monkeypatch):
+    raw = json.loads(update_db.BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))
+    freezing = tuple(raw["effects"].pop("38"))
+    assert freezing[:2] == ("Gefrieren", "Freezing")
+    assert "Experimenteller Effekt" in freezing[2] and "Redaktionelle Bezeichnung" in freezing[2]
+    assert "Experimental effect" in freezing[3] and "Editorial name" in freezing[3]
+    path = tmp_path / "item_db.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    original = path.read_bytes()
+    runtime_before = _load_item_database_file(path)
+    assert runtime_before["EFFECTS"][38] == freezing
+    assert path.read_bytes() == original
+
+    monkeypatch.setattr(update_db, "ITEM_DB_PATH", path)
+    items, effects, enchantments = update_db.read_all_dicts()
+    numeric_ids = update_db.load_local_effect_numeric_ids()
+    assert numeric_ids["freezing"] == 38
+    older_registry = sorted(set(numeric_ids) - {"freezing"})
+    merged = update_db.merge_effects(effects, older_registry, {}, {}, numeric_ids)
+    assert merged[38] == freezing
+    assert merged == runtime_before["EFFECTS"]
+    update_db.write_all_dicts(items, merged, enchantments)
+    assert _load_item_database_file(path)["EFFECTS"][38] == freezing
+    assert json.loads(path.read_text(encoding="utf-8"))["behavior_item_source"] == raw["behavior_item_source"]
+    assert update_db.merge_effects(merged, older_registry, {}, {}, numeric_ids) == merged
+    assert raw["behavior_item_source"]["resource_pack_release"] == "v1.26.50.4"
