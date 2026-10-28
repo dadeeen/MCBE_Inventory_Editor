@@ -1,10 +1,8 @@
-## What's changed in v0.8.4
+## What's changed in v0.8.5
 
-- Support the measured Freezing potion variants and effect from Bedrock 26.60, with experimental labels and preserved unknown values.
-- Retain reviewed effects when updating from older Mojang sample data; require a fresh update preview after upgrading.
-- Use the stable Script API for the optional real-client Ender Chest checks.
-- Validate the automated inventory, specialized-item, player-service and add-on profiles against BDS 1.26.60.6.
-- Update the development-only msgpack dependency to 1.2.4 to address CVE-2026-114613.
+- Reuse valid item icons and show **Already up to date**; download or rebuild only when needed.
+- Refresh icon status after item database updates; show the cause of failed checks and allow retries.
+- Improve compatibility with existing icon installations and reliability during simultaneous icon updates.
 
 ## Updating
 
@@ -14,4 +12,4 @@ Download `_windows_x64.zip` (WebView2 required, unsigned) or `_runtime.zip`, wit
 
 Back up your world and stop Minecraft or the Bedrock server before editing. Mount creation remains experimental.
 
-[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.4/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.4/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.4/SECURITY.md)
+[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.5/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.5/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.5/SECURITY.md)
