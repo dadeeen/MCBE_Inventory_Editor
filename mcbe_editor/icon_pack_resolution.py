@@ -116,7 +116,7 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
                         base_bindings.setdefault(identifier, component)
             except FileNotFoundError:
                 outdated_vanilla.append(priority)
-            except (OSError, ValueError, TypeError, AttributeError, RecursionError) as exc:
+            except (ValueError, TypeError, AttributeError, RecursionError) as exc:
                 warnings.append(warning_record("Vanilla-Zuordnungen konnten nicht gelesen werden: {error}", error=error_record(exc), sources=[priority]))
             continue
         if not source.get("pack_kind"):
@@ -184,7 +184,7 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
                 atlas.setdefault(key, value)
             for key, value in local_definitions.items():
                 definitions.setdefault(key, value)
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError, zipfile.BadZipFile, RuntimeError) as exc:
+        except (ValueError, KeyError, TypeError, AttributeError, RecursionError, zipfile.BadZipFile, RuntimeError) as exc:
             warnings.append(
                 warning_record("Pack {pack} konnte nicht für Icons gelesen werden: {error}", pack=source["label"], error=error_record(exc), sources=[priority])
             )

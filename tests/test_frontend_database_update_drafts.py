@@ -15,7 +15,7 @@ function createHarness() {
         vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
     }
     const pending = {slot: false, special: false, stats: false, effects: false};
-    const calls = {reads: 0, confirmations: 0, discarded: 0, catalogUpdates: 0};
+    const calls = {reads: 0, confirmations: 0, discarded: 0, catalogUpdates: 0, iconReads: 0, iconChecksInvalidated: 0};
     const state = {
         worldPath: "world-a", currentPlayerKey: "a", currentPlayer: {player_key: "a"},
         inventory: {0: {name: "minecraft:diamond", count: 1}}, players: [], isDirty: false,
@@ -26,6 +26,11 @@ function createHarness() {
         showConfirmDialog: async () => {calls.confirmations++; return false;},
         dataSourceController: {applyItemDbStatus() {calls.catalogUpdates++;}},
         loadItemDbStatus: async () => {calls.catalogUpdates++;},
+        iconSourcesController: {invalidateUpdateCheck() {calls.iconChecksInvalidated++;}},
+        loadLocalIconIndex: async options => {
+            assert.equal(options.rescan, false);
+            calls.iconReads++;
+        },
         specialItemEditor: {hasPendingChanges: () => pending.special},
         slotDetailController: {hasPendingChanges: () => pending.slot},
         statsFormController: {hasPendingChanges: () => pending.stats},
@@ -81,6 +86,8 @@ def test_database_update_preserves_every_kind_of_unapplied_form() -> None:
                 assert.equal(state.isDirty, false);
                 const result = await context.updateFinished({item_db: {status: "ok"}});
                 assert.equal(calls.catalogUpdates, 1, kind);
+                assert.equal(calls.iconReads, 1, kind);
+                assert.equal(calls.iconChecksInvalidated, 1, kind);
                 assert.equal(calls.reads, 0, kind);
                 assert.equal(calls.confirmations, 0, kind);
                 assert.equal(calls.discarded, 0, kind);
@@ -111,6 +118,8 @@ def test_database_update_reads_live_changes_and_reloads_a_clean_player() -> None
             const result = await context.updateFinished({item_db: {status: "ok"}});
             assert.equal(result.warning, undefined);
             assert.equal(calls.reads, 1);
+            assert.equal(calls.iconReads, 3);
+            assert.equal(calls.iconChecksInvalidated, 3);
             assert.equal(calls.confirmations, 0);
             assert.equal(calls.discarded, 1);
             assert.equal(state.currentPlayerKey, "new-player");

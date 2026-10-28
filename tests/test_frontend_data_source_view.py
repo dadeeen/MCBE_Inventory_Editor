@@ -72,8 +72,13 @@ require('./static/data_source_view.js');
     global.fetch = async () => { throw new Error('current refresh failed'); };
     await controller.loadItemDbStatus();
     assert.equal(status.status, 'unavailable');
+    assert.equal(status.message, 'current refresh failed');
     assert.equal(applied.length, 2);
     assert.equal(warnings.length, 1);
+
+    global.fetch = async () => ({ json: async () => ({ success: false, error: 'HTTP 503: Statusdienst nicht erreichbar' }) });
+    await controller.loadItemDbStatus();
+    assert.equal(status.message, 'HTTP 503: Statusdienst nicht erreichbar');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """)
 
@@ -326,6 +331,11 @@ def test_frontend_data_source_view_distinguishes_unavailable_status_from_missing
             assert.strictEqual(view.itemDbSourceText(unavailable), "Item-DB-Status konnte nicht geladen werden.");
             assert.strictEqual(view.iconStateSummary({ status: "loading" }).value, "lädt");
             assert.strictEqual(view.iconStateSummary({ status: "unavailable" }).value, "Status nicht verfügbar");
+            assert.strictEqual(view.iconStateSummary({ status: "unavailable", message: "HTTP 503: Icon-Dienst nicht erreichbar" }).detail,
+                "HTTP 503: Icon-Dienst nicht erreichbar");
+            const html = view.assetDataStatusHtml({ iconSummary: { status: "unavailable", message: "<failed>" } });
+            assert.ok(html.includes("&lt;failed&gt;"));
+            assert.ok(!html.includes("<failed>"));
             """
         )
     )

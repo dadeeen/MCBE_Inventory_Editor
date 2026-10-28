@@ -21,6 +21,12 @@
     }
 
     function bannerSetupHint(summary) {
+        if (summary?.vanilla_cache?.state === "damaged") {
+            return t("Einige Vanilla-Icons fehlen oder wurden verändert. Prüfe unter Icons die Aktualität.");
+        }
+        if (summary?.vanilla_cache?.state === "stale") {
+            return t("Die Icon-Zuordnung muss geprüft werden. Prüfe unter Icons die Aktualität.");
+        }
         return Number(summary?.count || 0) > 0 && summary?.missing_banner_patterns?.length
             ? t("Bannermuster fehlen im lokalen Icon-Cache. Lade die Vanilla-Icons, um die Bannervorschau zu vervollständigen.") : "";
     }
@@ -124,7 +130,7 @@
             <div><dt>${escapeHtml(cacheLabel)}</dt><dd>${t("{count} geprüfte Dateien", { count: formatDe(summary.scanned_files) })} · ${escapeHtml(cache.path || t("kein Cache"))}</dd></div>
             <div><dt>${t("Konfiguration")}</dt><dd>${escapeHtml(summary.settings_path || t("lokal"))}</dd></div>
         </dl>
-        <p class="hint-text">${t("Die aktuelle Mojang-Version wird automatisch geprüft; ein bereits passender Download wird sicher wiederverwendet.")}</p>
+        <p class="hint-text">${t("„Aktualität prüfen“ vergleicht die Mojang-Quelle mit den vorhandenen Icons. Gültige Bilder bleiben erhalten. Ein nötiger Abgleich oder Download wird vorab angezeigt.")}</p>
         <div class="inline-actions icon-manager-footer">
             <button id="btnCopyIconDiagnostics" class="btn btn-secondary btn-sm" type="button">${t("Icon-Diagnose kopieren")}</button>
         </div></details>

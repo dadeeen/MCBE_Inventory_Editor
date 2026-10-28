@@ -84,7 +84,7 @@
             return { rank: 1, value: t("lädt"), detail: t("Status wird geladen") };
         }
         if (summary?.status === "unavailable") {
-            return { rank: 1, value: t("Status nicht verfügbar"), detail: t("Icon-Status konnte nicht geladen werden.") };
+            return { rank: 1, value: t("Status nicht verfügbar"), detail: summary.message || t("Icon-Status konnte nicht geladen werden.") };
         }
         const health = summary?.health || {};
         const count = Number(summary?.count || 0);
@@ -92,7 +92,13 @@
         const sourceCount = Number(health.enabled_sources || (summary?.sources || []).filter(src => src.enabled !== false).length || 0);
         const existingSources = Number(health.existing_sources || (summary?.sources || []).filter(src => src.enabled !== false && src.exists).length || 0);
         const scanned = Number(summary?.scanned_files || 0);
+        const cacheState = summary?.vanilla_cache?.state;
         if (count > 0) {
+            if (cacheState === "stale" || cacheState === "damaged") {
+                return { rank: 1, value: t("Prüfen"), detail: cacheState === "damaged"
+                    ? t("Einige Vanilla-Icons fehlen oder wurden verändert. Prüfe unter Icons die Aktualität.")
+                    : t("Die Icon-Zuordnung muss geprüft werden. Prüfe unter Icons die Aktualität.") };
+            }
             const missingPatterns = Boolean(summary?.missing_banner_patterns?.length);
             return {
                 rank: warnings || missingPatterns ? 1 : 0,
@@ -336,12 +342,12 @@
                 const res = await fetch("/api/item-db/status");
                 const data = await parseJsonResponse(res);
                 if (requestId !== statusRequestId) return;
-                if (!data?.item_db) throw new Error(t("Item-DB-Status konnte nicht geladen werden."));
+                if (!data?.item_db) throw new Error(data?.error || t("Item-DB-Status konnte nicht geladen werden."));
                 applyItemDbStatus(data.item_db);
             } catch (err) {
                 if (requestId !== statusRequestId) return;
                 console.warn("Item-DB status unavailable", err);
-                applyItemDbStatus({ status: "unavailable", message: t("Item-DB-Status konnte nicht geladen werden."), counts: {} });
+                applyItemDbStatus({ status: "unavailable", message: err?.message || t("Item-DB-Status konnte nicht geladen werden."), counts: {} });
             }
         }
 

@@ -11,6 +11,7 @@
         isItemDbPending = () => false,
         isIconsPending = () => false,
         getIconsPendingHint = () => "",
+        getStatusError = () => "",
         runItemDbUpdate = async () => {},
         runIconsUpdate = async () => {},
         refreshItemDbStatus = async () => {},
@@ -24,6 +25,7 @@
         const documentObj = elements.documentObj || overlay?.ownerDocument || (typeof document !== "undefined" ? document : null);
         const running = {};
         const errors = {};
+        const statusErrors = {};
         let returnFocus = null;
 
         const TODO_LABELS = {
@@ -61,30 +63,27 @@
             const done = stateValue === "done";
             const unknown = stateValue === "unknown";
             const busy = Boolean(running[id]);
+            const error = unknown ? getStatusError(id) || statusErrors[id] || errors[id] : errors[id];
 
             if (mark) mark.textContent = done ? "✓" : busy ? "⋯" : unknown ? "–" : "○";
             if (row.item) {
                 row.item.classList.toggle("is-done", done);
                 row.item.classList.toggle("is-running", busy);
-                row.item.classList.toggle("is-error", Boolean(errors[id]) && !done);
+                row.item.classList.toggle("is-error", Boolean(error) && !done && !busy);
                 row.item.classList.toggle("is-unknown", unknown);
             }
             if (state) {
-                state.textContent = done
-                    ? t("Erledigt.")
-                    : busy
-                        ? t("Wird geladen…")
-                        : errors[id]
-                            ? t("Fehlgeschlagen: {error}", { error: errors[id] })
-                            : unknown
-                                ? t("Status nicht verfügbar. Seite neu laden.")
-                            : locked
-                                ? readOnlyMessage
-                                : id === "icons" ? getIconsPendingHint() : "";
+                if (done) state.textContent = t("Erledigt.");
+                else if (busy) state.textContent = running[id] === "status" ? t("Status wird geprüft…") : t("Wird geladen…");
+                else if (unknown) state.textContent = error
+                    ? t("Status konnte nicht geladen werden: {error}", { error }) : t("Status nicht verfügbar. Bitte erneut prüfen.");
+                else if (error) state.textContent = t("Fehlgeschlagen: {error}", { error });
+                else if (locked) state.textContent = readOnlyMessage;
+                else state.textContent = id === "icons" ? getIconsPendingHint() : "";
             }
             if (button) {
-                button.disabled = done || TODO_IDS.some(todo => running[todo]) || locked || unknown;
-                button.textContent = done ? t("Erledigt") : t("Jetzt laden");
+                button.disabled = done || TODO_IDS.some(todo => running[todo]) || (locked && !unknown);
+                button.textContent = done ? t("Erledigt") : unknown ? t("Status erneut prüfen") : t("Jetzt laden");
                 button.style.display = done ? "none" : "";
             }
         }
@@ -154,11 +153,23 @@
         }
 
         async function runTodo(id) {
-            if (TODO_IDS.some(todo => running[todo]) || !canWriteAppState() || !isPending(id)) return;
-            running[id] = true;
+            if (!TODO_IDS.includes(id) || TODO_IDS.some(todo => running[todo])) return;
+            const retryStatus = todoState(id) === "unknown";
+            if (!retryStatus && (!canWriteAppState() || !isPending(id))) return;
+            running[id] = retryStatus ? "status" : "update";
             errors[id] = "";
+            statusErrors[id] = "";
             render();
             try {
+                // An unavailable status is not permission to download assets.
+                // A successful read may reveal pending setup for a later click.
+                if (retryStatus) {
+                    await (id === "icons" ? refreshIconSources() : refreshItemDbStatus());
+                    if (todoState(id) === "unknown") {
+                        throw new Error(getStatusError(id) || t("Status nicht verfügbar. Bitte erneut prüfen."));
+                    }
+                    return;
+                }
                 let result;
                 if (id === "item_db") {
                     result = await runItemDbUpdate();
@@ -180,7 +191,7 @@
                         : t("Aktualisierung abgeschlossen, der Status ist jedoch weiterhin offen."));
                 }
             } catch (err) {
-                errors[id] = err?.message || String(err);
+                (retryStatus ? statusErrors : errors)[id] = err?.message || String(err);
             } finally {
                 running[id] = false;
                 render();

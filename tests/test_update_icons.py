@@ -1972,6 +1972,7 @@ def test_icon_main_commits_source_metadata_before_cache_publication(monkeypatch,
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
     download = mock.Mock(return_value=tmp_path / "download.zip")
     monkeypatch.setattr(update_icons_module, "download_release_zip", download)
+    monkeypatch.setattr(update_icons_module, "validate_icon_archive", lambda *_args, **_kwargs: "0" * 64)
     monkeypatch.setattr(update_icons_module, "load_icon_targets", lambda _path: ([], [], 0, set()))
     monkeypatch.setattr(
         update_icons_module,
@@ -2020,9 +2021,15 @@ def test_icon_normal_mode_reuses_download_only_for_matching_release(monkeypatch,
         "resource_pack_url": "https://release-assets.githubusercontent.com/current.zip",
     }
     download = mock.Mock(return_value=tmp_path / "download.zip")
+    monkeypatch.setattr(update_icons_module, "ICON_ROOT", tmp_path / "icons")
+    monkeypatch.setattr(update_icons_module, "CACHE_DIR", tmp_path)
+    # Archive validation has separate integration coverage. Here the matching
+    # archive must bypass the downloader, including any download fallback.
+    monkeypatch.setattr(update_icons_module, "_matching_local_archive", lambda *_args: True)
     monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: info)
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
     monkeypatch.setattr(update_icons_module, "download_release_zip", download)
+    monkeypatch.setattr(update_icons_module, "validate_icon_archive", lambda *_args, **_kwargs: "0" * 64)
     monkeypatch.setattr(update_icons_module, "load_icon_targets", lambda _path: ([], [], 0, set()))
     monkeypatch.setattr(
         update_icons_module,
@@ -2041,7 +2048,7 @@ def test_icon_normal_mode_reuses_download_only_for_matching_release(monkeypatch,
     )
 
     assert update_icons_module.main([]) == 0
-    download.assert_called_once_with(info, use_cache=True)
+    download.assert_not_called()
 
 
 def test_icon_internal_cache_mode_skips_online_release_lookup(monkeypatch):
@@ -2082,6 +2089,7 @@ def test_icon_update_reads_one_catalog_snapshot_per_run(monkeypatch, tmp_path):
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
     monkeypatch.setattr(update_icons_module, "read_release_metadata", lambda: info)
     monkeypatch.setattr(update_icons_module, "download_release_zip", lambda *_args, **_kwargs: tmp_path / "download.zip")
+    monkeypatch.setattr(update_icons_module, "validate_icon_archive", lambda *_args, **_kwargs: "0" * 64)
     monkeypatch.setattr(update_icons_module, "prune_cached_icon_release_zips", lambda _path: {"removed_count": 0, "removed_bytes": 0, "warnings": []})
     build = mock.Mock(return_value={"mapped_items": 0, "inventory_item_targets": 0, "excluded_non_addable_items": 0, "missing_count": 0})
     monkeypatch.setattr(update_icons_module, "build_icon_cache", build)
@@ -2106,6 +2114,7 @@ def test_icon_metadata_failure_does_not_publish_new_cache(monkeypatch, tmp_path)
     build = mock.Mock()
     monkeypatch.setattr(update_icons_module, "get_latest_full_release_info", lambda: info)
     monkeypatch.setattr(update_icons_module, "download_release_zip", lambda *_args, **_kwargs: tmp_path / "download.zip")
+    monkeypatch.setattr(update_icons_module, "validate_icon_archive", lambda *_args, **_kwargs: "0" * 64)
     monkeypatch.setattr(update_icons_module, "load_icon_targets", lambda _path: ([], [], 0, set()))
     monkeypatch.setattr(update_icons_module, "build_icon_cache", build)
     monkeypatch.setattr(

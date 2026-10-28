@@ -45,10 +45,11 @@
             sourceDialog, openSourceButton, closeSourceButton, sourceFeedback,
             updateFeedback, updateResult, updateHint, updateOutput, updateLogDetails, clearUpdateOutputButton,
         } = elements;
-        let iconSourceSummary = { count: 0, roots: [], warnings: [] };
+        let iconSourceSummary = { status: "loading", roots: [], warnings: [] };
         let iconRescanRunning = false;
         let iconRequestId = 0;
         let sourceAdding = false;
+        let availableVanillaUpdate = null;
 
         function currentIconWorld() {
             return getWorldPath() || getSelectedWorldPath() || "";
@@ -122,6 +123,14 @@
                 control.disabled = locked || sourceAdding;
                 control.title = locked ? READ_ONLY_SOURCES_MESSAGE : "";
             }
+            if (updateVanillaButton) updateVanillaButton.textContent = availableVanillaUpdate
+                ? availableVanillaUpdate.update_kind === "local" ? t("Lokal aktualisieren") : t("Icons herunterladen")
+                : t("Aktualität prüfen");
+        }
+
+        function invalidateUpdateCheck() {
+            availableVanillaUpdate = null;
+            applyAppStateControlLocks();
         }
 
         function iconManagerSummaryText(data = null) {
@@ -169,7 +178,24 @@
             await updateVanillaIcons();
         }
 
+        async function checkOrUpdateVanillaIcons() {
+            if (!availableVanillaUpdate) return updateVanillaIcons({ checkOnly: true });
+            const local = availableVanillaUpdate.update_kind === "local";
+            const ok = await showConfirmDialog(local
+                ? t("Icons mit dem vorhandenen Quellarchiv prüfen und bei Bedarf lokal aktualisieren? Identische Bilddateien bleiben erhalten.")
+                : t("Benötigte Quelldaten von Mojang herunterladen und die Icons prüfen und bei Bedarf aktualisieren?"));
+            if (ok) return updateVanillaIcons({ allowDownload: !local });
+        }
+
         function renderIconHints() {
+            if (["loading", "unavailable"].includes(iconSourceSummary?.status)) {
+                if (emptyStateHint) emptyStateHint.style.display = "none";
+                if (hintBanner) {
+                    hintBanner.style.display = "none";
+                    hintBanner.innerHTML = "";
+                }
+                return;
+            }
             const count = Number(iconSourceSummary?.count || 0);
             const missingPatterns = count > 0 && Boolean(iconSourceSummary?.missing_banner_patterns?.length);
             if (emptyStateHint) emptyStateHint.style.display = count > 0 ? "none" : "";
@@ -217,6 +243,8 @@
             } catch (err) {
                 if (!iconRequestIsCurrent(request)) return null;
                 consoleObj.warn("Local icon index unavailable", err);
+                iconSourceSummary = { ...iconSourceSummary, status: "unavailable", message: err.message };
+                renderIconHints();
                 onIconStatusUnavailable(err);
                 if (throwOnError) throw err;
                 return null;
@@ -366,7 +394,7 @@
             }
         }
 
-        async function updateVanillaIcons() {
+        async function updateVanillaIcons({ checkOnly = false, allowDownload = true } = {}) {
             if (window.MCBEAssetUpdateProgress?.isRunning()) {
                 return { success: false, busy: true, error: t("Ein Update läuft bereits.") };
             }
@@ -377,19 +405,25 @@
             for (const control of [updateVanillaButton, emptyStateVanillaButton]) {
                 if (control) control.disabled = true;
             }
-            showLoading(t("Vanilla-Icons werden geladen..."));
+            availableVanillaUpdate = null;
+            const runningMessage = checkOnly ? t("Icon-Aktualität wird geprüft…") : t("Icons werden geprüft und bei Bedarf aktualisiert…");
+            showLoading(runningMessage);
             if (updateLogDetails) updateLogDetails.open = false;
-            showUpdateResult(t("Vanilla-Icons werden geladen..."), "running");
-            const progress = startUpdateProgress(t("Vanilla-Icons laden"));
+            showUpdateResult(runningMessage, "running");
+            const progress = startUpdateProgress(checkOnly ? t("Aktualität prüfen") : t("Icons aktualisieren"));
             const updateStatus = (message, type, active = undefined) => logStatus(message, type, {
                 key: "vanilla-icons-update",
                 active,
             });
-            updateStatus(t("Vanilla-Icons werden aus Mojang/bedrock-samples geladen..."), "running", true);
+            updateStatus(runningMessage, "running", true);
             const request = beginIconRequest();
             let responseData = {};
             try {
-                const data = await postJson("/api/icons/vanilla/update", { world_path: request.world }, progress?.headers);
+                const data = await postJson("/api/icons/vanilla/update", {
+                    world_path: request.world,
+                    ...(checkOnly ? { check_only: true } : {}),
+                    ...(!allowDownload ? { allow_download: false } : {}),
+                }, progress?.headers);
                 responseData = data || {};
                 if (data.success) progress?.finalizing();
                 if (!data.success) {
@@ -399,6 +433,19 @@
                     showToast(message, "error", 6000);
                     return { ...data, success: false, error: message };
                 }
+                if (data.icon_update?.needs_update) {
+                    availableVanillaUpdate = data.icon_update;
+                    const local = availableVanillaUpdate.update_kind === "local";
+                    const message = local ? t("Lokaler Icon-Abgleich verfügbar.") : t("Quelldaten für den Icon-Abgleich benötigt.");
+                    const hint = local
+                        ? t("Die Icon-Daten können aus dem vorhandenen Quellarchiv geprüft und bei Bedarf aktualisiert werden.")
+                        : availableVanillaUpdate.reason === "legacy" && availableVanillaUpdate.source_unchanged
+                            ? t("Die vorhandenen Icons bleiben nutzbar. Für eine vollständige Prüfung muss das Quellarchiv erneut geladen werden.")
+                            : t("Der Download beginnt erst nach deiner Bestätigung. Vorhandene Icons bleiben bis zum erfolgreichen Abschluss erhalten.");
+                    showUpdateResult(message, "available", { ...data, hint });
+                    updateStatus(message, "info", false);
+                    return data;
+                }
                 if (data.scan_warning) {
                     showUpdateResult(data.scan_warning, "incomplete", data);
                     updateStatus(data.scan_warning, "warning", true);
@@ -406,7 +453,7 @@
                     return { ...data, success: false, error: data.scan_warning };
                 }
                 const summary = await applyMutationIconIndexData(data, request);
-                if (summary?.missing_banner_patterns?.length) {
+                if (summary?.missing_banner_patterns?.length && !data.icon_update?.already_current) {
                     const message = t("Vanilla-Icons wurden geladen, aber es fehlen weiterhin Bannermuster. Prüfe die Icon-Quellen unter Werkzeuge & Einstellungen.");
                     showUpdateResult(message, "incomplete", data);
                     updateStatus(message, "warning", true);
@@ -415,7 +462,9 @@
                 }
                 const mapped = data.manifest?.mapped_items ?? data.count ?? 0;
                 const known = data.manifest?.known_items ?? "?";
-                const message = t("Vanilla-Icons aktualisiert: {mapped} von {known} Item-IDs zugeordnet.", { mapped, known });
+                const message = data.icon_update?.already_current
+                    ? t("Bereits aktuell.")
+                    : t("Vanilla-Icons aktualisiert: {mapped} von {known} Item-IDs zugeordnet.", { mapped, known });
                 showUpdateResult(message, "success", data);
                 updateStatus(message, "success", false);
                 showToast(message, "success", 5000);
@@ -447,6 +496,7 @@
         function wire() {
             applyAppStateControlLocks();
             clearUpdateOutputButton?.addEventListener("click", () => {
+                invalidateUpdateCheck();
                 if (updateFeedback) updateFeedback.hidden = true;
                 if (updateResult) updateResult.textContent = "";
                 if (updateHint) {
@@ -496,7 +546,7 @@
                     if (rescanButton) rescanButton.disabled = false;
                 }
             });
-            updateVanillaButton?.addEventListener("click", () => confirmVanillaIconsUpdate());
+            updateVanillaButton?.addEventListener("click", () => checkOrUpdateVanillaIcons());
             emptyStateVanillaButton?.addEventListener("click", () => confirmVanillaIconsUpdate());
         }
 
@@ -507,6 +557,8 @@
             canRescanIcons,
             canWriteAppState,
             confirmVanillaIconsUpdate,
+            checkOrUpdateVanillaIcons,
+            invalidateUpdateCheck,
             iconManagerSummaryText,
             loadLocalIconIndex,
             moveIconSource,

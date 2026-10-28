@@ -213,6 +213,7 @@ def test_readonly_rejects_publication_from_a_different_item_catalog(tmp_path, mo
     if fresh_worker:
         reader = _deps(tmp_path)
     reader.read_only = True
-    result = routes.icons_status(reader, world_path=str(world))
-    assert not result["icons"]
-    assert result["warnings"]
+    result, status = routes.icons_status(reader, world_path=str(world))
+    assert status == 503 and result["status"] == "unavailable"
+    assert "icons" not in result and "count" not in result
+    assert "Kein gültiger Icon-Index" in result["error"]

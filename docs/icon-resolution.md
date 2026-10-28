@@ -82,6 +82,58 @@ all comparison outputs under ignored `data/`; do not commit or distribute them.
 Public regression fixtures use synthetic textures and minimal synthetic pack
 metadata, with no worlds, player NBT, or copied Minecraft images.
 
+## Cache reuse and update checks
+
+The schema-6 manifest carries an additive `verification` receipt. It records
+the source release/asset identity, the archive SHA-256, normalized icon targets,
+relevant block classifications, the build contract, the manifest digest and
+per-image SHA-256 values. `mcbe_editor/icon_cache_state.py` owns this contract.
+Unknown block classification and an explicitly empty classification have distinct
+build identities. Integrity checks read the actual bytes; preserved file sizes
+and timestamps do not certify unchanged contents, including on Windows.
+
+Status, partial repair and the updater share cache assessment and source
+validation. Every source archive must satisfy size and ZIP checks, any published
+SHA-256, and the stored archive SHA-256 when it belongs to the installed release.
+Extraction checks the archive again before publication. A changed archive aborts
+the operation and preserves the installed icons.
+
+Changes to selection, rendering, extraction or display-target rules require a
+`BUILD_CONTRACT` increment. Editor versions, catalog labels, descriptions and
+unrelated catalog entries do not invalidate a build.
+
+**Check for updates** resolves the latest official source and inspects these
+local inputs and images. Matching inputs and intact files return **Already up
+to date** without downloading, rebuilding or rewriting the cache, even if the
+original ZIP is absent. Missing textures recorded for that source do not trigger
+repeated identical builds. A status read checks local compatibility only;
+it does not claim that the installed source is the latest online release.
+
+A pending change offers a local rebuild when a matching, validated archive is
+available, or a download otherwise. Both require the corresponding explicit UI
+action. A local-only action cannot fall back to a download when the source
+changes after the check. The worker's `--dry-run` performs inspection without
+downloading or rendering; `--no-download` reports a pending download instead of
+performing it. `--force` remains an explicit CLI override for a full rebuild.
+
+Legacy manifests without receipts remain usable. An explicit local comparison
+builds a staging cache from the matching archive, verifies its mappings and PNG
+bytes against the installed cache, and publishes only the manifest if all
+images match. Existing PNG timestamps and file identities remain intact. If
+the archive is absent, the UI explains the verification gap and offers its
+download; opening the editor or updating the item database does not initiate
+that download. Publication failure retains the previous cache.
+
+After a successful item database update, the frontend refreshes icon status.
+Failed reads return an unavailable status with the public error cause, without
+an invented zero icon count or missing-pattern list. A transient read failure
+does not replace the previous index. A rejected index for another context or
+changed sources cannot remain a fallback. Download hints require a successful
+status observation.
+Retry reads status without starting the icon updater. Local build incompatibility
+or damaged files appear as a check hint. The download/update result distinguishes a
+completed inspection from committed changes and from an index-refresh failure.
+
 ## Banner preview rendering
 
 `mcbe_editor/banner_patterns.py` binds the 42 editable Bedrock pattern codes to
@@ -98,16 +150,21 @@ allowlisted banner faces through `banner_patterns`, including the shared context
 in each image URL. Raw entity display assets remain internal. Writable icon
 scans automatically complete missing banner faces and axolotl display assets
 from the local archive identified by the existing Vanilla manifest. The archive
-must match its recorded name and size and pass ZIP integrity and size checks.
+must pass the shared source validation, including the stored or published digest.
 The repair uses the same extraction rules as the full updater, including TGA
 precedence. Missing files and empty declared display files are also repaired.
 It preserves item icons, existing display images, release metadata and custom
 source priority; it neither downloads an archive nor changes Minecraft versions.
+For a cache with a valid receipt, partial repair must restore the complete
+verified result. Damage outside its scope requires the explicit full updater.
+Partial repairs do not issue receipts for unverified legacy images; those keep
+their verification gap until a full comparison succeeds.
 
 Repairs publish a staging copy through the rollback-safe cache publisher. If a
 concurrent full update changes the manifest, its result wins. Unchanged inputs
 are remembered in a bounded process-local cache to avoid repeating failed work
-on every status request; changed files or an explicit rescan allow a retry.
+on every status request. The signature includes archive and manifest content
+hashes, so timestamp-preserving restores and explicit rescans allow a retry.
 After an interrupted publication, recovery prefers a complete rollback. If none
 exists, it can restore a cache with intact item icons and missing or empty
 display previews so that repair can retry. New publications require every
@@ -126,11 +183,11 @@ keep icon setup pending even when item icons are available; the setup banner,
 icon status and preview dialog explain how to complete the previews. A failed
 or partial rebuild keeps this notice visible. Publication rejects a rebuild that
 would remove any available required banner face from a valid existing cache.
-A successful rebuild with missing faces reports a warning instead of marking
-banner setup complete. The existing Vanilla updater checks the current release
-and reuses a matching, validated cached ZIP; otherwise
-it downloads the required archive. Viewing a prepared preview requires no
-network access or new cache writes.
+A verified current build distinguishes required files missing from disk from
+faces absent in the source itself. The latter appear in
+`unsupported_banner_patterns` and do not keep prompting for the same update.
+Legacy or damaged builds retain their missing-face notice. Viewing a prepared
+preview requires no network access or new cache writes.
 
 `static/banner_preview.js` multiplies texture RGB by each Bedrock dye color and
 composites the layers in NBT order with their original alpha. The 1:2 preview
@@ -209,7 +266,8 @@ source. The user's ordering between separate global sources is preserved.
 
 Status and source-change requests carry the selected `world_path`. The server
 derives an opaque context identifier from the ordered source paths, activation,
-pack types, archive prefixes and selected subpacks. World paths do not enter this
+and the types, archive prefixes and selected subpacks of active packs. Inactive
+pack metadata does not affect this identity. World paths do not enter this
 identifier. Worlds with the same sources share one index; Vanilla-only worlds
 therefore reuse the same publication and image files. Separate physical copies of
 a pack retain separate source identities, even if their bytes happen to match.
@@ -235,6 +293,13 @@ status reflect unresolved content even when other icons are available. Pack
 selection warnings and their counts belong to the requesting world rather than
 its shared index. Older indexes remain readable; writable scans rebuild legacy
 diagnostics, while read-only access retains the icons and offers a rescan hint.
+Directory traversal, source metadata and index-file I/O failures abort the
+observation instead of publishing an empty or partial inventory. Status returns
+`503` with a retryable, sanitized cause and retains the last publication and
+worker state. Missing or malformed index content remains a cache miss. Older
+indexes containing structured filesystem-error warnings require a successful
+rescan; healthy existing indexes remain reusable. Deactivated sources do not
+require readable pack metadata.
 
 Persistent index files are retained until explicit source changes or Vanilla
 updates invalidate them. Loading more worlds does not evict their publications.
@@ -253,8 +318,18 @@ Source changes and successful Vanilla updates invalidate all context indexes
 before rebuilding the requesting world's index. The operation lock
 covers each change and rescan. Requests without a world parameter retain the
 latest-publication behavior for compatibility, including startup before world
-selection. A legacy read-only cache is accepted only when its source configuration
-matches. Prepared indexes must use the current scanner format.
+selection. Read-only requests can reuse an older publication when only inactive
+pack metadata differs. They compare the effective ordered source configuration
+and validate the files before accepting the latest publication or a retained
+world context. The original context identifier stays attached to its image URLs,
+so other workers can resolve them without rewriting indexes or reading disabled
+packs. An unreadable optional publication, including the latest one, does not
+prevent the search for a matching validated context. If none is available, the
+first read failure is reported instead of implying that no icons are installed.
+An unreadable directly requested publication remains an error because image
+requests on other workers also need that file. Changes to active pack metadata,
+source paths, activation or order still require a matching validated publication.
+Prepared indexes must use the current scanner format.
 
 Internal `textures/display` assets use the same path, size and archive checks
 and remain separate from public item metadata.

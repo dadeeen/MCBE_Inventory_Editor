@@ -166,6 +166,8 @@ def run_update_icons(
     *,
     force: bool = False,
     use_cache: bool = False,
+    check_only: bool = False,
+    allow_download: bool = True,
     locale: str = "de",
     progress_path: Path | None = None,
 ) -> tuple[int, str]:
@@ -175,6 +177,10 @@ def run_update_icons(
         cmd.append("--force")
     if use_cache:
         cmd.append("--cache")
+    if check_only:
+        cmd.append("--dry-run")
+    if not allow_download:
+        cmd.append("--no-download")
 
     env = os.environ.copy()
     data_root = Path(app_config.data_root or "data").expanduser().resolve()

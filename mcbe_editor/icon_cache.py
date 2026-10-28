@@ -12,6 +12,7 @@ from pathlib import Path
 from mcbe_editor.banner_patterns import BANNER_TEXTURES
 from mcbe_editor.path_safety import is_linklike_stat
 from mcbe_editor.update_output_i18n import output_t as tr
+from mcbe_editor.world_locks import locked_file
 
 WarningHandler = Callable[[str], None]
 
@@ -111,31 +112,11 @@ def _rollback_paths(target_root: Path) -> list[Path]:
 def _cache_lock(target_root: Path) -> Iterator[None]:
     """Serialize cache publication/recovery across processes."""
 
-    target_root.parent.mkdir(parents=True, exist_ok=True)
+    # Retain the lock path/byte used by existing installations and processes.
+    # The shared implementation waits through sustained Windows contention.
     lock_path = target_root.parent / f".{target_root.name}.lock"
-    with lock_path.open("a+b") as lock_file:
-        if os.name == "nt":
-            import msvcrt
-
-            lock_file.seek(0, os.SEEK_END)
-            if lock_file.tell() == 0:
-                lock_file.write(b"\0")
-                lock_file.flush()
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                yield
-            finally:
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    with locked_file(lock_path):
+        yield
 
 
 def _warn(handler: WarningHandler | None, message: str) -> None:
@@ -182,7 +163,12 @@ def recover_icon_cache(target_root: Path, *, warn: WarningHandler | None = None)
 
 
 def publish_icon_cache(
-    staging: Path, target_root: Path, *, warn: WarningHandler | None = None, expected_manifest: tuple[bytes, tuple[int, int]] | None = None
+    staging: Path,
+    target_root: Path,
+    *,
+    warn: WarningHandler | None = None,
+    expected_manifest: tuple[bytes, tuple[int, int]] | None = None,
+    reuse_identical: bool = False,
 ) -> bool:
     """Publish a complete cache while preserving the previous cache on failure."""
 
@@ -210,6 +196,15 @@ def publish_icon_cache(
             previous_banners = {f"mcbe:banner_{code}" for code in BANNER_TEXTURES} & previous_manifest.get("display_assets", {}).keys()
             if not previous_banners <= staged_manifest.get("display_assets", {}).keys():
                 raise ValueError(tr("Der neue Icon-Cache enthält nicht alle bisher verfügbaren Bannermuster. Der vorhandene Cache bleibt erhalten."))
+            if reuse_identical:
+                from .icon_cache_state import image_signature
+
+                previous_images = image_signature(target_root, previous_manifest)
+                if previous_images is not None and previous_images == image_signature(staging, staged_manifest):
+                    # A legacy build can gain a verified manifest without
+                    # replacing identical images or changing their timestamps.
+                    os.replace(staging / "manifest.json", target_root / "manifest.json")
+                    return True
         rollback = target_root.parent / f".{target_root.name}.rollback-{os.urandom(8).hex()}"
         moved_old = False
         if _path_exists(target_root):

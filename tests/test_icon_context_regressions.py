@@ -106,8 +106,10 @@ def test_readonly_missing_world_context_cannot_use_another_world(tmp_path, monke
     routes.icons_scan({"world_path": str(first)}, worker)
     worker.read_only = True
     monkeypatch.setattr(routes, "scan_icons", lambda *args, **kwargs: pytest.fail("Readonly status must not scan"))
-    result = routes.icons_status(worker, world_path=str(second))
-    assert result["icons"] == {}
+    result, status = routes.icons_status(worker, world_path=str(second))
+    assert status == 503 and result["status"] == "unavailable"
+    assert "icons" not in result and "count" not in result
+    assert not worker.get_icon_index().get("icons")
 
 
 @pytest.mark.parametrize("action", ["add", "remove", "disable", "move", "vanilla"])
@@ -245,7 +247,9 @@ def test_readonly_can_use_legacy_cache_only_with_matching_world_sources(tmp_path
     result = routes.icons_status(worker, world_path=str(world))
     assert "minecraft:apple" in result["icons"]
     other = _world(tmp_path, "other", "carrot")
-    assert routes.icons_status(worker, world_path=str(other))["icons"] == {}
+    missing, status = routes.icons_status(worker, world_path=str(other))
+    assert status == 503 and missing["status"] == "unavailable"
+    assert "icons" not in missing and "count" not in missing
 
 
 def test_status_preserves_world_sources_and_their_priority(tmp_path):

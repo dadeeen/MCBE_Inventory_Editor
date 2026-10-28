@@ -801,11 +801,32 @@ test("unexpected server block responses are shown as errors instead of green sta
 
 test("read-only viewer is visibly labeled and blocks write endpoints", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
+  const iconStatusUrl = VIEWER_BASE_URL + "/api/icons/status";
+  const isIconStatus = response => response.url().split("?")[0] === iconStatusUrl;
+  const iconWrites = [];
+  page.on("request", request => {
+    if (request.method() === "POST" && /\/api\/icons\/(scan|vanilla\/update)$/.test(request.url())) iconWrites.push(request.url());
+  });
+  const iconStatus = page.waitForResponse(isIconStatus);
 
   const scanResponse = await openAppAndWaitForScan(page, VIEWER_BASE_URL);
   expect(scanResponse.status()).toBe(200);
   await expect(page.locator(".app-subtitle")).toContainText("READONLY / VIEWER");
   await expect(page.locator(".world-card")).toHaveCount(1);
+  // This isolated viewer has no published index and cannot create one. Its
+  // real status endpoint must distinguish that unknown state from zero icons.
+  const iconResponse = await iconStatus;
+  expect(iconResponse.status()).toBe(503);
+  const iconData = await iconResponse.json();
+  expect(iconData).toMatchObject({ success: false, status: "unavailable", code: "icons_status_unavailable" });
+  expect(iconData).not.toHaveProperty("count");
+  await expect(page.locator("#assetDataStatusPanel")).toContainText(iconData.error);
+  await expect(page.locator("#assetDataStatusPanel")).toContainText("Kein gültiger Icon-Index");
+  const retriedStatus = page.waitForResponse(isIconStatus);
+  await page.evaluate(() => loadLocalIconIndex());
+  const retryResponse = await retriedStatus;
+  expect(retryResponse.status()).toBe(503);
+  expect(iconWrites).toEqual([]);
 
   const result = await page.evaluate(async () => {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
@@ -829,7 +850,9 @@ test("read-only viewer is visibly labeled and blocks write endpoints", async ({ 
   expect(result.data.success).toBe(false);
   expect(result.data.read_only).toBe(true);
   expect(result.data.category).toBe("world_write");
-  expect(browserErrors, `unexpected browser errors: ${JSON.stringify(browserErrors)}`).toEqual([]);
+  const expectedStatusUrls = [iconResponse.url(), retryResponse.url()];
+  const unexpected = browserErrors.filter(error => !(error.includes("status of 503") && expectedStatusUrls.some(url => error.endsWith(`(${url})`))));
+  expect(unexpected, `unexpected browser errors: ${JSON.stringify(unexpected)}`).toEqual([]);
 });
 
 test("scan auth failures are shown explicitly instead of as an empty world list", async ({ page }) => {

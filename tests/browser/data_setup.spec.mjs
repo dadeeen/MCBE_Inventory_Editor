@@ -179,11 +179,11 @@ test("regular tools update refreshes the dismissed setup banner and resolves rel
 
   await page.locator('.tab-btn-dash[data-tab-dash="dashIcons"]').click();
   await expect(page.locator("#updateIconsUseCache")).toHaveCount(0);
-  await expect(page.locator("#dashIcons")).toContainText(/automatisch geprüft|checked automatically/);
+  await expect(page.locator("#dashIcons")).toContainText(/Gültige Bilder bleiben erhalten|Valid images are kept/);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.app-section-nav button[data-workflow-view="tools"]').click();
   await page.locator('.tab-btn-dash[data-tab-dash="dashIcons"]').click();
-  await expect(page.locator("#dashIcons")).toContainText(/automatisch geprüft|checked automatically/);
+  await expect(page.locator("#dashIcons")).toContainText(/Gültige Bilder bleiben erhalten|Valid images are kept/);
 
   await page.locator('.app-section-nav button[data-workflow-view="world"]').click();
   await expect(banner).toBeHidden();

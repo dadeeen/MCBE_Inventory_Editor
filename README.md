@@ -278,7 +278,7 @@ Player changes and staged mounts are written to the world together when you save
 
 ## Data safety and privacy
 
-- Editing works offline. **Item DB** and **Vanilla icons** updates and the optional network check need internet access over HTTPS. Each update tab shows failures and a collapsible technical log. GitHub rate limits include the earliest retry time when supplied by GitHub.
+- Editing works offline. Online update checks for **Item DB** and **Vanilla icons**, and the optional network check, need internet access over HTTPS. Under **Icons → Check for updates**, valid icons are kept and the editor reports **Already up to date**. It offers local verification or a download only when needed. Older icon installations remain usable; if their verification record is missing, the editor explains the required comparison. An item database update refreshes local icon status without automatically downloading icons. Failed status requests show their cause and can be retried. Each update tab shows failures and a collapsible technical log. GitHub rate limits include the earliest retry time when supplied by GitHub.
 - Before saving, the editor checks server status, file locks and concurrent changes. It creates a full-world backup before each actual change.
 - If a restore is interrupted or its outcome is uncertain, keep the backup and recovery files and follow the [recovery instructions](SECURITY.md#interrupted-restores) before editing further.
 - World folders must contain ordinary files and directories. Symlinks, Windows junctions and other reparse points are unsupported.

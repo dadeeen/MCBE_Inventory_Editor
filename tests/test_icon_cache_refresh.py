@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mcbe_editor import icon_api_routes, icon_cache, icon_cache_refresh, icons
+from mcbe_editor import icon_api_routes, icon_cache, icon_cache_refresh, icon_cache_state, icons
 from mcbe_editor.banner_patterns import BANNER_TEXTURES, crop_banner_texture
 from mcbe_editor.block_icon_renderer import decode_png, encode_rgba_png
 from scripts import update_icons
@@ -94,13 +94,13 @@ def test_status_repairs_legacy_cache_before_index_lookup_and_serves_the_face(cac
     case.archive.write_bytes(archive_bytes)
     before = snapshot(case.target)
     validations = []
-    validate = update_icons._validate_downloaded_zip
+    validate = update_icons.validate_icon_archive
 
-    def track(path):
+    def track(path, *args, **kwargs):
         validations.append(path)
-        validate(path)
+        return validate(path, *args, **kwargs)
 
-    monkeypatch.setattr(update_icons, "_validate_downloaded_zip", track)
+    monkeypatch.setattr(update_icons, "validate_icon_archive", track)
     result = icon_api_routes.icons_status(case.deps)
     assert result["missing_banner_patterns"] == []
     assert result["count"] == old["count"]
@@ -183,18 +183,20 @@ def test_corrupt_archive_is_not_retried_until_replaced(cache_case, monkeypatch):
     case.archive.write_bytes(b"x" * len(original))
     before = snapshot(case.target)
     attempts = []
-    validate = update_icons._validate_downloaded_zip
+    validate = update_icons.validate_icon_archive
 
-    def track(path):
+    def track(path, *args, **kwargs):
         attempts.append(path)
-        validate(path)
+        return validate(path, *args, **kwargs)
 
-    monkeypatch.setattr(update_icons, "_validate_downloaded_zip", track)
+    monkeypatch.setattr(update_icons, "validate_icon_archive", track)
     assert not refresh(case)
     assert not refresh(case)
     assert len(attempts) == 1
     assert snapshot(case.target) == before
+    stamp = case.archive.stat()
     case.archive.write_bytes(original)
+    os.utime(case.archive, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
     assert refresh(case)
     assert len(attempts) == 2
 
@@ -222,9 +224,10 @@ def test_read_only_status_rejects_a_stale_display_index_without_writes(cache_cas
     (case.target / "textures/display/banner_illager.png").unlink()
     before = snapshot(Path(case.deps.data_root))
     case.deps.read_only = True
-    result = icon_api_routes.icons_status(case.deps)
-    assert "illager" in result["missing_banner_patterns"]
-    assert result["warnings"]
+    result, status = icon_api_routes.icons_status(case.deps)
+    assert status == 503 and result["status"] == "unavailable"
+    assert "Kein gültiger Icon-Index" in result["error"]
+    assert "missing_banner_patterns" not in result
     assert snapshot(Path(case.deps.data_root)) == before
 
 
@@ -482,3 +485,78 @@ def test_repaired_ominous_texture_uses_tga_colors(cache_case):
     texture = decode_png((cache_case.target / "textures/display/banner_illager.png").read_bytes())
     assert (texture.width, texture.height) == (20, 40)
     assert texture.rgba == bytes((40, 50, 60, 120)) * 800
+
+
+@pytest.mark.parametrize("proof", ["receipt", "upstream"])
+def test_partial_repair_rejects_the_same_changed_archive_as_full_update(cache_case, monkeypatch, proof):
+    case = cache_case
+    manifest = icon_cache_state.read_manifest(case.target)
+    if proof == "upstream":
+        manifest.pop("verification")
+        manifest["release"]["resource_pack_asset_digest"] = "sha256:" + icon_cache_state.file_digest(case.archive)
+        case.manifest.write_text(json.dumps(manifest), encoding="utf-8")
+    release = manifest["release"]
+    monkeypatch.setattr(update_icons, "CACHE_DIR", case.downloads)
+    assert update_icons._matching_local_archive(release, release, manifest)
+    original_size = case.archive.stat().st_size
+    with zipfile.ZipFile(case.archive) as archive:
+        entries = [(entry, archive.read(entry)) for entry in archive.infolist()]
+    with zipfile.ZipFile(case.archive, "w") as archive:
+        for entry, raw in entries:
+            if entry.filename == f"resource_pack/textures/{BANNER_TEXTURES['illager']}.tga":
+                raw = raw[:18] + bytes((10, 20, 200, 120)) * 4096
+            archive.writestr(entry, raw)
+    assert case.archive.stat().st_size == original_size
+    update_icons._validate_downloaded_zip(case.archive)
+    before = snapshot(case.target)
+    assert not update_icons._matching_local_archive(release, release, manifest)
+    assert not refresh(case)
+    assert snapshot(case.target) == before
+
+
+@pytest.mark.parametrize("other_damage", [False, True])
+def test_partial_repair_must_restore_the_whole_existing_receipt(cache_case, other_damage):
+    case = cache_case
+    release = icon_cache_state.read_manifest(case.target)["release"]
+    manifest = update_icons.build_icon_cache(case.archive, ["apple"], case.target, release, block_item_ids=set())
+    inputs = update_icons.icon_build_inputs(release, ["apple"], set())
+    assert icon_cache_state.assess_cache(case.target, inputs)["state"] == "current"
+    (case.target / "textures/display/banner_illager.png").unlink()
+    if other_damage:
+        (case.target / "textures/items/apple.png").write_bytes(FACE)
+    before = snapshot(case.target)
+    assert refresh(case) is not other_damage
+    if other_damage:
+        assert snapshot(case.target) == before
+        assert icon_cache_state.assess_cache(case.target, inputs)["state"] == "damaged"
+    else:
+        assert icon_cache_state.assess_cache(case.target, inputs)["state"] == "current"
+        assert icon_cache_state.read_manifest(case.target)["verification"] == manifest["verification"]
+        assert all((case.target / path).read_bytes() == raw for path, raw in before.items())
+
+
+def test_legacy_repair_and_full_verification_reuse_the_existing_images(cache_case, monkeypatch, capsys):
+    case = cache_case
+    manifest = icon_cache_state.read_manifest(case.target)
+    manifest.pop("verification")
+    case.manifest.write_text(json.dumps(manifest), encoding="utf-8")
+    assert refresh(case)
+    inputs = update_icons.icon_build_inputs(manifest["release"], ["apple"], set())
+    assert icon_cache_state.assess_cache(case.target, inputs)["reason"] == "legacy"
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_ino) for path in case.target.rglob("*.png")}
+    db = case.target.parent / "items.json"
+    db.write_text(json.dumps({"items": {"minecraft:apple": []}, "block_items": []}), encoding="utf-8")
+    monkeypatch.setattr(update_icons, "ITEM_DB_PATH", db)
+    monkeypatch.setattr(update_icons, "ICON_ROOT", case.target)
+    monkeypatch.setattr(update_icons, "CACHE_DIR", case.downloads)
+    monkeypatch.setattr(update_icons, "RELEASE_METADATA_PATH", case.downloads / "source.json")
+    monkeypatch.setattr(update_icons, "get_latest_full_release_info", lambda: manifest["release"])
+    capsys.readouterr()
+    assert update_icons.main(["--no-download"]) == 0
+    _, report = icon_cache_state.extract_report(capsys.readouterr().out)
+    assert report["already_current"] and report["state"] == "current"
+    assert not report["images_changed"]
+    assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_ino) for path in case.target.rglob("*.png")}
+    assert update_icons.main(["--dry-run"]) == 0
+    _, report = icon_cache_state.extract_report(capsys.readouterr().out)
+    assert report["already_current"]

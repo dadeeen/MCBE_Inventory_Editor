@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
 import logging
@@ -513,6 +514,15 @@ def _safe_stat(path: Path):
         return None
 
 
+def _source_stat(path: Path):
+    """Absence is observable; an unreadable source is not known to be absent."""
+    try:
+        info = path.stat(follow_symlinks=False)
+        return None if is_linklike_stat(info) else info
+    except FileNotFoundError:
+        return None
+
+
 def _safe_int(value, default: int = 0) -> int:
     try:
         return int(value)
@@ -687,13 +697,18 @@ def _cache_file(settings_path: str | None) -> Path | None:
 
 
 def icon_context_id(sources: list[dict]) -> str:
-    """Identify an ordered source configuration, independently of its worlds."""
+    """Identify an ordered configuration without reading inactive pack metadata."""
+    return _icon_context_id(sources, include_inactive_metadata=False)
+
+
+def _icon_context_id(sources: list[dict], *, include_inactive_metadata: bool) -> str:
+    # The legacy shape validates original v10 URL contexts during migration.
     identity = [
         {
             "path": source.get("path"),
             "enabled": bool(source.get("enabled", True)),
             "vanilla": bool(source.get("vanilla")),
-            **{key: source.get(key, "") for key in ("pack_kind", "pack_prefix", "subpack")},
+            **{key: source.get(key, "") if source.get("enabled", True) or include_inactive_metadata else "" for key in ("pack_kind", "pack_prefix", "subpack")},
         }
         for source in sources
     ]
@@ -708,7 +723,11 @@ def _context_cache_file(settings_path: str | None, context_id: str) -> Path | No
 
 
 def _context_cache_files(base: Path) -> list[Path]:
-    return [path for path in base.with_name("icon_index_contexts").glob("*.json") if re.fullmatch(r"[0-9a-f]{64}\.json", path.name)]
+    try:
+        with os.scandir(base.with_name("icon_index_contexts")) as entries:
+            return [Path(entry.path) for entry in entries if re.fullmatch(r"[0-9a-f]{64}\.json", entry.name)]
+    except FileNotFoundError:
+        return []
 
 
 @lru_cache(maxsize=_MAX_CONTEXT_INDEXES)
@@ -733,11 +752,11 @@ def load_cached_icon_candidate(settings_path: str | None, context_id: str, token
 
 def load_icon_sources(settings_path: str | None) -> dict:
     path = _settings_file(settings_path)
-    if not path or not path.exists():
+    if not path:
         return {"version": _SOURCE_FILE_VERSION, "sources": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return {"version": _SOURCE_FILE_VERSION, "sources": []}
     sources = data.get("sources") if isinstance(data, dict) else []
     if not isinstance(sources, list):
@@ -937,7 +956,7 @@ def configured_icon_sources(settings_path: str | None = None, extra_sources: Ite
             resolved = str(path)
         enabled = bool(source.get("enabled", True))
         entry = {**source, "path": resolved, "exists": path.exists(), "archive": _is_supported_archive(path)}
-        if not source.get("pack_kind") and (source.get("manual") or source.get("env")):
+        if enabled and not source.get("pack_kind") and (source.get("manual") or source.get("env")):
             entry = describe_icon_source(entry)
         key = f"{resolved}|{enabled}|{entry.get('pack_kind', '')}|{entry.get('pack_prefix', '')}|{entry.get('subpack', '')}"
         if key in seen:
@@ -950,32 +969,26 @@ def configured_icon_sources(settings_path: str | None = None, extra_sources: Ite
 def _vanilla_display_signature(root: Path):
     directory = root / "textures" / "display"
     for path in (root, root / "textures", directory):
-        info = _safe_stat(path)
+        info = _source_stat(path)
         if info is None or not stat.S_ISDIR(info.st_mode):
             return None
     files = []
-    try:
-        with os.scandir(directory) as entries:
-            for index, entry in enumerate(entries):
-                if index >= _MAX_SCAN_FILES:
-                    break
-                if Path(entry.name).suffix.lower() not in _ALLOWED_EXTENSIONS:
-                    continue
-                try:
-                    info = entry.stat(follow_symlinks=False)
-                    stamp = (info.st_mode, info.st_size, info.st_mtime_ns, info.st_dev, info.st_ino, is_linklike_stat(info))
-                except OSError:
-                    stamp = None
-                files.append((entry.name, stamp))
-    except OSError as exc:
-        return {"error": type(exc).__name__}
+    with os.scandir(directory) as entries:
+        for index, entry in enumerate(entries):
+            if index >= _MAX_SCAN_FILES:
+                break
+            if Path(entry.name).suffix.lower() not in _ALLOWED_EXTENSIONS:
+                continue
+            info = entry.stat(follow_symlinks=False)
+            stamp = (info.st_mode, info.st_size, info.st_mtime_ns, info.st_dev, info.st_ino, is_linklike_stat(info))
+            files.append((entry.name, stamp))
     return sorted(files)
 
 
 def _source_signature(source: dict) -> dict:
     raw_path = str(source.get("path") or "")
     path = Path(raw_path).expanduser()
-    st = _safe_stat(path)
+    st = _source_stat(path) if source.get("enabled", True) else _safe_stat(path)
     signature = {
         "path": raw_path,
         "enabled": bool(source.get("enabled", True)),
@@ -988,7 +1001,7 @@ def _source_signature(source: dict) -> dict:
         "size": getattr(st, "st_size", None) if st else None,
         "identity": (st.st_dev, st.st_ino) if st else None,
     }
-    if source.get("pack_kind") and source.get("enabled", True):
+    if st is not None and source.get("pack_kind") and source.get("enabled", True):
         from .resource_packs import PackReader
 
         try:
@@ -999,10 +1012,10 @@ def _source_signature(source: dict) -> dict:
                     if isinstance(entry, Path) and (info := entry.stat(follow_symlinks=False))
                 ]
             signature["subpack"] = source.get("subpack", "")
-        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        except (ValueError, zipfile.BadZipFile) as exc:
             signature["pack_error"] = "ValueError" if isinstance(exc, ValueError) else type(exc).__name__
-    if source.get("vanilla"):
-        info = _safe_stat(path / "manifest.json")
+    if source.get("vanilla") and source.get("enabled", True):
+        info = _source_stat(path / "manifest.json")
         signature["manifest"] = (info.st_size, info.st_mtime_ns, info.st_ino) if info else None
         signature["display_files"] = _vanilla_display_signature(path)
     # Loose icon folders retain the explicit rescan path for nested changes;
@@ -1128,7 +1141,7 @@ def _add_variant_alias_icons(icons: dict[str, IconCandidate]) -> int:
 def _directory_files(root: Path, *, onerror, onlink):
     def skipped(path: Path) -> bool:
         # Links stay outside the source boundary. An entry whose type cannot be
-        # read is reported like an unreadable directory instead of ending the scan.
+        # read follows the caller's policy for directory traversal errors.
         try:
             linked = is_linklike(path)
         except OSError as exc:
@@ -1160,39 +1173,36 @@ def _scan_directory(
     source_icons: dict[str, IconCandidate] = {}
     skipped_links: list[Path] = []
 
-    def record_error(error: OSError) -> None:
-        warnings.append(warning_record("{path}: {type}: {error}", path=root, type=type(error).__name__, error=error_record(error)))
+    def unreadable(error: OSError) -> None:
+        # A partial traversal cannot establish the source's inventory. The
+        # caller retains its previous publication and exposes a retryable error.
+        raise error
 
-    try:
-        # pathlib's recursive glob may silently yield no entries when the root
-        # itself is unreadable. Probe one directory entry first so diagnostics
-        # do not report an inaccessible source as healthy and empty.
-        with os.scandir(root) as entries:
-            next(entries, None)
-        for path in _directory_files(root, onerror=record_error, onlink=skipped_links.append):
-            if scanned >= _MAX_SCAN_FILES:
-                warnings.append(warning_record("Scan-Limit erreicht ({limit} Dateien). Weitere Icons wurden übersprungen.", limit=_MAX_SCAN_FILES))
-                break
-            if not path.is_file():
-                continue
-            scanned += 1
-            is_display_asset = _parts_look_like_display_asset(path.parts, path.suffix)
-            if not is_display_asset and not _looks_like_icon(path):
-                continue
-            if is_display_asset:
-                st = _safe_stat(path)
-                if not st or not 0 < st.st_size <= _MAX_FILE_BYTES:
-                    continue
-            asset_id = _normalize_display_asset_id(path.stem) if is_display_asset else _normalize_item_id(path.stem)
-            if not asset_id:
-                continue
-            candidate = IconCandidate(item_id=asset_id, path=path, source=source_label, token=_token_for(path), source_root=root)
-            if is_display_asset:
-                _add_icon(display_assets, candidate)
-            else:
-                _add_source_texture(source_icons, candidate)
-    except OSError as exc:
-        record_error(exc)
+    # pathlib's recursive glob may silently yield no entries on an I/O error.
+    # Probe the root, then propagate both traversal and per-entry read failures.
+    with os.scandir(root) as entries:
+        next(entries, None)
+    for path in _directory_files(root, onerror=unreadable, onlink=skipped_links.append):
+        if scanned >= _MAX_SCAN_FILES:
+            warnings.append(warning_record("Scan-Limit erreicht ({limit} Dateien). Weitere Icons wurden übersprungen.", limit=_MAX_SCAN_FILES))
+            break
+        info = path.stat(follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode) or is_linklike_stat(info):
+            continue
+        scanned += 1
+        is_display_asset = _parts_look_like_display_asset(path.parts, path.suffix)
+        if not is_display_asset and not _looks_like_icon(path):
+            continue
+        if is_display_asset and not 0 < info.st_size <= _MAX_FILE_BYTES:
+            continue
+        asset_id = _normalize_display_asset_id(path.stem) if is_display_asset else _normalize_item_id(path.stem)
+        if not asset_id:
+            continue
+        candidate = IconCandidate(item_id=asset_id, path=path, source=source_label, token=_token_for(path), source_root=root)
+        if is_display_asset:
+            _add_icon(display_assets, candidate)
+        else:
+            _add_source_texture(source_icons, candidate)
     if skipped_links:
         warnings.append(
             warning_record(
@@ -1256,7 +1266,7 @@ def _scan_archive(
             current = _checked_source_path(path, path.parent)
             if not os.path.samestat(archive_stat, current) or (archive_stat.st_size, archive_stat.st_mtime_ns) != (current.st_size, current.st_mtime_ns):
                 raise ValueError("Icon-Archiv wurde seit dem Scan verändert. Bitte Icons neu scannen.")
-    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+    except (ValueError, zipfile.BadZipFile) as exc:
         warnings.append(warning_record("{path}: {type}: {error}", path=path, type=type(exc).__name__, error=error_record(exc)))
         return scanned, warnings
     for candidate in source_icons.values():
@@ -1360,16 +1370,37 @@ def _public_result(
     }
 
 
-def _load_cached_result(cache_path: Path, sources_signature: str, settings_path: str | None) -> dict | None:
+def _read_index_data(cache_path: Path):
+    """Missing/invalid content is a cache miss; filesystem failures propagate."""
     try:
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return json.loads(cache_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return None
+
+
+def _load_cached_result(cache_path: Path, sources_signature: str, settings_path: str | None) -> dict | None:
+    data = _read_index_data(cache_path)
     return _cached_result_from_data(data, cache_path, sources_signature, settings_path)
+
+
+def _has_cached_read_failure(data: dict) -> bool:
+    # Older scans persisted filesystem errors as structured warning records.
+    # Do not reuse those partial observations; healthy older indexes remain valid.
+    # Inspect their stable exception type, never a localized error message.
+    records = data.get("warning_records")
+    for record in records if isinstance(records, list) else []:
+        params = record.get("message_params") if isinstance(record, dict) else None
+        name = params.get("type") if isinstance(params, dict) else None
+        kind = getattr(builtins, name, None) if isinstance(name, str) else None
+        if isinstance(kind, type) and issubclass(kind, OSError):
+            return True
+    return False
 
 
 def _cached_result_from_data(data: object, cache_path: Path, sources_signature: str, settings_path: str | None) -> dict | None:
     if not isinstance(data, dict) or data.get("version") != _INDEX_FILE_VERSION:
+        return None
+    if _has_cached_read_failure(data):
         return None
     if data.get("sources_signature") != sources_signature:
         return None
@@ -1431,6 +1462,7 @@ def load_cached_icon_index(
     *,
     validate_sources: bool = True,
     context_id: str | None = None,
+    expected_sources: list[dict] | None = None,
 ) -> dict | None:
     """Load the last publication without scanning or writing files.
 
@@ -1439,12 +1471,9 @@ def load_cached_icon_index(
     """
 
     cache_path = _context_cache_file(settings_path, context_id) if context_id is not None else _cache_file(settings_path)
-    if not cache_path or not cache_path.exists():
+    if not cache_path:
         return None
-    try:
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
-        return None
+    data = _read_index_data(cache_path)
     sources_signature = data.get("sources_signature") if isinstance(data, dict) else None
     if not isinstance(sources_signature, str) or not sources_signature:
         return None
@@ -1453,11 +1482,62 @@ def load_cached_icon_index(
     cached_sources = data.get("sources")
     if not isinstance(cached_sources, list) or any(not isinstance(source, dict) for source in cached_sources):
         return None
+    # Compare the effective ordered configuration before accessing source files.
+    # Older indexes retain inactive pack metadata and their original URL context.
+    if expected_sources is not None:
+        canonical_context = icon_context_id(cached_sources)
+        if canonical_context != icon_context_id(expected_sources):
+            return None
+        stored_context = data.get("context_id")
+        if stored_context not in (None, canonical_context) and stored_context != _icon_context_id(cached_sources, include_inactive_metadata=True):
+            return None
     # Read-only darf den veröffentlichten Index nutzen, aber keine veralteten
     # Dateiverweise übernehmen, wenn sich eine gecachte Quelle geändert hat.
     if validate_sources and _sources_signature(cached_sources) != sources_signature:
         return None
     return _cached_result_from_data(data, cache_path, sources_signature, settings_path)
+
+
+def load_prepared_icon_index(settings_path: str | None, sources: list[dict]) -> dict | None:
+    """Find a validated publication for these sources without scanning or writing.
+
+    A compatible old publication keeps its original context ID: its image URLs
+    must keep resolving across workers without migrating files in read-only mode.
+    """
+    context = icon_context_id(sources)
+    # Failure to read the requested publication itself remains a status error;
+    # image URLs on other workers also depend on that file being readable.
+    cached = load_cached_icon_index(settings_path, context_id=context, expected_sources=sources)
+    if cached is not None:
+        return cached
+
+    def fallback_contexts() -> Iterable[str | None]:
+        yield None  # Latest publication, potentially belonging to another world.
+        # Only inactive pack metadata can produce a compatible older context ID.
+        base = _cache_file(settings_path)
+        if base is not None and any(not source.get("enabled", True) for source in sources):
+            for path in sorted(_context_cache_files(base)):
+                if path.stem != context:
+                    yield path.stem
+
+    read_error = None
+    try:
+        for candidate in fallback_contexts():
+            try:
+                cached = load_cached_icon_index(settings_path, context_id=candidate, expected_sources=sources)
+            except OSError as exc:
+                # All optional publications use the same failure policy: keep
+                # searching, but preserve the cause if none can be validated.
+                read_error = read_error or exc
+                continue
+            if cached is not None:
+                return cached
+    except OSError as exc:
+        # Directory enumeration can fail after an earlier publication read.
+        read_error = read_error or exc
+    if read_error is not None:
+        raise read_error
+    return None
 
 
 def _write_cache(cache_path: Path | None, result: dict, sources_signature: str) -> None:
@@ -1576,7 +1656,7 @@ def _scan_icons(
                 refresh_cached_display_assets(Path(source["path"]), cache_dir, force=force)
     source_signature = _sources_signature(sources)
     cache_path = _context_cache_file(settings_path, context_id) if context_id is not None else _cache_file(settings_path)
-    if not force and cache_path and cache_path.exists():
+    if not force and cache_path:
         cached = _load_cached_result(cache_path, source_signature, settings_path)
         if cached and not cached.get("_legacy_warnings") and (context_id is None or cached.get("_context_id") == context_id):
             return cached

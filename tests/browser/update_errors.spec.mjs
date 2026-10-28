@@ -19,7 +19,6 @@ for (const language of ['de', 'en']) {
     await expect(page.locator('#statusStackButton')).toHaveClass(/error/);
     await page.locator('[data-tab-dash="dashIcons"]').click();
     await page.locator('#btnUpdateVanillaIcons').click();
-    await page.locator('#confirmOk').click();
     await expect(page.locator('#iconUpdateResult')).toHaveAttribute('data-state', 'success');
     await expect(page.locator('#statusStackButton')).toHaveClass(/error/);
     await expect(page.locator('#statusStackSummary')).toContainText('Fixture check failure');
@@ -76,7 +75,6 @@ for (const [layout, theme] of [['classic', 'dark'], ['studio', 'light'], ['focus
       await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
       const runIcons = async () => {
         await page.locator('#btnUpdateVanillaIcons').click();
-        await page.locator('#confirmOk').click();
         await expect(page.locator('#loadingOverlay')).toBeHidden();
       };
 

@@ -366,7 +366,7 @@ def describe_icon_source(source: dict) -> dict:
         manifest, prefix = _manifest(path)
     except FileNotFoundError:
         return source
-    except (OSError, ValueError, KeyError, TypeError, RecursionError, zipfile.BadZipFile, RuntimeError) as exc:
+    except (ValueError, KeyError, TypeError, RecursionError, zipfile.BadZipFile, RuntimeError) as exc:
         return {**source, "pack_kind": "invalid", "pack_error": error_record(exc)}
     modules = manifest.get("modules", [])
     if not isinstance(modules, list):

@@ -30,6 +30,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
+    from mcbe_editor import icon_cache_state
+    from mcbe_editor.archive_errors import ZIP_READ_ERRORS
     from mcbe_editor.banner_patterns import BANNER_TEXTURES, crop_banner_texture
     from mcbe_editor.block_icon_renderer import composite_png_overlay, crop_png, render_bedrock_model_icon, render_block_icon, supports_block_preview, tint_png
     from mcbe_editor.icon_cache import publish_icon_cache, recover_icon_cache
@@ -58,6 +60,8 @@ def _load_runtime_dependencies():
         BANNER_TEXTURES,
         crop_banner_texture,
         report_http_errors,
+        icon_cache_state,
+        ZIP_READ_ERRORS,
     )
 
 
@@ -79,6 +83,8 @@ def _load_runtime_dependencies():
     BANNER_TEXTURES,
     crop_banner_texture,
     report_http_errors,
+    icon_cache_state,
+    ZIP_READ_ERRORS,
 ) = _load_runtime_dependencies()
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DATA_ROOT = Path(os.environ.get("MCBE_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser()
@@ -792,10 +798,10 @@ def get_latest_full_release_info() -> dict[str, Any]:
             continue
         if "bedrock-samples" not in name:
             continue
-        candidates.append((name, size, str(asset.get("browser_download_url") or "")))
+        candidates.append((name, size, str(asset.get("browser_download_url") or ""), asset))
     if not candidates:
         raise RuntimeError(tr("Kein Full-Asset im Release {release} gefunden.", release=tag))
-    name, size, url = sorted(candidates, key=lambda row: row[1], reverse=True)[0]
+    name, size, url, asset = sorted(candidates, key=lambda row: row[1], reverse=True)[0]
     if size <= 0 or size > MAX_RESOURCE_PACK_BYTES:
         raise RuntimeError(tr("Resource-Pack-Asset hat eine unerwartete Größe: {size} Bytes", size=size))
     return {
@@ -804,6 +810,7 @@ def get_latest_full_release_info() -> dict[str, Any]:
         "resource_pack_asset_size": size,
         "resource_pack_url": _validate_https_url(url, ALLOWED_RESOURCE_PACK_HOSTS, label="Resource-Pack"),
         "resource_pack_fetched_at": utc_now(),
+        **{f"resource_pack_asset_{key}": asset[key] for key in ("id", "updated_at", "digest") if asset.get(key) is not None},
     }
 
 
@@ -838,13 +845,7 @@ def read_release_metadata() -> dict[str, Any]:
 
 
 def _same_resource_pack_release(first: dict[str, Any], second: dict[str, Any]) -> bool:
-    fields = (
-        "resource_pack_release",
-        "resource_pack_asset",
-        "resource_pack_asset_size",
-        "resource_pack_url",
-    )
-    return bool(first) and bool(second) and all(first.get(field) == second.get(field) for field in fields)
+    return icon_cache_state.same_release(first, second)
 
 
 def write_release_metadata(info: dict[str, Any]) -> None:
@@ -865,7 +866,11 @@ def _validate_downloaded_zip(path: Path) -> None:
                 if total_uncompressed > MAX_RESOURCE_PACK_UNCOMPRESSED_BYTES:
                     raise RuntimeError(tr("Resource-Pack-Download ist entpackt unerwartet groß."))
             damaged_member = archive.testzip()
-    except (OSError, zipfile.BadZipFile) as exc:
+    except RuntimeError:
+        # Size-limit refusals and encrypted/unsupported ZIP errors already use
+        # the updater's error type; preserve their concrete diagnostic.
+        raise
+    except (OSError, *ZIP_READ_ERRORS) as exc:
         raise RuntimeError(tr("Resource-Pack-Download ist keine gültige ZIP-Datei.")) from exc
     if damaged_member:
         raise RuntimeError(tr("Resource-Pack-Download enthält einen beschädigten ZIP-Eintrag: {member}", member=damaged_member))
@@ -883,8 +888,8 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
     if use_cache and zip_path.exists() and zip_path.stat().st_size == expected_size:
         try:
             report_progress("cached")
-            _validate_downloaded_zip(zip_path)
-        except RuntimeError:
+            validate_icon_archive(zip_path, info)
+        except (OSError, ValueError, RuntimeError):
             pass
         else:
             log(tr("Cache verwendet: {path}", path=zip_path))
@@ -923,7 +928,7 @@ def download_release_zip(info: dict[str, Any], *, use_cache: bool) -> Path:
                 )
             )
         report_progress("validating")
-        _validate_downloaded_zip(temp_path)
+        validate_icon_archive(temp_path, info)
         os.replace(temp_path, zip_path)
         return zip_path
     except Exception:
@@ -1649,11 +1654,16 @@ def build_icon_cache(
     catalog_item_count: int | None = None,
     excluded_non_addable_count: int = 0,
     block_item_ids: set[str] | None = None,
+    reuse_unchanged: bool = False,
+    expected_archive_sha256: str | None = None,
 ) -> dict[str, Any]:
     # tempfile returns an absolute staging path even when ``dir`` was relative.
     # Normalize only the working address (without resolving symlinks) so the
     # atomic publisher can compare both parent directories reliably.
     target_root = Path(os.path.abspath(target_root))
+    archive_sha256 = icon_cache_state.file_digest(zip_path, limit=MAX_RESOURCE_PACK_BYTES)
+    if expected_archive_sha256 is not None and archive_sha256 != expected_archive_sha256:
+        raise ValueError(tr("Das Resource-Pack wurde während der Verarbeitung verändert. Bitte erneut prüfen."))
     report_progress("processing")
     with zipfile.ZipFile(zip_path) as zf:
         item_textures = parse_texture_data(_read_json_member(zf, "textures/item_texture.json"))
@@ -1980,9 +1990,44 @@ def build_icon_cache(
                 "display_assets": display_assets,
             }
             report_progress("finalizing")
+            icon_cache_state.require_archive_unchanged(zip_path, archive_sha256, limit=MAX_RESOURCE_PACK_BYTES)
+            icon_cache_state.add_verification(
+                staging,
+                manifest,
+                icon_build_inputs(release_info, known_items, block_item_ids),
+                archive_sha256,
+            )
             atomic_write_text(staging / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-            publish_icon_cache(staging, target_root, warn=log)
+            if reuse_unchanged:
+                publish_icon_cache(staging, target_root, warn=log, reuse_identical=True)
+            else:
+                publish_icon_cache(staging, target_root, warn=log)
             return manifest
+
+
+def icon_build_inputs(info: dict, items: list[str], blocks: set[str] | None) -> dict:
+    return icon_cache_state.build_inputs(info, items, None if blocks is None else {normalize_identifier(value) for value in blocks}, set(EXTRA_ITEM_ICON_IDS))
+
+
+def validate_icon_archive(path: Path, info: dict, *, manifest: dict | None = None) -> str:
+    return icon_cache_state.validate_archive(path, info, manifest=manifest, limit=MAX_RESOURCE_PACK_BYTES, validate_zip=_validate_downloaded_zip)
+
+
+def _matching_local_archive(info: dict, cached_metadata: dict, manifest: dict | None) -> bool:
+    if not _valid_release_metadata(info) or not any(
+        _same_resource_pack_release(source, info) for source in (cached_metadata, (manifest or {}).get("release", {}))
+    ):
+        return False
+    path = CACHE_DIR / info["resource_pack_asset"]
+    try:
+        validate_icon_archive(path, info, manifest=manifest)
+        return True
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
+def _emit_icon_report(**fields) -> None:
+    print(icon_cache_state.REPORT_PREFIX + json.dumps({"schema": 1, **fields}, ensure_ascii=False, sort_keys=True))
 
 
 @report_http_errors
@@ -1996,7 +2041,8 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=tr("Vorhandene Release-Metadaten ohne Online-Versionsprüfung erneut verarbeiten."),
     )
-    parser.add_argument("--dry-run", action="store_true", help=tr("Nur Quelle prüfen, nichts extrahieren."))
+    parser.add_argument("--dry-run", action="store_true", help=tr("Quelle und vorhandene Icons prüfen, nichts herunterladen oder erzeugen."))
+    parser.add_argument("--no-download", action="store_true", help=tr("Nur vorhandene Quellarchive verwenden; nötige Downloads als offenen Schritt melden."))
     args = parser.parse_args(argv)
     report_progress("checking")
 
@@ -2010,14 +2056,32 @@ def main(argv: list[str] | None = None) -> int:
     cached_metadata = read_release_metadata()
     metadata_needs_write = info != cached_metadata
     log(tr("Release: {release} · {asset}", release=info["resource_pack_release"], asset=info["resource_pack_asset"]))
-    if args.dry_run:
-        return 0
-    # The latest release metadata is always queried in normal mode.  Reusing a
-    # validated ZIP with the exact current asset name and size is then safe and
-    # avoids a redundant large download.
-    reuse_matching_download = not args.force and _same_resource_pack_release(cached_metadata, info)
-    zip_path = download_release_zip(info, use_cache=reuse_matching_download)
     known_items, excluded_non_addable, catalog_item_count, block_item_ids = load_icon_targets(ITEM_DB_PATH)
+    inputs = icon_build_inputs(info, known_items, block_item_ids)
+    assessment = icon_cache_state.assess_cache(ICON_ROOT, inputs)
+    previous_manifest = icon_cache_state.read_manifest(ICON_ROOT)
+    if assessment["state"] == "current" and not args.force:
+        log(tr("Bereits aktuell."))
+        _emit_icon_report(status="current", already_current=True, needs_update=False, check_only=args.dry_run, images_changed=False, **assessment)
+        return 0
+    local_archive = not args.force and _matching_local_archive(info, cached_metadata, previous_manifest)
+    update_kind = "local" if local_archive else "download"
+    if args.dry_run or (args.no_download and not local_archive):
+        _emit_icon_report(
+            status="available",
+            already_current=False,
+            needs_update=True,
+            check_only=True,
+            update_kind=update_kind,
+            source_unchanged=_same_resource_pack_release((previous_manifest or {}).get("release", {}), info),
+            **assessment,
+        )
+        return 0
+    previous_images = icon_cache_state.image_signature(ICON_ROOT, previous_manifest)
+    # A local-only action must never fall back to a network download if the
+    # archive changes between inspection and extraction.
+    zip_path = CACHE_DIR / info["resource_pack_asset"] if local_archive else download_release_zip(info, use_cache=False)
+    archive_sha256 = validate_icon_archive(zip_path, info, manifest=previous_manifest if local_archive else None)
     if metadata_needs_write:
         write_release_metadata(info)
     # Release metadata describes the downloaded source cache, while the target
@@ -2032,7 +2096,23 @@ def main(argv: list[str] | None = None) -> int:
         catalog_item_count=catalog_item_count,
         excluded_non_addable_count=len(excluded_non_addable),
         block_item_ids=block_item_ids,
+        reuse_unchanged=not args.force,
+        expected_archive_sha256=archive_sha256,
     )
+    images_changed = previous_images is None or previous_images != icon_cache_state.image_signature(ICON_ROOT, manifest)
+    already_current = not images_changed and _same_resource_pack_release((previous_manifest or {}).get("release", {}), info)
+    _emit_icon_report(
+        status="current" if already_current else "updated",
+        already_current=already_current,
+        needs_update=False,
+        check_only=False,
+        images_changed=images_changed,
+        metadata_updated=True,
+        update_kind=update_kind,
+        **icon_cache_state.assess_cache(ICON_ROOT, inputs),
+    )
+    if already_current:
+        log(tr("Bereits aktuell."))
     retention = prune_cached_icon_release_zips(zip_path)
     if retention["removed_count"]:
         log(

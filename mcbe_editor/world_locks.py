@@ -234,11 +234,11 @@ def world_lock_if_free(world_path: str) -> Iterator[bool]:
 
 
 @contextmanager
-def locked_operation(name: str, *, root: str | os.PathLike[str] | None = None) -> Iterator[None]:
-    """Serialize one app-wide mutation across threads and worker processes."""
+def locked_file(path: str | os.PathLike[str]) -> Iterator[None]:
+    """Hold an existing lock-file protocol across threads and worker processes."""
 
-    path = operation_lock_path(name, root=root)
-    key = f"operation:{lock_key(path)}"
+    path = lock_key(os.fspath(path))
+    key = f"operation:{path}"
     lock = _get_operation_lock(key)
     lock.acquire()
     try:
@@ -249,3 +249,11 @@ def locked_operation(name: str, *, root: str | os.PathLike[str] | None = None) -
             _exit_file_lock(key)
     finally:
         lock.release()
+
+
+@contextmanager
+def locked_operation(name: str, *, root: str | os.PathLike[str] | None = None) -> Iterator[None]:
+    """Serialize one app-wide mutation across threads and worker processes."""
+
+    with locked_file(operation_lock_path(name, root=root)):
+        yield

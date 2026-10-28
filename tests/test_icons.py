@@ -107,7 +107,7 @@ def test_local_icon_scan_ignores_non_texture_files(monkeypatch, tmp_path):
     assert result["count"] == 0
 
 
-def test_icon_scan_reports_unreadable_directory_source(monkeypatch, tmp_path):
+def test_icon_scan_rejects_unreadable_directory_source(monkeypatch, tmp_path):
     from pathlib import Path
 
     import mcbe_editor.icons as icons_module
@@ -127,16 +127,12 @@ def test_icon_scan_reports_unreadable_directory_source(monkeypatch, tmp_path):
 
     monkeypatch.setattr(icons_module.os, "scandir", denied)
 
-    result = scan_icons(force=True)
-
-    source = next(source for source in result["sources"] if source["path"] == str(root.resolve()))
-    assert source["status"] == "warning"
-    assert source["warning_count"] == 1
-    assert any("PermissionError" in warning for warning in result["warnings"])
+    with pytest.raises(PermissionError, match="denied"):
+        scan_icons(force=True)
 
 
 @pytest.mark.parametrize("denied_first", [True, False])
-def test_icon_scan_keeps_readable_siblings_of_unreadable_directory(monkeypatch, tmp_path, denied_first):
+def test_icon_scan_rejects_partial_traversal_in_either_order(monkeypatch, tmp_path, denied_first):
     from pathlib import Path
 
     import mcbe_editor.icons as icons_module
@@ -169,13 +165,10 @@ def test_icon_scan_keeps_readable_siblings_of_unreadable_directory(monkeypatch, 
     monkeypatch.setattr(icons_module.os, "scandir", denied_scandir)
     monkeypatch.setattr(icons_module.os, "walk", ordered_walk)
     candidates = {}
-    scanned, warnings = icons_module._scan_directory(root, "test", candidates, {}, 0)
-
-    assert visited == ([denied_dir, icon.parent] if denied_first else [icon.parent, denied_dir])
-    assert scanned == 1
-    assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
-    assert len(warnings) == 1
-    assert "PermissionError: unreadable subtree" in warning_text(warnings[0])
+    with pytest.raises(PermissionError, match="unreadable subtree"):
+        icons_module._scan_directory(root, "test", candidates, {}, 0)
+    assert visited == ([denied_dir] if denied_first else [icon.parent, denied_dir])
+    assert candidates == {}
 
 
 def test_icon_scan_reports_linked_pack_that_can_be_added_directly(monkeypatch, tmp_path):
@@ -200,7 +193,7 @@ def test_icon_scan_reports_linked_pack_that_can_be_added_directly(monkeypatch, t
         assert not any("Verlinkte Einträge" in warning for warning in result["warnings"])
 
 
-def test_icon_scan_continues_after_entry_with_unreadable_type(monkeypatch, tmp_path):
+def test_icon_scan_rejects_entry_with_unreadable_type(monkeypatch, tmp_path):
     from pathlib import Path
 
     import mcbe_editor.icons as icons_module
@@ -220,11 +213,9 @@ def test_icon_scan_continues_after_entry_with_unreadable_type(monkeypatch, tmp_p
 
     monkeypatch.setattr(icons_module, "is_linklike", is_linklike)
     candidates = {}
-    scanned, warnings = icons_module._scan_directory(root, "test", candidates, {}, 0)
-
-    assert scanned == 1
-    assert candidates["minecraft:apple"].read_bytes() == b"readable icon"
-    assert [warning_text(record) for record in warnings] == [f"{root}: PermissionError: entry type unavailable"]
+    with pytest.raises(PermissionError, match="entry type unavailable"):
+        icons_module._scan_directory(root, "test", candidates, {}, 0)
+    assert candidates == {}
 
 
 from mcbe_editor.icons import add_icon_source, load_icon_sources, remove_icon_source

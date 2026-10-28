@@ -240,6 +240,7 @@ def test_icon_status_does_not_rebuild_cache_in_read_only_mode():
     try:
         with (
             patch("mcbe_editor.icon_api_routes.load_cached_icon_index", return_value=None),
+            patch("mcbe_editor.icon_api_routes.load_prepared_icon_index", return_value=None),
             patch("mcbe_editor.icon_api_routes.scan_icons", Mock(side_effect=AssertionError("scan must not run"))) as scan_icons,
         ):
             resp = _client().get("/api/icons/status")
@@ -247,8 +248,9 @@ def test_icon_status_does_not_rebuild_cache_in_read_only_mode():
         main.APP_CONFIG = previous_config
         main.ICON_INDEX = previous_index
 
-    assert resp.status_code == 200
-    assert resp.get_json()["count"] == 0
+    assert resp.status_code == 503
+    assert resp.get_json()["status"] == "unavailable"
+    assert "count" not in resp.get_json()
     scan_icons.assert_not_called()
 
 

@@ -3,6 +3,45 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_status_failure_hides_download_hints_and_preserves_existing_icon_data() -> None:
+    run_node(r"""
+        (async () => {
+            const assert = require('node:assert/strict');
+            const vm = require('node:vm');
+            const fs = require('node:fs');
+            const context = {window: {}, console};
+            vm.runInNewContext(fs.readFileSync('static/icon_sources_controller.js', 'utf8'), context);
+            const hint = {style: {}, innerHTML: '', querySelector() {return null;}};
+            const empty = {style: {}};
+            const applied = [], errors = [], requests = [];
+            const responses = [
+                {success: false, status: 'unavailable', error: 'Icon-Status: Permission denied'},
+                {success: true, count: 1, icons: {apple: 'existing'}, missing_banner_patterns: []},
+            ];
+            const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
+                elements: {hintBanner: hint, emptyStateHint: empty},
+                fetchImpl: async url => {requests.push(url); return responses.shift();},
+                parseJsonResponse: async data => data,
+                isInventoryOpen: () => true,
+                onIconData: data => applied.push(data),
+                onIconStatusUnavailable: error => errors.push(error.message),
+                consoleObj: {warn() {}},
+            });
+            controller.applyIconIndexData({success: true, count: 0, icons: {custom: 'preserved'}});
+            assert.match(hint.innerHTML, /Vanilla-Icons laden/);
+            await controller.loadLocalIconIndex();
+            assert.equal(hint.style.display, 'none');
+            assert.equal(empty.style.display, 'none');
+            assert.equal(applied.length, 1);
+            assert.deepEqual(errors, ['Icon-Status: Permission denied']);
+            await controller.loadLocalIconIndex();
+            assert.equal(applied.length, 2);
+            assert.equal(applied[1].icons.apple, 'existing');
+            assert.deepEqual(requests, ['/api/icons/status', '/api/icons/status']);
+        })().catch(error => {console.error(error); process.exit(1);});
+    """)
+
+
 def test_populated_icons_show_missing_banner_hint_and_respect_read_only_controls() -> None:
     run_node(r"""
         const assert = require('node:assert/strict');
@@ -108,6 +147,32 @@ def test_icon_load_ignores_stale_success_and_failure_in_every_world_context() ->
         })().catch(error => { console.error(error); process.exitCode = 1; });
     """)
     )
+
+
+def test_local_icon_validity_warns_about_damage_without_requiring_legacy_updates() -> None:
+    run_node(r"""
+        const assert = require('node:assert/strict');
+        const vm = require('node:vm');
+        const fs = require('node:fs');
+        const context = {window: {}, console};
+        for (const name of ['data_source_view', 'icon_manager_view']) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
+        }
+        for (const state of ['current', 'unverified', 'stale', 'damaged']) {
+            const data = {count: 1, sources: [], missing_banner_patterns: [], vanilla_cache: {state}};
+            const warning = ['stale', 'damaged'].includes(state);
+            const status = context.window.MCBEDataSourceView.iconStateSummary(data);
+            assert.equal(status.rank, warning ? 1 : 0);
+            const html = context.window.MCBEIconManagerView.iconManagerHtml(data);
+            if (warning) {
+                assert.match(status.detail, /Aktualität/);
+                assert.match(html, /bereit mit Einschränkungen/);
+                assert.match(html, /Aktualität/);
+            } else {
+                assert.doesNotMatch(html, /bereit mit Einschränkungen/);
+            }
+        }
+    """)
 
 
 def test_icon_mutations_refresh_the_current_world_when_their_response_is_stale() -> None:

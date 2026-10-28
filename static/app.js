@@ -1072,8 +1072,11 @@ const iconSourcesController = window.MCBEIconSourcesController.createInventoryIc
         itemIconIndex = icons || {};
         iconSourceSummary = summary || { count: 0, roots: [], warnings: [] };
     },
-    onIconStatusUnavailable() {
-        iconSourceSummary = { status: "unavailable", count: 0, roots: [], warnings: [] };
+    onIconStatusUnavailable(error) {
+        iconSourceSummary = {
+            ...iconSourceSummary, status: "unavailable",
+            message: error?.message || t("Icon-Status konnte nicht geladen werden."),
+        };
         renderDataSourcePanels();
         renderStatusCenter();
     },
@@ -1609,6 +1612,10 @@ const updateDbController = window.MCBEUpdateDbView.createInventoryUpdateDbContro
     async onReloaded(data) {
         if (data.item_db) dataSourceController.applyItemDbStatus(data.item_db);
         else await loadItemDbStatus();
+        // Refresh existing icons after a catalog update, including a failed
+        // startup read. An icon-status failure must not fail the DB update.
+        iconSourcesController.invalidateUpdateCheck();
+        await loadLocalIconIndex({ rescan: false });
         return window.MCBEUpdateDbView.refreshLoadedPlayerAfterDbUpdate({
             currentPlayerKey,
             isDirty: hasUnsavedChanges(),
@@ -1631,6 +1638,7 @@ firstRunSetupController = window.MCBEFirstRunSetupView.createInventoryFirstRunSe
     },
     getIconsPendingHint: () => Number(iconSourceSummary?.count || 0) > 0 && iconSourceSummary?.missing_banner_patterns?.length
         ? t("Bannermuster fehlen im lokalen Icon-Cache. Lade die Vanilla-Icons, um die Bannervorschau zu vervollständigen.") : "",
+    getStatusError: id => (id === "icons" ? iconSourceSummary : itemDbStatus)?.message || "",
     // The setup row confirms the forced update, so no second dialog is needed.
     runItemDbUpdate: () => updateDbController.run(false, true, { only: null }),
     runIconsUpdate: () => iconSourcesController.updateVanillaIcons(),

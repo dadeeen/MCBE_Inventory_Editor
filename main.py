@@ -1410,12 +1410,14 @@ def run_update_db(dry_run=False, force=False, only=None, use_cache=False, expect
     )
 
 
-def run_update_icons(force=False, use_cache=False):
+def run_update_icons(force=False, use_cache=False, check_only=False, allow_download=True):
     return update_script_runner.run_update_icons(
         APP_ROOT,
         APP_CONFIG,
         force=force,
         use_cache=use_cache,
+        check_only=check_only,
+        allow_download=allow_download,
         locale=i18n.request_locale(),
         progress_path=getattr(g, "update_progress_path", None) if has_request_context() else None,
     )
@@ -1787,6 +1789,7 @@ def icon_route_deps() -> icon_api_routes.IconRouteDeps:
         gui_picker_lock=_GUI_PICKER_LOCK,
         select_icon_pack=select_icon_pack_via_gui,
         select_icon_folder=select_icon_folder_via_gui,
+        item_db_path=APP_CONFIG.item_db_path,
     )
 
 

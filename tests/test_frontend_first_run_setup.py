@@ -114,11 +114,12 @@ def test_frontend_first_run_setup_opens_only_while_a_todo_is_open_and_undismisse
             assert.strictEqual(c.elements.banner.style.display, "none");
             assert.strictEqual(c.elements.rows.item_db.mark.textContent, "–");
             assert.strictEqual(c.elements.rows.icons.mark.textContent, "–");
-            assert.strictEqual(c.elements.rows.item_db.button.disabled, true);
-            assert.strictEqual(c.elements.rows.icons.button.disabled, true);
+            assert.strictEqual(c.elements.rows.item_db.button.disabled, false);
+            assert.strictEqual(c.elements.rows.icons.button.disabled, false);
+            assert.strictEqual(c.elements.rows.icons.button.textContent, "Status erneut prüfen");
 
             // If another task is genuinely pending, an unknown row is shown as
-            // unavailable rather than incorrectly checked or actionable.
+            // unavailable, with a status-only retry instead of a download.
             c = controllerFor({ itemDbPending: null, iconsPending: true, dismissed: false });
             assert.strictEqual(c.controller.maybeOpenOnStart(), true);
             assert.strictEqual(c.elements.rows.item_db.mark.textContent, "–");
@@ -341,3 +342,103 @@ def test_frontend_first_run_setup_remembers_dismissal() -> None:
             """
         )
     )
+
+
+def test_setup_status_retry_preserves_errors_and_never_downloads_in_read_only_mode() -> None:
+    _run_node(r"""
+        (async () => {
+            for (const id of view.TODO_IDS) {
+                const elements = buildElements();
+                let pending = null, reads = 0, writes = 0, finish;
+                const refresh = async () => {
+                    reads++;
+                    if (reads === 1) throw new Error('HTTP 503: Dienst vorübergehend nicht erreichbar');
+                    await new Promise(resolve => { finish = resolve; });
+                    pending = false;
+                };
+                const controller = view.createFirstRunSetupController({
+                    elements,
+                    isItemDbPending: () => id === 'item_db' ? pending : false,
+                    isIconsPending: () => id === 'icons' ? pending : false,
+                    refreshItemDbStatus: refresh,
+                    refreshIconSources: refresh,
+                    runItemDbUpdate: async () => { writes++; },
+                    runIconsUpdate: async () => { writes++; },
+                    canWriteAppState: () => false,
+                });
+                controller.open();
+                const row = elements.rows[id];
+                assert.equal(row.button.disabled, false);
+                await controller.runTodo(id);
+                assert.match(row.state.textContent, /HTTP 503: Dienst vorübergehend nicht erreichbar/);
+                assert.equal(row.button.disabled, false);
+                const retry = controller.runTodo(id);
+                assert.equal(row.state.textContent, 'Status wird geprüft…');
+                assert.equal(row.button.disabled, true);
+                await controller.runTodo(id);
+                assert.equal(reads, 2, 'No duplicate read while a retry is pending');
+                finish();
+                await retry;
+                assert.equal(row.state.textContent, 'Erledigt.');
+                assert.equal(row.button.style.display, 'none');
+                assert.equal(writes, 0, 'Status retries must never download assets');
+            }
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+
+
+def test_setup_status_retry_requires_another_click_before_downloading_missing_icons() -> None:
+    _run_node(r"""
+        (async () => {
+            const elements = buildElements();
+            let pending = null, message = 'HTTP 503: Icon-Dienst nicht erreichbar', writes = 0;
+            const controller = view.createFirstRunSetupController({
+                elements,
+                isIconsPending: () => pending,
+                getStatusError: () => message,
+                refreshIconSources: async () => { message = ''; pending = writes === 0; },
+                runIconsUpdate: async () => { writes++; return { success: true }; },
+            });
+            controller.open();
+            const row = elements.rows.icons;
+            assert.match(row.state.textContent, /HTTP 503: Icon-Dienst nicht erreichbar/);
+            await controller.runTodo('icons');
+            assert.equal(writes, 0);
+            assert.equal(row.button.textContent, 'Jetzt laden');
+            assert.equal(row.button.disabled, false);
+            assert.equal(row.state.textContent, '');
+            await controller.runTodo('icons');
+            assert.equal(writes, 1);
+            assert.equal(row.mark.textContent, '✓');
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+
+
+def test_setup_uses_current_status_errors_and_clears_old_retry_errors_after_external_refresh() -> None:
+    _run_node(r"""
+        (async () => {
+            const elements = buildElements();
+            let pending = null, message = '';
+            const controller = view.createFirstRunSetupController({
+                elements,
+                isIconsPending: () => pending,
+                getStatusError: () => message,
+                refreshIconSources: async () => { throw new Error('First retry failed'); },
+            });
+            await controller.runTodo('icons');
+            const row = elements.rows.icons;
+            assert.match(row.state.textContent, /First retry failed/);
+            // A later automatic refresh from the item-DB update supplies its
+            // own error or a valid pending result, replacing the old error.
+            message = 'HTTP 429: Bitte 10s warten.';
+            controller.render();
+            assert.match(row.state.textContent, /HTTP 429: Bitte 10s warten/);
+            assert.ok(!row.state.textContent.includes('First retry failed'));
+            message = '';
+            pending = true;
+            controller.render();
+            assert.equal(row.state.textContent, '');
+            assert.equal(row.item.classList.flags['is-error'], false);
+            assert.equal(row.button.textContent, 'Jetzt laden');
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)

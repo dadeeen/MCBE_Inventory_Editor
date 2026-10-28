@@ -5599,6 +5599,14 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 .first-run-todo-text span { display: block; font-size: .78rem; color: var(--text-secondary); margin-top: 2px; overflow-wrap: anywhere; }
 .first-run-todo-state:empty { display: none; }
 .first-run-footnote { margin: 0; font-size: .76rem; color: var(--text-secondary); }
+/* Status text can move a retry button beneath a stationary pointer. Keep its
+   hit area fixed instead of oscillating into and out of the hover transform. */
+#firstRunSetupOverlay .first-run-todo > .btn { transform: none; }
+
+@media (max-width: 600px) {
+    .first-run-todo { display: grid; grid-template-columns: 1.2rem minmax(0, 1fr); }
+    .first-run-todo > button { grid-column: 2; justify-self: start; }
+}
 
 /* v0.5.1 asset index and pack preview */
 .icon-preview-panel {

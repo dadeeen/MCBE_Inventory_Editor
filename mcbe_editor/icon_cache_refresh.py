@@ -14,6 +14,7 @@ import zipfile
 from collections import OrderedDict
 from pathlib import Path
 
+from . import icon_cache_state
 from .archive_errors import ZIP_READ_ERRORS
 from .block_icon_renderer import decode_png
 from .icon_cache import publish_icon_cache
@@ -22,10 +23,10 @@ from .path_safety import is_linklike, is_linklike_stat, is_unsafe_windows_name
 _LOGGER = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 _FileStamp = tuple[int, int, int, int, int]
-_RefreshSignature = tuple[_FileStamp, tuple[tuple[str, _FileStamp | None], ...], _FileStamp | None]
-_ATTEMPTS: OrderedDict[tuple[str, str], tuple[str, _RefreshSignature]] = OrderedDict()
-_REFRESH_ERRORS: tuple[type[Exception], ...] = (OSError, ValueError, *ZIP_READ_ERRORS)
-_MAX_MANIFEST_BYTES = 2 * 1024 * 1024
+_RefreshSignature = tuple[str, tuple[tuple[str, _FileStamp | None], ...], str]
+_ATTEMPTS: OrderedDict[tuple[str, str], _RefreshSignature] = OrderedDict()
+_REFRESH_ERRORS: tuple[type[Exception], ...] = (OSError, ValueError, RuntimeError, *ZIP_READ_ERRORS)
+_MAX_MANIFEST_BYTES = icon_cache_state.MAX_MANIFEST_BYTES
 
 
 def _file_stamp(path: Path) -> _FileStamp | None:
@@ -51,8 +52,8 @@ def _reject_links(directory: str, names: list[str]) -> list[str]:
 def refresh_cached_display_assets(target_root: Path, cache_dir: Path, *, force: bool = False) -> bool:
     """Repair missing display assets without downloads or changing item icons.
 
-    Unchanged failures are attempted once per process. File identities, including
-    the archive and each required face, trigger retries when inputs change.
+    Unchanged source failures are attempted once per process. Archive and
+    manifest contents, or an explicit rescan, trigger retries after a restore.
     """
     with _LOCK:
         try:
@@ -79,20 +80,6 @@ def _refresh(target_root: Path, cache_dir: Path, *, force: bool) -> bool:
     required = {*updater.AXOLOTL_DISPLAY_ASSETS, *(f"mcbe:banner_{code}" for code in updater.BANNER_TEXTURES)}
     files = {asset_id: _file_stamp(_display_path(target_root, asset_id)) for asset_id in sorted(required)}
     key = str(target_root), str(cache_dir)
-    previous = _ATTEMPTS.get(key)
-
-    def signature(archive_name: str) -> _RefreshSignature:
-        return manifest_stamp, tuple(files.items()), _file_stamp(cache_dir / archive_name) if archive_name else None
-
-    remembered_name = previous[0] if previous else ""
-    current = signature(remembered_name)
-    if not force and previous == (remembered_name, current):
-        _ATTEMPTS.move_to_end(key)
-        return False
-    _ATTEMPTS[key] = remembered_name, current
-    _ATTEMPTS.move_to_end(key)
-    while len(_ATTEMPTS) > 16:
-        _ATTEMPTS.popitem(last=False)
 
     with manifest_path.open("rb") as stream:
         original = stream.read(_MAX_MANIFEST_BYTES + 1)
@@ -115,13 +102,19 @@ def _refresh(target_root: Path, cache_dir: Path, *, force: bool) -> bool:
     archive_name = release["resource_pack_asset"]
     if not updater._MANAGED_ICON_RELEASE_ZIP_RE.fullmatch(archive_name) or is_unsafe_windows_name(archive_name):
         return False
-    current = signature(archive_name)
-    _ATTEMPTS[key] = archive_name, current
-    archive_stamp = current[2]
+    archive_path = cache_dir / archive_name
+    archive_stamp = _file_stamp(archive_path)
     if not archive_stamp or archive_stamp[2] != int(release["resource_pack_asset_size"]):
         return False
-    archive_path = cache_dir / archive_name
-    updater._validate_downloaded_zip(archive_path)
+    current = hashlib.sha256(original).hexdigest(), tuple(files.items()), icon_cache_state.file_digest(archive_path, limit=updater.MAX_RESOURCE_PACK_BYTES)
+    if not force and _ATTEMPTS.get(key) == current:
+        _ATTEMPTS.move_to_end(key)
+        return False
+    _ATTEMPTS[key] = current
+    _ATTEMPTS.move_to_end(key)
+    while len(_ATTEMPTS) > 16:
+        _ATTEMPTS.popitem(last=False)
+    archive_sha256 = updater.validate_icon_archive(archive_path, release, manifest=manifest)
     with zipfile.ZipFile(archive_path) as archive:
         textures = updater._texture_members(archive)
         item_textures = updater.parse_texture_data(updater._read_json_member(archive, "textures/item_texture.json"))
@@ -149,5 +142,15 @@ def _refresh(target_root: Path, cache_dir: Path, *, force: bool) -> bool:
             mapped_display_assets=len(display_assets),
             sha256=hashlib.sha256(json.dumps({"items": manifest["items"], "display_assets": display_assets}, sort_keys=True).encode("utf-8")).hexdigest(),
         )
+        # Partial repair may restore an existing receipt, but cannot certify
+        # unrelated images or change the build identity of an older install.
+        receipt = manifest.get("verification")
+        if isinstance(receipt, dict) and isinstance(receipt.get("inputs"), dict):
+            before = icon_cache_state.assess_cache(target_root, receipt["inputs"])
+            after = icon_cache_state.assess_cache(staging, receipt["inputs"], manifest=manifest)
+            if before["state"] in {"current", "damaged"} and after["state"] != "current":
+                _ATTEMPTS.pop(key, None)
+                return False
+        icon_cache_state.require_archive_unchanged(archive_path, archive_sha256, limit=updater.MAX_RESOURCE_PACK_BYTES)
         updater.atomic_write_text(staging / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         return publish_icon_cache(staging, target_root, expected_manifest=(original, manifest_stamp[:2]), warn=_LOGGER.warning)

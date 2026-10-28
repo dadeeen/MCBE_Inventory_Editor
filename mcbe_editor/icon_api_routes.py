@@ -15,6 +15,7 @@ from .api_errors import error_payload
 from .archive_errors import ZIP_READ_ERRORS
 from .banner_patterns import BANNER_TEXTURES
 from .i18n import t
+from .icon_cache_state import extract_report as extract_icon_report
 from .icon_diagnostics import warning_text
 from .icons import (
     add_icon_source,
@@ -24,6 +25,7 @@ from .icons import (
     load_cached_icon_candidate,
     load_cached_icon_index,
     load_icon_sources,
+    load_prepared_icon_index,
     move_icon_source,
     remove_icon_source,
     scan_icons,
@@ -64,6 +66,7 @@ class IconRouteDeps:
     gui_picker_lock: Any
     select_icon_pack: Callable[[], str | None]
     select_icon_folder: Callable[[], str | None]
+    item_db_path: str | None = None
 
 
 # Raw display assets and server lookup metadata stay internal. Only reviewed
@@ -73,6 +76,8 @@ _INTERNAL_ICON_INDEX_FIELDS = ("_by_token", "display_icons", "_context_id", "_wa
 
 def _public_icon_index(index: dict) -> dict:
     public = {key: value for key, value in index.items() if key not in _INTERNAL_ICON_INDEX_FIELDS}
+    if public.get("status") == "unavailable":
+        return public
     public["warnings"] = [warning_text(record) for record in index.get("_warning_records", index.get("warnings", []))]
     context = index.get("_context_id")
 
@@ -82,7 +87,8 @@ def _public_icon_index(index: dict) -> dict:
     public["banner_patterns"] = {
         code: with_context(index["display_icons"][f"mcbe:banner_{code}"]) for code in BANNER_TEXTURES if f"mcbe:banner_{code}" in index.get("display_icons", {})
     }
-    public["missing_banner_patterns"] = [code for code in BANNER_TEXTURES if code not in public["banner_patterns"]]
+    unsupported = set(index.get("unsupported_banner_patterns", []))
+    public["missing_banner_patterns"] = [code for code in BANNER_TEXTURES if code not in public["banner_patterns"] and code not in unsupported]
     if context:
         public["icons"] = {key: with_context(entry) for key, entry in index.get("icons", {}).items()}
         if "health" in index:
@@ -135,8 +141,33 @@ def _scan_and_store_icons(
             prepared_sources=sources,
             context_id=context_id,
         )
+        index = _with_vanilla_status(index, deps)
         deps.set_icon_index(index)
         return _selection_diagnostics(index, selection_warnings or [])
+
+
+def _with_vanilla_status(index: dict, deps: IconRouteDeps) -> dict:
+    """Describe the installed build locally; this is not an online update check."""
+    index = {key: value for key, value in index.items() if key not in {"vanilla_cache", "unsupported_banner_patterns"}}
+    item_db_path = getattr(deps, "item_db_path", None)
+    source = next((source for source in index.get("sources", []) if source.get("vanilla") and source.get("enabled") and source.get("exists")), None)
+    if not item_db_path or source is None:
+        return index
+    from scripts.update_icons import icon_build_inputs, load_icon_targets
+
+    from .icon_cache_state import assess_cache, read_manifest
+
+    root = Path(source["path"])
+    manifest = read_manifest(root, strict=True)
+    if manifest is None:
+        return {**index, "vanilla_cache": {"state": "unverified", "reason": "missing_or_invalid_manifest"}}
+    items, _, _, blocks = load_icon_targets(Path(item_db_path))
+    state = assess_cache(root, icon_build_inputs(manifest.get("release", {}), items, blocks), manifest=manifest)
+    result = {**index, "vanilla_cache": state}
+    if state["state"] == "current":
+        # Repeating a build cannot supply textures absent from that source.
+        result["unsupported_banner_patterns"] = [code for code in BANNER_TEXTURES if f"mcbe:banner_{code}" not in manifest.get("display_assets", {})]
+    return result
 
 
 def _icon_extra_sources_from_world(world_path: str | None) -> list[dict]:
@@ -147,44 +178,53 @@ def _status_icon_index(deps: IconRouteDeps, world_path: str | None) -> dict:
     sources, warnings = _requested_icon_context({} if world_path is None else {"world_path": world_path}, deps)
     # A worker-local index is not proof that the underlying pack files still
     # match. Only a validated publication or successful scan may supply icons.
-    index = {"success": True, "enabled": True, "icons": {}, "_by_token": {}, "count": 0, "sources": [], "roots": [], "warnings": []}
-    if deps.read_only:
-        try:
-            context = icon_context_id(configured_icon_sources(deps.settings_path, extra_sources=sources))
-            cached = load_cached_icon_index(deps.settings_path, context_id=context)
-            if cached is None:
-                latest = load_cached_icon_index(deps.settings_path)
-                if latest and (
-                    latest.get("_context_id") == context or (latest.get("_context_id") is None and icon_context_id(latest.get("sources", [])) == context)
-                ):
-                    cached = latest
+    try:
+        if deps.read_only:
+            prepared_sources = configured_icon_sources(deps.settings_path, extra_sources=sources)
+            cached = load_prepared_icon_index(deps.settings_path, prepared_sources)
             if cached is not None:
                 index = cached
                 if cached.get("_legacy_warnings"):
                     warnings.append(t("Bitte Icons einmal mit Schreibzugriff neu scannen, um ältere Diagnosemeldungen in der gewählten Sprache anzuzeigen."))
             else:
-                warnings.append(t("Kein gültiger Icon-Index vorhanden. Bitte die Icons einmal mit Schreibzugriff laden oder aktualisieren."))
-        except Exception as exc:
-            deps.log_api_exception("icons.status.cache", exc)
-        deps.set_icon_index(index)
-        return _selection_diagnostics(index, warnings)
-    try:
+                unavailable = _unavailable_icon_status(
+                    t("Kein gültiger Icon-Index vorhanden. Bitte die Icons einmal mit Schreibzugriff laden oder aktualisieren.")
+                )
+                # Validation has rejected the previous context or its sources.
+                # Unlike a transient read failure, it cannot remain a fallback.
+                deps.set_icon_index(unavailable)
+                return unavailable
+            index = _with_vanilla_status(index, deps)
+            deps.set_icon_index(index)
+            return _selection_diagnostics(index, warnings)
         # scan_icons uses the shared source-signature cache, so this is cheap on
         # a hit and refreshes worker-local indexes after another worker changed
         # sources or published a Vanilla cache.
-        index = _scan_and_store_icons(deps, extra_sources=sources, selection_warnings=warnings)
+        return _scan_and_store_icons(deps, extra_sources=sources, selection_warnings=warnings)
     except Exception as exc:
         deps.log_api_exception("icons.status", exc)
-        deps.set_icon_index(index)
-        return _selection_diagnostics(index, [*warnings, t("Icon-Index konnte nicht geladen werden. Bitte erneut laden oder Icons neu scannen.")])
-    return index
+        return _unavailable_icon_status(public_error_text(exc))
+
+
+def _unavailable_icon_status(reason: str) -> dict:
+    # No count or missing-pattern list: a failed observation says nothing about
+    # whether icons are installed. Keep the previous usable index for retries.
+    return {
+        **error_payload("Icon-Status konnte nicht geprüft werden: {error}", code="icons_status_unavailable", params={"error": reason}),
+        "status": "unavailable",
+    }
 
 
 def icons_status(deps: IconRouteDeps, *, world_path: str | None = None):
     try:
-        return deps.jsonify(_public_icon_index(_status_icon_index(deps, world_path)))
+        result = _public_icon_index(_status_icon_index(deps, world_path))
+        response = deps.jsonify(result)
+        return (response, 503) if result.get("status") == "unavailable" else response
     except ValueError as exc:
         return deps.api_error(str(exc), 400)
+    except Exception as exc:
+        deps.log_api_exception("icons.status", exc)
+        return deps.jsonify(_unavailable_icon_status(public_error_text(exc))), 503
 
 
 def icons_scan(data: dict, deps: IconRouteDeps):
@@ -207,11 +247,19 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
         with _icon_operation(deps):
             extra_sources, warnings = _requested_icon_context(data, deps)
             force = deps.json_bool(data, "force", False)
+            check_only = deps.json_bool(data, "check_only", False)
+            allow_download = deps.json_bool(data, "allow_download", True)
             # Normal updates always resolve the latest release.  The updater
             # itself reuses a validated ZIP automatically when it already
             # matches that release.
-            returncode, output = deps.run_update_icons(force=force, use_cache=False)
+            options = {"force": force, "use_cache": False}
+            if check_only:
+                options["check_only"] = True
+            if not allow_download:
+                options["allow_download"] = False
+            returncode, output = deps.run_update_icons(**options)
             output, http_failure = extract_http_failure(output)
+            output, report = extract_icon_report(output)
             manifest_path = Path(deps.data_root or "data").expanduser() / "icons" / "vanilla" / "manifest.json"
             manifest = {}
             if manifest_path.exists():
@@ -225,18 +273,35 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
                 "output": output,
                 "manifest": manifest,
             }
+            if report is not None:
+                result["icon_update"] = report
+                check_only = check_only or report.get("check_only") is True
+            index_refreshed = False
+            if returncode == 0 and check_only and report is None:
+                result["success"] = False
+                result["error"] = t("Die Icon-Prüfung hat kein auswertbares Ergebnis geliefert. Bitte erneut prüfen.")
+                deps.audit_event("icons.vanilla_update", "failure", details={"category": "invalid-check-result", "check_only": True})
+                return deps.jsonify(result)
             if returncode == 0:
-                result["update_committed"] = True
-                try:
-                    clear_icon_cache(deps.settings_path)
-                    index = _scan_and_store_icons(deps, force=True, extra_sources=extra_sources, selection_warnings=warnings)
-                    result.update(_public_icon_index(index))
-                except Exception as exc:
-                    deps.log_api_exception("icons.vanilla_update_rescan", exc)
-                    result["scan_warning"] = t(
-                        "Die Vanilla-Icons wurden aktualisiert, konnten aber nicht automatisch neu eingelesen werden. "
-                        "Bitte Icons erneut scannen oder die Anwendung neu starten."
-                    )
+                changed = not check_only and (report is None or bool(report.get("images_changed") or report.get("metadata_updated")))
+                result["update_committed"] = changed
+                if not check_only or (report and report.get("already_current") is True):
+                    try:
+                        if changed:
+                            clear_icon_cache(deps.settings_path)
+                        index = _scan_and_store_icons(deps, force=changed, extra_sources=extra_sources, selection_warnings=warnings)
+                        result.update(_public_icon_index(index))
+                        index_refreshed = True
+                    except Exception as exc:
+                        deps.log_api_exception("icons.vanilla_update_rescan", exc)
+                        result["scan_warning"] = (
+                            t("Die Icon-Prüfung ist abgeschlossen, der Icon-Index konnte aber nicht geladen werden. Bitte den Icon-Status erneut prüfen.")
+                            if not changed
+                            else t(
+                                "Die Vanilla-Icons wurden aktualisiert, konnten aber nicht automatisch neu eingelesen werden. "
+                                "Bitte Icons erneut scannen oder die Anwendung neu starten."
+                            )
+                        )
             else:
                 result["error"] = t("Vanilla-Icons konnten nicht geladen werden.")
                 result["category"] = "network-or-dns" if deps.looks_like_network_failure(output) else "script-error"
@@ -249,7 +314,8 @@ def icons_vanilla_update(data: dict, deps: IconRouteDeps):
                     "release_mode": "latest",
                     "force": force,
                     "returncode": returncode,
-                    "index_refreshed": returncode == 0 and "scan_warning" not in result,
+                    "index_refreshed": index_refreshed,
+                    **({"check_only": check_only, "already_current": report.get("already_current") is True} if report is not None else {}),
                 },
             )
             return deps.jsonify(result)

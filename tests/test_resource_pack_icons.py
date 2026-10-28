@@ -490,10 +490,11 @@ def test_readonly_rejects_stale_worker_index_and_writes_nothing(tmp_path):
     reader.read_only = True
     (path / "textures/items/apple.png").write_bytes(b"changed")
     before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in tmp_path.rglob("*") if path.is_file()}
-    result = routes.icons_status(reader, world_path=str(world))
-    assert not result["icons"]
-    assert result["warnings"]
-    assert not reader.get_icon_index()["icons"]
+    result, status = routes.icons_status(reader, world_path=str(world))
+    assert status == 503 and result["status"] == "unavailable"
+    assert "icons" not in result and "count" not in result
+    assert "Kein gültiger Icon-Index" in result["error"]
+    assert not reader.get_icon_index().get("icons")
     assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in tmp_path.rglob("*") if path.is_file()}
 
 

@@ -107,6 +107,14 @@ def test_looks_like_network_failure_classifies_common_errors():
     assert not update_script_runner.looks_like_network_failure("schema validation failed")
 
 
+def test_icon_check_and_local_only_flags_reach_the_worker(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(update_script_runner.subprocess, "run", lambda cmd, **kwargs: calls.append(cmd) or Completed())
+    config = SimpleNamespace(data_root=str(tmp_path / "data"), item_db_path=str(tmp_path / "items.json"), update_cache_dir=str(tmp_path / "cache"))
+    update_script_runner.run_update_icons(tmp_path, config, check_only=True, allow_download=False)
+    assert calls == [[sys.executable, "-m", "scripts.update_icons", "--dry-run", "--no-download"]]
+
+
 def test_strip_terminal_formatting_removes_ansi_and_normalizes_newlines():
     output = "\x1b[1m\x1b[96mÜberschrift\x1b[0m\r\n\x1b[92mFertig\x1b[0m\r"
 
