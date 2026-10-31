@@ -170,24 +170,40 @@ def test_session_scope_and_capacity(tmp_path):
 
 
 @pytest.mark.parametrize("stop", ["cancel", "lease", "timeout"])
-def test_stopped_read_closes_resources_and_releases_capacity(tmp_path, stop):
-    jobs = WorldReadJobs(tmp_path, limit=1, timeout=0.15 if stop == "timeout" else 10, lease=0.15 if stop == "lease" else 10)
-    closed, entered = Event(), Event()
+def test_stopped_read_closes_resources_and_releases_capacity(tmp_path, monkeypatch, stop):
+    from mcbe_editor import world_read_jobs
+
+    now = 1_000.0
+    monkeypatch.setattr(world_read_jobs, "time", SimpleNamespace(time=lambda: now, monotonic=time.monotonic))
+    jobs = WorldReadJobs(tmp_path, limit=1, timeout=20 if stop == "timeout" else 60, lease=10 if stop == "lease" else 60)
+    closed, entered, release, continued = Event(), Event(), Event(), Event()
 
     def work():
+        nonlocal now
         try:
+            # Confirm a live worker heartbeat after admission. Its lease stays
+            # valid when the unobserved client's lease expires below.
+            now += 1
+            read_operation.checkpoint("scanning")
             entered.set()
-            while True:
-                read_operation.checkpoint("scanning")
-                time.sleep(0.01)
+            assert release.wait(5)
+            read_operation.checkpoint("scanning")
+            continued.set()
+            return {"success": True}, 200
         finally:
             closed.set()
 
-    jobs.start(IDENTIFIER, OWNER, "read", work)
-    assert entered.wait(5)
-    if stop == "cancel":
-        assert jobs.poll(IDENTIFIER, OWNER, cancel=True)[1] == 408
+    try:
+        jobs.start(IDENTIFIER, OWNER, "read", work)
+        assert entered.wait(5)
+        if stop == "cancel":
+            assert jobs.poll(IDENTIFIER, OWNER, cancel=True)[1] == 408
+        else:
+            now += jobs.timeout if stop == "timeout" else jobs.lease
+    finally:
+        release.set()
     assert closed.wait(5)
+    assert not continued.is_set(), "Stopped read continued past its checkpoint"
     result, status = _finished(jobs)
     assert status == 408
     assert result["code"] == ("read_timeout" if stop == "timeout" else "read_cancelled")
@@ -197,7 +213,8 @@ def test_stopped_read_closes_resources_and_releases_capacity(tmp_path, stop):
         try:
             jobs.start("b" * 32, OWNER, "next", lambda: ({"success": True}, 200))
             break
-        except ReadJobError:
+        except ReadJobError as error:
+            assert (error.status, error.code) == (429, "read_jobs_busy")
             assert time.monotonic() < deadline
             time.sleep(0.01)
     assert _finished(jobs, "b" * 32)[1] == 200
