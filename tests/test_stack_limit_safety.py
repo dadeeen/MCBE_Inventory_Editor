@@ -59,7 +59,7 @@ def test_updater_refuses_conflicting_definitions_instead_of_last_file_wins(secon
                 ("minecraft:future_item", second_components),
             ]
         ) as archive,
-        pytest.raises(RuntimeError, match="Stacklimits"),
+        pytest.raises(RuntimeError, match="Itemkomponenten.*minecraft:future_item"),
     ):
         update_db.parse_json_item_component_limits(archive)
 

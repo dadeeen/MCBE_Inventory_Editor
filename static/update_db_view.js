@@ -57,6 +57,7 @@
             return el;
         };
         const report = data.summary;
+        const quality = window.MCBEDataSourceView?.itemDbQualityModel(report?.quality) || {};
         const state = !data.success ? "incomplete" : report?.status || "unknown";
         result.dataset.state = state;
         const titles = {
@@ -64,7 +65,9 @@
             metadata_only: t("Nur Quelleninformationen geändert"), incomplete: t("Prüfung unvollständig oder fehlgeschlagen"),
             unknown: t("Keine Ergebniszusammenfassung verfügbar. Bitte Details prüfen."),
         };
-        const title = dryRun || state === "current" ? titles[state] || titles.unknown
+        const outcomeTitles = { current: t("Bereits aktuell"), updated_with_warnings: t("Aktualisiert mit Hinweisen"), partial: t("Teilweise aktualisiert"), failed: t("Fehlgeschlagen – nichts übernommen") };
+        const title = !dryRun && outcomeTitles[data.outcome] ? outcomeTitles[data.outcome]
+            : dryRun || state === "current" ? titles[state] || titles.unknown
             : data.success ? t("Aktualisierung abgeschlossen")
                 : data.update_committed ? t("Aktualisierung teilweise übernommen") : t("Aktualisierung fehlgeschlagen");
         add(result, title, "strong");
@@ -72,7 +75,7 @@
             add(result, currentResultMessage(data.verification_required === true, only), "p").className = "update-db-mode";
         } else if (dryRun && ["available", "metadata_only"].includes(state)) {
             add(result, t("Vorschau – noch nicht übernommen"), "p").className = "update-db-mode";
-        } else if (!dryRun && (data.update_committed || data.reloaded)) {
+        } else if (!dryRun && data.outcome !== "failed" && (data.update_committed || data.reloaded)) {
             add(result, t("Änderungen an der Item-Datenbank übernommen."), "p").className = "update-db-mode";
         }
         if (report) {
@@ -90,10 +93,16 @@
             result.appendChild(sources);
         }
         add(result, t("Bereich: {scope}", {scope: scopeText})).className = "hint-text";
+        if (quality.summary) add(result, quality.summary);
+        for (const line of quality.lines || []) add(result, line);
+        if (quality.details?.length) {
+            add(auditEl, t("Verwendete Ersatznamen"), "strong");
+            for (const line of quality.details) add(auditEl, line);
+        }
         if (data.error) add(result, data.error);
         if (data.hint) add(result, data.hint).className = "hint-text";
         if (data.reload_warning) add(result, data.reload_warning);
-        if (!data.success && data.update_committed) add(result, t("Einige Bereiche konnten nicht aktualisiert werden. Die übernommenen Bereiche sind bereits gespeichert."));
+        if (data.outcome === "partial") add(result, t("Einige Bereiche konnten nicht aktualisiert werden. Die übernommenen Bereiche sind bereits gespeichert."));
         const changes = doc.createElement("ul");
         changes.className = "update-db-change-list";
         for (const [key, counts] of Object.entries(report?.sections || {})) {
@@ -154,8 +163,8 @@
                 }
                 technicalNotes.appendChild(list);
             }
-            if (!issues.length) add(result, t("Keine Auffälligkeiten in den geprüften Daten."));
-            else {
+            if (!issues.length && !quality.hasWarnings) add(result, t("Keine Auffälligkeiten in den geprüften Daten."));
+            else if (issues.length) {
                 add(result, t("Abgleich: {findings}. Siehe Änderungsdetails.", {findings: issues.map(issue => `${t(issueLabels[issue.code] || issue.code)}: ${issue.count}`).join(" · ")}));
                 for (const issue of issues) {
                     add(auditEl, `${t(issueLabels[issue.code] || issue.code)} (${issue.count})`, "strong");
@@ -170,6 +179,7 @@
         }
         for (const blocked of report?.blocked || []) {
             const section = String(blocked.section).toLowerCase();
+            if (quality.blocked?.includes(section === "enchantments" ? "enchants" : section)) continue;
             add(result, `${t(sectionLabels[section === "enchantments" ? "enchants" : section] || blocked.section)}: ${blocked.reason}`);
         }
         if (detailsEl) {
@@ -367,6 +377,13 @@
                     })),
                 });
                 const data = await parseJsonResponse(res);
+                const quality = window.MCBEDataSourceView?.itemDbQualityModel(data.summary?.quality) || {};
+                const reviewToken = data.update_review_token || data.release_cache_token;
+                // A partial preview can still bind safe sections to the checked source.
+                const hasPreviewReceipt = dryRun && reviewToken && data.resource_pack_release;
+                if (hasPreviewReceipt) {
+                    reviewedSources = { only, token: reviewToken, release: data.resource_pack_release };
+                }
 
                 if (data.output) append(data.output);
                 renderResult(outputEl, data, dryRun, selectedScopeText(onlySelect, only), only);
@@ -395,14 +412,7 @@
                         resolveKeys.push("database-update:apply");
                         failedApplyScope = undefined;
                     }
-                    const reviewToken = data.update_review_token || data.release_cache_token;
-                    if (dryRun && reviewToken && data.resource_pack_release) {
-                        reviewedSources = {
-                            only,
-                            token: reviewToken,
-                            release: data.resource_pack_release,
-                        };
-                    } else if (!dryRun) {
+                    if (!dryRun) {
                         reviewedSources = null;
                     }
                     // A player-view warning does not invalidate the confirmed database state.
@@ -410,10 +420,15 @@
                         currentResult = {only, verificationRequired: data.verification_required === true};
                     }
                     if (currentResult && !clientWarning) {
-                        const message = currentResultMessage(currentResult.verificationRequired, only);
+                        const message = [currentResultMessage(currentResult.verificationRequired, only), quality.summary].filter(Boolean).join(" ");
                         append("\n" + message);
-                        showToast(message, "success", 3000);
-                        updateStatus(message, "success", false);
+                        showToast(message, quality.hasWarnings ? "warning" : "success", 3000);
+                        updateStatus(message, quality.hasWarnings ? "warning" : "success", Boolean(quality.hasWarnings));
+                    } else if (quality.hasWarnings && !clientWarning && !data.reload_warning) {
+                        const message = [dryRun ? t("Prüfung abgeschlossen mit Hinweisen.") : t("Aktualisiert mit Hinweisen"), quality.summary].filter(Boolean).join(" ");
+                        append("\n" + message);
+                        showToast(message, "warning", 5000);
+                        updateStatus(message, "warning", true);
                     } else if (data.reloaded) {
                         if (clientWarning) {
                             showToast(clientWarning, "warning", 8000);
@@ -440,14 +455,14 @@
                 } else {
                     if (dryRun) failedPreviewScope = only;
                     else if (!data.update_committed && !data.reload_warning && !clientWarning) failedApplyScope = only;
-                    reviewedSources = null;
+                    if (!hasPreviewReceipt) reviewedSources = null;
                     append(`\n${t("Fehler (Code {code}): {error}", { code: data.returncode, error: data.error || t("Unbekannter Fehler") })}`);
                     // The backend message already says what failed.
                     const failure = window.MCBEApiClient.errorMessageInContext(
                         data,
                         reason => t("{mode} fehlgeschlagen: {error}", { mode, error: reason }),
                     );
-                    const message = [data.update_committed ? t("Aktualisierung teilweise übernommen") : "", failure, data.reload_warning, clientWarning].filter(Boolean).join("\n");
+                    const message = [data.outcome === "partial" ? t("Aktualisierung teilweise übernommen") : "", failure, data.reload_warning, clientWarning].filter(Boolean).join("\n");
                     const severity = data.update_committed ? "warning" : "error";
                     updateStatus(message, severity, true);
                     showToast(message, severity, 8000);

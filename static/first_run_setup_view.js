@@ -11,6 +11,7 @@
         isItemDbPending = () => false,
         isIconsPending = () => false,
         getIconsPendingHint = () => "",
+        getItemDbFeedback = () => ({}),
         getStatusError = () => "",
         runItemDbUpdate = async () => {},
         runIconsUpdate = async () => {},
@@ -64,20 +65,24 @@
             const unknown = stateValue === "unknown";
             const busy = Boolean(running[id]);
             const error = unknown ? getStatusError(id) || statusErrors[id] || errors[id] : errors[id];
+            const feedback = id === "item_db" ? getItemDbFeedback() || {} : {};
+            const partial = feedback.partial && !done;
 
-            if (mark) mark.textContent = done ? "✓" : busy ? "⋯" : unknown ? "–" : "○";
+            if (mark) mark.textContent = done ? "✓" : busy ? "⋯" : partial ? "!" : unknown ? "–" : "○";
             if (row.item) {
                 row.item.classList.toggle("is-done", done);
                 row.item.classList.toggle("is-running", busy);
                 row.item.classList.toggle("is-error", Boolean(error) && !done && !busy);
                 row.item.classList.toggle("is-unknown", unknown);
+                row.item.classList.toggle("is-warning", Boolean(partial) && !busy && !error);
             }
             if (state) {
-                if (done) state.textContent = t("Erledigt.");
+                if (done) state.textContent = [t("Erledigt."), feedback.message].filter(Boolean).join(" ");
                 else if (busy) state.textContent = running[id] === "status" ? t("Status wird geprüft…") : t("Wird geladen…");
                 else if (unknown) state.textContent = error
                     ? t("Status konnte nicht geladen werden: {error}", { error }) : t("Status nicht verfügbar. Bitte erneut prüfen.");
                 else if (error) state.textContent = t("Fehlgeschlagen: {error}", { error });
+                else if (partial) state.textContent = [t("Prüfung unvollständig"), feedback.message].filter(Boolean).join(" · ");
                 else if (locked) state.textContent = readOnlyMessage;
                 else state.textContent = id === "icons" ? getIconsPendingHint() : "";
             }
@@ -173,10 +178,12 @@
                 let result;
                 if (id === "item_db") {
                     result = await runItemDbUpdate();
+                    if (result?.success || result?.update_committed) await refreshItemDbStatus();
+                    if (result?.outcome === "partial" && result?.update_committed) return;
                     if (!result?.success) {
-                        throw new Error(result?.error || t("Item-DB-Aktualisierung fehlgeschlagen."));
+                        const reasons = window.MCBEDataSourceView?.itemDbBlockedMessages(result?.summary?.blocked) || [];
+                        throw new Error([result?.error || t("Item-DB-Aktualisierung fehlgeschlagen."), ...reasons].join(" "));
                     }
-                    await refreshItemDbStatus();
                 } else {
                     result = await runIconsUpdate();
                     if (!result?.success) {

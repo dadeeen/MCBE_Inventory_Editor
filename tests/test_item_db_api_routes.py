@@ -7,6 +7,11 @@ import pytest
 
 from mcbe_editor import item_db_api_routes, item_db_verification
 from tests.node_runner import run_node
+from tests.test_update_db import update_db as updater_script
+from tests.test_update_source_quality import _members
+from tests.test_update_source_quality import updater as updater
+
+_RESOLVE_LISTING = updater_script.resolve_microsoft_item_listing_snapshot
 
 
 def _jsonify(payload):
@@ -50,6 +55,69 @@ def _deps(**overrides):
     return deps
 
 
+@pytest.mark.parametrize("applied", [False, True])
+def test_blocked_source_reports_applied_partial_separately_from_no_changes(applied):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    report = {"schema": 1, "status": "incomplete", "applied": applied, "blocked": [{"section": "effects", "reason": "Missing reviewed effect ID"}]}
+    deps = _deps(run_update_db=Mock(return_value=(2, REPORT_PREFIX + json.dumps(report))))
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
+    assert result["outcome"] == ("partial" if applied else "failed")
+    assert result["success"] is False
+    assert result["summary"]["blocked"] == report["blocked"]
+    assert deps.reload_item_db_after_update.call_count == int(applied)
+    assert ("teilweise" if applied else "nicht geändert") in result["error"]
+
+
+@pytest.mark.parametrize("scope", ["all", "effects"])
+def test_persisting_only_blocked_metadata_is_not_reported_as_a_partial_data_update(scope):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    sections = {name: {"status": "blocked" if scope == "all" or name == scope else "checked"} for name in ("items", "effects", "enchants")}
+    report = {
+        "schema": 1,
+        "status": "incomplete",
+        "applied": True,
+        "scope": scope,
+        "blocked": [{"section": "effects", "reason": "Unknown identity"}],
+        "quality": {"schema": 1, "sections": sections},
+    }
+    deps = _deps(run_update_db=Mock(return_value=(1, REPORT_PREFIX + json.dumps(report))))
+    payload = item_db_api_routes.update_db({"dry_run": False, "force": True, "only": None if scope == "all" else scope}, deps)[1]
+    assert payload["update_committed"] is True  # The persisted failure provenance must reload.
+    assert payload["outcome"] == "failed"
+    assert "nicht geändert" in payload["error"]
+    assert "teilweise" not in payload["error"]
+    deps.reload_item_db_after_update.assert_called_once()
+
+
+@pytest.mark.parametrize("status", ["current", "available"])
+def test_successful_update_with_missing_official_names_is_not_a_failure(status):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    quality = {
+        "schema": 1,
+        "sections": {
+            "effects": {
+                "status": "checked",
+                "release": "v1",
+                "attempted_release": "v1",
+                "locales": {"de": {"total": 1, "official": 0, "fallbacks": [{"id": "freezing", "source": "curated"}]}},
+            }
+        },
+    }
+    report = {"schema": 1, "status": status, "applied": True, "blocked": [], "quality": quality}
+    deps = _deps(
+        run_update_db=Mock(return_value=(0, REPORT_PREFIX + json.dumps(report))),
+        reload_item_db_after_update=Mock(return_value={"reloaded": True, "item_db": {"verification": {"verified": True}, "update_quality": quality}}),
+    )
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
+    assert result["success"] is True
+    assert result["outcome"] == ("current" if status == "current" else "updated_with_warnings")
+    assert result["verification_required"] is False
+    assert "error" not in result
+
+
 @pytest.mark.parametrize("timed_out", [False, True])
 @pytest.mark.parametrize("recovery", ["none", "rolled_back", "committed"])
 def test_update_db_reports_recovered_worker_outcome(recovery, timed_out):
@@ -66,6 +134,7 @@ def test_update_db_reports_recovered_worker_outcome(recovery, timed_out):
     assert bool(result.get("update_committed")) is (recovery == "committed")
     assert deps.reload_item_db_after_update.call_count == int(recovery == "committed")
     assert deps.audit_event.call_args.kwargs["details"]["category"] == ("timeout" if timed_out else "worker-interrupted")
+    assert result["outcome"] == ("updated_with_warnings" if recovery == "committed" else "failed")
     if recovery == "committed":
         assert "vollständig übernommen" in result["error"]
     elif recovery == "rolled_back":
@@ -240,6 +309,7 @@ def test_update_db_successful_non_dry_run_merges_reload_payload():
             "reloaded": True,
             "item_db": {"status": "ok"},
             "verification_required": True,
+            "outcome": "updated",
         },
     )
     deps.run_update_db.assert_called_once_with(
@@ -411,7 +481,18 @@ def test_update_db_frontend_disables_controls_and_ignores_duplicate_run():
     )
 
 
-def _write_release_cache(tmp_path, release="v1.26.40.5"):
+def _record_review_plan(review_cache, scope=None, blocked=None):
+    item_db_verification.record_update_review_plan(
+        update_cache_dir=review_cache.cache_dir,
+        item_db_path=review_cache.item_db_path,
+        source_version_path=review_cache.source_version_path,
+        source_version_history_path=review_cache.history_path,
+        scope=scope,
+        blocked=blocked or {},
+    )
+
+
+def _write_release_cache(tmp_path, release="v1.26.40.5", *, scope=None):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     archive = cache_dir / "bedrock_resource_pack.zip"
@@ -447,12 +528,14 @@ def _write_release_cache(tmp_path, release="v1.26.40.5"):
     source_version_path.write_text("{}\n", encoding="utf-8")
     history_path = tmp_path / "source_version_history.json"
     history_path.write_text("[]\n", encoding="utf-8")
-    return SimpleNamespace(
+    review_cache = SimpleNamespace(
         cache_dir=cache_dir,
         item_db_path=item_db_path,
         source_version_path=source_version_path,
         history_path=history_path,
     )
+    _record_review_plan(review_cache, scope)
+    return review_cache
 
 
 def _review_deps(review_cache, **overrides):
@@ -486,7 +569,164 @@ def test_successful_dry_run_returns_source_review_receipt(tmp_path):
     )
 
 
-def test_update_review_token_changes_with_updater_contract(tmp_path, monkeypatch):
+@pytest.mark.parametrize("safe_sections", [False, True])
+def test_partial_preview_binds_safe_sections_without_claiming_full_success(tmp_path, safe_sections):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    review_cache = _write_release_cache(tmp_path)
+    _record_review_plan(review_cache, blocked={"effects": "Unknown effect identity"})
+    report = {
+        "schema": 1,
+        "status": "incomplete",
+        "applied": False,
+        "blocked": [{"section": "effects", "reason": "Unknown effect identity"}],
+        "sections": {"items": {"added": 1, "removed": 0, "changed": 0}} if safe_sections else {},
+    }
+    runner = Mock(return_value=(1, REPORT_PREFIX + json.dumps(report)))
+    deps = _review_deps(review_cache, run_update_db=runner)
+    payload = item_db_api_routes.update_db({"dry_run": True}, deps)[1]
+    assert payload["success"] is False
+    assert "update_committed" not in payload
+    assert ("update_review_token" in payload) is safe_sections
+    if safe_sections:
+        token = payload["update_review_token"]
+        item_db_api_routes.update_db({"dry_run": False, "force": True, "expected_update_review_token": token}, deps)
+        assert runner.call_args.kwargs["use_cache"] is True
+        assert runner.call_args.kwargs["expected_review_token"] == token
+
+
+@pytest.mark.parametrize("initial,replacement", [(None, b"{}"), (b"{}", None), (b"{}", b"[]"), (b"", b"{}")])
+def test_review_binds_absent_and_invalid_optional_listing_bytes(tmp_path, initial, replacement):
+    review_cache = _write_release_cache(tmp_path)
+    listing = review_cache.cache_dir / item_db_verification.ITEM_LISTING_CACHE_FILENAME
+    if initial is None:
+        listing.unlink()
+    else:
+        listing.write_bytes(initial)
+    _record_review_plan(review_cache, blocked={"items": "Invalid source"})
+    deps = _review_deps(review_cache, run_update_db=Mock())
+    checked = item_db_api_routes.update_review_snapshot(deps, None)
+    assert checked["token"]
+    if replacement is None:
+        listing.unlink()
+    else:
+        listing.write_bytes(replacement)
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True, "expected_update_review_token": checked["token"]}, deps)
+    assert result[0] == "error"
+    assert "Dry-Run erneut" in result[1]
+    deps.run_update_db.assert_not_called()
+
+
+@pytest.mark.parametrize("scope", ["effects", "enchants"])
+def test_review_of_other_sections_does_not_depend_on_the_unused_listing_cache(tmp_path, scope):
+    review_cache = _write_release_cache(tmp_path, scope=scope)
+    deps = _review_deps(review_cache)
+    checked = item_db_api_routes.update_review_snapshot(deps, scope)
+    listing = review_cache.cache_dir / item_db_verification.ITEM_LISTING_CACHE_FILENAME
+    listing.write_bytes(b"{invalid but unused")
+    assert item_db_api_routes.update_review_snapshot(deps, scope) == checked
+    listing.unlink()
+    assert item_db_api_routes.update_review_snapshot(deps, scope) == checked
+
+
+def test_partial_preview_cannot_bind_an_oversized_optional_listing(tmp_path, monkeypatch):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    review_cache = _write_release_cache(tmp_path)
+    monkeypatch.setattr(item_db_verification, "MAX_ITEM_LISTING_CACHE_BYTES", 4)
+    (review_cache.cache_dir / item_db_verification.ITEM_LISTING_CACHE_FILENAME).write_bytes(b"large")
+    report = {"schema": 1, "status": "incomplete", "blocked": [{"section": "items"}], "sections": {"effects": {"added": 1}}}
+    deps = _review_deps(review_cache, run_update_db=Mock(return_value=(1, REPORT_PREFIX + json.dumps(report))))
+    payload = item_db_api_routes.update_db({"dry_run": True}, deps)[1]
+    assert "update_review_token" not in payload
+
+
+def _real_cached_updater_deps(updater, monkeypatch):
+    """Run the actual CLI against staged sources, with all online calls forbidden."""
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    cache = updater_script.CACHE_DIR
+    archive = cache / item_db_verification.RESOURCE_PACK_CACHE_FILENAME
+    metadata = {**updater_script.read_release_metadata(), "resource_pack_asset_size": archive.stat().st_size}
+    (cache / item_db_verification.RESOURCE_PACK_METADATA_FILENAME).write_text(json.dumps(metadata), encoding="utf-8")
+    monkeypatch.setattr(updater_script, "ITEM_LISTING_CACHE_PATH", cache / item_db_verification.ITEM_LISTING_CACHE_FILENAME)
+    monkeypatch.setattr(updater_script, "resolve_microsoft_item_listing_snapshot", _RESOLVE_LISTING)
+    monkeypatch.setattr(updater_script, "fetch_microsoft_item_listing_snapshot", Mock(side_effect=AssertionError("Unexpected online listing fetch")))
+    monkeypatch.setattr(updater_script, "resolve_latest_rp", Mock(side_effect=AssertionError("Unexpected release refresh")))
+    calls = []
+
+    def run_update_db(**kwargs):
+        calls.append(kwargs)
+        options = []
+        if kwargs["dry_run"]:
+            options.append("--dry-run")
+        else:
+            assert kwargs["use_cache"] is True
+        if kwargs["only"]:
+            options.extend(("--only", kwargs["only"]))
+        if kwargs["expected_review_token"]:
+            options.extend(("--expected-review-token", kwargs["expected_review_token"]))
+        code, report = updater.run(*options)
+        return code, REPORT_PREFIX + json.dumps(report)
+
+    return _deps(
+        item_db_path=str(updater_script.ITEM_DB_PATH),
+        source_version_path=str(updater_script.SOURCE_VERSION_JSON),
+        source_version_history_path=str(updater_script.SOURCE_VERSION_HISTORY),
+        update_cache_dir=str(cache),
+        run_update_db=run_update_db,
+    ), calls
+
+
+@pytest.mark.parametrize("listing_content", [None, b"{broken", b""])
+def test_partial_preview_and_apply_replay_same_sources_without_usable_listing(updater, monkeypatch, listing_content):
+    members = _members()
+    members["metadata/vanilladata_modules/mojang-items.json"] = "{}"
+    updater.write_source(members)
+    db = updater.read_db()
+    db["effects"] = {}
+    updater.write_db(db)
+    before = updater.snapshot()
+    if listing_content is not None:
+        (updater_script.CACHE_DIR / item_db_verification.ITEM_LISTING_CACHE_FILENAME).write_bytes(listing_content)
+    deps, calls = _real_cached_updater_deps(updater, monkeypatch)
+    preview = item_db_api_routes.update_db({"dry_run": True}, deps)[1]
+    assert preview["success"] is False
+    assert preview["summary"]["quality"]["sections"]["items"]["status"] == "blocked"
+    assert preview["update_review_token"]
+    assert updater.snapshot() == before
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True, "expected_update_review_token": preview["update_review_token"]}, deps)[1]
+    assert result["outcome"] == "partial"
+    assert result["update_committed"] is True
+    assert updater.read_db()["items"] == db["items"]
+    assert "38" in updater.read_db()["effects"]
+    assert calls[-1]["use_cache"] is True
+    assert calls[-1]["expected_review_token"] == preview["update_review_token"]
+
+
+@pytest.mark.parametrize("listing_content", [None, b"{broken", b""])
+def test_cached_apply_never_publishes_items_or_fetches_online_when_required_listing_is_invalid(updater, monkeypatch, listing_content):
+    if listing_content is not None:
+        (updater_script.CACHE_DIR / item_db_verification.ITEM_LISTING_CACHE_FILENAME).write_bytes(listing_content)
+    deps, _calls = _real_cached_updater_deps(updater, monkeypatch)
+    # Even a manually constructed plan cannot authorize consuming invalid data.
+    item_db_verification.record_update_review_plan(
+        update_cache_dir=updater_script.CACHE_DIR,
+        item_db_path=updater_script.ITEM_DB_PATH,
+        source_version_path=updater_script.SOURCE_VERSION_JSON,
+        source_version_history_path=updater_script.SOURCE_VERSION_HISTORY,
+        scope="items",
+        blocked={},
+    )
+    token = item_db_api_routes.update_review_snapshot(deps, "items")["token"]
+    before = updater_script.ITEM_DB_PATH.read_bytes()
+    result = item_db_api_routes.update_db({"dry_run": False, "force": True, "only": "items", "expected_update_review_token": token}, deps)[1]
+    assert result["success"] is False
+    assert updater_script.ITEM_DB_PATH.read_bytes() == before
+    assert result["summary"]["quality"]["sections"]["items"]["status"] == "blocked"
+
+
+def test_update_review_plan_expires_with_updater_contract(tmp_path, monkeypatch):
     review_cache = _write_release_cache(tmp_path)
     deps = _review_deps(review_cache)
     current_snapshot = item_db_api_routes.update_review_snapshot(deps, None)
@@ -498,7 +738,8 @@ def test_update_review_token_changes_with_updater_contract(tmp_path, monkeypatch
     )
     previous_contract_snapshot = item_db_api_routes.update_review_snapshot(deps, None)
 
-    assert previous_contract_snapshot["token"] != current_snapshot["token"]
+    assert current_snapshot["token"]
+    assert previous_contract_snapshot == {}
 
 
 def test_persisted_verification_rejects_previous_updater_contract(tmp_path):
@@ -603,7 +844,7 @@ def test_apply_rejects_changed_item_db_base_state(tmp_path):
 
 
 def test_apply_rejects_review_token_for_different_scope(tmp_path):
-    review_cache = _write_release_cache(tmp_path)
+    review_cache = _write_release_cache(tmp_path, scope="items")
     deps = _review_deps(review_cache, run_update_db=Mock())
     snapshot = item_db_api_routes.update_review_snapshot(deps, "items")
 

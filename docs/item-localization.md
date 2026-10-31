@@ -48,4 +48,51 @@ An affected section has no editable runtime identities until its conflict is res
 
 Effect descriptions use the reviewed German and English texts in the bundled catalog. Enchantment maximum levels use the reviewed Vanilla values; custom enchantment descriptions remain intact. Tests require the bundled enchantment IDs and levels to agree with `enchantment_max_levels.json`, and exercise updater output through the runtime loader. An omitted optional enchantment description and an empty description are equivalent.
 
-Freezing uses the editorial German translation “Gefrieren” and the English source name “Freezing”, with explicit experimental labels. BDS 1.26.60.6 engine-created references establish effect ID 38 and potion data values 47 (`freezing`) and 48 (`long_freezing`); the stable Bedrock samples remain v1.26.50.4. The reviewed effect survives updates from that older registry. These labels do not claim an official German translation. No matching Vanilla texture keys are present in those sources, so the potion variants use the existing base-icon fallback.
+Freezing uses the editorial German translation “Gefrieren” and the English name “Freezing”, with explicit experimental labels. BDS 1.26.60.6 engine-created references establish effect ID 38 and potion data values 47 (`freezing`) and 48 (`long_freezing`). The bundled base catalog uses Bedrock samples v1.26.50.4; the reviewed effect survives updates from that older registry. The v1.26.60.5 registry includes the effect without corresponding German or English language-file labels, so the updater retains the reviewed names and records their fallback origin. These labels do not claim an official German translation. The potion variants use the existing base-icon fallback when no matching Vanilla texture key is available.
+
+## Missing source labels
+
+Source integrity and display-name coverage are separate checks. A valid language
+file can omit one name or an entire category without invalidating the registry.
+For each validated identity and locale, the updater prefers the official label,
+then an exact reviewed catalog name, an unambiguously matched existing name,
+the other language, and finally the technical identifier. Item names can also
+use the Microsoft Learn item list as an explicitly recorded fallback source.
+This does not count as coverage in Mojang's language files. Reconciliation still
+preserves custom names. Labels never establish numeric IDs or maximum levels.
+Direct and safely derived variant labels are resolved independently per locale:
+a German-only or English-only source label remains official in that language,
+while only the missing language receives a fallback. Ambiguous labels cannot
+establish an item identity or authorize replacing a custom name.
+Matching a label across different localization keys requires a current source
+name associated with the same item identity. Existing and curated fallback names
+cannot establish that association or count as official coverage.
+Unresolved source templates are unavailable names, independently in each locale.
+Resolution and coverage use the same rule for items, effects and enchantments;
+a usable name in the other language remains available. Custom display names are
+preserved without applying the source-template filter to them.
+Untranslated future item IDs remain in the addable registry and receive runtime
+display fallbacks; they do not require invented entries in the persisted name
+catalog.
+Name resolution and coverage use the same validated registry identities, so a
+known variant-key translation also applies before an item reaches the Learn
+listing. An identity or serialization alias alone does not create a display name.
+
+`update_quality` in source metadata records each section's source release,
+attempted release, official DE/EN coverage and fallback sources. A fallback does
+not count as an official translation. The setup dialog and Item DB tools expose
+these hints after reloads and restarts. A successful comparison with fallback
+names can be current; repeating a download is not a remedy for absent upstream
+translations.
+
+Missing, unreadable, empty or structurally unusable shared language files prevent
+publication. Invalid per-section registries or uncertain numeric identities
+retain that whole section while independently valid sections can update. The
+same rule covers structurally invalid item definitions and invalid values in
+consumed components. Optional absent components remain distinct from malformed
+present values; valid source removals can remove obsolete component facts. The
+consumed, normalized components of repeated item IDs must agree, including
+presence or absence. Conflicting definitions cannot overwrite each other. The
+result names the retained sections and their causes. Its persisted quality keeps
+their previous provenance and the unsuccessful attempted release, without
+claiming a complete verification.

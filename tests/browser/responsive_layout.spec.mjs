@@ -533,7 +533,7 @@ for (const width of [390, 1440]) {
       await page.route('**/api/update_db', route => {
         applied = true;
         return route.fulfill({json: {
-          success: false, returncode: 1, update_committed: true, reloaded: true, error: 'Synthetic missing effect ID',
+          success: false, returncode: 1, outcome: 'partial', update_committed: true, reloaded: true, error: 'Synthetic missing effect ID',
           summary: {schema: 1, status: 'incomplete', applied: true, previous_release: 'v1.26.40.05', release: 'v1.26.50.4',
             sections: {items: {added: 1, removed: 0, changed: 0}}, blocked: [{section: 'EFFECTS', reason: 'Synthetic missing effect ID'}]},
         }});
@@ -543,7 +543,7 @@ for (const width of [390, 1440]) {
       await activate(page.locator('[data-tab-dash="dashUpdate"]'));
       await activate(page.locator('#btnUpdateDbApply'));
       await activate(page.locator('#confirmOk'));
-      await expect(page.locator('#updateDbResult')).toContainText('Aktualisierung teilweise übernommen');
+      await expect(page.locator('#updateDbResult')).toContainText('Teilweise aktualisiert');
       await expect(page.locator('#updateDbResult')).toContainText('bereits gespeichert');
       await expect(page.locator('#updateDbResult')).toContainText('Effekte: Synthetic missing effect ID');
       await expect(page.locator('.item-db-version-line')).toContainText('v1.26.50.4');

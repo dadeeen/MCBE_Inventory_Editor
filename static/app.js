@@ -1639,6 +1639,7 @@ firstRunSetupController = window.MCBEFirstRunSetupView.createInventoryFirstRunSe
     },
     getIconsPendingHint: () => Number(iconSourceSummary?.count || 0) > 0 && iconSourceSummary?.missing_banner_patterns?.length
         ? t("Bannermuster fehlen im lokalen Icon-Cache. Lade die Vanilla-Icons, um die Bannervorschau zu vervollständigen.") : "",
+    getItemDbFeedback: () => window.MCBEDataSourceView.itemDbSetupFeedback(itemDbStatus),
     getStatusError: id => (id === "icons" ? iconSourceSummary : itemDbStatus)?.message || "",
     // The setup row confirms the forced update, so no second dialog is needed.
     runItemDbUpdate: () => updateDbController.run(false, true, { only: null }),

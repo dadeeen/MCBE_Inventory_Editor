@@ -6,7 +6,129 @@ from pathlib import Path
 from tests.node_runner import run_node
 
 
+def test_name_quality_survives_status_rendering_and_current_does_not_repeat_apply() -> None:
+    run_node(
+        r"""
+        const assert = require("node:assert/strict");
+        const fs = require("node:fs"), vm = require("node:vm");
+        const context = {window: {}, console};
+        for (const file of ["api_client", "data_source_view", "update_db_view"])
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, "utf8"), context);
+        const view = context.window.MCBEDataSourceView;
+        const quality = {schema: 1, sections: {effects: {status: "checked", release: "v-test",
+            locales: {de: {total: 3, official: 0, fallbacks: [
+                {id: "<img src=x onerror=alert(1)>", source: "identifier"},
+                {id: "freezing", source: "other_language"},
+                {id: "minecraft:future_item", source: "microsoft"},
+            ]}},
+        }}};
+        const model = view.itemDbQualityModel(quality);
+        assert.equal(model.hasWarnings, true);
+        assert.match(model.lines.join(" "), /0 von 3 offiziellen Namen/);
+        assert.match(model.details.join(" "), /technische Kennung/);
+        assert.match(model.details.join(" "), /andere Sprache/);
+        assert.match(model.details.join(" "), /Microsoft-Learn-Itemliste/);
+        const html = view.itemDbQualityHtml(quality);
+        assert.match(html, /&lt;img/);
+        assert.doesNotMatch(html, /<img/);
+        assert.equal(view.itemDbStatusValue({status: "ok", verification: {verified: true}, update_quality: quality}), "geprüft mit Hinweisen");
+        const blocked = {schema: 1, sections: {effects: {status: "blocked", release: "v-old", reason: "IDs doppelt <script>"}}};
+        assert.equal(view.itemDbSetupFeedback({update_quality: blocked}).partial, true);
+        assert.match(view.itemDbQualityHtml(blocked), /IDs doppelt &lt;script&gt;/);
+        assert.match(view.itemDbQualityHtml(blocked), /v-old/);
+
+        const apply = {disabled: false, addEventListener(type, callback) {this[type] = callback;}};
+        const notices = [];
+        let calls = 0;
+        const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+            outputEl: {textContent: "", scrollHeight: 0}, applyButton: apply,
+            withCsrf: () => ({}), parseJsonResponse: async response => response,
+            fetchImpl: async () => {calls++; return {success: true, outcome: "current", verification_required: false,
+                summary: {status: "current", quality}};},
+            logStatus: (message, type) => notices.push({message, type}),
+            showConfirmDialog: async () => {throw new Error("Already current must not apply again");},
+        });
+        (async () => {
+            await controller.run(false, true);
+            assert.equal(apply.disabled, true);
+            assert.equal(notices.at(-1).type, "warning");
+            assert.match(notices.at(-1).message, /Kein Update erforderlich/);
+            assert.match(notices.at(-1).message, /Ersatznamen/);
+            await apply.click();
+            assert.equal(calls, 1);
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+        """
+    )
+
+
+def test_partial_preview_binds_safe_apply_to_its_checked_sources() -> None:
+    run_node(
+        r"""
+        const assert = require("node:assert/strict");
+        const fs = require("node:fs"), vm = require("node:vm");
+        const context = {window: {}, console};
+        for (const file of ["api_client", "update_db_view"])
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, "utf8"), context);
+        const requests = [];
+        const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+            outputEl: {textContent: "", scrollHeight: 0}, withCsrf: () => ({}),
+            parseJsonResponse: async response => response,
+            fetchImpl: async (_url, options) => {
+                requests.push(JSON.parse(options.body));
+                return {success: false, outcome: "partial", summary: {status: "incomplete"},
+                    update_review_token: "a".repeat(64), resource_pack_release: "v-checked"};
+            },
+        });
+        (async () => {
+            await controller.run(true);
+            await controller.run(false, true);
+            assert.equal(requests[1].expected_update_review_token, "a".repeat(64));
+            // The receipt is consumed by apply, even if applying fails.
+            await controller.run(false, true);
+            assert.equal(Object.hasOwn(requests[2], "expected_update_review_token"), false);
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+        """
+    )
+
+
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_committed_worker_interruption_reports_saved_data_without_claiming_partial_update() -> None:
+    run_node(r"""
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}, console};
+        for (const file of ['api_client', 'update_db_view'])
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, 'utf8'), context);
+        const element = () => ({
+            children: [], dataset: {}, text: '',
+            get textContent() {return this.text + this.children.map(child => child.textContent).join('\n');},
+            set textContent(value) {this.text = value; this.children = [];},
+            get childElementCount() {return this.children.length;},
+            appendChild(child) {this.children.push(child);},
+            replaceChildren(...children) {this.text = ''; this.children = children;},
+        });
+        const result = element(), audit = element();
+        const doc = {createElement: element, getElementById: id => ({updateDbResult: result, updateDbAudit: audit})[id]};
+        const notices = [];
+        const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+            outputEl: {...element(), textContent: '', ownerDocument: doc}, withCsrf: () => ({}),
+            parseJsonResponse: async response => response,
+            fetchImpl: async () => ({success: false, returncode: -1, recovery: 'committed',
+                update_committed: true, reloaded: true, outcome: 'updated_with_warnings',
+                error: 'Das Update-Skript wurde unterbrochen. Die Daten wurden vollständig übernommen.'}),
+            logStatus: (message, type) => notices.push({message, type}),
+        });
+        (async () => {
+            await controller.run(false, true);
+            assert.match(result.textContent, /Aktualisiert mit Hinweisen/);
+            assert.match(result.textContent, /vollständig übernommen/);
+            assert.doesNotMatch(result.textContent, /nichts übernommen|teilweise|Einige Bereiche/);
+            assert.doesNotMatch(notices.at(-1).message, /teilweise/);
+            assert.equal(notices.at(-1).type, 'warning');
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
 
 
 def test_success_resolves_only_covered_update_failures_and_preserves_history() -> None:

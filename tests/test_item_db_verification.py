@@ -1,10 +1,55 @@
 import io
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from mcbe_editor import item_db_verification as verification
 from scripts import update_db
+
+
+def _coverage_quality():
+    return {
+        "schema": 1,
+        "sections": {
+            "effects": {
+                "status": "checked",
+                "release": "v1",
+                "attempted_release": "v1",
+                "locales": {"de": {"total": 1, "official": 0, "fallbacks": [{"id": "freezing", "source": "curated"}]}},
+            }
+        },
+    }
+
+
+def test_receipt_binds_name_coverage_and_survives_metadata_reload(tmp_path):
+    import json
+
+    database = tmp_path / "item_db.json"
+    database.write_text("{}", encoding="utf-8")
+    metadata = verification.attach_item_db_verification({"update_quality": _coverage_quality()}, database, verified_at="checked")
+    reloaded = json.loads(json.dumps(metadata))
+    assert verification.item_db_verification_snapshot(reloaded, database)["verified"]
+    reloaded["update_quality"]["sections"]["effects"]["locales"]["de"]["official"] = 1
+    assert verification.item_db_verification_snapshot(reloaded, database)["reason"] == "source-changed"
+
+
+def test_blocked_or_malformed_quality_cannot_obtain_a_full_receipt(tmp_path):
+    database = tmp_path / "item_db.json"
+    database.write_text("{}", encoding="utf-8")
+    blocked = _coverage_quality()
+    blocked["sections"]["effects"]["status"] = "blocked"
+    for quality in (blocked, {"schema": True, "sections": {}}, {"schema": 99, "sections": {}}):
+        with pytest.raises(ValueError, match="Prüfbeleg"):
+            verification.attach_item_db_verification({"update_quality": quality}, database, verified_at="checked")
+
+
+def test_previous_contract_requires_a_fresh_check(tmp_path):
+    database = tmp_path / "item_db.json"
+    database.write_text("{}", encoding="utf-8")
+    metadata = verification.attach_item_db_verification({}, database, verified_at="checked")
+    metadata[verification.VERIFICATION_FIELD]["updater_contract_version"] = verification.UPDATER_CONTRACT_VERSION - 1
+    assert verification.item_db_verification_snapshot(metadata, database)["reason"] == "updater-contract-mismatch"
 
 
 def test_online_listing_identity_uses_parsed_items_instead_of_page_html(monkeypatch):
@@ -84,3 +129,39 @@ def test_cache_rejects_a_fingerprint_for_different_items():
 @pytest.mark.parametrize("value", [None, False, 123, "", "bad", "g" * 64])
 def test_source_metadata_rejects_invalid_item_fingerprints(value):
     assert not update_db._valid_source_metadata({"microsoft_item_listing_items_hash": value})
+
+
+def test_review_listing_reads_at_most_the_input_limit_plus_one_byte(monkeypatch):
+    reads = []
+
+    class Source(io.BytesIO):
+        def read(self, size=-1):
+            reads.append(size)
+            return super().read(size)
+
+    monkeypatch.setattr(verification, "MAX_ITEM_LISTING_CACHE_BYTES", 32)
+    monkeypatch.setattr(Path, "open", lambda *_args, **_kwargs: Source(b"x" * 64))
+    with pytest.raises(verification.UpdateReviewError, match="Größe"):
+        verification._review_item_listing_state(Path("listing.json"))
+    assert reads == [33]
+
+
+@pytest.mark.parametrize("content", [b"", b"{broken", b"\xff"])
+def test_review_identity_accepts_invalid_optional_bytes_but_consumption_still_rejects(tmp_path, content):
+    path = tmp_path / "listing.json"
+    path.write_bytes(content)
+    state, source_hash = verification._review_item_listing_state(path)
+    assert state["exists"] is True
+    assert state["size"] == len(content)
+    assert source_hash is None
+    with pytest.raises(verification.UpdateReviewError):
+        verification.read_item_listing_cache(path)
+
+
+def test_unreadable_optional_listing_cannot_obtain_a_receipt(monkeypatch, tmp_path):
+    def fail_read(*_args, **_kwargs):
+        raise PermissionError("synthetic permission failure")
+
+    monkeypatch.setattr(Path, "open", fail_read)
+    with pytest.raises(verification.UpdateReviewError, match="nicht gelesen"):
+        verification._review_item_listing_state(tmp_path / "listing.json")

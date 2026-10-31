@@ -47,8 +47,72 @@
         return t("{items} Items · {effects} Effekte · {enchantments} Verzauberungen", { items: formatDeNumber(counts.items), effects: formatDeNumber(counts.effects), enchantments: formatDeNumber(counts.enchantments) });
     }
 
+    function itemDbQualityModel(quality) {
+        const sections = { items: "Items", effects: "Effekte", enchants: "Verzauberungen" };
+        const sources = { curated: "geprüfter Katalogname", existing: "vorhandener Name", other_language: "andere Sprache", identifier: "technische Kennung", microsoft: "Microsoft-Learn-Itemliste" };
+        const lines = [], details = [], blocked = [];
+        let replacements = 0;
+        if (quality?.schema !== 1 || !quality.sections) return { hasWarnings: false, blocked, summary: "", lines, details };
+        for (const [section, label] of Object.entries(sections)) {
+            const entry = quality.sections[section];
+            if (!entry) continue;
+            if (entry.status === "blocked") {
+                blocked.push(section);
+                lines.push(t("{section} unverändert: {reason}", { section: t(label), reason: entry.reason || t("Die Quelldaten konnten nicht sicher zugeordnet werden.") }));
+                lines.push(t("Beibehaltener Quellenstand: {release}.", { release: entry.release || t("Nicht dokumentiert") }));
+            }
+            for (const [locale, language] of [["de", "DE"], ["en", "EN"]]) {
+                const names = entry.locales?.[locale];
+                if (!names || !Number.isInteger(names.total) || !Number.isInteger(names.official) || names.total <= names.official) continue;
+                const missing = Math.max(0, names.total - Math.max(0, names.official));
+                replacements += missing;
+                lines.push(t("{section} ({language}): {official} von {total} offiziellen Namen verfügbar.", {
+                    section: t(label), language: t(language), official: formatDeNumber(Math.max(0, names.official)), total: formatDeNumber(names.total),
+                }));
+                const fallbacks = Array.isArray(names.fallbacks) ? names.fallbacks : [];
+                for (const fallback of fallbacks.filter(entry => entry && typeof entry.id === "string").slice(0, 100)) {
+                    details.push(`${t(label)} · ${t(language)} · ${fallback.id}: ${t(sources[fallback.source] || "technische Kennung")}`);
+                }
+                if (fallbacks.length > 100) details.push(t("{count} weitere Ersatznamen", { count: formatDeNumber(fallbacks.length - 100) }));
+            }
+        }
+        return {
+            hasWarnings: blocked.length > 0 || replacements > 0,
+            blocked, lines, details,
+            summary: replacements ? t("Für {count} Namen werden Ersatznamen verwendet.", { count: formatDeNumber(replacements) }) : "",
+        };
+    }
+
+    function itemDbQualityHtml(quality) {
+        const model = itemDbQualityModel(quality);
+        if (!model.hasWarnings) return "";
+        return `<div class="tool-notice" data-db-quality>
+            ${model.summary ? `<p>${escapeHtml(model.summary)}</p>` : ""}
+            ${model.lines.map(line => `<p>${escapeHtml(line)}</p>`).join("")}
+            ${model.details.length ? `<details class="tool-details"><summary>${t("Verwendete Ersatznamen")}</summary><ul>${model.details.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : ""}
+        </div>`;
+    }
+
+    function itemDbSetupFeedback(status) {
+        const model = itemDbQualityModel(status?.update_quality);
+        return {
+            partial: model.blocked.length > 0,
+            warnings: model.hasWarnings,
+            message: [model.summary, ...model.lines].filter(Boolean).join(" "),
+        };
+    }
+
+    function itemDbBlockedMessages(blocked) {
+        const sections = { items: "Items", effects: "Effekte", enchants: "Verzauberungen", enchantments: "Verzauberungen", source: "Quelldaten" };
+        return (Array.isArray(blocked) ? blocked : []).map(entry => {
+            const key = String(entry.section || "source").toLowerCase();
+            return `${t(sections[key] || entry.section)}: ${entry.reason || t("Die Quelldaten konnten nicht sicher zugeordnet werden.")}`;
+        });
+    }
+
     function itemDbStatusRank(status = null) {
         if (!status || status.reload_warning) return 1;
+        if (itemDbQualityModel(status.update_quality).hasWarnings) return 1;
         return status.status === "ok" && status.verification?.verified === true ? 0 : 1;
     }
 
@@ -58,6 +122,9 @@
         if (status.reload_warning) return t("Item-DB-Aktualisierung fehlgeschlagen.");
         if (status.status === "unavailable") return t("Status nicht verfügbar");
         if (status.status !== "ok") return t("Herkunft fehlt");
+        const quality = itemDbQualityModel(status.update_quality);
+        if (quality.blocked.length) return t("Prüfung unvollständig");
+        if (quality.hasWarnings && status.verification?.verified === true) return t("geprüft mit Hinweisen");
         return status.verification?.verified === true ? t("geprüft") : t("Prüfung offen");
     }
 
@@ -199,6 +266,7 @@
                 </div>
                 <span>${escapeHtml(itemDbCountsText(itemDbStatus))}</span>
             </div>
+            ${itemDbQualityHtml(itemDbStatus?.update_quality)}
             <details class="tool-details" data-db-details><summary>${t("Technische Details")}</summary>
             <dl class="tool-facts">
                 <div><dt>${t("Prüfnachweis")}</dt><dd>${escapeHtml(itemDbStatusValue(itemDbStatus))} · ${t("Bestätigt die gespeicherte Datenbank und ihre Quellenmetadaten, nicht die Aktualität oder Spielkompatibilität.")}</dd></div>
@@ -384,6 +452,10 @@
         formatDeNumber,
         formatItemDbTime,
         itemDbCountsText,
+        itemDbQualityModel,
+        itemDbQualityHtml,
+        itemDbSetupFeedback,
+        itemDbBlockedMessages,
         itemDbStatusRank,
         itemDbStatusValue,
         itemDbSourceText,

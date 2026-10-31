@@ -4,11 +4,82 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 from .item_name_policy import is_expected_item_name_difference
 from .item_registry_policy import is_non_item_lang_key_id
 
 REPORT_PREFIX = "MCBE_UPDATE_REPORT_V1:"
+
+
+def snapshot_update_quality(value: object) -> dict[str, Any]:
+    """Read persisted coverage without treating absent or malformed data as success."""
+    if not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 1 or not isinstance(value.get("sections"), dict):
+        return {}
+    sections = {}
+    for name, entry in value["sections"].items():
+        if name not in {"items", "effects", "enchants"} or not isinstance(entry, dict) or entry.get("status") not in {"checked", "blocked"}:
+            return {}
+        if any(entry.get(key) is not None and not isinstance(entry[key], str) for key in ("release", "attempted_release", "reason")):
+            return {}
+        locales = entry.get("locales", {})
+        if not isinstance(locales, dict):
+            return {}
+        checked_locales = {}
+        for locale, coverage in locales.items():
+            if locale not in {"de", "en"} or not isinstance(coverage, dict):
+                return {}
+            total, official = coverage.get("total"), coverage.get("official")
+            fallbacks = coverage.get("fallbacks", [])
+            if type(total) is not int or type(official) is not int or not 0 <= official <= total or not isinstance(fallbacks, list):
+                return {}
+            checked_fallbacks = []
+            for fallback in fallbacks:
+                if (
+                    not isinstance(fallback, dict)
+                    or not isinstance(fallback.get("id"), str)
+                    or not fallback["id"].strip()
+                    or fallback.get("source") not in {"curated", "existing", "other_language", "identifier", "microsoft"}
+                ):
+                    return {}
+                checked_fallbacks.append({"id": fallback["id"], "source": fallback["source"]})
+            checked_locales[locale] = {"total": total, "official": official, "fallbacks": checked_fallbacks}
+        sections[name] = {
+            "status": entry["status"],
+            "release": entry.get("release"),
+            "attempted_release": entry.get("attempted_release"),
+            "locales": checked_locales,
+            **({"reason": entry["reason"]} if entry.get("reason") else {}),
+        }
+    return {"schema": 1, "sections": sections}
+
+
+def quality_has_warnings(value: object) -> bool:
+    return any(
+        coverage["official"] < coverage["total"]
+        for section in snapshot_update_quality(value).get("sections", {}).values()
+        for coverage in section["locales"].values()
+    )
+
+
+def update_outcome(*, success: bool, committed: bool, report: dict | None) -> str:
+    """Keep committed partial results distinct from failures and successful no-ops."""
+    report = report or {}
+    if not success:
+        if committed:
+            if report.get("blocked"):
+                quality = snapshot_update_quality(report.get("quality"))
+                requested = {report["scope"]} if report.get("scope") not in (None, "all") else {"items", "effects", "enchants"}
+                checked = any(section in requested and entry["status"] == "checked" for section, entry in quality.get("sections", {}).items())
+                # Persisting failure provenance alone is not a partial data update.
+                return "partial" if not quality or checked else "failed"
+            return "updated_with_warnings"
+        return "failed"
+    if report.get("status") == "current":
+        return "current"
+    if quality_has_warnings(report.get("quality")):
+        return "updated_with_warnings"
+    return "updated"
 
 
 def diff_counts(old: dict, new: dict) -> dict:
@@ -36,7 +107,7 @@ def audit_items(items, addable, stack_limits, durability, source_names, componen
     # missing translations must not prevent their registry from being updated.
     issue("missing_entries", set(addable) - items.keys())
     issue("invalid_stack_limits", [key for key, value in stack_limits.items() if type(value) is not int or not 1 <= value <= 127], "error")
-    issue("invalid_durability", [key for key, value in durability.items() if type(value) is not int or value <= 0], "error")
+    issue("invalid_durability", [key for key, value in durability.items() if type(value) is not int or value < 0], "error")
     issue("unverified_stack_limits", set(addable) - stack_limits.keys())
     for locale, index in (("de", 0), ("en", 1)):
         source = source_names.get(locale, {})
@@ -84,7 +155,7 @@ def describe_changes(sections):
     return details
 
 
-def build_report(*, scope, release, sections, metadata_changed, audit, blocked, previous_release=None):
+def build_report(*, scope, release, sections, metadata_changed, audit, blocked, previous_release=None, quality=None):
     counts = {name: diff_counts(old, new) for name, (old, new) in sections.items()}
     changed = any(any(values.values()) for values in counts.values())
     incomplete = bool(blocked) or any(issue["severity"] == "error" for issue in (audit or {}).get("issues", []))
@@ -99,6 +170,7 @@ def build_report(*, scope, release, sections, metadata_changed, audit, blocked, 
         "change_details": describe_changes(sections),
         "audit": audit,
         "blocked": [{"section": section, "reason": reason} for section, reason in blocked],
+        "quality": snapshot_update_quality(quality),
     }
 
 

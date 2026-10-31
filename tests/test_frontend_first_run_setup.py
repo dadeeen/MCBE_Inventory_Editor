@@ -66,6 +66,70 @@ def _run_node(source: str) -> None:
     run_node(HARNESS + source)
 
 
+def test_setup_distinguishes_fallback_success_partial_commit_and_source_failure() -> None:
+    _run_node(
+        r"""
+        vm.runInNewContext(fs.readFileSync("static/data_source_view.js", "utf8"), context);
+        const sourceView = context.window.MCBEDataSourceView;
+        const fallback = {schema: 1, sections: {effects: {
+            status: "checked", locales: {de: {total: 1, official: 0,
+                fallbacks: [{id: "freezing", source: "curated"}]}},
+        }}};
+        const partial = {schema: 1, sections: {effects: {
+            status: "blocked", release: "v-old", reason: "Doppelte numerische IDs",
+        }}};
+        (async () => {
+            for (const mode of ["fallback", "partial", "failure"]) {
+                const elements = buildElements();
+                let pending = true, refreshes = 0, status = {};
+                const result = mode === "fallback"
+                    ? {success: true, update_committed: true, outcome: "updated_with_warnings"}
+                    : mode === "partial"
+                        ? {success: false, update_committed: true, outcome: "partial"}
+                        : {success: false, outcome: "failed", error: "Keine Änderung übernommen.",
+                            summary: {blocked: [{section: "source", reason: "Sprachdatei fehlt"}]}};
+                const controller = view.createFirstRunSetupController({
+                    elements, isItemDbPending: () => pending, isIconsPending: () => false,
+                    getItemDbFeedback: () => sourceView.itemDbSetupFeedback(status),
+                    runItemDbUpdate: async () => result,
+                    refreshItemDbStatus: async () => {
+                        refreshes++;
+                        pending = mode !== "fallback";
+                        status = {update_quality: mode === "fallback" ? fallback : partial};
+                    },
+                });
+                controller.maybeOpenOnStart();
+                await controller.runTodo("item_db");
+                const row = elements.rows.item_db;
+                assert.equal(refreshes, mode === "failure" ? 0 : 1);
+                if (mode === "fallback") {
+                    assert.equal(row.mark.textContent, "✓");
+                    assert.match(row.state.textContent, /0 von 1 offiziellen Namen/);
+                    assert.match(row.state.textContent, /Ersatznamen/);
+                    assert.equal(row.button.style.display, "none");
+                    assert.equal(row.item.classList.flags["is-error"], false);
+                } else if (mode === "partial") {
+                    assert.equal(row.mark.textContent, "!");
+                    assert.match(row.state.textContent, /Prüfung unvollständig/);
+                    assert.match(row.state.textContent, /Doppelte numerische IDs/);
+                    assert.match(row.state.textContent, /v-old/);
+                    assert.equal(row.item.classList.flags["is-warning"], true);
+                    assert.equal(row.item.classList.flags["is-done"], false);
+                    assert.equal(row.item.classList.flags["is-error"], false);
+                    assert.equal(row.button.disabled, false);
+                } else {
+                    assert.equal(row.mark.textContent, "○");
+                    assert.match(row.state.textContent, /Sprachdatei fehlt/);
+                    assert.equal(row.item.classList.flags["is-error"], true);
+                }
+                controller.render();
+                assert.equal(row.item.classList.flags["is-done"], mode === "fallback");
+            }
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+        """
+    )
+
+
 def test_frontend_first_run_setup_opens_only_while_a_todo_is_open_and_undismissed() -> None:
     _run_node(
         textwrap.dedent(

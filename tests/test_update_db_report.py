@@ -110,7 +110,7 @@ def test_audit_separates_errors_source_conflicts_and_preserved_names():
         {"bad ID": ("", "Name"), "minecraft:test": ("Erhaltener Name", "Test")},
         ["minecraft:missing", "minecraft:test"],
         {"minecraft:test": True},
-        {"minecraft:test": 0},
+        {"minecraft:test": -1},
         {"de": {"minecraft:test": "Offizieller Name"}},
         {"stack_limits": {"minecraft:test": 16}},
         {"stack_limits": {"minecraft:test": 64}},

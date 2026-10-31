@@ -15,6 +15,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .runtime_data import atomic_write_private_text
+from .update_db_report import snapshot_update_quality
+
 RESOURCE_PACK_SOURCE_FIELDS = (
     "resource_pack_release",
     "resource_pack_asset",
@@ -49,10 +52,11 @@ VERIFICATION_FIELD = "verification"
 VERIFICATION_SCHEMA_VERSION = 1
 # Bump deliberately when updater semantics change enough that existing receipts
 # must no longer count as a successful verification under the new code.
-UPDATER_CONTRACT_VERSION = 4
+UPDATER_CONTRACT_VERSION = 5
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
-UPDATE_REVIEW_SCHEMA_VERSION = 1
+UPDATE_REVIEW_SCHEMA_VERSION = 3
+UPDATE_REVIEW_PLAN_FILENAME = "update_review_plan.json"
 ITEM_LISTING_CACHE_SCHEMA_VERSION = 1
 ITEM_LISTING_CACHE_FILENAME = "microsoft_item_listing_snapshot.json"
 RESOURCE_PACK_CACHE_FILENAME = "bedrock_resource_pack.zip"
@@ -174,7 +178,59 @@ def _review_file_state(path: Path, *, required: bool) -> dict[str, Any]:
         raise UpdateReviewError(f"Dry-Run-Ausgangsdatei kann nicht geprüft werden: {path.name}") from exc
 
 
-def update_review_snapshot(
+def _review_item_listing_state(path: Path) -> tuple[dict[str, Any], str | None]:
+    """Bind the optional input's exact bytes without certifying their contents.
+
+    A blocked items section may never consume this input. Missing or malformed
+    contents can therefore belong to a valid partial preview. The updater still
+    validates any input it actually consumes, and cache replay never downloads a
+    replacement. Reading a bounded buffer also covers growth after opening.
+    """
+    try:
+        with path.open("rb") as source:
+            content = source.read(MAX_ITEM_LISTING_CACHE_BYTES + 1)
+    except FileNotFoundError:
+        return {"exists": False}, None
+    except OSError as exc:
+        raise UpdateReviewError("Der Microsoft-Itemlisten-Snapshot kann nicht gelesen werden.") from exc
+    if len(content) > MAX_ITEM_LISTING_CACHE_BYTES:
+        raise UpdateReviewError("Der Microsoft-Itemlisten-Snapshot hat eine unerwartete Größe.")
+    state = {"exists": True, "size": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+    # Keep the informational source hash for callers when it is available. It
+    # is not needed for the receipt, which binds even invalid or empty bytes.
+    try:
+        _, metadata = parse_item_listing_cache_payload(json.loads(content))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        return state, None
+    return state, metadata["microsoft_item_listing_content_hash"]
+
+
+def resource_pack_pending_path(archive: Path) -> Path:
+    return archive.with_name(f".{archive.name}.pending")
+
+
+def validate_resource_pack_archive(archive: Path, metadata: Mapping[str, Any]) -> str:
+    """Validate the archive/metadata pair for both direct and reviewed replay."""
+    expected_size = metadata.get("resource_pack_asset_size")
+    if type(expected_size) is not int or not 0 < expected_size <= MAX_REVIEW_RESOURCE_PACK_BYTES:
+        raise UpdateReviewError("Die Resource-Pack-Größe ist ungültig.")
+    try:
+        if resource_pack_pending_path(archive).exists():
+            raise UpdateReviewError("Der Resource-Pack-Cache wurde unvollständig aktualisiert. Bitte die Quellen erneut herunterladen.")
+        if not archive.is_file() or archive.stat().st_size != expected_size:
+            raise UpdateReviewError("Das gecachte Resource-Pack passt nicht zu seinen Release-Metadaten.")
+        archive_hash = file_sha256(archive)
+    except OSError as exc:
+        raise UpdateReviewError("Das gecachte Resource-Pack kann nicht geprüft werden.") from exc
+    expected_hash = metadata.get("resource_pack_archive_sha256")
+    if expected_hash is not None and (
+        not isinstance(expected_hash, str) or not _SHA256_PATTERN.fullmatch(expected_hash) or not hmac.compare_digest(expected_hash, archive_hash)
+    ):
+        raise UpdateReviewError("Das gecachte Resource-Pack passt nicht zu seinen Release-Metadaten.")
+    return archive_hash
+
+
+def _update_input_snapshot(
     *,
     update_cache_dir: Path,
     item_db_path: Path,
@@ -182,7 +238,7 @@ def update_review_snapshot(
     source_version_history_path: Path,
     scope: str | None,
 ) -> dict[str, Any]:
-    """Bind a dry run to all mutable source and base files used by an apply."""
+    """Bind a dry run to mutable input states, independently of source validity."""
 
     normalized_scope = scope or "all"
     if normalized_scope not in _UPDATE_SCOPES:
@@ -217,27 +273,12 @@ def update_review_snapshot(
         raise UpdateReviewError("Der Resource-Pack-Assetname ist ungültig.")
     if not resource_pack_url.startswith("https://"):
         raise UpdateReviewError("Die Resource-Pack-URL ist ungültig.")
-    expected_size = resource_identity["resource_pack_asset_size"]
-    if type(expected_size) is not int or not 0 < expected_size <= MAX_REVIEW_RESOURCE_PACK_BYTES:
-        raise UpdateReviewError("Die Resource-Pack-Größe ist ungültig.")
-    try:
-        if not archive_path.is_file() or archive_path.stat().st_size != expected_size:
-            raise UpdateReviewError("Das im Dry-Run verwendete Resource-Pack fehlt oder wurde verändert.")
-        archive_hash = file_sha256(archive_path)
-    except OSError as exc:
-        raise UpdateReviewError("Das im Dry-Run verwendete Resource-Pack kann nicht geprüft werden.") from exc
+    archive_hash = validate_resource_pack_archive(archive_path, metadata)
 
     item_listing: dict[str, Any] | None = None
+    item_listing_content_hash = None
     if normalized_scope in {"all", "items"}:
-        listing_path = update_cache_dir / ITEM_LISTING_CACHE_FILENAME
-        _, listing_metadata = read_item_listing_cache(listing_path)
-        try:
-            item_listing = {
-                **{field: listing_metadata[field] for field in ITEM_LISTING_SOURCE_FIELDS},
-                "snapshot_sha256": file_sha256(listing_path),
-            }
-        except OSError as exc:
-            raise UpdateReviewError("Der Microsoft-Itemlisten-Snapshot kann nicht geprüft werden.") from exc
+        item_listing, item_listing_content_hash = _review_item_listing_state(update_cache_dir / ITEM_LISTING_CACHE_FILENAME)
 
     token_payload = {
         "schema_version": UPDATE_REVIEW_SCHEMA_VERSION,
@@ -256,8 +297,49 @@ def update_review_snapshot(
         "scope": normalized_scope,
         "resource_pack_release": resource_identity["resource_pack_release"],
         "resource_pack_asset": resource_identity["resource_pack_asset"],
-        "microsoft_item_listing_content_hash": (item_listing["microsoft_item_listing_content_hash"] if item_listing is not None else None),
+        "microsoft_item_listing_content_hash": item_listing_content_hash,
     }
+
+
+def record_update_review_plan(*, blocked: Mapping[str, str], **paths: Any) -> None:
+    """Record the permitted sections together with the preview's exact inputs."""
+    snapshot = _update_input_snapshot(**paths)
+    plan = {"scope": snapshot["scope"], "input_token": snapshot["token"], "blocked": dict(blocked)}
+    _validate_review_plan(plan, snapshot)
+    atomic_write_private_text(Path(paths["update_cache_dir"]) / UPDATE_REVIEW_PLAN_FILENAME, json.dumps(plan, ensure_ascii=True, sort_keys=True))
+
+
+def _validate_review_plan(plan: object, snapshot: Mapping[str, Any]) -> dict[str, str]:
+    if not isinstance(plan, dict) or set(plan) != {"scope", "input_token", "blocked"} or plan["scope"] != snapshot["scope"]:
+        raise UpdateReviewError("Der gespeicherte Dry-Run-Prüfplan ist ungültig.")
+    token = plan["input_token"]
+    if not isinstance(token, str) or not _SHA256_PATTERN.fullmatch(token) or not hmac.compare_digest(token, snapshot["token"]):
+        raise UpdateReviewError("Die Eingaben des gespeicherten Dry-Run-Prüfplans haben sich geändert.")
+    requested = {"items", "effects", "enchants"} if plan["scope"] == "all" else {plan["scope"]}
+    blocked = plan["blocked"]
+    if (
+        not isinstance(blocked, dict)
+        or not set(blocked) <= requested
+        or set(blocked) == requested
+        or any(not isinstance(reason, str) or not reason.strip() for reason in blocked.values())
+    ):
+        raise UpdateReviewError("Der gespeicherte Dry-Run-Prüfplan hat keine gültigen freigegebenen Bereiche.")
+    return dict(blocked)
+
+
+def update_review_snapshot(**paths: Any) -> dict[str, Any]:
+    """Bind both immutable inputs and the sections actually approved by a preview."""
+    snapshot = _update_input_snapshot(**paths)
+    try:
+        with (Path(paths["update_cache_dir"]) / UPDATE_REVIEW_PLAN_FILENAME).open("rb") as source:
+            content = source.read(64 * 1024 + 1)
+        if len(content) > 64 * 1024:
+            raise UpdateReviewError("Der gespeicherte Dry-Run-Prüfplan ist zu groß.")
+        plan = json.loads(content)
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise UpdateReviewError("Der gespeicherte Dry-Run-Prüfplan kann nicht gelesen werden.") from exc
+    blocked = _validate_review_plan(plan, snapshot)
+    return {**snapshot, "token": _canonical_sha256(plan), "blocked_sections": blocked}
 
 
 def source_identity_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
@@ -298,6 +380,11 @@ def attach_item_db_verification(
 
     if not isinstance(verified_at, str) or not verified_at.strip():
         raise ValueError("verified_at muss ein nichtleerer Zeitstempel sein.")
+    quality = metadata.get("update_quality")
+    if quality is not None:
+        snapshot = snapshot_update_quality(quality)
+        if not snapshot or any(section["status"] != "checked" for section in snapshot["sections"].values()):
+            raise ValueError("Unvollständige Quellenprüfung kann keinen vollständigen Prüfbeleg erhalten.")
     result = dict(metadata)
     result[VERIFICATION_FIELD] = {
         "schema_version": VERIFICATION_SCHEMA_VERSION,
@@ -305,6 +392,7 @@ def attach_item_db_verification(
         "verified_at": verified_at,
         "item_db_sha256": file_sha256(item_db_path),
         "source_identity_sha256": source_identity_sha256(metadata),
+        "update_quality_sha256": _canonical_sha256(metadata.get("update_quality")),
     }
     return result
 
@@ -369,6 +457,16 @@ def item_db_verification_snapshot(metadata: Mapping[str, Any], item_db_path: Pat
     if not hmac.compare_digest(expected_source_sha256, current_source_sha256):
         result["reason"] = "source-changed"
         return result
+
+    expected_quality_sha256 = receipt.get("update_quality_sha256")
+    if not isinstance(expected_quality_sha256, str) or not hmac.compare_digest(expected_quality_sha256, _canonical_sha256(metadata.get("update_quality"))):
+        result["reason"] = "source-changed"
+        return result
+    if metadata.get("update_quality") is not None:
+        quality = snapshot_update_quality(metadata["update_quality"])
+        if not quality or any(section["status"] != "checked" for section in quality["sections"].values()):
+            result["reason"] = "sections-blocked"
+            return result
 
     result["verified"] = True
     result["reason"] = "verified"

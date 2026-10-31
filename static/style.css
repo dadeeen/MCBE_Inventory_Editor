@@ -5594,6 +5594,7 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 }
 .first-run-todo.is-done { border-color: var(--success, #2fbf71); }
 .first-run-todo.is-error { border-color: var(--danger, #e5484d); }
+.first-run-todo.is-warning { border-color: var(--warning); }
 .first-run-todo-mark { font-size: 1.1rem; line-height: 1.4; min-width: 1.2rem; text-align: center; color: var(--text-secondary); }
 .first-run-todo.is-done .first-run-todo-mark { color: var(--success, #2fbf71); }
 .first-run-todo-text { flex: 1; min-width: 0; }

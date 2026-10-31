@@ -9,6 +9,7 @@ from typing import Any
 from mcbe_editor import item_db_verification
 from mcbe_editor.numeric_catalog_policy import numeric_catalog_conflict_messages
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_RELATIVE_PATH, BUNDLED_SOURCE_VERSION_HISTORY_RELATIVE_PATH, BUNDLED_SOURCE_VERSION_RELATIVE_PATH
+from mcbe_editor.update_db_report import snapshot_update_quality
 
 
 def public_app_config(
@@ -172,6 +173,7 @@ def item_db_status_snapshot(app_config: Any, item_data_module: Any, app_root: Pa
         "source_version": source_version,
         "source_version_present": has_source_metadata,
         "verification": verification,
+        "update_quality": snapshot_update_quality(source_version.get("update_quality")),
         # True while the shipped snapshot is still the active one. ``is_bundled``
         # cannot answer this: the bundled database is copied into the writable data
         # directory on first start, so it stops being "bundled" by path long before

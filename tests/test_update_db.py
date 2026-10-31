@@ -151,7 +151,7 @@ class TestMicrosoftItemListings(unittest.TestCase):
         merged = update_db.merge_items(old, {}, {}, {"dandelion": "Dandelion", "white_wool": "White Wool"})
 
         self.assertEqual(merged["minecraft:dandelion"], ("Alter Löwenzahn", "Old Dandelion"))
-        self.assertEqual(merged["minecraft:white_wool"], ("White Wool", "White Wool"))
+        self.assertEqual(merged["minecraft:white_wool"], ("Weiße Wolle", "White Wool"))
 
     def test_normalized_microsoft_listing_cache_roundtrip(self):
         items = {f"test_item_{index}": f"Test Item {index}" for index in range(1_000)}
@@ -448,20 +448,6 @@ class TestMicrosoftItemListings(unittest.TestCase):
                     }
                 ),
             )
-            zf.writestr(
-                "behavior_pack/items/invalid_limits.json",
-                json.dumps(
-                    {
-                        "minecraft:item": {
-                            "description": {"identifier": "minecraft:invalid_limits"},
-                            "components": {
-                                "minecraft:durability": {"max_durability": True},
-                            },
-                        }
-                    }
-                ),
-            )
-
         with zipfile.ZipFile(io.BytesIO(buffer.getvalue())) as zf:
             stack_limits, durability = update_db.parse_json_item_component_limits(zf)
 
@@ -1293,6 +1279,10 @@ def test_runtime_network_probe_excludes_the_maintainer_only_wiki_host():
 @pytest.mark.parametrize("dry_run", [False, True])
 @pytest.mark.parametrize("blocked", [False, True])
 def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, tmp_path, capsys, dry_run, blocked):
+    monkeypatch.setattr(update_db, "ITEM_DB_PATH", tmp_path / "item_db.json")
+    monkeypatch.setattr(update_db, "SOURCE_VERSION_JSON", tmp_path / "source_version.json")
+    monkeypatch.setattr(update_db, "SOURCE_VERSION_HISTORY", tmp_path / "history.json")
+    update_db.ITEM_DB_PATH.write_text("{}", encoding="utf-8")
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     archive = cache_dir / "bedrock_resource_pack.zip"
@@ -1317,10 +1307,11 @@ def test_effects_only_update_can_commit_new_resource_pack_metadata(monkeypatch, 
     release = {
         "resource_pack_release": "new",
         "resource_pack_asset": "new.zip",
-        "resource_pack_asset_size": 2,
+        "resource_pack_asset_size": archive.stat().st_size,
         "resource_pack_url": "https://example.test/new.zip",
         "resource_pack_fetched_at": "now",
     }
+    (cache_dir / "release_metadata.json").write_text(json.dumps(release), encoding="utf-8")
     committed = mock.Mock()
     step = mock.Mock()
     validate_cached_archive = mock.Mock(wraps=update_db._validate_downloaded_zip)
@@ -1413,6 +1404,7 @@ def test_update_accepts_registry_additions_before_public_localizations(monkeypat
         "resource_pack_asset_size": archive.stat().st_size,
         "resource_pack_url": "https://github.com/Mojang/bedrock-samples/releases/download/v999.0.0/source.zip",
     }
+    (cache_dir / "release_metadata.json").write_text(json.dumps(release), encoding="utf-8")
     monkeypatch.setattr(update_db, "resolve_latest_rp", lambda _path: release)
     monkeypatch.setattr(
         update_db,
@@ -1542,23 +1534,28 @@ def test_full_update_verifies_only_complete_sources_and_valid_limits(monkeypatch
     monkeypatch.setattr(update_db, "show_diff", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(sys, "argv", ["update_db.py", "--cache", "--force"])
 
-    if invalid_member:
-        with pytest.raises(RuntimeError, match="unvollständig oder ungültig"):
-            update_db.main()
+    shared_failure = invalid_member and invalid_member.startswith("resource_pack/") and (replacement is None or replacement.startswith("#"))
+    registry_failure = (
+        invalid_member
+        and invalid_member.startswith("metadata/")
+        and (replacement is None or not all(entry.get("name") for entry in json.loads(replacement)["data_items"]) or '"data_items": []' in replacement)
+    )
+    if shared_failure:
+        assert update_db.main() == 1
         committed.assert_not_called()
         return
 
-    assert update_db.main() == (1 if invalid_limit else 0)
-    if invalid_limit:
-        committed.assert_not_called()
-        return
-
+    assert update_db.main() == (1 if invalid_limit or registry_failure else 0)
     committed.assert_called_once()
     kwargs = committed.call_args.kwargs
     assert kwargs["write_item_db"] is False
     assert kwargs["append_source_history"] is False
-    assert kwargs["verify_item_db"] is True
+    assert kwargs["verify_item_db"] is not bool(registry_failure or invalid_limit)
     assert kwargs["source_metadata"]["resource_pack_release"] == "current"
+    if registry_failure or invalid_limit:
+        assert any(section["status"] == "blocked" for section in kwargs["source_metadata"]["update_quality"]["sections"].values())
+    if invalid_limit:
+        assert kwargs["stack_limits"] == {}, "Rejected item candidates must never reach publication"
 
 
 @pytest.mark.parametrize("scope", ["items", "effects", "enchants"])
@@ -1570,8 +1567,7 @@ def test_source_validation_checks_only_requested_registry_and_locale_domains(sco
     }
     labels = {
         "items": "item.stone.name=Stone\n",
-        # The official v1.26.50.4 locales have no fatal_poison label. This
-        # explicit source exception must not require inventing a translation.
+        # Missing category labels do not invalidate otherwise sound sources.
         "effects": "potion.moveSpeed=Speed\n",
         "enchants": "enchantment.durability=Unbreaking\n",
     }

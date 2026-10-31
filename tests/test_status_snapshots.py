@@ -136,6 +136,29 @@ def test_item_db_status_snapshot_detects_the_initial_bundled_metadata_copy(tmp_p
     assert updated["matches_bundled_snapshot"] is False
 
 
+def test_status_preserves_partial_name_coverage_after_reload_without_certifying_it(tmp_path):
+    config = _config(tmp_path)
+    item_db = Path(config.item_db_path)
+    item_db.parent.mkdir(parents=True)
+    item_db.write_text("{}", encoding="utf-8")
+    quality = {
+        "schema": 1,
+        "sections": {
+            "effects": {
+                "status": "blocked",
+                "release": "previous",
+                "attempted_release": "latest",
+                "reason": "Unverified identity",
+                "locales": {"de": {"total": 1, "official": 0, "fallbacks": [{"id": "freezing", "source": "curated"}]}},
+            }
+        },
+    }
+    Path(config.source_version_path).write_text(json.dumps({"update_quality": quality}), encoding="utf-8")
+    result = status_snapshots.item_db_status_snapshot(config, SimpleNamespace(ITEM_DB_SOURCE_PATH=str(item_db)), tmp_path)
+    assert result["update_quality"] == quality
+    assert result["verification"]["verified"] is False
+
+
 def test_item_db_status_snapshot_binds_verification_to_database_and_source(tmp_path):
     config = _config(tmp_path)
     item_db = Path(config.item_db_path)

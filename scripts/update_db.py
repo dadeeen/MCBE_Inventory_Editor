@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    from mcbe_editor import item_db_transaction, item_db_verification
+    from mcbe_editor import item_db_transaction, item_db_verification, update_source_quality
     from mcbe_editor.item_name_policy import reviewed_item_label_repairs
     from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
     from mcbe_editor.numeric_catalog_policy import canonical_numeric_name, reconcile_numeric_catalog
@@ -46,6 +46,7 @@ def _load_runtime_dependencies():
         canonical_numeric_name,
         reconcile_numeric_catalog,
         report_http_errors,
+        update_source_quality,
     )
 
 
@@ -62,6 +63,7 @@ def _load_runtime_dependencies():
     canonical_numeric_name,
     reconcile_numeric_catalog,
     report_http_errors,
+    update_source_quality,
 ) = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
@@ -524,13 +526,11 @@ def _matching_cached_release(dest: Path, latest_info: dict) -> dict:
     cached_info = read_release_metadata()
     if not _same_resource_pack_release(cached_info, latest_info) or not dest.is_file():
         return {}
-    expected_size = _safe_int(cached_info.get("resource_pack_asset_size"), 0)
     try:
-        if dest.stat().st_size != expected_size:
-            return {}
+        item_db_verification.validate_resource_pack_archive(dest, cached_info)
         report_progress("cached")
         _validate_downloaded_zip(dest)
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, item_db_verification.UpdateReviewError):
         return {}
     return cached_info
 
@@ -971,12 +971,18 @@ def download_latest_rp(dest: Path, *, release_info: dict | None = None) -> dict:
             candidate,
             expected_size=_safe_int(info.get("resource_pack_asset_size"), 0) or None,
         )
+        info = {**info, "resource_pack_archive_sha256": item_db_verification.file_sha256(candidate)}
+        # Until both replacements finish, even equal-size archives must not be
+        # paired with metadata from an interrupted older generation.
+        pending = item_db_verification.resource_pack_pending_path(dest)
+        atomic_write_text(pending, "pending\n")
         if dest.exists():
             os.replace(dest, rollback)
             old_moved = True
         os.replace(candidate, dest)
         published = True
         write_release_metadata(info)
+        pending.unlink()
         if old_moved:
             with contextlib.suppress(OSError):
                 rollback.unlink()
@@ -1148,7 +1154,7 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
     """
 
     stack_limits: dict[str, int] = {}
-    seen_stack_limits: dict[str, int | None] = {}
+    seen_components: dict[str, dict] = {}
     durability: dict[str, int] = {}
     tracked: dict[str, dict[str, dict]] = {component: {} for component in TRACKED_ITEM_COMPONENTS}
     for info in sorted(zf.infolist(), key=lambda entry: entry.filename.replace("\\", "/").lower()):
@@ -1160,15 +1166,26 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
         except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
             raise RuntimeError(tr("Mojang-Itemdefinition ist ungültig: {member}: {error}", member=member, error=exc)) from exc
         item = payload.get("minecraft:item") if isinstance(payload, dict) else None
-        description = item.get("description") if isinstance(item, dict) else None
-        components = item.get("components") if isinstance(item, dict) else None
-        identifier = str(description.get("identifier", "") if isinstance(description, dict) else "").strip().lower()
+        if not isinstance(item, dict):
+            raise _component_error(member, "minecraft:item", tr("erwartet ein Objekt"))
+        description = item.get("description")
+        if not isinstance(description, dict):
+            raise _component_error(member, "minecraft:item.description", tr("erwartet ein Objekt"))
+        identifier = description.get("identifier")
+        if not isinstance(identifier, str):
+            raise _component_error(member, "minecraft:item.description.identifier", tr("erwartet eine gültige Vanilla-Item-ID"))
+        identifier = identifier.strip().lower()
         if identifier and not identifier.startswith("minecraft:"):
             identifier = f"minecraft:{identifier}"
-        if not re.fullmatch(r"minecraft:[a-z0-9_.-]+", identifier) or not isinstance(components, dict):
-            continue
+        if not re.fullmatch(r"minecraft:[a-z0-9_.-]+", identifier):
+            raise _component_error(member, "minecraft:item.description.identifier", tr("erwartet eine gültige Vanilla-Item-ID"))
+        # Vanilla definitions such as honeycomb legitimately omit components.
+        # A present, malformed value is damage, not evidence of their removal.
+        components = item.get("components", {})
+        if not isinstance(components, dict):
+            raise _component_error(member, "minecraft:item.components", tr("erwartet ein Objekt"))
 
-        raw_stack = None
+        normalized = {}
         if "minecraft:max_stack_size" in components:
             raw_stack = components["minecraft:max_stack_size"]
             # Both forms are documented by Mojang. An explicitly present empty
@@ -1180,15 +1197,16 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
                 raw_stack = raw_stack.get("value", 64)
             if type(raw_stack) is not int or not 1 <= raw_stack <= 127:
                 raise _component_error(member, "max_stack_size", tr("value muss eine Ganzzahl zwischen 1 und 127 sein"))
-            stack_limits[identifier] = raw_stack
-        if identifier in seen_stack_limits and seen_stack_limits[identifier] != raw_stack:
-            raise _component_error(member, "max_stack_size", tr("widersprüchliche Stacklimits für {id}", id=identifier))
-        seen_stack_limits[identifier] = raw_stack
+            normalized["max_stack_size"] = raw_stack
 
-        durability_component = components.get("minecraft:durability")
-        raw_durability = durability_component.get("max_durability") if isinstance(durability_component, dict) else None
-        if type(raw_durability) is int and 0 <= raw_durability <= 32767:
-            durability[identifier] = raw_durability
+        if "minecraft:durability" in components:
+            durability_component = components["minecraft:durability"]
+            if not isinstance(durability_component, dict):
+                raise _component_error(member, "minecraft:durability", tr("erwartet ein Objekt"))
+            raw_durability = durability_component.get("max_durability")
+            if type(raw_durability) is not int or not 0 <= raw_durability <= 32767:
+                raise _component_error(member, "minecraft:durability", tr("max_durability muss eine Ganzzahl zwischen 0 und 32767 sein"))
+            normalized["durability"] = raw_durability
 
         normalizers = {
             "enchantable": _normalize_enchantable_component,
@@ -1198,7 +1216,16 @@ def parse_json_item_components(zf: zipfile.ZipFile) -> tuple[dict[str, int], dic
         for component_name, normalizer in normalizers.items():
             namespaced_name = f"minecraft:{component_name}"
             if namespaced_name in components:
-                tracked[component_name][identifier] = normalizer(components[namespaced_name], member=member)
+                normalized[component_name] = normalizer(components[namespaced_name], member=member)
+
+        # A repeated identity must agree on every consumed fact, including its
+        # presence. Unknown components do not participate in this comparison.
+        if identifier in seen_components and seen_components[identifier] != normalized:
+            raise _component_error(member, "minecraft:item", tr("widersprüchliche Itemkomponenten für {id}", id=identifier))
+        seen_components[identifier] = normalized
+        for component_name, destination in {"max_stack_size": stack_limits, "durability": durability, **tracked}.items():
+            if component_name in normalized:
+                destination[identifier] = normalized[component_name]
 
     return (
         dict(sorted(stack_limits.items())),
@@ -1426,14 +1453,12 @@ def _serialization_lang_key(value: object) -> str:
     return _normalize_item_key(base)
 
 
-def validate_update_sources(zf: zipfile.ZipFile, scope: str | None) -> None:
-    """Reject missing source sections before an update can claim verification.
+def validate_update_sources(zf: zipfile.ZipFile, scope: str | None, *, allow_partial: bool = False) -> dict[str, str]:
+    """Validate shared language files and each requested structural registry.
 
-    A valid ZIP is not necessarily a usable Mojang snapshot. Empty registries
-    must not look like an intentional removal, and missing language files must
-    not silently turn a source check into a comparison against fallback names.
-    Effect and enchantment labels must cover their consumed registries in both
-    locales. Only registries consumed by the requested scope are required.
+    Missing category labels are display-quality information, not evidence of
+    invalid identifiers. Shared missing/unreadable language files still reject
+    the snapshot. Invalid registries block only the section that consumes them.
     """
     modules = {"items": ("items", "blocks"), "effects": ("effects",), "enchants": ("enchantments",)}
     registry_keys = {
@@ -1442,48 +1467,56 @@ def validate_update_sources(zf: zipfile.ZipFile, scope: str | None) -> None:
         "effects": ("name",),
         "enchantments": ("value", "name"),
     }
-    locale_parsers = {"items": _parse_lang_item_content, "effects": parse_lang_effects, "enchants": parse_lang_enchantments}
-    required_modules = modules[scope] if scope else tuple(module for group in modules.values() for module in group)
-    required_parsers = {scope: locale_parsers[scope]} if scope else locale_parsers
-    required_labels: dict[str, set[str]] = {}
     members = zf.namelist()
-    for member in (
-        *(f"metadata/vanilladata_modules/mojang-{module}.json" for module in required_modules),
-        "resource_pack/texts/en_US.lang",
-        "resource_pack/texts/de_DE.lang",
-    ):
+
+    for locale in ("en_US", "de_DE"):
+        member = f"resource_pack/texts/{locale}.lang"
         valid = False
         try:
             if members.count(member) == 1:
                 content = read_utf8(zf, member)
-                if member.endswith(".json"):
+                # A general language entry is enough: a valid Mojang language
+                # file can have no labels at all for the requested category.
+                entries = [line.strip() for line in content.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+                valid = (
+                    "\0" not in content
+                    and all(re.fullmatch(r"[A-Za-z0-9_.:/-]+\s*=.*", line) for line in entries)
+                    and any(re.fullmatch(r"[A-Za-z0-9_.:/-]+\s*=\s*\S.*", line) for line in entries)
+                )
+        except (KeyError, UnicodeDecodeError, zipfile.BadZipFile):
+            pass
+        if not valid:
+            raise RuntimeError(tr("Mojang-Quellen sind unvollständig oder ungültig: {member}.", member=member))
+
+    blocked = {}
+    for section in (scope,) if scope else modules:
+        for module in modules[section]:
+            member = f"metadata/vanilladata_modules/mojang-{module}.json"
+            valid = False
+            try:
+                if members.count(member) == 1:
+                    content = read_utf8(zf, member)
                     payload = json.loads(content)
                     entries = payload.get("data_items") if isinstance(payload, dict) else None
-                    module = Path(member).stem.removeprefix("mojang-")
                     keys = registry_keys[module]
                     valid = (
                         isinstance(entries, list)
                         and bool(entries)
-                        and all(isinstance(entry, dict) and any(isinstance(entry.get(key), str) and entry[key].strip() for key in keys) for entry in entries)
+                        and all(
+                            isinstance(entry, dict)
+                            and any(entry.get(key) for key in keys)
+                            and all(isinstance(entry[key], str) and re.fullmatch(r"(?:minecraft:)?[a-z0-9_./-]+", entry[key]) for key in keys if key in entry)
+                            for entry in entries
+                        )
                     )
-                    if valid and module == "effects":
-                        required_labels["effects"] = {_canonical_effect_identifier(entry["name"]) for entry in entries}
-                        # Mojang's v1.26.50.4 EN/DE locales omit fatal_poison.
-                        # This registry entry is the only known label exception.
-                        required_labels["effects"].discard("fatal_poison")
-                    elif valid and module == "enchantments":
-                        required_labels["enchants"] = {_canonical_enchantment_identifier(entry.get("value") or entry["name"]) for entry in entries}
-                else:
-                    valid = True
-                    for section, parser in required_parsers.items():
-                        labels = {identifier for identifier, value in parser(content).items() if value.strip()}
-                        if not labels or not required_labels.get(section, set()).issubset(labels):
-                            valid = False
-                            break
-        except (KeyError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
-            pass
-        if not valid:
-            raise RuntimeError(tr("Mojang-Quellen sind unvollständig oder ungültig: {member}.", member=member))
+            except (KeyError, UnicodeDecodeError, json.JSONDecodeError, RecursionError, zipfile.BadZipFile):
+                pass
+            if not valid:
+                if not allow_partial:
+                    raise RuntimeError(tr("Mojang-Quellen sind unvollständig oder ungültig: {member}.", member=member))
+                blocked[section] = tr("Mojang-Quellen sind unvollständig oder ungültig: {member}.", member=member)
+                break
+    return blocked
 
 
 def _vanilla_registry_ids(zf: zipfile.ZipFile, module: str) -> set[str]:
@@ -1633,12 +1666,13 @@ def _parse_lang_item_content(content: str) -> dict[str, str]:
 def parse_lang_item_localizations(en_path: Path, de_path: Path | None) -> dict[str, tuple[str, str]]:
     """Return full localization-key -> (German, English) pairs.
 
-    Only English keys are authoritative for matching. A missing German entry is
-    represented by an empty string so callers can conservatively skip it.
+    Each language is independent. Missing values stay empty so exact-key
+    resolution can use the available locale without inventing source coverage.
+    Cross-key label matching applies its own stricter ambiguity checks.
     """
     en_entries = _parse_lang_item_entries(en_path)
     de_entries = _parse_lang_item_entries(de_path)
-    return {key: (de_entries.get(key, ""), en_name) for key, en_name in en_entries.items()}
+    return {key: (de_entries.get(key, ""), en_entries.get(key, "")) for key in sorted(en_entries.keys() | de_entries.keys())}
 
 
 def parse_lang_items(en_path: Path, de_path: Path | None) -> tuple[dict[str, str], dict[str, str]]:
@@ -1650,7 +1684,10 @@ def parse_lang_items(en_path: Path, de_path: Path | None) -> tuple[dict[str, str
     for raw_id, (de_name, en_name) in localizations.items():
         if not direct_identifier.fullmatch(raw_id) or _is_non_item_lang_identifier(raw_id):
             continue
-        en_items[raw_id] = en_name
+        en_name = update_source_quality.usable_source_name(en_name)
+        de_name = update_source_quality.usable_source_name(de_name)
+        if en_name:
+            en_items[raw_id] = en_name
         if de_name:
             de_items[raw_id] = de_name
     return en_items, de_items
@@ -1671,15 +1708,19 @@ def build_item_localization_label_index(
     """
     grouped: dict[str, list[tuple[str, str, str]]] = {}
     for key, (de_name, en_name) in localizations.items():
-        label = _normalized_display_label(en_name)
-        if not label or not de_name or "%" in de_name or "%" in en_name:
+        english = update_source_quality.usable_source_name(en_name)
+        label = _normalized_display_label(english)
+        if not label:
             continue
-        grouped.setdefault(label, []).append((key, de_name.strip(), en_name.strip()))
+        # An untranslated competing key cannot establish that all uses of this
+        # English label have the same German meaning. Keep it as an ambiguity.
+        german = update_source_quality.usable_source_name(de_name)
+        grouped.setdefault(label, []).append((key, german, english))
 
     index: dict[str, tuple[str, str]] = {}
     for label, candidates in grouped.items():
         german_names = {_normalized_display_label(candidate[1]) for candidate in candidates}
-        if len(candidates) == 1 or len(german_names) == 1:
+        if "" not in german_names and len(german_names) == 1:
             _key, de_name, en_name = sorted(candidates, key=lambda candidate: candidate[0])[0]
             index[label] = (de_name, en_name)
     return index
@@ -1722,8 +1763,11 @@ def _localized_names_for_item_key(
 ) -> tuple[str, str] | None:
     for key in _derived_item_localization_keys(item_id):
         names = localizations.get(key)
-        if names and names[0] and "%" not in names[0] and "%" not in names[1]:
-            return names
+        if names:
+            de_name, en_name = names
+            usable = (update_source_quality.usable_source_name(de_name), update_source_quality.usable_source_name(en_name))
+            if any(usable):
+                return usable
     return None
 
 
@@ -1745,7 +1789,7 @@ def _base_name_for_variant_label(
     if _derived_item_localization_keys(item_id):
         return None
     base = localizations.get(item_id)
-    if not base or not base[0] or not base[1] or "%" in base[0] or "%" in base[1]:
+    if not base or not all(update_source_quality.usable_source_name(name) for name in base):
         return None
     base_de, base_en = (_normalized_display_label(value) for value in base)
     current_de, current_en = (_normalized_display_label(value) for value in current)
@@ -1755,7 +1799,10 @@ def _base_name_for_variant_label(
     variants = [
         (_normalized_display_label(de), _normalized_display_label(en))
         for key, (de, en) in localizations.items()
-        if key.startswith(prefix) and _normalized_display_label(en) != base_en
+        if key.startswith(prefix)
+        and update_source_quality.usable_source_name(de)
+        and update_source_quality.usable_source_name(en)
+        and _normalized_display_label(en) != base_en
     ]
     if len({en for _de, en in variants}) < 2:
         return None
@@ -1774,7 +1821,7 @@ def _candidate_item_keys(item_id: str, serialization_aliases: dict[str, str]) ->
 
 def _first_name(mapping: dict[str, str], keys: list[str]) -> str:
     for key in keys:
-        value = mapping.get(key)
+        value = update_source_quality.usable_source_name(mapping.get(key))
         if value:
             return value
     return ""
@@ -1790,6 +1837,8 @@ def _old_name_for_keys(old: dict[str, tuple[str, str]], keys: list[str]) -> tupl
 
 def _normalize_display_name(value: str, fallback: str) -> str:
     text = value or fallback
+    if text.startswith("minecraft:"):
+        return text
     text = text[0].upper() + text[1:] if text else fallback
     return text.replace("_", " ").replace("/", " ")
 
@@ -1807,44 +1856,54 @@ def _resolved_item_names(
     serialization_aliases: dict[str, str],
     item_localizations: dict[str, tuple[str, str]],
     localization_label_index: dict[str, tuple[str, str]],
-) -> tuple[str, str]:
+) -> tuple[tuple[str, str], dict[str, str], tuple[str, str]]:
+    """Resolve names and their provenance together for merging and reporting."""
     keys = _candidate_item_keys(item_id, serialization_aliases)
+    full_id = f"minecraft:{item_id}"
+    curated = _bundled_limits.get("items", {}).get(full_id, ("", ""))
+    previous = old.get(full_id, ("", ""))
     localized_names = _localized_names_for_item_key(item_id, item_localizations)
-    if item_id == "bed" and localized_names:
-        de_name, en_name = localized_names
-        return _normalize_display_name(de_name, en_name), _normalize_display_name(en_name, item_id)
 
     direct_en_name = _first_name(en_items, [item_id])
     old_alias_name = _old_name_for_keys(old, keys[1:])
     alias_en_name = _first_name(en_items, keys[1:])
     if not alias_en_name and old_alias_name:
         alias_en_name = old_alias_name[1]
-    canonical_en_name = direct_en_name or microsoft_items.get(item_id, "")
+    canonical_en_name = direct_en_name or _first_name(microsoft_items, [item_id])
     alias_matches_canonical = not canonical_en_name or (
         bool(alias_en_name) and _normalized_display_label(alias_en_name) == _normalized_display_label(canonical_en_name)
     )
 
-    en_name = direct_en_name
-    if not en_name and alias_matches_canonical:
-        en_name = alias_en_name
-    if not en_name:
-        en_name = microsoft_items.get(item_id) or _first_name(microsoft_items, keys[1:]) or _friendly_name_from_identifier(item_id)
-
-    de_name = _first_name(de_items, [item_id])
-    if not de_name and alias_matches_canonical:
-        de_name = _first_name(de_items, keys[1:])
-        if not de_name and old_alias_name:
-            de_name = old_alias_name[0]
-    if not de_name:
-        localized_names = _localized_names_for_item_key(item_id, item_localizations)
-        if not localized_names:
-            localized_names = localization_label_index.get(_normalized_display_label(en_name))
-        if localized_names:
-            de_name, localized_en_name = localized_names
-            en_name = en_name or localized_en_name
-    if not de_name:
-        de_name = en_name
-    return _normalize_display_name(de_name, en_name), _normalize_display_name(en_name, item_id)
+    official = {"de": _first_name(de_items, [item_id]), "en": direct_en_name}
+    existing = list(previous)
+    if alias_matches_canonical:
+        for index, (locale, mapping) in enumerate((("de", de_items), ("en", en_items))):
+            official[locale] = official[locale] or _first_name(mapping, keys[1:])
+            if not existing[index] and old_alias_name:
+                existing[index] = old_alias_name[index]
+    secondary = {"en": _first_name(microsoft_items, [item_id]) or (_first_name(microsoft_items, keys[1:]) if alias_matches_canonical else "")}
+    # A cross-key label bridge needs a current English source for this identity.
+    # Display fallbacks (including custom/curated names) are not identity evidence.
+    source_en_name = official["en"] or secondary["en"]
+    localized_names = localized_names or localization_label_index.get(_normalized_display_label(source_en_name))
+    if localized_names:
+        for index, locale in enumerate(("de", "en")):
+            official[locale] = official[locale] or localized_names[index]
+        if item_id == "bed":
+            # The canonical bed is the white data-value-zero variant. Resolve
+            # its two locales through the same fallback policy as other items;
+            # an absent counterpart is not an official source translation.
+            official = dict(zip(("de", "en"), localized_names, strict=True))
+    names, sources = update_source_quality.resolve_names(full_id, official, curated, existing, secondary)
+    names = (_normalize_display_name(names[0], names[1]), _normalize_display_name(names[1], full_id))
+    # Preserve the existing exact shipped-label migration even when a reviewed
+    # German fallback means the intermediate pair is no longer English-only.
+    if not official["de"]:
+        repaired = reviewed_item_label_repairs({full_id: (names[1], names[1])}, _bundled_limits.get("items", {})).get(full_id)
+        if repaired:
+            names = repaired
+            sources = ("curated", "curated")
+    return names, official, sources
 
 
 def merge_items(
@@ -1854,6 +1913,7 @@ def merge_items(
     microsoft_items: dict[str, str] | None = None,
     serialization_aliases: dict[str, str] | None = None,
     item_localizations: dict[str, tuple[str, str]] | None = None,
+    registry_ids: list[str] | None = None,
 ) -> dict[str, tuple[str, str]]:
     """Merge existing items + official item IDs.
 
@@ -1871,12 +1931,18 @@ def merge_items(
     serialization_aliases = serialization_aliases or {}
     item_localizations = item_localizations or {}
     localization_label_index = build_item_localization_label_index(item_localizations)
-    all_ids = sorted(set(en_items) | set(de_items) | set(microsoft_items) | set(serialization_aliases))
+    all_ids = sorted(
+        set(en_items)
+        | set(de_items)
+        | set(microsoft_items)
+        | set(serialization_aliases)
+        | {identifier.removeprefix("minecraft:") for identifier in registry_ids or ()}
+    )
     for item_id in all_ids:
         if is_non_item_lang_key_id(item_id):
             continue
         full_id = f"minecraft:{item_id}"
-        de_name, en_name = _resolved_item_names(
+        (de_name, en_name), _official, _sources = _resolved_item_names(
             item_id,
             old,
             en_items,
@@ -1886,7 +1952,9 @@ def merge_items(
             item_localizations,
             localization_label_index,
         )
-        if "%" in en_name or "%" in de_name:
+        # A validated identity is not a display name. New entries without any
+        # usable name keep the runtime fallback; existing entries stay intact.
+        if full_id not in merged and _sources == ("identifier", "identifier"):
             continue
         existing = merged.get(full_id)
         if existing:
@@ -1905,8 +1973,18 @@ def merge_items(
                 merged[full_id] = (de_name, en_name)
             elif base_name is not None:
                 merged[full_id] = base_name
-            elif _looks_like_fallback_name(old_de, old_en) and old_en == en_name and not _looks_like_fallback_name(de_name, en_name):
+            elif old_de == full_id or old_en == full_id:
+                # Exact technical placeholders are generated fallbacks, not a
+                # basis for preserving a missing translation indefinitely.
+                merged[full_id] = (de_name if old_de == full_id else old_de, en_name if old_en == full_id else old_en)
+            elif (
+                _looks_like_fallback_name(old_de, old_en)
+                and old_en in (en_name, microsoft_items.get(item_id))
+                and not _looks_like_fallback_name(de_name, en_name)
+            ):
                 merged[full_id] = (de_name, old_en or en_name)
+            elif old_de == old_en == de_name and de_name != en_name:
+                merged[full_id] = (old_de, en_name)
             continue
         merged[full_id] = (de_name, en_name)
     # Run after localization fallback resolution as well: a formerly English-only
@@ -1938,9 +2016,55 @@ def parse_lang_effects(content: str) -> dict[str, str]:
             continue
         json_name = EFFECT_LANG_TO_JSON.get(lang_name, lang_name)
         json_name = _canonical_effect_identifier(json_name)
-        if re.fullmatch(r"[a-z0-9_]+", json_name) and val.strip() and json_name not in result:
-            result[json_name] = val.strip()
+        name = update_source_quality.usable_source_name(val)
+        if re.fullmatch(r"[a-z0-9_]+", json_name) and name and json_name not in result:
+            result[json_name] = name
     return result
+
+
+def _numeric_label_inputs(identifier, numeric_id, old, bundled, numeric_ids, en_names, de_names):
+    facts = bundled.get(str(numeric_id), ())
+    curated = facts[:2] if len(facts) >= 2 and canonical_numeric_name(facts[1]) == identifier else ()
+    matches = [values[:2] for values in old.values() if any(canonical_numeric_name(name) == identifier for name in values[:2])]
+    existing = matches[0] if len(matches) == 1 else ()
+    if not existing and numeric_id in old:
+        candidate = old[numeric_id][:2]
+        # A custom label at the correct reviewed ID is safe to retain; a name
+        # identifying a different reviewed ID is not a fallback for this one.
+        recognized = {numeric_ids[key] for name in candidate if (key := canonical_numeric_name(name)) in numeric_ids}
+        if not recognized or recognized == {numeric_id}:
+            existing = candidate
+    official = {"de": _first_name(de_names, [identifier]), "en": _first_name(en_names, [identifier])}
+    return official, curated, existing
+
+
+def numeric_label_quality(old, merged, identifiers, numeric_ids, en_names, de_names, *, kind):
+    bundled = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))[kind]
+    canonical = _canonical_effect_identifier if kind == "effects" else _canonical_enchantment_identifier
+    records = []
+    for identifier in sorted({canonical(value) for value in identifiers}):
+        numeric_id = numeric_ids[identifier]
+        official, curated, existing = _numeric_label_inputs(identifier, numeric_id, old, bundled, numeric_ids, en_names, de_names)
+        names, sources = update_source_quality.resolve_names(f"minecraft:{identifier}", official, curated, existing)
+        actual = merged.get(numeric_id, names)
+        sources = tuple("existing" if actual[index] != names[index] else source for index, source in enumerate(sources))
+        records.append((f"minecraft:{identifier}", official, sources))
+    return update_source_quality.coverage(records)
+
+
+def item_label_quality(registry_ids, items, old, en_names, de_names, serialization_aliases, localizations, microsoft_items=None):
+    records = []
+    label_index = build_item_localization_label_index(localizations)
+    for full_id in sorted(set(registry_ids)):
+        identifier = full_id.removeprefix("minecraft:")
+        names, official, sources = _resolved_item_names(
+            identifier, old, en_names, de_names, microsoft_items or {}, serialization_aliases, localizations, label_index
+        )
+        actual = items.get(full_id)
+        if actual:
+            sources = tuple("existing" if actual[index] != names[index] else source for index, source in enumerate(sources))
+        records.append((full_id, official, sources))
+    return update_source_quality.coverage(records)
 
 
 def merge_effects(
@@ -1965,11 +2089,11 @@ def merge_effects(
     for json_id in json_ids:
         identifier = _canonical_effect_identifier(json_id)
         numeric_id = local_numeric_ids[identifier]
-        en_name = en_names.get(identifier, en_names.get(json_id, identifier.replace("_", " ").title()))
-        de_name = de_names.get(identifier, de_names.get(json_id, en_name))
+        official, curated, existing = _numeric_label_inputs(identifier, numeric_id, old, bundled, local_numeric_ids, en_names, de_names)
+        names, _sources = update_source_quality.resolve_names(f"minecraft:{identifier}", official, curated, existing)
         facts = bundled.get(str(numeric_id))
         descriptions = facts[2:] if facts and canonical_numeric_name(facts[1]) == identifier else ("", "")
-        reviewed[numeric_id] = (_cap(de_name), _cap(en_name), *descriptions)
+        reviewed[numeric_id] = (*names, *descriptions)
     return _reconcile_numeric(old, reviewed, identifiers, local_numeric_ids, kind="effects")
 
 
@@ -2020,8 +2144,9 @@ def parse_lang_enchantments(content: str) -> dict[str, str]:
         json_name = _canonical_enchantment_identifier(json_name)
         # Known dotted name aliases are mapped above; remaining dotted keys
         # contain levels, descriptions or other UI text, not registry IDs.
-        if re.fullmatch(r"[a-z0-9_]+", json_name) and val.strip() and json_name not in result:
-            result[json_name] = val.strip()
+        name = update_source_quality.usable_source_name(val)
+        if re.fullmatch(r"[a-z0-9_]+", json_name) and name and json_name not in result:
+            result[json_name] = name
     return result
 
 
@@ -2043,12 +2168,14 @@ def merge_enchantments(
         raise RuntimeError(tr("Lokale numerische IDs fehlen für neue Mojang-Verzauberungen: {identifiers}", identifiers=", ".join(missing_numeric_ids)))
 
     _validate_numeric_targets(mojang_identifiers, local_numeric_ids)
+    bundled = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))["enchantments"]
     reviewed = {}
     for json_name, _ in json_list:
         identifier = _canonical_enchantment_identifier(json_name)
-        en_name = en_names.get(identifier, en_names.get(json_name, identifier.replace("_", " ").title()))
-        de_name = de_names.get(identifier, de_names.get(json_name, en_name))
-        reviewed[local_numeric_ids[identifier]] = (_cap(de_name), _cap(en_name), local_max_levels[identifier], "")
+        numeric_id = local_numeric_ids[identifier]
+        official, curated, existing = _numeric_label_inputs(identifier, numeric_id, old, bundled, local_numeric_ids, en_names, de_names)
+        names, _sources = update_source_quality.resolve_names(f"minecraft:{identifier}", official, curated, existing)
+        reviewed[numeric_id] = (*names, local_max_levels[identifier], "")
     return _reconcile_numeric(old, reviewed, mojang_identifiers, local_numeric_ids, kind="enchantments")
 
 
@@ -2245,30 +2372,37 @@ def write_all_dicts(
     durability: dict[str, int] | None = None,
     item_components: dict[str, dict[str, dict]] | None = None,
     behavior_item_source: dict | None = None,
+    updated_sections: set[str] | None = None,
 ) -> None:
     data = _load_item_db_json()
+    selected = {"items", "effects", "enchants"} if updated_sections is None else updated_sections
     data["schema_version"] = 3
-    data.setdefault("defaults", {"max_damage": 1561, "max_data_value": 32767})["max_stack"] = 1
-    data.setdefault("stack_limits", {})
-    data.setdefault("durability", {})
-    data.setdefault("item_components", {component: {} for component in TRACKED_ITEM_COMPONENTS})
-    data["items"] = {key: [de, en] for key, (de, en) in sorted(items.items())}
-    data["effects"] = {str(key): [de, en, desc_de, desc_en] for key, (de, en, desc_de, desc_en) in sorted(effects.items())}
-    data["enchantments"] = {str(key): [de, en, int(level), desc] for key, (de, en, level, desc) in sorted(enchants.items())}
-    if block_only_items is not None:
-        data["block_only_items"] = sorted(block_only_items)
-    if block_items is not None:
-        data["block_items"] = sorted(block_items)
-    if addable_items is not None:
-        data["addable_items"] = sorted(addable_items)
-    if stack_limits is not None:
-        data["stack_limits"] = dict(sorted(stack_limits.items()))
-    if durability is not None:
-        data["durability"] = dict(sorted(durability.items()))
-    if item_components is not None:
-        data["item_components"] = {component: dict(sorted((item_components.get(component) or {}).items())) for component in TRACKED_ITEM_COMPONENTS}
-    if behavior_item_source is not None:
-        data["behavior_item_source"] = normalize_behavior_item_source(behavior_item_source)
+    # Preserve unselected and blocked sections directly from the old payload.
+    # Even normalizing their optional fields would publish an unreviewed change.
+    if "items" in selected:
+        data.setdefault("defaults", {"max_damage": 1561, "max_data_value": 32767})["max_stack"] = 1
+        data.setdefault("stack_limits", {})
+        data.setdefault("durability", {})
+        data.setdefault("item_components", {component: {} for component in TRACKED_ITEM_COMPONENTS})
+        data["items"] = {key: [de, en] for key, (de, en) in sorted(items.items())}
+        if block_only_items is not None:
+            data["block_only_items"] = sorted(block_only_items)
+        if block_items is not None:
+            data["block_items"] = sorted(block_items)
+        if addable_items is not None:
+            data["addable_items"] = sorted(addable_items)
+        if stack_limits is not None:
+            data["stack_limits"] = dict(sorted(stack_limits.items()))
+        if durability is not None:
+            data["durability"] = dict(sorted(durability.items()))
+        if item_components is not None:
+            data["item_components"] = {component: dict(sorted((item_components.get(component) or {}).items())) for component in TRACKED_ITEM_COMPONENTS}
+        if behavior_item_source is not None:
+            data["behavior_item_source"] = normalize_behavior_item_source(behavior_item_source)
+    if "effects" in selected:
+        data["effects"] = {str(key): [de, en, desc_de, desc_en] for key, (de, en, desc_de, desc_en) in sorted(effects.items())}
+    if "enchants" in selected:
+        data["enchantments"] = {str(key): [de, en, int(level), desc] for key, (de, en, level, desc) in sorted(enchants.items())}
     atomic_write_text(ITEM_DB_PATH, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
@@ -2420,6 +2554,7 @@ def commit_update_files(
     durability: dict[str, int] | None = None,
     item_components: dict[str, dict[str, dict]] | None = None,
     behavior_item_source: dict | None = None,
+    updated_sections: set[str] | None = None,
 ) -> None:
     """Commit item data and matching source metadata as one recoverable unit."""
 
@@ -2439,6 +2574,7 @@ def commit_update_files(
                 durability=durability,
                 item_components=item_components,
                 behavior_item_source=behavior_item_source,
+                updated_sections=updated_sections,
             )
         if source_metadata is not None:
             committed_metadata = source_metadata
@@ -2563,32 +2699,265 @@ def main() -> int:
         return _run_update(args)
 
 
+def _prepare_item_update(
+    zf,
+    en_lang,
+    de_lang,
+    *,
+    release_info,
+    reuse_cached,
+    old_items,
+    old_stack_limits,
+    old_durability,
+    old_item_components,
+    old_behavior_item_source,
+):
+    """Prepare one complete item section without changing the publishable state."""
+    from mcbe_editor.update_db_report import audit_items
+
+    final_items = old_items
+    final_stack_limits = old_stack_limits
+    final_durability = old_durability
+    final_item_components = old_item_components
+    final_behavior_item_source = old_behavior_item_source
+    final_block_only = final_block_items = final_addable_items = None
+    changes = []
+    sections = {}
+    step(tr("3/4 · Items verarbeiten"))
+    component_stack_limits, component_durability, new_item_components = parse_json_item_components(zf)
+    en_item_names, de_item_names = parse_lang_items(en_lang, de_lang) if en_lang else ({}, {})
+    item_localizations = parse_lang_item_localizations(en_lang, de_lang) if en_lang else {}
+    item_serialization_aliases = parse_json_item_serialization_aliases(zf)
+    microsoft_items, item_listing_snapshot = resolve_microsoft_item_listing_snapshot(reuse_cached=reuse_cached)
+    log(f"  {Colors.GREEN}{tr('Microsoft-Learn-Item-IDs: {count}', count=len(microsoft_items))}{Colors.END}")
+    log(f"  {Colors.GREEN}{tr('Vollständige Item-Lokalisierungen: {count}', count=len(item_localizations))}{Colors.END}")
+    if item_serialization_aliases:
+        log(f"  {Colors.GREEN}{tr('Mojang-Serialization-Aliasse: {count}', count=len(item_serialization_aliases))}{Colors.END}")
+    new_addable_items = compute_addable_item_ids(zf, old_items)
+    new_items = merge_items(
+        old_items,
+        en_item_names,
+        de_item_names,
+        microsoft_items,
+        item_serialization_aliases,
+        item_localizations,
+        new_addable_items,
+    )
+    new_items = complete_registry_names(new_items, new_addable_items, _bundled_limits.get("items", {}))
+    if show_diff("ITEMS", old_items, new_items):
+        changes.append("ITEMS")
+        final_items = format_items(new_items)
+    log(f"  {Colors.GREEN}{tr('Items: {old_count} -> {new_count}', old_count=len(old_items), new_count=len(new_items))}{Colors.END}")
+
+    new_block_only = compute_block_only_item_ids(zf, new_items)
+    old_block_only = read_block_only_item_ids()
+    if new_block_only and new_block_only != old_block_only:
+        show_diff("BLOCK_ONLY_ITEMS", dict.fromkeys(old_block_only, True), dict.fromkeys(new_block_only, True))
+        changes.append("BLOCK_ONLY_ITEMS")
+        final_block_only = new_block_only
+    message = tr(
+        "Block-only-IDs: {old_count} -> {new_count}",
+        old_count=len(old_block_only),
+        new_count=len(new_block_only),
+    )
+    log(f"  {Colors.GREEN}{message}{Colors.END}")
+
+    old_addable_items = read_addable_item_ids()
+    if new_addable_items and new_addable_items != old_addable_items:
+        show_diff("ADDABLE_ITEMS", dict.fromkeys(old_addable_items, True), dict.fromkeys(new_addable_items, True))
+        changes.append("ADDABLE_ITEMS")
+        final_addable_items = new_addable_items
+    message = tr(
+        "Neu hinzufügbar: {old_count} -> {new_count}",
+        old_count=len(old_addable_items),
+        new_count=len(new_addable_items),
+    )
+    log(f"  {Colors.GREEN}{message}{Colors.END}")
+
+    new_behavior_item_source = build_behavior_item_source(
+        release_info,
+        component_stack_limits,
+        component_durability,
+    )
+    new_stack_limits, new_durability = merge_item_limits(
+        old_stack_limits,
+        old_durability,
+        component_stack_limits,
+        component_durability,
+        previous_component_stack_items=set(old_behavior_item_source["stack_limit_items"]),
+        previous_component_durability_items=set(old_behavior_item_source["durability_items"]),
+    )
+    if new_stack_limits != old_stack_limits:
+        show_diff("STACK_LIMITS", old_stack_limits, new_stack_limits)
+        changes.append("STACK_LIMITS")
+        final_stack_limits = new_stack_limits
+    unverified_stack_count = len(set(new_addable_items) - set(new_stack_limits))
+    if unverified_stack_count:
+        log(
+            tr(
+                "Ungeprüfte Stacklimits: {count}. Neue Stapel dieser Items bleiben auf Menge 1 begrenzt.",
+                count=unverified_stack_count,
+            )
+        )
+    message = tr(
+        "Stack-Limits: {old_count} -> {new_count}",
+        old_count=len(old_stack_limits),
+        new_count=len(new_stack_limits),
+    )
+    log(f"  {Colors.GREEN}{message}{Colors.END}")
+
+    if new_durability != old_durability:
+        show_diff("DURABILITY", old_durability, new_durability)
+        changes.append("DURABILITY")
+        final_durability = new_durability
+    message = tr(
+        "Haltbarkeitswerte: {old_count} -> {new_count}",
+        old_count=len(old_durability),
+        new_count=len(new_durability),
+    )
+    log(f"  {Colors.GREEN}{message}{Colors.END}")
+
+    if new_item_components != old_item_components:
+        for component_name in TRACKED_ITEM_COMPONENTS:
+            old_values = old_item_components.get(component_name, {})
+            new_values = new_item_components.get(component_name, {})
+            if old_values != new_values:
+                show_diff(f"ITEM_COMPONENTS.{component_name}", old_values, new_values)
+        changes.append("ITEM_COMPONENTS")
+        final_item_components = new_item_components
+    component_counts = ", ".join(f"{component}={len(new_item_components.get(component, {}))}" for component in TRACKED_ITEM_COMPONENTS)
+    log(f"  {Colors.GREEN}{tr('Offizielle Item-Komponenten: {component_counts}', component_counts=component_counts)}{Colors.END}")
+    if new_behavior_item_source != old_behavior_item_source:
+        show_diff(
+            "BEHAVIOR_ITEM_SOURCE",
+            old_behavior_item_source,
+            new_behavior_item_source,
+        )
+        changes.append("BEHAVIOR_ITEM_SOURCE")
+        final_behavior_item_source = new_behavior_item_source
+
+    new_block_items = compute_block_item_ids(zf, new_items)
+    old_block_items = read_block_item_ids()
+    if new_block_items and new_block_items != old_block_items:
+        show_diff("BLOCK_ITEMS", dict.fromkeys(old_block_items, True), dict.fromkeys(new_block_items, True))
+        changes.append("BLOCK_ITEMS")
+        final_block_items = new_block_items
+    message = tr(
+        "Block-Item-IDs: {old_count} -> {new_count}",
+        old_count=len(old_block_items),
+        new_count=len(new_block_items),
+    )
+    log(f"  {Colors.GREEN}{message}{Colors.END}")
+
+    quality = item_label_quality(
+        new_addable_items, final_items, old_items, en_item_names, de_item_names, item_serialization_aliases, item_localizations, microsoft_items
+    )
+    sections.update(
+        {
+            "items": (old_items, final_items),
+            "stack_limits": (old_stack_limits, final_stack_limits),
+            "durability": (old_durability, final_durability),
+            "addable_items": (
+                dict.fromkeys(old_addable_items),
+                dict.fromkeys(final_addable_items if final_addable_items is not None else old_addable_items),
+            ),
+            "block_only_items": (
+                dict.fromkeys(old_block_only),
+                dict.fromkeys(final_block_only if final_block_only is not None else old_block_only),
+            ),
+            "block_items": (dict.fromkeys(old_block_items), dict.fromkeys(final_block_items if final_block_items is not None else old_block_items)),
+        }
+    )
+    for component in TRACKED_ITEM_COMPONENTS:
+        sections[component] = (old_item_components.get(component, {}), final_item_components.get(component, {}))
+    audit = audit_items(
+        final_items,
+        new_addable_items,
+        final_stack_limits,
+        final_durability,
+        {
+            "de": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in de_item_names.items()},
+            "en": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in en_item_names.items()},
+        },
+        {"stack_limits": component_stack_limits, "durability": component_durability},
+        {"stack_limits": CURATED_ENGINE_STACK_LIMITS, "durability": CURATED_ENGINE_DURABILITY},
+    )
+    log(tr("Automatischer Abgleich: {count} Katalogeinträge geprüft.", count=audit["checked_items"]))
+    for issue in audit["issues"]:
+        log(f"  {issue['code']} ({issue['count']}): {', '.join(issue['items'])}")
+    return {
+        "items": final_items,
+        "stack_limits": final_stack_limits,
+        "durability": final_durability,
+        "item_components": final_item_components,
+        "behavior_item_source": final_behavior_item_source,
+        "block_only_items": final_block_only,
+        "block_items": final_block_items,
+        "addable_items": final_addable_items,
+        "listing": item_listing_snapshot,
+        "quality": quality,
+        "audit": audit,
+        "sections": sections,
+        "changes": changes,
+    }
+
+
 def _run_update(args) -> int:
-    from mcbe_editor.update_db_report import REPORT_PREFIX, audit_items, build_report
+    from mcbe_editor.update_db_report import REPORT_PREFIX, build_report, snapshot_update_quality
+
+    # Recover the complete generation before reading any of its base state.
+    item_db_transaction.recover_item_db(item_db_transaction.configured_targets(ITEM_DB_PATH, SOURCE_VERSION_JSON, SOURCE_VERSION_HISTORY))
+    ensure_data_paths()
+    review_paths = {
+        "update_cache_dir": CACHE_DIR,
+        "item_db_path": ITEM_DB_PATH,
+        "source_version_path": SOURCE_VERSION_JSON,
+        "source_version_history_path": SOURCE_VERSION_HISTORY,
+        "scope": args.only,
+    }
+    if args.dry_run:
+        # A failed or interrupted preview must never reuse an earlier plan.
+        (CACHE_DIR / item_db_verification.UPDATE_REVIEW_PLAN_FILENAME).unlink(missing_ok=True)
+    reviewed_blocks = {}
+    old_version = read_source_version()
+    previous_quality = snapshot_update_quality(old_version.get("update_quality"))
+    requested = (args.only,) if args.only else ("items", "effects", "enchants")
+    section_labels = {"items": "ITEMS", "effects": "EFFECTS", "enchants": "ENCHANTMENTS"}
+
+    def reject_source(reason: str, release: str | None = None) -> int:
+        blocked = [(section_labels[section], reason) for section in requested]
+        quality = update_source_quality.merge_quality(previous_quality, release, requested, {}, dict.fromkeys(requested, reason))
+        report = build_report(
+            scope=args.only,
+            release=release,
+            previous_release=old_version.get("resource_pack_release"),
+            sections={},
+            metadata_changed=False,
+            audit=None,
+            blocked=blocked,
+            quality=quality,
+        )
+        if args.json_summary:
+            print(REPORT_PREFIX + json.dumps(report, ensure_ascii=True))
+        log(reason)
+        return 1
 
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
     log(f"{Colors.BOLD}  {tr('Minecraft Bedrock Item-DB-Updater (Items + Effekte + Verzauberungen)')}{Colors.END}")
     log(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
 
-    item_db_transaction.recover_item_db(item_db_transaction.configured_targets(ITEM_DB_PATH, SOURCE_VERSION_JSON, SOURCE_VERSION_HISTORY))
-    ensure_data_paths()
     report_progress("checking")
     log(f"  Item-DB: {ITEM_DB_PATH}", Colors.DIM)
     log(f"  Cache:   {CACHE_DIR}", Colors.DIM)
 
     if args.expected_review_token:
         try:
-            current_review = item_db_verification.update_review_snapshot(
-                update_cache_dir=CACHE_DIR,
-                item_db_path=ITEM_DB_PATH,
-                source_version_path=SOURCE_VERSION_JSON,
-                source_version_history_path=SOURCE_VERSION_HISTORY,
-                scope=args.only,
-            )
+            current_review = item_db_verification.update_review_snapshot(**review_paths)
         except item_db_verification.UpdateReviewError as exc:
             raise RuntimeError(tr("Der Dry-Run-Prüfbeleg kann nicht validiert werden: {error}", error=exc)) from exc
         if not hmac.compare_digest(args.expected_review_token, current_review["token"]):
             raise RuntimeError(tr("Die geprüften Dry-Run-Eingaben haben sich geändert. Bitte den Dry-Run erneut ausführen."))
+        reviewed_blocks = current_review["blocked_sections"]
         log(f"  {Colors.GREEN}{tr('Dry-Run-Prüfbeleg validiert ({scope})', scope=current_review['scope'])}{Colors.END}")
 
     step(tr("1/4  Resource Pack herunterladen"))
@@ -2598,10 +2967,14 @@ def _run_update(args) -> int:
         if not rp_zip.exists():
             raise RuntimeError(tr("Kein gecachtes Resource-Pack für die erneute Verarbeitung vorhanden."))
         report_progress("cached")
-        _validate_downloaded_zip(rp_zip)
         release_info = read_release_metadata()
         if not release_info:
             raise RuntimeError(tr("Die Metadaten des gecachten Resource-Packs fehlen oder sind ungültig."))
+        try:
+            item_db_verification.validate_resource_pack_archive(rp_zip, release_info)
+            _validate_downloaded_zip(rp_zip)
+        except (RuntimeError, item_db_verification.UpdateReviewError) as exc:
+            return reject_source(str(exc), release_info.get("resource_pack_release"))
         message = tr(
             "Verwende gecachtes Release ohne Online-Versionsprüfung: {release}",
             release=release_info["resource_pack_release"],
@@ -2609,6 +2982,17 @@ def _run_update(args) -> int:
         log(f"  {Colors.YELLOW}{message}{Colors.END}")
     else:
         release_info = resolve_latest_rp(rp_zip)
+
+    try:
+        with open_zip(rp_zip) as source:
+            source_blocks = validate_update_sources(source, args.only, allow_partial=True)
+        # Replaying a preview cannot promote a blocked section merely because
+        # an unused older cache happens to be readable during this apply.
+        source_blocks.update(reviewed_blocks)
+    except RuntimeError as exc:
+        return reject_source(str(exc), release_info.get("resource_pack_release"))
+    except (OSError, zipfile.BadZipFile):
+        return reject_source(tr("Resource-Pack-Download ist keine gültige ZIP-Datei."), release_info.get("resource_pack_release"))
 
     step(tr("2/4  Daten extrahieren und parsen"))
     report_progress("processing")
@@ -2628,19 +3012,18 @@ def _run_update(args) -> int:
     final_block_items: list[str] | None = None
     final_addable_items: list[str] | None = None
     changes: list[str] = []
-    blocked_sections: list[tuple[str, str]] = []
+    blocked_sections: list[tuple[str, str]] = [(section_labels[section], reason) for section, reason in source_blocks.items()]
+    checked_quality: dict = {}
     pending_source_version: dict | None = None
     audit = None
     sections = {}
 
     en_content = de_content = ""
     en_lang = de_lang = None
-    microsoft_items: dict[str, str] = {}
     item_listing_snapshot: dict | None = None
     wiki_snapshot: dict | None = None
 
     with open_zip(rp_zip) as zf:
-        validate_update_sources(zf, args.only)
         # Extract .lang files to temp
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -2656,164 +3039,43 @@ def _run_update(args) -> int:
             en_content = en_lang.read_text(encoding="utf-8-sig") if en_lang else ""
             de_content = de_lang.read_text(encoding="utf-8-sig") if de_lang else ""
 
-            # ── ITEMS ──
-            if not args.only or args.only == "items":
-                step(tr("3/4 · Items verarbeiten"))
-                en_item_names, de_item_names = parse_lang_items(en_lang, de_lang) if en_lang else ({}, {})
-                item_localizations = parse_lang_item_localizations(en_lang, de_lang) if en_lang else {}
-                item_serialization_aliases = parse_json_item_serialization_aliases(zf)
-                microsoft_items, item_listing_snapshot = resolve_microsoft_item_listing_snapshot(reuse_cached=args.cache)
-                log(f"  {Colors.GREEN}{tr('Microsoft-Learn-Item-IDs: {count}', count=len(microsoft_items))}{Colors.END}")
-                log(f"  {Colors.GREEN}{tr('Vollständige Item-Lokalisierungen: {count}', count=len(item_localizations))}{Colors.END}")
-                if item_serialization_aliases:
-                    log(f"  {Colors.GREEN}{tr('Mojang-Serialization-Aliasse: {count}', count=len(item_serialization_aliases))}{Colors.END}")
-                new_items = merge_items(
-                    old_items,
-                    en_item_names,
-                    de_item_names,
-                    microsoft_items,
-                    item_serialization_aliases,
-                    item_localizations,
-                )
-                new_items = complete_registry_names(new_items, compute_addable_item_ids(zf, new_items), _bundled_limits.get("items", {}))
-                if show_diff("ITEMS", old_items, new_items):
-                    changes.append("ITEMS")
-                    final_items = format_items(new_items)
-                log(f"  {Colors.GREEN}{tr('Items: {old_count} -> {new_count}', old_count=len(old_items), new_count=len(new_items))}{Colors.END}")
-
-                new_block_only = compute_block_only_item_ids(zf, new_items)
-                old_block_only = read_block_only_item_ids()
-                if new_block_only and new_block_only != old_block_only:
-                    show_diff("BLOCK_ONLY_ITEMS", dict.fromkeys(old_block_only, True), dict.fromkeys(new_block_only, True))
-                    changes.append("BLOCK_ONLY_ITEMS")
-                    final_block_only = new_block_only
-                message = tr(
-                    "Block-only-IDs: {old_count} -> {new_count}",
-                    old_count=len(old_block_only),
-                    new_count=len(new_block_only),
-                )
-                log(f"  {Colors.GREEN}{message}{Colors.END}")
-
-                new_addable_items = compute_addable_item_ids(zf, new_items)
-                old_addable_items = read_addable_item_ids()
-                if new_addable_items and new_addable_items != old_addable_items:
-                    show_diff("ADDABLE_ITEMS", dict.fromkeys(old_addable_items, True), dict.fromkeys(new_addable_items, True))
-                    changes.append("ADDABLE_ITEMS")
-                    final_addable_items = new_addable_items
-                message = tr(
-                    "Neu hinzufügbar: {old_count} -> {new_count}",
-                    old_count=len(old_addable_items),
-                    new_count=len(new_addable_items),
-                )
-                log(f"  {Colors.GREEN}{message}{Colors.END}")
-
-                component_stack_limits, component_durability, new_item_components = parse_json_item_components(zf)
-                new_behavior_item_source = build_behavior_item_source(
-                    release_info,
-                    component_stack_limits,
-                    component_durability,
-                )
-                new_stack_limits, new_durability = merge_item_limits(
-                    old_stack_limits,
-                    old_durability,
-                    component_stack_limits,
-                    component_durability,
-                    previous_component_stack_items=set(old_behavior_item_source["stack_limit_items"]),
-                    previous_component_durability_items=set(old_behavior_item_source["durability_items"]),
-                )
-                if new_stack_limits != old_stack_limits:
-                    show_diff("STACK_LIMITS", old_stack_limits, new_stack_limits)
-                    changes.append("STACK_LIMITS")
-                    final_stack_limits = new_stack_limits
-                unverified_stack_count = len(set(new_addable_items) - set(new_stack_limits))
-                if unverified_stack_count:
-                    log(
-                        tr(
-                            "Ungeprüfte Stacklimits: {count}. Neue Stapel dieser Items bleiben auf Menge 1 begrenzt.",
-                            count=unverified_stack_count,
-                        )
+            # A section becomes publishable only after every part validates.
+            if "items" in requested and "items" not in source_blocks:
+                try:
+                    prepared = _prepare_item_update(
+                        zf,
+                        en_lang,
+                        de_lang,
+                        release_info=release_info,
+                        reuse_cached=args.cache,
+                        old_items=old_items,
+                        old_stack_limits=old_stack_limits,
+                        old_durability=old_durability,
+                        old_item_components=old_item_components,
+                        old_behavior_item_source=old_behavior_item_source,
                     )
-                message = tr(
-                    "Stack-Limits: {old_count} -> {new_count}",
-                    old_count=len(old_stack_limits),
-                    new_count=len(new_stack_limits),
-                )
-                log(f"  {Colors.GREEN}{message}{Colors.END}")
+                    audit = prepared["audit"]
+                    if any(issue["severity"] == "error" for issue in audit["issues"]):
+                        raise RuntimeError(tr("Der Item-Abgleich enthält ungültige Daten. Der Item-Bereich bleibt unverändert."))
+                except RuntimeError as exc:
+                    source_blocks["items"] = str(exc)
+                    blocked_sections.append(("ITEMS", str(exc)))
+                    log(f"  {Colors.RED}{tr('ITEMS übersprungen: {error}', error=exc)}{Colors.END}")
+                else:
+                    final_items = prepared["items"]
+                    final_stack_limits = prepared["stack_limits"]
+                    final_durability = prepared["durability"]
+                    final_item_components = prepared["item_components"]
+                    final_behavior_item_source = prepared["behavior_item_source"]
+                    final_block_only = prepared["block_only_items"]
+                    final_block_items = prepared["block_items"]
+                    final_addable_items = prepared["addable_items"]
+                    item_listing_snapshot = prepared["listing"]
+                    checked_quality["items"] = prepared["quality"]
+                    sections.update(prepared["sections"])
+                    changes.extend(prepared["changes"])
 
-                if new_durability != old_durability:
-                    show_diff("DURABILITY", old_durability, new_durability)
-                    changes.append("DURABILITY")
-                    final_durability = new_durability
-                message = tr(
-                    "Haltbarkeitswerte: {old_count} -> {new_count}",
-                    old_count=len(old_durability),
-                    new_count=len(new_durability),
-                )
-                log(f"  {Colors.GREEN}{message}{Colors.END}")
-
-                if new_item_components != old_item_components:
-                    for component_name in TRACKED_ITEM_COMPONENTS:
-                        old_values = old_item_components.get(component_name, {})
-                        new_values = new_item_components.get(component_name, {})
-                        if old_values != new_values:
-                            show_diff(f"ITEM_COMPONENTS.{component_name}", old_values, new_values)
-                    changes.append("ITEM_COMPONENTS")
-                    final_item_components = new_item_components
-                component_counts = ", ".join(f"{component}={len(new_item_components.get(component, {}))}" for component in TRACKED_ITEM_COMPONENTS)
-                log(f"  {Colors.GREEN}{tr('Offizielle Item-Komponenten: {component_counts}', component_counts=component_counts)}{Colors.END}")
-                if new_behavior_item_source != old_behavior_item_source:
-                    show_diff(
-                        "BEHAVIOR_ITEM_SOURCE",
-                        old_behavior_item_source,
-                        new_behavior_item_source,
-                    )
-                    changes.append("BEHAVIOR_ITEM_SOURCE")
-                    final_behavior_item_source = new_behavior_item_source
-
-                new_block_items = compute_block_item_ids(zf, new_items)
-                old_block_items = read_block_item_ids()
-                if new_block_items and new_block_items != old_block_items:
-                    show_diff("BLOCK_ITEMS", dict.fromkeys(old_block_items, True), dict.fromkeys(new_block_items, True))
-                    changes.append("BLOCK_ITEMS")
-                    final_block_items = new_block_items
-                message = tr(
-                    "Block-Item-IDs: {old_count} -> {new_count}",
-                    old_count=len(old_block_items),
-                    new_count=len(new_block_items),
-                )
-                log(f"  {Colors.GREEN}{message}{Colors.END}")
-
-            # ── EFFECTS ──
-            if not args.only or args.only == "items":
-                sections.update(
-                    {
-                        "items": (old_items, final_items),
-                        "stack_limits": (old_stack_limits, final_stack_limits),
-                        "durability": (old_durability, final_durability),
-                        "addable_items": (dict.fromkeys(old_addable_items), dict.fromkeys(new_addable_items)),
-                        "block_only_items": (dict.fromkeys(old_block_only), dict.fromkeys(new_block_only)),
-                        "block_items": (dict.fromkeys(old_block_items), dict.fromkeys(new_block_items)),
-                    }
-                )
-                for component in TRACKED_ITEM_COMPONENTS:
-                    sections[component] = (old_item_components.get(component, {}), final_item_components.get(component, {}))
-                audit = audit_items(
-                    final_items,
-                    new_addable_items,
-                    final_stack_limits,
-                    final_durability,
-                    {
-                        "de": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in de_item_names.items()},
-                        "en": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in en_item_names.items()},
-                    },
-                    {"stack_limits": component_stack_limits, "durability": component_durability},
-                    {"stack_limits": CURATED_ENGINE_STACK_LIMITS, "durability": CURATED_ENGINE_DURABILITY},
-                )
-                log(tr("Automatischer Abgleich: {count} Katalogeinträge geprüft.", count=audit["checked_items"]))
-                for issue in audit["issues"]:
-                    log(f"  {issue['code']} ({issue['count']}): {', '.join(issue['items'])}")
-
-            if not args.only or args.only == "effects":
+            if "effects" in requested and "effects" not in source_blocks:
                 step(tr("3/4 · Effekte verarbeiten"))
                 # Fehlen geprüfte numerische IDs, bleibt der Abschnitt bewusst
                 # ungeschrieben — geraten wird hier nicht. Items, Blocklisten und
@@ -2835,13 +3097,16 @@ def _run_update(args) -> int:
                     blocked_sections.append(("EFFECTS", str(exc)))
                     log(f"  {Colors.RED}{tr('EFFECTS übersprungen: {error}', error=exc)}{Colors.END}")
                 else:
+                    checked_quality["effects"] = numeric_label_quality(
+                        old_effects, new_effects, json_effects, local_effect_numeric_ids, en_eff_names, de_eff_names, kind="effects"
+                    )
                     if show_diff("EFFECTS", old_effects, new_effects):
                         changes.append("EFFECTS")
                         final_effects = format_effects(new_effects)
                     log(f"  {Colors.GREEN}{tr('Effekte: {old_count} -> {new_count}', old_count=len(old_effects), new_count=len(new_effects))}{Colors.END}")
 
         # ── ENCHANTMENTS ── (zip still open, tmp dir closed — content strings remain)
-        if not args.only or args.only == "enchants":
+        if "enchants" in requested and "enchants" not in source_blocks:
             step(tr("3/4 · Verzauberungen verarbeiten"))
             # Gleiche Begründung wie bei den Effekten: fehlende geprüfte IDs
             # blockieren nur diesen Abschnitt, nicht den gesamten Lauf.
@@ -2870,12 +3135,16 @@ def _run_update(args) -> int:
                 blocked_sections.append(("ENCHANTMENTS", str(exc)))
                 log(f"  {Colors.RED}{tr('ENCHANTMENTS übersprungen: {error}', error=exc)}{Colors.END}")
             else:
+                checked_quality["enchants"] = numeric_label_quality(
+                    old_enchants, new_enchants, [name for name, _level in json_enchants], local_numeric_ids, en_ench_names, de_ench_names, kind="enchantments"
+                )
                 if show_diff("ENCHANTMENTS", old_enchants, new_enchants):
                     changes.append("ENCHANTMENTS")
                     final_enchants = format_enchantments(new_enchants)
                 log(f"  {Colors.GREEN}{tr('Verzauberungen: {old_count} -> {new_count}', old_count=len(old_enchants), new_count=len(new_enchants))}{Colors.END}")
 
-    old_version = read_source_version()
+    if "items" in source_blocks:
+        sections["items"] = (old_items, old_items)
     if not args.only or args.only == "effects":
         sections["effects"] = (old_effects, final_effects)
     if not args.only or args.only == "enchants":
@@ -2886,32 +3155,45 @@ def _run_update(args) -> int:
         wiki_snapshot=wiki_snapshot,
         item_listing_snapshot=item_listing_snapshot,
     )
+    blocked_by_section = {section: reason for label, reason in blocked_sections for section in requested if section_labels[section] == label}
+    quality = update_source_quality.merge_quality(previous_quality, release_info.get("resource_pack_release"), requested, checked_quality, blocked_by_section)
+    new_version["update_quality"] = quality
+    quality_changed = old_version.get("update_quality") != quality
+    verification_eligible = args.only is None and not blocked_sections
     source_identity_changed = source_identity_from_metadata(old_version) != source_identity_from_metadata(new_version)
+    receipt_removed = (
+        not verification_eligible
+        and item_db_verification.VERIFICATION_FIELD in old_version
+        and (bool(changes) or source_identity_changed or quality_changed or bool(blocked_sections))
+    )
     report = build_report(
         scope=args.only,
         release=release_info.get("resource_pack_release"),
         previous_release=old_version.get("resource_pack_release"),
         sections=sections,
-        metadata_changed=source_identity_changed or old_behavior_item_source != final_behavior_item_source,
+        metadata_changed=source_identity_changed or quality_changed or receipt_removed or old_behavior_item_source != final_behavior_item_source,
         audit=audit,
         blocked=blocked_sections,
+        quality=quality,
     )
     if args.json_summary:
         print(REPORT_PREFIX + json.dumps(report, ensure_ascii=True))
-    if audit and any(issue["severity"] == "error" for issue in audit["issues"]):
-        log(tr("Abgleich fehlgeschlagen. Keine Änderungen geschrieben."))
-        return 1
-    verification_eligible = args.only is None and not blocked_sections
     if source_identity_changed:
         show_diff("SOURCE_VERSION", old_version, new_version)
-    if source_identity_changed or verification_eligible:
+    if source_identity_changed or quality_changed or receipt_removed or verification_eligible:
         pending_source_version = dict(new_version)
         if not verification_eligible:
             pending_source_version.pop(item_db_verification.VERIFICATION_FIELD, None)
 
+    if args.dry_run and checked_quality:
+        try:
+            item_db_verification.record_update_review_plan(blocked=blocked_by_section, **review_paths)
+        except (OSError, item_db_verification.UpdateReviewError) as exc:
+            raise RuntimeError(tr("Der Dry-Run-Prüfplan konnte nicht sicher gespeichert werden. Bitte die Prüfung erneut ausführen.")) from exc
+
     step(tr("4/4  Prüfung abschließen") if args.dry_run else tr("4/4  Änderungen schreiben"))
     report_progress("finalizing")
-    if not changes and not source_identity_changed:
+    if not changes and not source_identity_changed and not quality_changed and not receipt_removed:
         log(f"  {Colors.GREEN}{tr('Alles aktuell, keine Änderungen.')}{Colors.END}")
         if args.dry_run or not verification_eligible:
             return report_blocked_sections(blocked_sections)
@@ -2944,6 +3226,7 @@ def _run_update(args) -> int:
         durability=final_durability,
         item_components=final_item_components,
         behavior_item_source=final_behavior_item_source,
+        updated_sections=set(checked_quality),
     )
     # Publish the confirmed outcome after the atomic write, including partial
     # updates whose skipped sections still produce a nonzero exit code.

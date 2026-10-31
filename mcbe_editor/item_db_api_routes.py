@@ -14,7 +14,7 @@ from . import item_db_verification
 from .i18n import t
 from .item_db_transaction import ItemDbRecoveryError
 from .service_errors import public_error_text
-from .update_db_report import extract_report
+from .update_db_report import extract_report, update_outcome
 from .update_http_errors import extract_http_failure, failure_fields
 from .update_script_runner import ItemDbUpdateInterruptedError
 
@@ -129,8 +129,13 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
         }
         if report:
             result["summary"] = report
-        resolved_review = update_review_snapshot(deps, only) if returncode == 0 else {}
-        if dry_run and returncode == 0 and resolved_review:
+        # A partial preview can still bind the safe sections to the exact inputs
+        # the user reviewed. This receipt does not certify a complete catalog.
+        reviewable_partial = bool(
+            dry_run and returncode == 1 and report and report.get("blocked") and report.get("sections") and not interruption and not http_failure
+        )
+        resolved_review = update_review_snapshot(deps, only) if dry_run and (returncode == 0 or reviewable_partial) else {}
+        if dry_run and resolved_review:
             result.update(
                 {
                     "update_review_token": resolved_review["token"],
@@ -204,7 +209,7 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                 "force": force,
                 "only": only or "all",
                 "release_mode": "reviewed-cache" if use_cache else "latest",
-                "resource_pack_release": resolved_review.get("resource_pack_release"),
+                "resource_pack_release": resolved_review.get("resource_pack_release") or (report or {}).get("release"),
                 "returncode": result["returncode"],
                 "category": category,
                 "update_committed": update_committed,
@@ -231,6 +236,15 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
             # After applying, use the reloaded status so a failed reload stays unverified.
             status = deps.item_db_status_snapshot() if dry_run else result.get("item_db", {})
             result["verification_required"] = status.get("verification", {}).get("verified") is not True
+
+        result["outcome"] = update_outcome(success=result["success"], committed=update_committed, report=report)
+        if report and report.get("blocked") and not interruption and not http_failure and not receipt_failed:
+            result["error"] = t(
+                "Die Item-Datenbank wurde teilweise aktualisiert. Nicht prüfbare Bereiche bleiben unverändert."
+                if result["outcome"] == "partial"
+                else "Die Item-Datenbank wurde nicht geändert. Die angeforderten Quelldaten konnten nicht vollständig geprüft werden."
+            )
+            result["hint"] = t("Die Hinweise nennen die betroffenen Bereiche und die jeweilige Ursache.")
 
         return deps.jsonify(result)
     except ValueError as exc:
