@@ -170,6 +170,9 @@ export async function openAppWithSmokeWorldScan(page, baseURL = NORMAL_BASE_URL)
 
 export async function openDragFixture(page, overrides = {}, players = null) {
   const player = { player_key: "drag-player", label: "Drag Test", editable: true, exportable: true, has_inventory_tag: true, has_ender_chest_tag: true };
+  // Synthetic editor flows must not register sessions on the shared server.
+  // Page routes take precedence, preserving explicit presence scenarios.
+  await page.context().route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
   await page.route("**/api/icons/scan", route => route.fulfill({ json: { success: true, icons: {}, count: 0 } }));
   await page.route("**/api/heartbeat", route => route.fulfill({ json: { success: true, other_sessions: [] } }));
   await page.route("**/api/players", route => route.fulfill({ json: { success: true, world_name: "Drag Test World", players: players || [player] } }));
@@ -192,6 +195,7 @@ export async function openDragFixture(page, overrides = {}, players = null) {
   await page.locator(".world-card").click();
   await page.locator("#btnLoad").click();
   await expect(page.locator("#inventoryContainer")).toBeVisible();
+  await expect(page.locator("#loadingOverlay")).toBeHidden();
 }
 
 export async function openChangeHistory(page) {
