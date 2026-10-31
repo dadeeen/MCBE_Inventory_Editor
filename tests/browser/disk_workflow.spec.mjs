@@ -61,12 +61,15 @@ test("real browser authenticates, saves with backup, rejects stale/CSRF writes a
   await expect(page.locator("#worldSection")).toBeVisible();
   expect(await page.locator('meta[name="csrf-token"]').getAttribute("content")).not.toBe(loginCsrf);
   await page.locator(".world-card").filter({ hasText: "Synthetic Browser World" }).click();
-  const loadedPromise = page.waitForResponse(response => response.url().endsWith("/api/player/load") && response.status() === 200);
+  const loadRequestPromise = page.waitForRequest(request => request.url().endsWith("/api/player/load") && request.method() === "POST");
+  const loadedPromise = page.waitForResponse(async response => response.status() === 200
+    && (response.url().endsWith("/api/player/load") || response.url().includes("/api/world_reads/"))
+    && Boolean((await response.json()).player));
   await page.locator("#btnLoad").click();
   await expect(page.locator("#inventoryContainer")).toBeVisible();
   const loadedResponse = await loadedPromise;
   const loaded = await loadedResponse.json();
-  const request = loadedResponse.request().postDataJSON();
+  const request = (await loadRequestPromise).postDataJSON();
   // Exercise the browser lifecycle wiring against the real presence endpoints.
   // The Node lifecycle tests separately check interval ownership/deduplication.
   const leftPromise = page.waitForResponse(response => response.url().endsWith("/api/world/presence/leave"));

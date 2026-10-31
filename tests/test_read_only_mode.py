@@ -388,6 +388,7 @@ ROUTE_READONLY_POLICY = {
     "/api/world/compatibility": "read",
     "/api/world/presence": "presence",
     "/api/world/presence/leave": "presence",
+    "/api/world_reads/<identifier>": "read",
     "/login": "auth",
     "/logout": "auth",
     "/setup": "auth",

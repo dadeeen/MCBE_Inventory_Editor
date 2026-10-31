@@ -14,6 +14,37 @@
     const PLAYER_WORKFLOW_VIEWS = new Set(["player", "player-edit", "inventory", "mounts", "save", "tools"]);
     const PLAYER_LOAD_STATUS_KEY = "player-load";
 
+    function readFailure(error, fallback) {
+        const timedOut = error?.name === "TimeoutError";
+        const message = error?.code === "read_timeout" ? t("Das Laden der Welt hat zu lange gedauert. Der Lesevorgang wurde beendet.")
+            : timedOut ? t("Zeitüberschreitung: Der Editor-Server hat nicht rechtzeitig geantwortet.") : fallback;
+        return {
+            message, error: message,
+            code: error?.code || (timedOut ? "read_response_timeout" : "connection_error"),
+            details: error?.message || "",
+            hints: [t("Prüfe die Verbindung zum Editor-Server und versuche es erneut. Ein laufender Leseauftrag wird dabei wieder aufgenommen.")],
+        };
+    }
+
+    function readProgressText(progress = {}) {
+        const labels = {
+            waiting: t("Warte auf den Zugriff auf die Welt..."),
+            opening: t("Öffne die Weltdatenbank..."),
+            scanning: t("Durchsuche die Weltdatenbank nach Spielern..."),
+            cached: t("Verwende die geprüfte Spielerliste..."),
+            analyzing: t("Prüfe die Weltinformationen..."),
+            player: t("Bereite den Spieler vor..."),
+        };
+        const parts = [labels[progress.phase] || t("Lade Welt und Spieler...")];
+        if (progress.phase === "scanning" && Number.isFinite(progress.current) && progress.current > 0) {
+            parts.push(t("{count} Datensätze geprüft", { count: progress.current }));
+        }
+        if (Number.isFinite(progress.elapsed_seconds) && progress.elapsed_seconds >= 5) {
+            parts.push(t("{seconds} Sekunden", { seconds: progress.elapsed_seconds }));
+        }
+        return parts.join(" · ");
+    }
+
     function workflowViewAfterPlayerLoad(activeView) {
         const normalized = String(activeView || "");
         return PLAYER_WORKFLOW_VIEWS.has(normalized) ? normalized : "inventory";
@@ -47,9 +78,9 @@
             updateImportControls = () => {},
             scheduleWorldPresenceUpdate = () => {},
             renderPlayerToolOptions = () => {},
+            cancelPlayerToolReads = () => {},
             renderStatusCenter = () => {},
             updateAppMode = () => {},
-            updateWorldPresence = async () => {},
             renderWorldAnalysis = () => {},
             setWorkflowView = () => {},
             getActiveWorkflowView = () => "world",
@@ -140,6 +171,7 @@
         }
 
         function invalidatePlayerLoad() {
+            cancelPlayerToolReads();
             playerLoadRequestId += 1;
             playerLoadAbort?.abort();
             playerLoadAbort = null;
@@ -255,7 +287,7 @@
                     copyTextToClipboard(buildPlayersDiagnosticsText(), t("Spieler-Diagnose kopiert."));
                     logLoadStatus(player.reason, "warning");
                 } else {
-                    await updateWorldPresence();
+                    scheduleWorldPresenceUpdate();
                     if (!isCurrent()) return false;
                     setWorkflowView("player", { scroll: false });
                     logLoadStatus(t("{player} ausgewählt – nur Export möglich.", { player: getCurrentPlayerLabel() }), "warning");
@@ -321,7 +353,10 @@
             const controller = new AbortController();
             playerListAbort = controller;
             try {
-                const data = await getPlayerApi().listPlayers(requestedWorldPath, { signal: controller.signal });
+                const data = await getPlayerApi().listPlayers(requestedWorldPath, {
+                    signal: controller.signal,
+                    onProgress: progress => { if (listContextIsCurrent()) logLoadStatus(readProgressText(progress), "running"); },
+                });
                 if (!listContextIsCurrent()) return false;
                 if (!data.success) {
                     if (playersList) playersList.innerHTML = playerListStatusHtml("loadError");
@@ -334,7 +369,7 @@
                 renderPlayersList();
                 renderPlayerToolOptions();
                 renderWorldAnalysis();
-                await updateWorldPresence();
+                scheduleWorldPresenceUpdate();
                 if (!listContextIsCurrent()) return false;
                 const firstEditable = (getState().players || []).find(p => p.editable);
                 if (selectFirst && firstEditable) {
@@ -352,9 +387,10 @@
                 return true;
             } catch (e) {
                 if (!listContextIsCurrent()) return false;
+                if (e?.name === "AbortError") return false;
                 console.error("loadPlayersList:", e);
                 if (playersList) playersList.innerHTML = playerListStatusHtml("connectionError");
-                const data = { error: t("Verbindungsfehler beim Laden der Spieler."), details: e?.message || "" };
+                const data = readFailure(e, t("Verbindungsfehler beim Laden der Spieler."));
                 logLoadStatus(buildErrorMessage(data), "error");
                 renderLoadError(data, t("Verbindungsfehler beim Laden der Spieler."));
                 return false;
@@ -384,15 +420,24 @@
                 if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
             }
             logLoadStatus(t("Lade Spieler..."), "running");
-            if (showLoadingOverlay) {
-                showLoading(t("{player} wird geladen...", { player: playerLoadLabel(playerKey) }));
-                playerLoadingOverlayRequestId = requestId;
-            }
             const controller = new AbortController();
             playerLoadAbort = controller;
+            const cancelRead = () => controller.abort();
+            if (showLoadingOverlay) {
+                showLoading(t("{player} wird geladen...", { player: playerLoadLabel(playerKey) }), { onCancel: cancelRead });
+                playerLoadingOverlayRequestId = requestId;
+            }
             try {
-                const statusRequestOrder = beginServerStatusRequest();
-                const data = await getPlayerApi().loadPlayer(requestedWorldPath, playerKey, { signal: controller.signal });
+                let statusRequestOrder = beginServerStatusRequest();
+                const data = await getPlayerApi().loadPlayer(requestedWorldPath, playerKey, {
+                    signal: controller.signal,
+                    operationContext: statusRequestOrder,
+                    onOperation: originalOrder => { statusRequestOrder = originalOrder; },
+                    onProgress: progress => {
+                        if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return;
+                        if (showLoadingOverlay || options.worldLoadOverlay) showLoading(readProgressText(progress), { onCancel: cancelRead });
+                    },
+                });
                 if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
                 if (!data.success) {
                     const msg = buildErrorMessage(data, t("Spieler konnte nicht geladen werden."));
@@ -510,7 +555,9 @@
                 renderPlayerToolOptions();
                 renderStatusCenter();
                 renderWorldAnalysis();
-                await updateWorldPresence();
+                // Presence has its own bounded transport and selection guards.
+                // It must not extend the load overlay after the player is ready.
+                scheduleWorldPresenceUpdate();
                 if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
                 setWorkflowView(workflowViewAfterPlayerLoad(getActiveWorkflowView()), { scroll: false });
                 const analysis = getAnalysisLogic();
@@ -529,8 +576,12 @@
                 return true;
             } catch (e) {
                 if (requestId !== playerLoadRequestId || requestedWorldPath !== getState().worldPath) return false;
+                if (e?.name === "AbortError") {
+                    logLoadStatus(t("Laden abgebrochen."), "warning");
+                    return false;
+                }
                 console.error("loadPlayer:", e);
-                const data = { error: t("Verbindungsfehler beim Laden des Spielers."), details: e?.message || "" };
+                const data = readFailure(e, t("Verbindungsfehler beim Laden des Spielers."));
                 logLoadStatus(buildErrorMessage(data), "error");
                 renderLoadError(data, t("Verbindungsfehler beim Laden des Spielers."));
                 return false;
@@ -587,12 +638,18 @@
             }
 
             if (loadButton) loadButton.disabled = true;
-            showLoading(t("1/2 Welt prüfen und Spieler erkennen..."));
-            logLoadStatus(t("Lade Welt und Spieler..."), "running");
             const controller = new AbortController();
             worldLoadAbort = controller;
+            const cancelRead = () => { controller.abort(); playerLoadAbort?.abort(); };
+            showLoading(t("1/2 Welt prüfen und Spieler erkennen..."), { onCancel: cancelRead });
+            logLoadStatus(t("Lade Welt und Spieler..."), "running");
             try {
-                const data = await getPlayerApi().listPlayers(nextWorldPath, { signal: controller.signal });
+                const data = await getPlayerApi().listPlayers(nextWorldPath, {
+                    signal: controller.signal,
+                    onProgress: progress => {
+                        if (requestId === worldLoadRequestId) showLoading(readProgressText(progress), { onCancel: cancelRead });
+                    },
+                });
                 if (requestId !== worldLoadRequestId) return false;
 
                 if (!data.success) {
@@ -603,7 +660,7 @@
                     return false;
                 }
 
-                showLoading(t("2/2 Spieler vorbereiten..."));
+                showLoading(t("2/2 Spieler vorbereiten..."), { onCancel: cancelRead });
                 const nextPlayers = data.players || [];
                 // Never attach the previous player's inventory/revision to the
                 // new world, including when the following player read fails.
@@ -624,7 +681,7 @@
 
                 const firstEditable = nextPlayers.find(player => player.editable);
                 if (firstEditable) {
-                    const playerLoaded = await loadPlayer(firstEditable.player_key, true, { showLoadingOverlay: false });
+                    const playerLoaded = await loadPlayer(firstEditable.player_key, true, { showLoadingOverlay: false, worldLoadOverlay: true });
                     if (requestId !== worldLoadRequestId) return false;
                     if (!playerLoaded) return false;
                 } else {
@@ -632,7 +689,7 @@
                     renderPlayersList();
                     renderPlayerToolOptions();
                     renderWorldAnalysis();
-                    await updateWorldPresence();
+                    scheduleWorldPresenceUpdate();
                     if (requestId !== worldLoadRequestId) return false;
                     setWorkflowView("player", { scroll: false });
                     logLoadStatus(t("Welt geladen, aber keine editierbaren Spieler erkannt. Details stehen in der Spieler-Liste und in der Spieler-Diagnose."), "warning");
@@ -640,8 +697,12 @@
                 return true;
             } catch (e) {
                 if (requestId !== worldLoadRequestId) return false;
+                if (e?.name === "AbortError") {
+                    logLoadStatus(t("Laden abgebrochen."), "warning");
+                    return false;
+                }
                 console.error("loadWorldFromInput:", e);
-                const data = { error: t("Verbindungsfehler beim Laden der Welt."), details: e?.message || "" };
+                const data = readFailure(e, t("Verbindungsfehler beim Laden der Welt."));
                 logLoadStatus(buildErrorMessage(data), "error");
                 renderLoadError(data, t("Verbindungsfehler beim Laden der Welt."));
                 return false;

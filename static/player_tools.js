@@ -113,6 +113,7 @@
         let playerApi = api;
         let compareRequestId = 0;
         let copyRequestId = 0;
+        let snapshotRead = null;
         let stateTransferRequestId = 0;
         let currentStateTransferPreview = null;
         let stateTransferBusy = false;
@@ -290,9 +291,22 @@
             )) invalidateStateTransferPreview();
         }
 
-        async function fetchSnapshot(playerKey, worldPath = getWorldPath()) {
+        function cancelPendingReads() {
+            compareRequestId++;
+            copyRequestId++;
+            const previous = snapshotRead;
+            snapshotRead = null;
+            if (!previous) return;
+            previous.controller.abort();
+            // Release this read's UI before a replacement can show its overlay.
+            // Its later finally must not hide the replacement's loading state.
+            if (previous.kind === "copy") hideLoading();
+            else if (playerToolsPanel) playerToolsPanel.innerHTML = "";
+        }
+
+        async function fetchSnapshot(playerKey, worldPath = getWorldPath(), options = {}) {
             if (!worldPath || !playerKey) throw new Error(t("Keine Welt oder kein Spieler ausgewählt."));
-            return getPlayerApi().loadPlayerOrThrow(worldPath, playerKey, t("Spieler konnte nicht geladen werden."));
+            return getPlayerApi().loadPlayerOrThrow(worldPath, playerKey, t("Spieler konnte nicht geladen werden."), options);
         }
 
         function snapshotSummary(data) {
@@ -317,30 +331,36 @@
         }
 
         async function compareSelectedPlayer() {
-            const requestId = ++compareRequestId;
+            cancelPendingReads();
+            const requestId = compareRequestId;
             const worldPath = getWorldPath();
             const currentKey = getCurrentPlayerKey();
             if (!currentKey) { showToast(t("Lade zuerst einen Spieler."), "warning"); return; }
             const key = comparePlayerSelect?.value;
             if (!key || key === currentKey) { showToast(t("Wähle einen anderen Spieler zum Vergleichen."), "warning"); return; }
+            const read = { controller: new AbortController(), kind: "compare" };
+            snapshotRead = read;
             try {
                 if (playerToolsPanel) playerToolsPanel.innerHTML = window.MCBEPlayerCompareView.comparisonLoadingHtml();
-                const data = await fetchSnapshot(key, worldPath);
-                if (requestId !== compareRequestId || !playerContextIsCurrent(worldPath, currentKey)) return false;
+                const data = await fetchSnapshot(key, worldPath, { signal: read.controller.signal });
+                if (read.controller.signal.aborted || requestId !== compareRequestId || !playerContextIsCurrent(worldPath, currentKey)) return false;
                 renderComparison(data);
                 recordAction(t("Vergleich mit {player} angezeigt", { player: data.player?.label || key }), "compare");
                 return true;
             } catch (e) {
-                if (requestId !== compareRequestId || !playerContextIsCurrent(worldPath, currentKey)) return false;
+                if (e?.name === "AbortError" || requestId !== compareRequestId || !playerContextIsCurrent(worldPath, currentKey)) return false;
                 if (playerToolsPanel) playerToolsPanel.innerHTML = window.MCBEPlayerCompareView.comparisonErrorHtml(e.message);
                 showToast(e.message || t("Vergleich fehlgeschlagen."), "error");
                 return false;
+            } finally {
+                if (snapshotRead === read) snapshotRead = null;
             }
         }
 
         async function copyFromSelectedPlayer() {
             if (guardEditingAction()) return false;
-            const requestId = ++copyRequestId;
+            cancelPendingReads();
+            const requestId = copyRequestId;
             const worldPath = getWorldPath();
             const targetPlayerKey = getCurrentPlayerKey();
             const key = copySourcePlayerSelect?.value;
@@ -365,9 +385,12 @@
                 showToast(t("Übernahme abgebrochen: Welt oder Zielspieler wurde inzwischen gewechselt."), "warning");
                 return false;
             }
-            showLoading(t("Spielerdaten werden für die Übernahme geladen..."));
+            const read = { controller: new AbortController(), kind: "copy" };
+            snapshotRead = read;
+            showLoading(t("Spielerdaten werden für die Übernahme geladen..."), { onCancel: cancelPendingReads });
             try {
-                const data = await fetchSnapshot(key, worldPath);
+                const data = await fetchSnapshot(key, worldPath, { signal: read.controller.signal });
+                if (read.controller.signal.aborted) return false;
                 if (requestId !== copyRequestId || !playerContextIsCurrent(worldPath, targetPlayerKey)) {
                     showToast(t("Übernahme abgebrochen: Welt oder Zielspieler wurde inzwischen gewechselt."), "warning");
                     return false;
@@ -443,11 +466,14 @@
                 showToast(t("Daten lokal übernommen. Prüfe die Änderungen vor dem Speichern."), "info");
                 return true;
             } catch (e) {
-                if (requestId !== copyRequestId || !playerContextIsCurrent(worldPath, targetPlayerKey)) return false;
+                if (e?.name === "AbortError" || requestId !== copyRequestId || !playerContextIsCurrent(worldPath, targetPlayerKey)) return false;
                 showToast(e.message || t("Übernahme fehlgeschlagen."), "error");
                 return false;
             } finally {
-                hideLoading();
+                if (snapshotRead === read) {
+                    snapshotRead = null;
+                    hideLoading();
+                }
             }
         }
 
@@ -933,6 +959,7 @@
 
         return {
             applyStateTransfer,
+            cancelPendingReads,
             compareSelectedPlayer,
             closeStateTransferDetails,
             copyFromSelectedPlayer,

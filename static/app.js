@@ -1001,6 +1001,7 @@ function getPlayerLoadApp() {
                 exportBlocked: () => !permissions().canExport,
                 scheduleWorldPresenceUpdate,
                 renderPlayerToolOptions,
+                cancelPlayerToolReads: () => getPlayerToolsController().cancelPendingReads(),
                 renderStatusCenter,
                 updateAppMode,
                 updateWorldPresence,

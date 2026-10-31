@@ -2,6 +2,7 @@ import argparse
 import atexit
 import contextlib
 import errno
+import json
 import logging
 import math
 import os
@@ -16,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
-from flask import Flask, Response, g, has_request_context, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, copy_current_request_context, g, has_request_context, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.exceptions import SecurityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
@@ -56,6 +57,7 @@ from mcbe_editor.server_guard import ServerGuardStore
 from mcbe_editor.service_errors import WriteNotAttemptedError
 from mcbe_editor.setup_state import FirstRunSetup, is_supported_password_hash
 from mcbe_editor.world_locks import locked_operation
+from mcbe_editor.world_read_jobs import READ_ID_HEADER, ReadJobError, WorldReadJobs
 
 SETUP_STATE = FirstRunSetup(APP_CONFIG.setup_path)
 if APP_CONFIG.auth_password_hash and not is_supported_password_hash(APP_CONFIG.auth_password_hash):
@@ -63,6 +65,7 @@ if APP_CONFIG.auth_password_hash and not is_supported_password_hash(APP_CONFIG.a
 ICON_SETTINGS_PATH = str(Path(APP_CONFIG.data_root or "data") / "icon_sources.json")
 RUNTIME_BIND_HOST = APP_CONFIG.host
 RUNTIME_BIND_PORT = APP_CONFIG.port
+WORLD_READ_JOBS = WorldReadJobs(Path(APP_CONFIG.data_root or "data") / "cache" / "world_reads")
 
 
 class RecentLogHandler(logging.Handler):
@@ -630,6 +633,7 @@ _RATE_LOCK = threading.RLock()
 _RATE_CONFIG: dict[str, tuple[int, float]] = {
     "mutate": (30, 60.0),  # 30 requests / 60s for mutating operations
     "read": (120, 60.0),  # 120 requests / 60s for reads
+    "read_progress": (300, 60.0),  # two active loads must not consume ordinary read capacity
     "presence": (300, 60.0),  # lightweight browser-session presence pings
     "scan": (10, 60.0),  # 10 requests / 60s for expensive scans
     "auth": (8, 60.0),  # login attempts
@@ -2054,18 +2058,77 @@ def backup_route_deps() -> backup_api_routes.BackupRouteDeps:
     )
 
 
+def _world_read_response(payload, status):
+    code = payload.get("code")
+    if code in {"read_timeout", "read_cancelled", "read_job_failed"}:
+        messages = {
+            "read_timeout": "Das Laden der Welt hat zu lange gedauert. Der Lesevorgang wurde beendet.",
+            "read_cancelled": "Der Lesevorgang wurde abgebrochen. Lade die Welt erneut.",
+            "read_job_failed": "Der Lesevorgang konnte nicht abgeschlossen werden. Lade die Welt erneut.",
+        }
+        response = app.make_response(
+            api_error(
+                messages[code],
+                status,
+                code=code,
+                hints=["Versuche es erneut. Prüfe bei wiederholten Problemen die Serverprotokolle und den Datenträger der Welt."],
+            )
+        )
+    else:
+        response = app.make_response((jsonify(payload), status))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _run_world_read(handler):
+    data = request_json_object()
+    identifier = request.headers.get(READ_ID_HEADER)
+    if identifier is None:
+        return handler(data, player_route_deps())
+    request_id = _request_id()
+
+    @copy_current_request_context
+    def work():
+        g.request_id = request_id
+        response = app.make_response(handler(data, player_route_deps()))
+        return response.get_json(), response.status_code
+
+    try:
+        identity = request.path + "\0" + json.dumps(data, sort_keys=True)
+        payload, status = WORLD_READ_JOBS.start(identifier, get_csrf_token(), identity, work)
+        return _world_read_response(payload, status)
+    except ReadJobError as exc:
+        return _world_read_error(exc)
+
+
+def _world_read_error(exc):
+    payload = api_errors.error_payload(str(exc), code=exc.code, hints=["Lade die Welt erneut; der nächste Versuch liest den aktuellen Stand."])
+    return _world_read_response(payload, exc.status)
+
+
+@app.route("/api/world_reads/<identifier>", methods=["GET", "DELETE"])
+@rate_limit("read_progress")
+@require_csrf
+def world_read_status(identifier):
+    try:
+        payload, status = WORLD_READ_JOBS.poll(identifier, get_csrf_token(), cancel=request.method == "DELETE")
+        return _world_read_response(payload, status)
+    except ReadJobError as exc:
+        return _world_read_error(exc)
+
+
 @app.route("/api/players", methods=["POST"])
 @rate_limit("read")
 @require_csrf
 def list_players():
-    return player_api_routes.list_players(request_json_object(), player_route_deps())
+    return _run_world_read(player_api_routes.list_players)
 
 
 @app.route("/api/player/load", methods=["POST"])
 @rate_limit("read")
 @require_csrf
 def load_player():
-    return player_api_routes.load_player(request_json_object(), player_route_deps())
+    return _run_world_read(player_api_routes.load_player)
 
 
 @app.route("/api/player/state_transfer_preview", methods=["POST"])

@@ -7,6 +7,7 @@ from collections import OrderedDict
 
 from .db_state import CommittedDbChange
 from .players import PlayerScanner, classify_player_record, encode_player_key, localize_player_labels
+from .read_operation import checkpoint
 
 LOGGER = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class PlayerDirectory:
         self._guard = threading.Lock()
 
     def list_players(self, db) -> list[dict]:
+        checkpoint("scanning", current=0)
         token_of = getattr(db, "content_token", None)
         try:
             token = token_of() if callable(token_of) else None
@@ -29,6 +31,7 @@ class PlayerDirectory:
                 cached = self._entries.get(token[0])
                 if cached is not None and cached[0] == token:
                     self._entries.move_to_end(token[0])
+                    checkpoint("cached")
                     return localize_player_labels(copy.deepcopy(cached[1]))
         players = PlayerScanner(db).list_players()
         if token is not None:

@@ -46,13 +46,15 @@
 
     function buildErrorMessage(data, fallback = "") {
         const context = String(fallback || "");
+        let base;
         if (!hasBackendErrorMessage(data)) {
             const reason = technicalErrorReason(data, "");
-            if (!reason) return context || t("Unbekannter Fehler");
-            return context && reason !== context ? t("{message} ({reason})", { message: context, reason }) : reason;
+            base = !reason ? context || t("Unbekannter Fehler")
+                : context && reason !== context ? t("{message} ({reason})", { message: context, reason }) : reason;
+        } else {
+            base = localizedErrorMessage(data, context || t("Unbekannter Fehler"));
         }
-        const base = localizedErrorMessage(data, context || t("Unbekannter Fehler"));
-        const details = data.details && data.details !== base ? ` — ${data.details}` : "";
+        const details = data?.details && data.details !== base ? ` — ${data.details}` : "";
         return `${base}${details}`;
     }
 

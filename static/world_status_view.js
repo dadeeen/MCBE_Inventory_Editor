@@ -20,8 +20,8 @@
         ];
     }
 
-    function loadErrorHtml({ message, hints = [], pathText = "", requestId = "" } = {}) {
-        const checklistHtml = loadPathChecklist(pathText)
+    function loadErrorHtml({ message, hints = [], pathText = "", requestId = "", code = "" } = {}) {
+        const checklistHtml = (code.startsWith("read_") || code === "connection_error" ? [] : loadPathChecklist(pathText))
             .map(item => `<div class="load-check ${item.ok ? "ok" : "warn"}"><span>${item.ok ? "✓" : "!"}</span>${escapeHtml(item.text)}</div>`)
             .join("");
         const requestHtml = requestId ? `<div class="error-request">Request-ID: <code>${escapeHtml(requestId)}</code></div>` : "";
@@ -289,6 +289,7 @@
                 hints: data?.hints,
                 pathText,
                 requestId: data?.request_id || "",
+                code: data?.code || "",
             });
             applyLoadErrorPanel(loadErrorPanel, html);
         }

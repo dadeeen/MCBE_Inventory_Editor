@@ -21,6 +21,7 @@ from .api_errors import (
 )
 from .i18n import localize_message_record, t
 from .leveldb_readonly import WorldChangedWhileReadingError
+from .read_operation import ReadStoppedError
 from .service_errors import (
     PlayerImportPreviewStaleError,
     PlayerImportRecordRollbackError,
@@ -120,6 +121,8 @@ def list_players(data: dict, deps: PlayerRouteDeps):
         return blocked
     try:
         return deps.jsonify(deps.service.list_players(deps.json_string(data, "world_path")))
+    except ReadStoppedError:
+        raise
     except WorldChangedWhileReadingError as exc:
         return _world_changed_response(exc, deps)
     except ValueError as exc:
@@ -186,6 +189,8 @@ def load_player(data: dict, deps: PlayerRouteDeps):
             result["server_guard_stale_reason_key"] = PLAYER_LOADED_WHILE_SERVER_ONLINE_REASON
             result["server_guard_stale_reason"] = t(PLAYER_LOADED_WHILE_SERVER_ONLINE_REASON)
         return deps.jsonify(result)
+    except ReadStoppedError:
+        raise
     except WorldChangedWhileReadingError as exc:
         return _world_changed_response(exc, deps)
     except ValueError as exc:

@@ -1470,11 +1470,11 @@
     </div>
 
     <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="loading-overlay" style="display:none;">
+    <div id="loadingOverlay" class="loading-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="loadingText">
         <div class="loading-box">
             <div class="loading-spinner"></div>
             <div class="loading-progress" aria-hidden="true"><span></span></div>
-            <div class="loading-text" id="loadingText">{{ t("Lade...") }}</div>
+            <div class="loading-text" id="loadingText" role="status" aria-live="polite">{{ t("Lade...") }}</div>
             <section id="assetUpdateProgress" class="asset-update-progress" hidden aria-labelledby="loadingText">
                 <p id="assetProgressPhase" class="asset-progress-phase" role="status"></p>
                 <div class="asset-progress-counts">
@@ -1491,6 +1491,7 @@
                 </ol>
                 <p id="assetProgressHint" class="asset-progress-hint"></p>
             </section>
+            <button id="cancelWorldRead" class="btn btn-secondary" type="button" hidden>{{ t("Laden abbrechen") }}</button>
         </div>
     </div>
 

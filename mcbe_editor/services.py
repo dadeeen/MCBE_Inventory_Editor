@@ -8,7 +8,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Concatenate
 
-from mcbe_editor import item_data, nbt
+from mcbe_editor import item_data, nbt, read_operation
 from mcbe_editor.item_availability import item_availability_client_payload
 from mcbe_editor.item_data import selectable_item_catalog
 
@@ -154,6 +154,8 @@ class BedrockEditorService:
         return get_world_lock(world_path)
 
     def _locked_world(self, world_path: str):
+        if read_operation.is_observed():
+            return read_operation.cancellable_world_lock(world_path)
         return locked_world(world_path)
 
     def _open_db(self, world_path):
@@ -172,7 +174,7 @@ class BedrockEditorService:
         db_path = ensure_valid_world_path(world_path)
         try:
             return self.readonly_db_factory(db_path)
-        except WorldChangedWhileReadingError:
+        except (WorldChangedWhileReadingError, read_operation.ReadStoppedError):
             # Not a broken world: a running server changed it meanwhile.
             raise
         except Exception as exc:
@@ -406,6 +408,7 @@ class BedrockEditorService:
             try:
                 db = self._open_db_readonly(world_path)
                 players = self._scan_players(db)
+                read_operation.checkpoint("analyzing")
                 capabilities = self._capabilities_for_players(world_path, players)
                 compatibility = analyze_world_structure(world_path)
                 return {
@@ -443,6 +446,7 @@ class BedrockEditorService:
                 # The API still returns complete world-wide capabilities. Keep
                 # their discovery separate from validation of the chosen record.
                 players = self._scan_players(db)
+                read_operation.checkpoint("player")
                 if player_named_tag is None:
                     player_named_tag = load_player_nbt(player_bytes)
                 player_tag = player_named_tag.tag

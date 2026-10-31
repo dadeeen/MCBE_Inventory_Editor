@@ -157,15 +157,32 @@
         });
     }
 
-    function showLoading(text) {
+    let loadingReturnFocus = null;
+
+    function showLoading(text, { onCancel = null } = {}) {
         window.MCBEAssetUpdateProgress?.stop();
         const overlay = document.getElementById("loadingOverlay");
         const textEl = document.getElementById("loadingText");
         if (!overlay || !textEl) return;
+        const cancel = document.getElementById("cancelWorldRead");
+        const newlyCancellable = cancel?.hidden && typeof onCancel === "function";
+        if (cancel) {
+            cancel.hidden = typeof onCancel !== "function";
+            cancel.onclick = onCancel;
+            if (newlyCancellable) loadingReturnFocus = document.activeElement;
+        }
+        overlay.onkeydown = typeof onCancel === "function" ? event => {
+            if (event.key !== "Tab" && event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === "Escape") onCancel();
+            else cancel?.focus();
+        } : null;
         loadingRequested = true;
         textEl.textContent = text;
         const confirmOverlay = document.getElementById("confirmOverlay");
         overlay.style.display = confirmOverlay?.style.display === "flex" ? "none" : "flex";
+        if (newlyCancellable) cancel.focus();
     }
 
     function hideLoading() {
@@ -174,6 +191,14 @@
         const overlay = document.getElementById("loadingOverlay");
         if (!overlay) return;
         overlay.style.display = "none";
+        overlay.onkeydown = null;
+        const cancel = document.getElementById("cancelWorldRead");
+        if (cancel) {
+            cancel.hidden = true;
+            cancel.onclick = null;
+        }
+        if (loadingReturnFocus?.isConnected) loadingReturnFocus.focus();
+        loadingReturnFocus = null;
     }
 
     function showToast(msg, type = "success", duration = 3000, action = null) {

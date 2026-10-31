@@ -71,7 +71,7 @@ def test_copy_preserves_only_target_slots_skipped_for_readonly_source_equipment(
         + json.dumps({"source": source_data, "target": target_data, "world": str(world), "sourceKey": source_key_text, "targetKey": target_key_text})
         + r""";
         const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
-        const context = {window: {}};
+        const context = {window: {}, AbortController};
         for (const name of ['player_view_models', 'player_tools', 'save_payload_logic', 'inventory_state']) {
             vm.runInNewContext(fs.readFileSync(`static/${name}.js`, 'utf8'), context);
         }

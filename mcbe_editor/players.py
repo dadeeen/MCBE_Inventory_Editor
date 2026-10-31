@@ -353,7 +353,11 @@ class PlayerScanner:
             except KeyError:
                 pass
 
-        for key, value in self.db.iter_items():
+        from .read_operation import checkpoint
+
+        for count, (key, value) in enumerate(self.db.iter_items(), 1):
+            if count % 256 == 0:
+                checkpoint(current=count)
             if key in seen_keys:
                 continue
             player = classify_player_record(key, value)
@@ -369,6 +373,7 @@ class PlayerScanner:
         # classify_player_record applies a stricter player-only shape check to
         # unknown keys so ordinary actors are not surfaced as editable players.
         for key, value in fallback_candidates:
+            checkpoint()
             if key in seen_keys:
                 continue
             player = classify_player_record(key, value, allow_unknown_key=True)

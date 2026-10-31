@@ -45,11 +45,51 @@ one worker, then restart all workers so they load the saved decision and signing
 key together. Interprocess write locks prevent concurrent world writes but do not
 provide authentication-state synchronization.
 
-Player/list reads and presence polling use the frontend's `readJson` helper with
-a configurable deadline (15 seconds by default), including response-body parsing.
-Replacing the selected player or world cancels obsolete reads; presence polling
-allows one active read per selection. This deadline applies only to these reads.
-Write requests retain their existing transport and completion handling.
+Player/list reads use bounded background read jobs. The browser submits a random
+`X-MCBE-Read-ID` and polls `/api/world_reads/<id>` for phases, scanned-record counts
+and the result. Each HTTP request has a 15-second deadline, including body parsing;
+the complete operation can take up to five minutes. Retrying after a lost response
+reuses the ID and its original client response order and does not start another
+scan. A retained player response cannot replace a newer server-status observation;
+its original player guard token still determines whether the snapshot is stale.
+Clients without the header retain the synchronous API. Unknown player-key
+discovery still examines the complete
+database; the existing state-specific player directory reuses a verified scan.
+
+The shared private `data/cache/world_reads` directory lets different application
+workers serve the same job. Jobs are scoped to the requesting CSRF session.
+Completed read payloads expire after one minute and are pruned on access or
+subsequent starts; cleanup retains at most 64 completed payloads. Two active jobs
+are allowed across workers, with an additional two-thread bound in each process.
+World directories remain read-only.
+Progress, world-lock waits and table scans check cancellation cooperatively.
+Missing observers or stalled progress expire after 45 seconds. Polling, worker
+checkpoints and admission of new reads use the same expiry decision, including
+jobs left by a terminated worker. A blocked operating system read cannot be
+forcibly interrupted, but its result cannot replace a newer
+job and it continues to occupy its thread slot until it returns. Cancellation and
+expiry do not publish successful results. Explicit cancellation reserves the ID
+for the operation timeout plus result-retention period, including when DELETE
+arrives before POST or replaces a completed or expired result. Repeated DELETE
+requests do not extend an unexpired reservation. These reservations are scoped
+to the session and survive worker restarts. Active jobs and cancellation
+reservations share a 64-entry admission bound; running jobs remain cancellable
+at that bound. Cancelling a missing or completed job requires a free reservation
+slot and returns HTTP 429 if none is available. Capacity pressure never evicts an
+unexpired cancellation. Jobs are not a persistent player cache.
+
+Replacing the selected player or world cancels obsolete reads, and the loading
+overlay offers cancellation. Player comparison and copy operations share one
+cancellable snapshot read; a replacement tool request or a player/world load or
+reset aborts it through the same read-job API. Copy cancellation discards the read
+without applying inventory or undo changes. Response timeouts, operation timeouts
+and connection failures have distinct messages. Presence polling keeps its 15-second deadline
+and allows one active read per selection. It runs in the background after loading
+and cannot hold the loading overlay or delay the completed read. Write requests
+retain their existing transport and completion handling.
+
+Progress polling has a separate quota of 300 requests per minute per client IP;
+two active loads therefore leave the normal read quota available for navigation.
 
 Docker CI loads the runtime image and runs `scripts/docker/smoke_image.sh` before
 publication. The probe uses a read-only root, temporary data/world mounts and no

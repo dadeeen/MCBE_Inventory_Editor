@@ -685,7 +685,10 @@ class _Table:
     def iter_entries(self):
         """Yield (internal_key, value) for every entry, in internal-key order."""
 
+        from .read_operation import checkpoint
+
         for _key, offset, size in self._load_index():
+            checkpoint()
             yield from _iter_block_entries(self._read_block(offset, size))
 
     def get(self, user_key: bytes) -> tuple[int, int, bytes] | None:
