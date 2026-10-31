@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import multiprocessing
 import os
 import time
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 
@@ -66,7 +68,83 @@ def test_progress_retries_and_cross_manager_polling_share_one_job(tmp_path):
     assert calls == [1]
 
 
-def test_identifiers_session_scope_and_capacity(tmp_path):
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "",
+        "../" + IDENTIFIER,
+        "..\\" + IDENTIFIER,
+        "C:\\synthetic\\" + IDENTIFIER,
+        IDENTIFIER + ".json",
+        "A" * 32,
+        "ａ" * 32,
+        "a" * 31 + "\0",
+        IDENTIFIER + "\n",
+        "a" * 31,
+        "a" * 33,
+        "g" * 32,
+    ],
+    ids=["empty", "parent-posix", "parent-windows", "absolute", "suffix", "uppercase", "unicode", "nul", "newline", "short", "long", "nonhex"],
+)
+def test_invalid_identifiers_are_rejected_before_filesystem_work(tmp_path, monkeypatch, identifier):
+    from mcbe_editor import world_read_jobs
+
+    directory = tmp_path / "reads"
+    jobs = WorldReadJobs(directory)
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("Invalid read identifier reached filesystem or worker")
+
+    with monkeypatch.context() as filesystem:
+        filesystem.setattr(world_read_jobs, "ensure_private_directory", unexpected)
+        filesystem.setattr(jobs, "_lock", unexpected)
+        filesystem.setattr(Path, "stat", unexpected)
+        filesystem.setattr(Path, "open", unexpected)
+        for action in (
+            lambda: jobs.start(identifier, OWNER, "read", unexpected),
+            lambda: jobs.poll(identifier, OWNER),
+            lambda: jobs.poll(identifier, OWNER, cancel=True),
+        ):
+            with pytest.raises(ReadJobError) as error:
+                action()
+            assert (error.value.status, error.value.code) == (400, "invalid_read_id")
+    assert not directory.exists()
+
+
+@pytest.mark.parametrize("identifier", ["0" * 32, "0" * 31 + "1", "f" * 32], ids=["zero", "leading-zeroes", "maximum"])
+def test_boundary_identifiers_resume_existing_files_without_changing_read_ids(tmp_path, identifier):
+    jobs = WorldReadJobs(tmp_path)
+    now = time.time()
+    stored = {
+        "owner": jobs._owner(OWNER),
+        "identity": hashlib.sha256(b"read").hexdigest(),
+        "generation": "synthetic-existing-worker",
+        "state": "running",
+        "created": now,
+        "observed": now,
+        "updated": now,
+        "phase": "scanning",
+        "current": 512,
+    }
+    # Use the established filename directly, independently of the path builder.
+    path = tmp_path / f"{identifier}.json"
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    pending, status = jobs.start(identifier, OWNER, "read", lambda: pytest.fail("existing scan started again"))
+    assert status == 202 and pending["read_id"] == identifier
+    assert jobs.poll(identifier, OWNER)[0]["read_id"] == identifier
+    assert set(tmp_path.glob("*.json")) == {path}
+
+    result = {"success": True, "players": [{"label": "Synthetic existing result"}]}
+    stored.update(state="done", finished=time.time(), result=result, status=200)
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    before = path.read_bytes()
+    restarted = WorldReadJobs(tmp_path)
+    assert restarted.start(identifier, OWNER, "read", lambda: pytest.fail("completed scan started again")) == (result, 200)
+    assert restarted.poll(identifier, OWNER) == (result, 200)
+    assert path.read_bytes() == before
+
+
+def test_session_scope_and_capacity(tmp_path):
     jobs = WorldReadJobs(tmp_path, limit=1)
     release = Event()
 
@@ -74,9 +152,6 @@ def test_identifiers_session_scope_and_capacity(tmp_path):
         assert release.wait(5)
         return {"success": True}, 200
 
-    for invalid in ["", "../outside", "x" * 32, "a" * 33]:
-        with pytest.raises(ReadJobError, match="Ungültige"):
-            jobs.start(invalid, OWNER, "read", work)
     try:
         jobs.start(IDENTIFIER, OWNER, "read", work)
         for action in [lambda: jobs.poll(IDENTIFIER, "foreign"), lambda: jobs.poll(IDENTIFIER, "foreign", cancel=True)]:
@@ -250,6 +325,79 @@ def job_api(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "CSRF_TOKEN", OWNER)
     monkeypatch.setattr(main, "auth_enabled", lambda: False)
     return main, jobs, main.app.test_client()
+
+
+@pytest.mark.parametrize(
+    "method,endpoint,manager_method",
+    [
+        ("POST", "/api/players", "start"),
+        ("POST", "/api/player/load", "start"),
+        ("GET", f"/api/world_reads/{IDENTIFIER}", "poll"),
+        ("DELETE", f"/api/world_reads/{IDENTIFIER}", "poll"),
+    ],
+    ids=["players", "player-load", "poll", "cancel"],
+)
+@pytest.mark.parametrize(
+    "code,expected_code,status,german,english",
+    [
+        ("invalid_read_id", "invalid_read_id", 400, "Ungültige Lade-ID.", "Invalid load ID."),
+        (
+            "read_job_expired",
+            "read_job_expired",
+            404,
+            "Der Ladevorgang ist abgelaufen. Lade die Welt erneut.",
+            "The load operation has expired. Load the world again.",
+        ),
+        (
+            "read_id_conflict",
+            "read_id_conflict",
+            409,
+            "Diese Lade-ID gehört zu einer anderen Anfrage.",
+            "This load ID belongs to a different request.",
+        ),
+        (
+            "read_jobs_busy",
+            "read_jobs_busy",
+            429,
+            "Die Kapazität für Leseaufträge ist belegt. Versuche es gleich erneut.",
+            "Read operation capacity is full. Try again shortly.",
+        ),
+        (
+            "synthetic_private_code",
+            "read_job_failed",
+            500,
+            "Der Lesevorgang konnte nicht abgeschlossen werden. Lade die Welt erneut.",
+            "The read operation could not be completed. Load the world again.",
+        ),
+    ],
+    ids=["invalid", "expired", "conflict", "busy", "unknown"],
+)
+def test_read_job_http_errors_expose_only_the_localized_public_contract(
+    job_api, monkeypatch, method, endpoint, manager_method, code, expected_code, status, german, english
+):
+    _main, jobs, client = job_api
+
+    def fail(*_args, **_kwargs):
+        raise ReadJobError("Sensitive synthetic exception at /private/synthetic/read.json", 599, code) from RuntimeError(
+            "Sensitive synthetic cause at C:\\private\\synthetic\\read.json"
+        )
+
+    monkeypatch.setattr(jobs, manager_method, fail)
+    for locale, message in (("de", german), ("en", english)):
+        headers = {"X-CSRF-Token": OWNER, "X-MCBE-Read-ID": IDENTIFIER, "Accept-Language": locale}
+        body = {"world_path": "synthetic", "player_key": "synthetic-player"} if method == "POST" else None
+        response = client.open(endpoint, method=method, json=body, headers=headers)
+        assert response.status_code == status
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.json["success"] is False
+        assert response.json["code"] == expected_code
+        assert response.json["message_key"] == german
+        assert response.json["message"] == response.json["error"] == message
+        assert response.json["hints"]
+        serialized = response.get_data(as_text=True)
+        assert "Sensitive synthetic" not in serialized
+        assert "private" not in serialized
+        assert "read.json" not in serialized
 
 
 def test_async_api_keeps_csrf_and_authentication_and_translates_errors(job_api, monkeypatch):

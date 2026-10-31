@@ -2102,8 +2102,18 @@ def _run_world_read(handler):
 
 
 def _world_read_error(exc):
-    payload = api_errors.error_payload(str(exc), code=exc.code, hints=["Lade die Welt erneut; der nächste Versuch liest den aktuellen Stand."])
-    return _world_read_response(payload, exc.status)
+    # Only this public contract crosses the HTTP boundary, never exception text.
+    errors = {
+        "invalid_read_id": ("Ungültige Lade-ID.", 400),
+        "read_job_expired": ("Der Ladevorgang ist abgelaufen. Lade die Welt erneut.", 404),
+        "read_id_conflict": ("Diese Lade-ID gehört zu einer anderen Anfrage.", 409),
+        "read_jobs_busy": ("Die Kapazität für Leseaufträge ist belegt. Versuche es gleich erneut.", 429),
+    }
+    if exc.code not in errors:
+        return _world_read_response({"code": "read_job_failed"}, 500)
+    message, status = errors[exc.code]
+    payload = api_errors.error_payload(message, code=exc.code, hints=["Lade die Welt erneut; der nächste Versuch liest den aktuellen Stand."])
+    return _world_read_response(payload, status)
 
 
 @app.route("/api/world_reads/<identifier>", methods=["GET", "DELETE"])

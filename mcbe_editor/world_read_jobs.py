@@ -50,7 +50,8 @@ class WorldReadJobs:
     def _path(self, identifier: str) -> Path:
         if not _ID.fullmatch(identifier):
             raise ReadJobError("Ungültige Lade-ID.", 400, "invalid_read_id")
-        return self.directory / f"{identifier}.json"
+        # Reconstruct the filename from a number, never from request path syntax.
+        return self.directory / f"{int(identifier, 16):032x}.json"
 
     @staticmethod
     def _owner(owner: str) -> str:

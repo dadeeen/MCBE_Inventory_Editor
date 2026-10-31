@@ -3455,6 +3455,7 @@
   "Die Icon-Zuordnung muss geprüft werden. Prüfe unter Icons die Aktualität.": "The icon mapping needs checking. Check for updates under Icons.",
   "„Aktualität prüfen“ vergleicht die Mojang-Quelle mit den vorhandenen Icons. Gültige Bilder bleiben erhalten. Ein nötiger Abgleich oder Download wird vorab angezeigt.": "“Check for updates” compares the Mojang source with the installed icons. Valid images are kept. Any required verification or download is shown before proceeding.",
   "Ungültige Lade-ID.": "Invalid load ID.",
+  "Die Kapazität für Leseaufträge ist belegt. Versuche es gleich erneut.": "Read operation capacity is full. Try again shortly.",
   "Der Ladevorgang ist abgelaufen. Lade die Welt erneut.": "The load operation has expired. Load the world again.",
   "Diese Lade-ID gehört zu einer anderen Anfrage.": "This load ID belongs to a different request.",
   "Es laufen bereits mehrere Ladevorgänge. Versuche es gleich erneut.": "Several load operations are already running. Try again shortly.",
