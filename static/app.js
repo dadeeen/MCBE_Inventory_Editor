@@ -1604,15 +1604,29 @@ backupsController.wire();
 
 const updateDbController = window.MCBEUpdateDbView.createInventoryUpdateDbController({
     doc: document,
+    canWriteAppState: () => permissions().canWriteAppState,
+    onApplyResult(result) {
+        if (result.update_committed && !result.reloaded) {
+            // A receipt read before this write cannot confirm the new generation.
+            dataSourceController.applyItemDbStatus({status: "unavailable", message: result.reload_warning, counts: {}});
+        }
+        return firstRunSetupController?.onItemDbApply(result);
+    },
     api: apiClient,
     showLoading,
     hideLoading,
     logStatus,
-    showToast,
+    showToast(...args) {
+        const bounds = document.getElementById("updateDbResult")?.getBoundingClientRect();
+        if (!firstRunSetupController?.isOpen() && !(bounds?.height && bounds.bottom > 0 && bounds.top < window.innerHeight)) {
+            showToast(...args);
+        }
+    },
     showConfirmDialog,
     async onReloaded(data) {
         if (data.item_db) dataSourceController.applyItemDbStatus(data.item_db);
         else await loadItemDbStatus();
+        if (data.outcome === "failed") return {};
         // Refresh existing icons after a catalog update, including a failed
         // startup read. An icon-status failure must not fail the DB update.
         iconSourcesController.invalidateUpdateCheck();
@@ -1630,17 +1644,16 @@ firstRunSetupController = window.MCBEFirstRunSetupView.createInventoryFirstRunSe
     // Readiness is bound to the server-side database artifact and survives
     // browser changes without surviving a /data reset incorrectly.
     isItemDbPending: () => {
-        if (!itemDbStatus || itemDbStatus.status === "unavailable") return null;
+        if (!itemDbStatus || itemDbStatus.status === "unavailable" || itemDbStatus.reload_warning) return null;
         return itemDbStatus.verification?.verified !== true;
     },
     isIconsPending: () => {
         if (["loading", "unavailable"].includes(iconSourceSummary?.status)) return null;
-        return Number(iconSourceSummary?.count || 0) === 0 || Boolean(iconSourceSummary?.missing_banner_patterns?.length);
+        return Number(iconSourceSummary?.count || 0) === 0 || Boolean(window.MCBEIconManagerView.iconSetupHint(iconSourceSummary));
     },
-    getIconsPendingHint: () => Number(iconSourceSummary?.count || 0) > 0 && iconSourceSummary?.missing_banner_patterns?.length
-        ? t("Bannermuster fehlen im lokalen Icon-Cache. Lade die Vanilla-Icons, um die Bannervorschau zu vervollständigen.") : "",
+    getIconsPendingHint: () => window.MCBEIconManagerView.iconSetupHint(iconSourceSummary),
     getItemDbFeedback: () => window.MCBEDataSourceView.itemDbSetupFeedback(itemDbStatus),
-    getStatusError: id => (id === "icons" ? iconSourceSummary : itemDbStatus)?.message || "",
+    getStatusError: id => (id === "icons" ? iconSourceSummary?.message : itemDbStatus?.reload_warning || itemDbStatus?.message) || "",
     // The setup row confirms the forced update, so no second dialog is needed.
     runItemDbUpdate: () => updateDbController.run(false, true, { only: null }),
     runIconsUpdate: () => iconSourcesController.updateVanillaIcons(),

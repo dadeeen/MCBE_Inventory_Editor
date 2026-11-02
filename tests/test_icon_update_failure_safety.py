@@ -74,6 +74,48 @@ class IconUpdateFailureSafetyTests(unittest.TestCase):
         self.assertFalse(list(self.root.glob(".vanilla.staging-*")))
         self.assertFalse(list(self.root.glob(".vanilla.rollback-*")))
 
+    def test_traversing_registry_id_is_rejected_by_source_validation_and_before_rendering(self):
+        from scripts import update_db
+
+        item_id = "../../../probe_spawn_egg"
+        sentinel = self.target.parent / "probe_spawn_egg.png"
+        sentinel.write_bytes(b"outside staging")
+        archive = self.root / "unsafe-registry.zip"
+        with zipfile.ZipFile(archive, "w") as pack:
+            pack.writestr("resource_pack/textures/items/spawn_egg.png", encode_rgba_png(1, 1, b"\0\xff\0\xff"))
+            pack.writestr("metadata/vanilladata_modules/mojang-items.json", json.dumps({"data_items": [{"name": f"minecraft:{item_id}"}]}))
+            pack.writestr("metadata/vanilladata_modules/mojang-blocks.json", json.dumps({"data_items": [{"name": "stone"}]}))
+            for locale in ("de_DE", "en_US"):
+                pack.writestr(f"resource_pack/texts/{locale}.lang", "item.apple.name=Apple\n")
+        with zipfile.ZipFile(archive) as pack:
+            self.assertIn("items", update_db.validate_update_sources(pack, "items", allow_partial=True))
+        for target in (item_id, "../apple", "a/b", r"a\b", "NUL", "con.txt", "item#2", "minecraft:apple", "a."):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                update_icons.build_icon_cache(archive, [target], self.target, {})
+        self.assertEqual(sentinel.read_bytes(), b"outside staging")
+        self.assertFalse(self.target.exists())
+
+    def test_extra_item_and_display_assets_do_not_replace_a_regular_item_cache(self):
+        before = self._existing_cache()
+        archive = self.root / "extras.zip"
+        with zipfile.ZipFile(archive, "w") as pack:
+            png = encode_rgba_png(64, 64, bytes((1, 2, 3, 255)) * 4096)
+            pack.writestr("resource_pack/textures/items/large_fern.png", png)
+            pack.writestr("resource_pack/textures/entity/banner/banner_base.png", png)
+        with self.assertRaisesRegex(ValueError, "keine Item-Icons"):
+            update_icons.build_icon_cache(archive, ["apple"], self.target, {})
+        self.assertEqual(before, _files(self.target))
+
+    def test_registered_potion_variant_is_a_usable_catalog_icon_without_a_base_sprite(self):
+        self._existing_cache()
+        archive = self.root / "potion.zip"
+        with zipfile.ZipFile(archive, "w") as pack:
+            pack.writestr("resource_pack/textures/items/potion_bottle_fireResistance.png", encode_rgba_png(1, 1, b"\0\xff\0\xff"))
+        manifest = update_icons.build_icon_cache(archive, ["potion"], self.target, {}, block_item_ids=set(), require_item_icons=True)
+        self.assertNotIn("minecraft:potion", manifest["items"])
+        self.assertIn("minecraft:potion#12", manifest["items"])
+        self.assertEqual(update_icons.icon_cache_state.assess_cache(self.target, manifest["verification"]["inputs"])["state"], "current")
+
     def test_partial_result_keeps_supported_icons_and_reports_unknown_items(self):
         archive = self.root / "partial.zip"
         _pack(archive, apple=True)

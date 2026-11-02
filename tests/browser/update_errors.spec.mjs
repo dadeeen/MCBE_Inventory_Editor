@@ -21,17 +21,29 @@ for (const language of ['de', 'en']) {
     await page.locator('#btnUpdateVanillaIcons').click();
     await expect(page.locator('#iconUpdateResult')).toHaveAttribute('data-state', 'success');
     await expect(page.locator('#statusStackButton')).toHaveClass(/error/);
-    await expect(page.locator('#statusStackSummary')).toContainText('Fixture check failure');
+    await expect(page.locator('#statusStackSummary')).toContainText(language === 'en' ? 'Check failed. See the details.' : 'Prüfung fehlgeschlagen. Details prüfen.');
+    await expect(page.locator('#updateDbAudit')).toContainText('Fixture check failure');
     await page.locator('[data-tab-dash="dashUpdate"]').click();
     await page.locator('#btnUpdateDbApply').click();
     await page.locator('#confirmOk').click();
     await expect(page.locator('#updateDbResult')).toContainText(language === 'en' ? 'No update required' : 'Kein Update erforderlich');
     await expect(page.locator('#statusStackButton')).not.toHaveClass(/error|warning/);
-    await expect(page.locator('#statusStackSummary')).toContainText(language === 'en' ? 'No update required' : 'Kein Update erforderlich');
+    await expect(page.locator('#statusStackSummary')).toContainText(language === 'en' ? 'Already up to date.' : 'Bereits aktuell.');
     await page.locator('#statusStackButton').click();
     await expect(page.locator('#statusStackPanel .error:not(.active)')).toContainText('Fixture check failure');
+    const errorDetails = page.locator('#statusStackPanel .error:not(.active) details');
+    await expect(errorDetails.locator('div')).toBeHidden();
+    await errorDetails.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(errorDetails.locator('div')).toBeVisible();
+    // Exercise the periodic server-status read with the disclosure open.
+    // Await the regular renderer too, so assertions cannot race JSON parsing.
+    await page.waitForResponse(response => new URL(response.url()).pathname === '/api/server_status', {timeout: 15_000});
+    await page.evaluate(() => refreshServerStatus());
+    await expect(errorDetails.locator('div')).toBeVisible();
+    await expect(errorDetails.locator('summary')).toBeFocused();
     await expect(page.locator('#statusStackPanel .error.active')).toHaveCount(0);
-    await expect(page.locator('#statusStackPanel .success').first()).toContainText(language === 'en' ? 'No update required' : 'Kein Update erforderlich');
+    await expect(page.locator('#statusStackPanel .success').first()).toContainText(language === 'en' ? 'Already up to date.' : 'Bereits aktuell.');
     await captureBrowserEvidence(page, `resolved-update-status-${language}`, '#statusStackPanel');
   });
 }
@@ -83,23 +95,38 @@ for (const [layout, theme] of [['classic', 'dark'], ['studio', 'light'], ['focus
         await page.locator('[data-tab-dash="dashUpdate"]').click();
         await page.locator('#btnUpdateDbDryRun').click();
         await expect(page.locator('#updateDbResult')).toContainText(limit);
-        await expect(page.locator('#updateDbResult')).toContainText(hint);
+        await expect(page.locator('#updateDbResult')).not.toContainText(hint);
+        await expect(page.locator('#updateDbAudit')).toContainText(limit);
+        await expect(page.locator('#updateDbAudit')).toContainText(hint);
+        await expect(page.locator('#updateDbAudit')).toBeHidden();
+        await page.locator('#updateDbDetails > summary').focus();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('#updateDbAudit')).toBeVisible();
         expect(dbRequests.at(-1).dry_run).toBe(true);
         await page.locator('#btnUpdateDbApply').click();
         await page.locator('#confirmOk').click();
         await expect(page.locator('#loadingOverlay')).toBeHidden();
         expect(dbRequests.at(-1).dry_run).toBe(false);
         await expect(page.locator('#updateDbResult')).toContainText(limit);
+        await expect(page.locator('#updateDbResult')).not.toContainText(hint);
+        await expect(page.locator('#updateDbAudit')).toContainText(limit);
+        await expect(page.locator('#updateDbAudit')).toBeHidden();
         await expect(page.locator('#updateDbOutput')).toBeHidden();
         const dbOutput = await page.locator('#updateDbOutput').textContent();
 
         await page.locator('[data-tab-dash="dashIcons"]').click();
         iconResult = failure;
         await runIcons();
-        await expect(page.locator('#iconUpdateResult')).toHaveText(limit);
+        await expect(page.locator('#iconUpdateResult')).toHaveText(language === 'en' ? 'Icon check incomplete. See the details.' : 'Icon-Prüfung unvollständig. Details prüfen.');
+        await expect(page.locator('#iconUpdateReason')).toHaveText(limit);
+        await expect(page.locator('#iconUpdateReason')).toBeHidden();
         await expect(page.locator('#iconUpdateHint')).toHaveText(hint);
         await expect(page.locator('#iconUpdateOutput')).toBeHidden();
         await captureBrowserEvidence(page, `update-error-${layout}-${theme}-${language}-${width}`, '#dashIcons');
+        await page.locator('#iconUpdateDetails > summary').focus();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('#iconUpdateReason')).toBeVisible();
+        await expect(page.locator('#iconUpdateHint')).toBeVisible();
         await page.locator('#iconUpdateLogDetails > summary').focus();
         await page.keyboard.press('Enter');
         await expect(page.locator('#iconUpdateOutput')).toBeVisible();
@@ -110,14 +137,15 @@ for (const [layout, theme] of [['classic', 'dark'], ['studio', 'light'], ['focus
         expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
 
         await page.locator('[data-tab-dash="dashUpdate"]').click();
-        await expect(page.locator('#updateDbResult')).toContainText(limit);
+        await expect(page.locator('#updateDbAudit')).toContainText(limit);
         await page.locator('[data-tab-dash="dashIcons"]').click();
-        await expect(page.locator('#iconUpdateResult')).toHaveText(limit);
+        await expect(page.locator('#iconUpdateReason')).toHaveText(limit);
 
         // A later failure without Retry-After must not retain an old deadline.
         iconResult = {...failure, hint: undefined, retry_at: undefined, error: 'HTTP 404', output: 'missing source'};
         await runIcons();
-        await expect(page.locator('#iconUpdateResult')).toHaveText('HTTP 404');
+        await expect(page.locator('#iconUpdateReason')).toHaveText('HTTP 404');
+        await expect(page.locator('#iconUpdateReason')).toBeHidden();
         await expect(page.locator('#iconUpdateHint')).toBeHidden();
         await expect(page.locator('#iconUpdateOutput')).not.toContainText('2033');
 

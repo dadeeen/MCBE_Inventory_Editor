@@ -30,13 +30,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    from mcbe_editor import icon_cache_state
+    from mcbe_editor import icon_cache_state, item_registry_policy
     from mcbe_editor.archive_errors import ZIP_READ_ERRORS
     from mcbe_editor.banner_patterns import BANNER_TEXTURES, crop_banner_texture
     from mcbe_editor.block_icon_renderer import composite_png_overlay, crop_png, render_bedrock_model_icon, render_block_icon, supports_block_preview, tint_png
     from mcbe_editor.icon_cache import publish_icon_cache, recover_icon_cache
     from mcbe_editor.icon_resolution import IconResolution, resolve_icon_definition
-    from mcbe_editor.item_registry_policy import is_technical_block_only_item_id
+    from mcbe_editor.item_catalog_file import read_catalog_file
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
     from mcbe_editor.update_http_errors import report_http_errors
     from mcbe_editor.update_output_i18n import output_t
@@ -51,7 +51,8 @@ def _load_runtime_dependencies():
         composite_png_overlay,
         crop_png,
         BUNDLED_ITEM_DB_JSON,
-        is_technical_block_only_item_id,
+        item_registry_policy,
+        read_catalog_file,
         output_t,
         resolve_icon_definition,
         supports_block_preview,
@@ -74,7 +75,8 @@ def _load_runtime_dependencies():
     composite_png_overlay,
     crop_png,
     BUNDLED_ITEM_DB_JSON,
-    is_technical_block_only_item_id,
+    item_registry_policy,
+    read_catalog_file,
     tr,
     resolve_icon_definition,
     supports_block_preview,
@@ -1127,40 +1129,21 @@ def normalize_identifier(value: str) -> str:
 
 
 def load_icon_targets(path: Path) -> tuple[list[str], list[str], int, set[str]]:
-    """Load icon targets and the block-item registry from one catalog snapshot.
-
-    ``items`` remains the complete recognition catalog for lossless handling of
-    existing worlds. The regular icon QA/cache target list follows Mojang's
-    positive item registry in ``addable_items`` instead of every known legacy,
-    language, or block identifier.
-    """
-
+    """Select Vanilla targets from the editor's validated, effective catalog."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        catalog = read_catalog_file(path, bundled_path=BUNDLED_ITEM_DB_JSON)
     except FileNotFoundError as exc:
         raise RuntimeError(tr("Item-DB JSON nicht gefunden: {path}", path=path)) from exc
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+    except (OSError, ValueError) as exc:
         raise RuntimeError(tr("Item-DB JSON ist ungültig oder nicht lesbar: {path}", path=path)) from exc
-    block_items_raw = data.get("block_items", []) if isinstance(data, dict) else []
-    block_items = {normalized for value in (block_items_raw if isinstance(block_items_raw, list) else []) if (normalized := normalize_identifier(str(value)))}
-    items = data.get("items") if isinstance(data, dict) else {}
-    if not isinstance(items, dict):
-        return [], [], 0, block_items
-    addable_raw = data.get("addable_items") if isinstance(data, dict) else None
-    block_only_raw = data.get("block_only_items", []) if isinstance(data, dict) else []
-    block_only = {normalized for key in (block_only_raw if isinstance(block_only_raw, list) else []) if (normalized := normalize_identifier(str(key)))}
-    catalog_items = {normalized for key in items if (normalized := normalize_identifier(str(key)))}
-    if isinstance(addable_raw, list):
-        targets = {
-            normalized
-            for key in addable_raw
-            if (normalized := normalize_identifier(str(key))) and not is_technical_block_only_item_id(f"minecraft:{normalized}")
-        }
-    else:
-        # Rückwärtskompatibilität für ältere externe Item-Datenbanken.
-        targets = {item_id for item_id in catalog_items - block_only if not is_technical_block_only_item_id(f"minecraft:{item_id}")}
-    excluded = sorted(catalog_items - targets)
-    return sorted(targets), excluded, len(catalog_items), block_items
+    # Other namespaces belong to explicitly selected packs. Their item IDs
+    # never become filenames in the Vanilla cache.
+    targets = {key.removeprefix("minecraft:") for key in catalog["ADDABLE_ITEM_IDS"] if item_registry_policy.is_vanilla_registry_id(key)}
+    if not targets:
+        raise RuntimeError(tr("Item-DB JSON ist ungültig oder nicht lesbar: {path}", path=path))
+    blocks = {key.removeprefix("minecraft:") for key in catalog["BLOCK_ITEM_IDS"] if item_registry_policy.is_vanilla_registry_id(key)}
+    named = {key.removeprefix("minecraft:") for key in catalog["ITEMS"]}
+    return sorted(targets), sorted(named - targets), len(named), blocks
 
 
 def candidate_texture_keys(item_id: str, data_driven_aliases: dict[str, list[str]] | None = None) -> list[str]:
@@ -1656,11 +1639,17 @@ def build_icon_cache(
     block_item_ids: set[str] | None = None,
     reuse_unchanged: bool = False,
     expected_archive_sha256: str | None = None,
+    require_item_icons: bool = False,
 ) -> dict[str, Any]:
     # tempfile returns an absolute staging path even when ``dir`` was relative.
     # Normalize only the working address (without resolving symlinks) so the
     # atomic publisher can compare both parent directories reliably.
     target_root = Path(os.path.abspath(target_root))
+    known_item_set = set(known_items)
+    icon_targets = sorted(known_item_set | set(EXTRA_ITEM_ICON_IDS))
+    for item_id in icon_targets:
+        if not item_registry_policy.is_vanilla_registry_id(item_id) or ":" in item_id:
+            raise ValueError(tr("ungültige Item-ID '{id}'.", id=item_id))
     archive_sha256 = icon_cache_state.file_digest(zip_path, limit=MAX_RESOURCE_PACK_BYTES)
     if expected_archive_sha256 is not None and archive_sha256 != expected_archive_sha256:
         raise ValueError(tr("Das Resource-Pack wurde während der Verarbeitung verändert. Bitte erneut prüfen."))
@@ -1670,8 +1659,6 @@ def build_icon_cache(
         terrain_textures = parse_texture_data(_read_json_member(zf, "textures/terrain_texture.json"))
         block_definitions = {normalize_identifier(key): value for key, value in _read_json_member(zf, "blocks.json").items()}
         item_definitions = _read_item_icon_definitions(zf)
-        known_item_set = set(known_items)
-        icon_targets = sorted(known_item_set | set(EXTRA_ITEM_ICON_IDS))
         display_texture_targets = list(AXOLOTL_DISPLAY_ASSETS.values())
         item_aliases = build_data_driven_texture_aliases(item_textures, icon_targets + display_texture_targets)
         block_aliases = build_data_driven_texture_aliases(terrain_textures, icon_targets + display_texture_targets)
@@ -1757,7 +1744,7 @@ def build_icon_cache(
                 model_spec = MODEL_ICON_SPECS.get(item_id)
                 model_handled = model_spec is not None
                 if model_spec:
-                    target = extracted / f"{item_id}.png"
+                    target = extracted / icon_cache_state.icon_filename(item_id)
                     try:
                         _validate_model_icon_mapping(zf, item_id, item_textures, model_spec)
                         source = texture_members.get(model_spec.texture_path)
@@ -1837,7 +1824,7 @@ def build_icon_cache(
                 if selected:
                     texture_path, source = selected
                     resolution["texture"] = texture_path
-                    target = extracted / f"{item_id}.png"
+                    target = extracted / icon_cache_state.icon_filename(item_id)
                     rendered = None
                     if not texture_path.startswith("items/") and "inventory_" not in texture_path:
                         try:
@@ -1922,7 +1909,7 @@ def build_icon_cache(
                     if not selected_variant:
                         continue
                     texture_path, source = selected_variant
-                    _write_texture_as_png(zf, source, extracted / f"{item_id}#{damage}.png")
+                    _write_texture_as_png(zf, source, extracted / icon_cache_state.icon_filename(f"{item_id}#{damage}"))
                     mapped[f"minecraft:{item_id}#{damage}"] = texture_path
                     resolutions[f"minecraft:{item_id}#{damage}"] = {
                         "basis": "reviewed_variant",
@@ -1936,7 +1923,7 @@ def build_icon_cache(
                     source = texture_members.get(texture_path)
                     if not source:
                         continue
-                    _write_texture_as_png(zf, source, extracted / f"{item_id}#{damage}.png")
+                    _write_texture_as_png(zf, source, extracted / icon_cache_state.icon_filename(f"{item_id}#{damage}"))
                     mapped[f"minecraft:{item_id}#{damage}"] = texture_path
                     resolutions[f"minecraft:{item_id}#{damage}"] = {
                         "basis": "reviewed_variant",
@@ -1947,9 +1934,11 @@ def build_icon_cache(
                     used_members.add(_zip_member_key(source[1].filename))
                     bed_variant_icons += 1
             report_progress("rendering", current=len(icon_targets), total=len(icon_targets), unit="items")
+            if require_item_icons and not icon_cache_state.has_catalog_icons(mapped, known_item_set):
+                raise ValueError(tr("Der neue Icon-Cache enthält keine Item-Icons. Der vorhandene Cache bleibt erhalten."))
             for asset_id, texture_path, preview_png, member_key in display_asset_images(zf, texture_members, item_textures, item_aliases):
                 extracted_display.mkdir(parents=True, exist_ok=True)
-                (extracted_display / f"{asset_id.removeprefix('mcbe:')}.png").write_bytes(preview_png)
+                (extracted_display / icon_cache_state.icon_filename(asset_id.removeprefix("mcbe:"))).write_bytes(preview_png)
                 display_assets[asset_id] = texture_path
                 used_members.add(member_key)
             manifest = {
@@ -2098,6 +2087,7 @@ def main(argv: list[str] | None = None) -> int:
         block_item_ids=block_item_ids,
         reuse_unchanged=not args.force,
         expected_archive_sha256=archive_sha256,
+        require_item_icons=True,
     )
     images_changed = previous_images is None or previous_images != icon_cache_state.image_signature(ICON_ROOT, manifest)
     already_current = not images_changed and _same_resource_pack_release((previous_manifest or {}).get("release", {}), info)

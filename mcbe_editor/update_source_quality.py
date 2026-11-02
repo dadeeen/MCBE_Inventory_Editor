@@ -18,12 +18,13 @@ def usable_source_name(value):
     return value.strip() if isinstance(value, str) and "%" not in value else ""
 
 
-def resolve_names(identifier, official, curated=(), existing=(), secondary=None):
+def resolve_names(identifier, official, curated=(), existing=(), secondary=None, *, composed=None):
     """Resolve German/English labels independently from their shared identity."""
     candidates = {}
     for index, locale in enumerate(("de", "en")):
         candidates[locale] = [
             (usable_source_name(official.get(locale)), "official"),
+            (usable_source_name((composed or {}).get(locale)), "composed"),
             (curated[index] if len(curated) > index else "", "curated"),
             (existing[index] if len(existing) > index and existing[index] != identifier else "", "existing"),
             (usable_source_name((secondary or {}).get(locale)), "microsoft"),
@@ -41,7 +42,7 @@ def resolve_names(identifier, official, curated=(), existing=(), secondary=None)
                 source = "microsoft"
             elif value == foreign:
                 source = "other_language"
-        names.append(value if source == "identifier" else value[0].upper() + value[1:])
+        names.append(value)
         sources.append(source)
     return tuple(names), tuple(sources)
 
@@ -53,9 +54,36 @@ def coverage(records):
         for index, locale in enumerate(("de", "en")):
             if usable_source_name(official.get(locale)):
                 result[locale]["official"] += 1
+                if sources[index] != "official":
+                    result[locale].setdefault("retained", []).append({"id": identifier, "source": sources[index]})
             else:
                 result[locale]["fallbacks"].append({"id": identifier, "source": sources[index]})
     return result
+
+
+def display_name_sources(actual, official, curated=(), composed=None):
+    """Attribute the displayed text, independently of available source coverage."""
+    return tuple(
+        "official"
+        if value == usable_source_name(official.get(locale))
+        else "composed"
+        if value == usable_source_name((composed or {}).get(locale))
+        else "curated"
+        if len(curated) > index and value == curated[index]
+        else "existing"
+        for index, (locale, value) in enumerate(zip(("de", "en"), actual[:2], strict=True))
+    )
+
+
+def borrowed_item_locales(locales):
+    """Identify a proven copy only when the other locale supplies the name."""
+    borrowed = {}
+    for locale, coverage in locales.items():
+        for entry in coverage["fallbacks"]:
+            if entry["source"] == "other_language":
+                item_id = entry["id"]
+                borrowed[item_id] = locale if item_id not in borrowed else None
+    return borrowed
 
 
 def merge_quality(previous, release, requested, checked, blocked):

@@ -288,7 +288,7 @@ test("unverified stack limits preserve amounts and disable maximum actions", asy
   await page.route("**/api/item-db/status", route => route.fulfill({ json: {
     item_db: { status: "ok", verification: { verified: true }, counts: { items: 2 } },
   } }));
-  await page.route("**/api/icons/status", route => route.fulfill({ json: {
+  await page.route("**/api/icons/status*", route => route.fulfill({ json: {
     success: true, icons: {}, display_icons: {}, count: 0, sources: [], warnings: [],
   } }));
   await page.route("**/api/world/presence", route => route.fulfill({ json: {
@@ -827,6 +827,9 @@ test("read-only viewer is visibly labeled and blocks write endpoints", async ({ 
   const retryResponse = await retriedStatus;
   expect(retryResponse.status()).toBe(503);
   expect(iconWrites).toEqual([]);
+  await expect(page.locator("#btnUpdateDbDryRun")).toBeDisabled();
+  await expect(page.locator("#btnUpdateDbApply")).toBeDisabled();
+  await expect(page.locator("#updateDbActionHint")).toContainText("Nur ansehen");
 
   const result = await page.evaluate(async () => {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";

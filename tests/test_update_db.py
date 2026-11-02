@@ -196,7 +196,7 @@ class TestMicrosoftItemListings(unittest.TestCase):
             en_lang.write_text(
                 "\n".join(
                     [
-                        "item.axolotl_bucket.name=Axolotl Bucket",
+                        "item.bucketAxolotl.name=Bucket of Axolotl",
                         "item.axolotlColorBlue.name=Blue",
                         "item.tropicalColorBlue.name=Blue",
                         "item.tropicalSchoolClownfish.name=Clownfish",
@@ -207,7 +207,7 @@ class TestMicrosoftItemListings(unittest.TestCase):
             de_lang.write_text(
                 "\n".join(
                     [
-                        "item.axolotl_bucket.name=Axolotleimer",
+                        "item.bucketAxolotl.name=Axolotleimer",
                         "item.axolotlColorBlue.name=Blau",
                         "item.tropicalColorBlue.name=Blau",
                         "item.tropicalSchoolClownfish.name=Clownfisch",
@@ -218,8 +218,8 @@ class TestMicrosoftItemListings(unittest.TestCase):
 
             en_items, de_items = update_db.parse_lang_items(en_lang, de_lang)
 
-        self.assertEqual(en_items["axolotl_bucket"], "Axolotl Bucket")
-        self.assertEqual(de_items["axolotl_bucket"], "Axolotleimer")
+        self.assertEqual(en_items["bucketaxolotl"], "Bucket of Axolotl")
+        self.assertEqual(de_items["bucketaxolotl"], "Axolotleimer")
         self.assertNotIn("axolotlcolorblue", en_items)
         self.assertNotIn("axolotlcolorblue", de_items)
         self.assertNotIn("tropicalcolorblue", en_items)
@@ -1511,7 +1511,7 @@ def test_full_update_verifies_only_complete_sources_and_valid_limits(monkeypatch
         "resolve_microsoft_item_listing_snapshot",
         lambda *, reuse_cached: ({}, item_listing),
     )
-    monkeypatch.setattr(update_db, "merge_items", lambda *_args: {})
+    monkeypatch.setattr(update_db, "merge_items", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(update_db, "compute_block_only_item_ids", lambda *_args: [])
     monkeypatch.setattr(update_db, "read_block_only_item_ids", lambda: [])
     monkeypatch.setattr(update_db, "compute_addable_item_ids", lambda *_args: [])

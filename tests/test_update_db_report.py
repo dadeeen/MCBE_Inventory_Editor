@@ -23,14 +23,16 @@ def test_missing_registry_names_use_exact_reviewed_names_without_replacing_exist
     [
         (False, False, [], "current"),
         (False, True, [], "metadata_only"),
+        (False, "labels", [], "metadata_only"),
         (True, True, [], "available"),
         (True, False, [("effects", "missing IDs")], "incomplete"),
     ],
 )
 def test_report_classifies_content_metadata_and_partial_failures(changed, metadata, blocked, state):
-    report = build_report(
-        scope="items", release="v1", sections={"items": ({"a": 1}, {"a": 2} if changed else {"a": 1})}, metadata_changed=metadata, audit=None, blocked=blocked
-    )
+    sections = {"items": ({"a": 1}, {"a": 2} if changed else {"a": 1})}
+    if metadata == "labels":
+        sections["confirmed_item_labels"] = ({}, {"a": ["Deutsch", "English"]})
+    report = build_report(scope="items", release="v1", sections=sections, metadata_changed=metadata is True, audit=None, blocked=blocked)
     assert report["status"] == state
     assert report["scope"] == "items"
     assert report["sections"]["items"] == {"added": 0, "removed": 0, "changed": int(changed)}
@@ -135,12 +137,140 @@ def test_report_protocol_never_interprets_human_log_messages():
     assert extract_report(REPORT_PREFIX + "bad JSON") == ("", None)
 
 
+@pytest.mark.parametrize(
+    "source,reason,warning",
+    [
+        ("curated", None, False),
+        ("curated", "editorial", False),
+        ("composed", "composed", False),
+        ("existing", None, False),
+        ("curated", "category", False),
+        ("microsoft", None, False),
+        ("identifier", None, True),
+        ("other_language", None, True),
+        ("curated", "ambiguous", True),
+    ],
+)
+def test_name_origin_warning_policy_agrees_with_browser(source, reason, warning):
+    from mcbe_editor.update_db_report import quality_has_warnings, update_outcome
+    from tests.node_runner import run_node
+
+    origin = {"id": "minecraft:test", "source": source, **({"reason": reason} if reason else {})}
+    quality = {
+        "schema": 1,
+        "sections": {
+            "items": {
+                "status": "checked",
+                "locales": {
+                    "de": {"total": 1, "official": 0, "fallbacks": [origin]},
+                },
+            }
+        },
+    }
+    assert quality_has_warnings(quality) is warning
+    assert update_outcome(success=True, committed=True, report={"quality": quality}) == ("updated_with_warnings" if warning else "updated")
+    run_node(
+        """
+        const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
+        const context = {window: {}};
+        vm.runInNewContext(fs.readFileSync('static/data_source_view.js', 'utf8'), context);
+    """
+        + f"assert.equal(context.window.MCBEDataSourceView.itemDbQualityModel({json.dumps(quality)}).hasWarnings, {json.dumps(warning)});"
+    )
+
+
+def test_name_warning_policy_keeps_missing_classification_and_blocked_sections_visible():
+    from mcbe_editor.update_db_report import quality_has_warnings
+
+    assert quality_has_warnings(
+        {
+            "schema": 1,
+            "sections": {
+                "items": {
+                    "status": "checked",
+                    "locales": {
+                        "de": {"total": 160, "official": 0, "fallbacks": []},
+                    },
+                }
+            },
+        }
+    )
+    assert quality_has_warnings({"schema": 1, "sections": {"effects": {"status": "blocked", "locales": {}}}})
+
+
+@pytest.mark.parametrize("retained", [[], [{"id": "minecraft:test", "source": "curated", "reason": "editorial"}]])
+def test_display_name_origins_roundtrip_separately_from_available_source_coverage(retained):
+    from mcbe_editor.update_db_report import snapshot_update_quality, quality_has_warnings
+
+    quality = {
+        "schema": 1,
+        "sections": {
+            "items": {
+                "status": "checked",
+                "release": "v-test",
+                "attempted_release": "v-test",
+                "locales": {
+                    "de": {"total": 1, "official": 1, "fallbacks": [], **({"retained": retained} if retained else {})},
+                },
+            }
+        },
+    }
+    assert snapshot_update_quality(quality) == quality
+    assert not quality_has_warnings(quality)
+
+
+@pytest.mark.parametrize("retained", [None, {}, [None], [{"id": "a", "source": []}], [{"id": "a", "source": "curated"}] * 2])
+def test_malformed_retained_name_origins_are_not_accepted(retained):
+    from mcbe_editor.update_db_report import snapshot_update_quality
+
+    assert (
+        snapshot_update_quality(
+            {
+                "schema": 1,
+                "sections": {
+                    "items": {
+                        "status": "checked",
+                        "locales": {
+                            "de": {"total": 1, "official": 1, "fallbacks": [], "retained": retained},
+                        },
+                    }
+                },
+            }
+        )
+        == {}
+    )
+
+
+@pytest.mark.parametrize("field", ["source", "reason"])
+@pytest.mark.parametrize("invalid", [[], {}, 1, None, "unknown"])
+def test_malformed_name_provenance_is_rejected_without_raising(field, invalid):
+    from mcbe_editor.update_db_report import snapshot_update_quality
+
+    entry = {"id": "minecraft:probe", "source": "curated", field: invalid}
+    assert (
+        snapshot_update_quality(
+            {
+                "schema": 1,
+                "sections": {
+                    "items": {
+                        "status": "checked",
+                        "locales": {
+                            "de": {"total": 1, "official": 0, "fallbacks": [entry]},
+                        },
+                    }
+                },
+            }
+        )
+        == {}
+    )
+
+
 def test_expected_names_are_reported_separately_from_findings():
     items = {key: value[0] for key, value in EXPECTED_ITEM_NAME_DIFFERENCES.items()}
     source = {locale: {key: value[1][index] for key, value in EXPECTED_ITEM_NAME_DIFFERENCES.items()} for index, locale in enumerate(("de", "en"))}
     audit = audit_items(items, [], {}, {}, source, {}, {})
     assert audit["issues"] == []
-    assert len(audit["expected_name_differences"]) == 6
+    assert len(audit["expected_name_differences"]) == 2 * len(EXPECTED_ITEM_NAME_DIFFERENCES)
     assert {entry["id"] for entry in audit["expected_name_differences"]} == set(items)
     assert {entry["locale"] for entry in audit["expected_name_differences"]} == {"de", "en"}
 

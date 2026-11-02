@@ -34,7 +34,7 @@ Wähle, wie du den Editor starten möchtest:
 
 Alle drei Varianten verwenden denselben Editor. Die Release-ZIPs findest du unter [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
 
-Folge beim ersten Start dem Einrichtungsdialog. Lade **Item-DB** und **Vanilla-Icons** und warte auf die Abschlussmeldung. Du kannst das später unter **Werkzeuge** nachholen; bis dahin verwendet der Editor den mitgelieferten Item-Stand und Ersatzsymbole.
+Beim ersten Start zeigt der Einrichtungsdialog, ob bei **Item-DB** oder **Vanilla-Icons** etwas zu tun ist. Wähle aus, welche Daten du laden möchtest. Das geht auch später unter **Werkzeuge**. Der Editor kann den mitgelieferten Item-Stand verwenden und zeigt für fehlende Icons ein Ersatzsymbol.
 
 ## Warum es dieses Projekt gibt
 
@@ -278,8 +278,8 @@ Erst beim Speichern werden Spieleränderungen und vorgemerkte Reittiere gemeinsa
 
 ## Datensicherheit und Datenschutz
 
-- Bearbeiten funktioniert offline. Die Online-Aktualitätsprüfung für **Item-DB** und **Vanilla-Icons** sowie die optionale Netzwerkprüfung benötigen Internetzugriff über HTTPS. Unter **Icons → Aktualität prüfen** bleiben gültige Icons erhalten und der Editor meldet **Bereits aktuell**. Nur bei Bedarf bietet er einen lokalen Abgleich oder einen Download an. Auch ältere Icon-Bestände bleiben nutzbar; fehlt ihr Prüfnachweis, erklärt der Editor den nötigen Abgleich. Ein Item-DB-Update prüft den lokalen Icon-Status erneut, ohne automatisch Icons herunterzuladen. Fehlgeschlagene Statusabfragen zeigen die Ursache und lassen sich wiederholen. Jeder Update-Tab zeigt Fehler und ein aufklappbares technisches Protokoll. Bei GitHub-Anfragelimits wird der früheste erneute Versuch angezeigt, sofern GitHub den Zeitpunkt liefert.
-- Fehlende offizielle Namen verhindern kein **Item-DB**-Update: Geprüfte oder vorhandene Namen, die andere Sprache oder eine technische Kennung dienen als Ersatz. Einrichtung und Item-DB-Werkzeuge zeigen Übersetzungsabdeckung und Hinweise. Bei unsicheren Identitäten bleibt der betroffene Bereich erhalten, während sichere Bereiche aktualisiert werden können; beschädigte gemeinsame Quellen lassen die Datenbank unverändert. Teilergebnisse nennen die beibehaltenen Bereiche und ihre Ursachen auch nach einem Neustart.
+- Bearbeiten funktioniert offline. Online-Prüfungen für **Item-DB** und **Vanilla-Icons** nutzen HTTPS. Nach einem Item-DB-Update prüft der Editor die installierten Icons lokal. Passen sie noch, meldet er **Bereits aktuell**. Andernfalls kannst du unter **Icons → Aktualität prüfen** das passende Quellarchiv wiederverwenden oder herunterladen. Fehlgeschlagene Prüfungen lassen sich wiederholen.
+- Die **Item-DB** lässt sich auch aktualisieren, wenn bei Mojang eine Übersetzung fehlt. Eine spätere offizielle Übersetzung kann einen Ersatznamen ablösen. Deine eigenen Katalognamen bleiben für Deutsch und Englisch getrennt erhalten. Unter **Details anzeigen** siehst du, woher ein Name stammt oder weshalb nur ein Teil des Updates übernommen wurde. Übersprungene Bereiche behalten ihre bisherigen Daten.
 - Vor dem Speichern prüft der Editor Serverstatus, Dateisperren und zwischenzeitliche Änderungen. Vor jeder tatsächlichen Änderung erstellt er ein vollständiges Welt-Backup.
 - Bei einer unterbrochenen Wiederherstellung oder ungewissem Ausgang behalte Backup und Wiederherstellungsdateien und folge vor weiteren Bearbeitungen der [Recovery-Anleitung](SECURITY.de.md#unterbrochene-wiederherstellungen).
 - Weltordner müssen reguläre Dateien und Verzeichnisse enthalten. Symlinks, Windows-Junctions und andere Reparse-Points werden nicht unterstützt.

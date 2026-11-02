@@ -1,11 +1,122 @@
 import json
+from pathlib import Path
 
 import pytest
 
 from mcbe_editor.item_data import load_item_database
-from mcbe_editor.item_name_policy import SUPERSEDED_ITEM_LABELS, reviewed_item_label_repairs
+from mcbe_editor.item_name_policy import EDITORIAL_GERMAN_ITEM_IDS, REVIEWED_MOJANG_GERMAN_KEYS, SUPERSEDED_ITEM_LABELS, reviewed_item_label_repairs
 from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON
 from scripts import update_db
+
+GERMAN_NAMES = json.loads((Path(__file__).parent / "fixtures/reviewed_german_item_names.json").read_text(encoding="utf-8"))["labels"]
+
+
+@pytest.mark.parametrize("entry", GERMAN_NAMES, ids=lambda entry: entry["id"])
+def test_reviewed_german_names_distinguish_editorial_from_mojang(entry):
+    bundled = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))
+    identifier = entry["id"]
+    assert bundled["items"][identifier] == entry["after"]
+    assert SUPERSEDED_ITEM_LABELS[identifier] == tuple(entry["before"])
+    assert (identifier in EDITORIAL_GERMAN_ITEM_IDS) == (entry["origin"] == "editorial_translation")
+    if entry["origin"] == "official_source_label":
+        assert REVIEWED_MOJANG_GERMAN_KEYS[identifier] == entry["source_key"]
+
+
+@pytest.mark.parametrize("custom_locale", [None, 0, 1])
+def test_editorial_names_accept_later_official_locales_but_never_replace_a_custom_half(custom_locale):
+    identifier = "minecraft:ice_ball"
+    initial = {identifier: ("Eisball", "Ice Ball")}
+    if custom_locale is not None:
+        pair = list(initial[identifier])
+        pair[custom_locale] = "My personal name"
+        initial[identifier] = tuple(pair)
+    en_only = {"ice_ball": {"official": {"en": "Official Ice Ball"}}}
+    both = {"ice_ball": {"official": {"de": "Offizieller Eisball", "en": "Official Ice Ball"}}}
+    english = update_db.merge_items(initial, {}, {}, registry_ids=[identifier], source_labels=en_only)
+    translated = update_db.merge_items(english, {}, {}, registry_ids=[identifier], source_labels=both)
+    expected = {
+        identifier: tuple(initial[identifier][i] if i == custom_locale else value for i, value in enumerate(("Offizieller Eisball", "Official Ice Ball")))
+    }
+    assert translated == expected
+    assert update_db.merge_items(translated, {}, {}, registry_ids=[identifier], source_labels=both) == translated
+    quality = update_db.item_label_quality([identifier], translated, english, {}, {}, {}, {}, source_labels=both)
+    for index, locale in enumerate(("de", "en")):
+        assert quality[locale]["official"] == 1
+        assert bool(quality[locale].get("retained")) == (custom_locale == index)
+        if custom_locale == index:
+            assert quality[locale]["retained"][0]["source"] == "existing"
+
+
+def test_specific_editorial_slab_name_is_not_reported_as_the_generic_official_name():
+    identifier = "minecraft:petrified_oak_slab"
+    source = {"petrified_oak_slab": {"official": {"de": "Holzstufe", "en": "Wooden Slab"}}}
+    old = {identifier: ("Petrified Oak Slab", "Petrified Oak Slab")}
+    merged = update_db.merge_items(old, {}, {}, registry_ids=[identifier], source_labels=source)
+    assert merged == {identifier: ("Versteinerte Eichenstufe", "Petrified Oak Slab")}
+    quality = update_db.item_label_quality([identifier], merged, old, {}, {}, {}, {}, source_labels=source)
+    assert quality["de"] == {"total": 1, "official": 1, "fallbacks": [], "retained": [{"id": identifier, "source": "curated", "reason": "editorial"}]}
+    assert quality["en"]["retained"] == [{"id": identifier, "source": "curated"}]
+
+
+@pytest.mark.parametrize("official", [{"de": "Holzstufe"}, {"en": "Wooden Slab"}, {"de": "Neue Holzstufe", "en": "New Wooden Slab"}])
+def test_specific_variant_name_is_not_a_replaceable_editorial_gap_filler(official):
+    identifier = "minecraft:petrified_oak_slab"
+    current = {identifier: ("Versteinerte Eichenstufe", "Petrified Oak Slab")}
+    source = {"petrified_oak_slab": {"official": official}}
+    assert update_db.merge_items(current, {}, {}, registry_ids=[identifier], source_labels=source) == current
+    quality = update_db.item_label_quality([identifier], current, current, {}, {}, {}, {}, source_labels=source)
+    for locale in official:
+        assert quality[locale]["retained"][0]["source"] == "curated"
+
+
+def test_new_reviewed_names_do_not_grant_addability_or_gameplay_values():
+    bundled = json.loads(BUNDLED_ITEM_DB_JSON.read_text(encoding="utf-8"))
+    for name in ("frostbite_spawn_egg", "ice_ball", "ice_crystal", "icicle"):
+        identifier = "minecraft:" + name
+        assert identifier in bundled["items"]
+        assert identifier not in bundled["addable_items"]
+        assert identifier not in bundled["stack_limits"]
+        assert identifier not in bundled["durability"]
+
+
+@pytest.mark.parametrize("custom_locale", [None, 0, 1])
+def test_display_name_punctuation_survives_source_resolution_and_custom_name_preservation(custom_locale):
+    identifier = "minecraft:label_probe"
+    names = ("Quelle_A/B (rot/grün)", "Source_A/B (red/green)")
+    source = {"label_probe": {"official": dict(zip(("de", "en"), names, strict=True))}}
+    current = {}
+    expected = names
+    if custom_locale is not None:
+        customized = list(names)
+        customized[custom_locale] = "Eigener_Name/A&B"
+        expected = tuple(customized)
+        current[identifier] = expected
+    merged = update_db.merge_items(current, {}, {}, registry_ids=[identifier], source_labels=source)
+    assert merged[identifier] == expected
+    quality = update_db.item_label_quality([identifier], merged, current, {}, {}, {}, {}, source_labels=source)
+    for index, locale in enumerate(("de", "en")):
+        assert quality[locale]["official"] == 1
+        assert bool(quality[locale].get("retained")) == (custom_locale == index)
+    assert update_db.merge_items(merged, {}, {}, registry_ids=[identifier], source_labels=source) == merged
+    assert update_db.item_label_quality([identifier], merged, merged, {}, {}, {}, {}, source_labels=source) == quality
+
+
+def test_later_official_name_preserves_punctuation_when_replacing_a_reviewed_fallback():
+    identifier = "minecraft:chemical_heat"
+    current = {identifier: ("Hitzeblock", "Heat Block")}
+    names = ("Hitzeblock (A/B)", "Heat Block (A/B)")
+    source = {"chemical_heat": {"official": dict(zip(("de", "en"), names, strict=True))}}
+    merged = update_db.merge_items(current, {}, {}, registry_ids=[identifier], source_labels=source)
+    assert merged[identifier] == names
+    assert update_db.merge_items(merged, {}, {}, registry_ids=[identifier], source_labels=source) == merged
+
+
+def test_base_label_migration_preserves_source_punctuation():
+    current = {"minecraft:label_probe": ("Alte Variante", "Old Variant")}
+    names = ("Basis_A/B", "Base_A/B")
+    localizations = {"label_probe": names, "label_probe.old": current["minecraft:label_probe"], "label_probe.other": ("Andere Variante", "Other Variant")}
+    merged = update_db.merge_items(current, {"label_probe": names[1]}, {"label_probe": names[0]}, item_localizations=localizations)
+    assert merged["minecraft:label_probe"] == names
 
 
 def test_updater_uses_the_shared_reviewed_labels_and_does_not_mutate_input():

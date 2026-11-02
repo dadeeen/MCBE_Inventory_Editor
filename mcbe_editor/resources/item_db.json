@@ -3813,7 +3813,7 @@
     ],
     "minecraft:acacia_chest_boat": [
       "Akazien-Truhenboot",
-      "Acacia Chest Boat"
+      "Acacia Boat with Chest"
     ],
     "minecraft:acacia_door": [
       "Akazientür",
@@ -4033,7 +4033,7 @@
     ],
     "minecraft:bamboo_chest_raft": [
       "Bambus-Truhenfloß",
-      "Bamboo Chest Raft"
+      "Bamboo Raft with Chest"
     ],
     "minecraft:bamboo_door": [
       "Bambustür",
@@ -4197,7 +4197,7 @@
     ],
     "minecraft:birch_chest_boat": [
       "Birken-Truhenboot",
-      "Birch Chest Boat"
+      "Birch Boat with Chest"
     ],
     "minecraft:birch_door": [
       "Birkentür",
@@ -4588,7 +4588,7 @@
       "Bricks"
     ],
     "minecraft:brick_double_slab": [
-      "Brick Double Slab",
+      "Ziegel-Doppelstufe",
       "Brick Double Slab"
     ],
     "minecraft:brick_slab": [
@@ -4916,11 +4916,11 @@
       "Charcoal"
     ],
     "minecraft:chemical_heat": [
-      "Chemical Heat",
-      "Chemical Heat"
+      "Hitzeblock",
+      "Heat Block"
     ],
     "minecraft:chemistry_table": [
-      "Chemistry Table",
+      "Chemietisch",
       "Chemistry Table"
     ],
     "minecraft:cherry_boat": [
@@ -4933,7 +4933,7 @@
     ],
     "minecraft:cherry_chest_boat": [
       "Kirschholz-Truhenboot",
-      "Cherry Chest Boat"
+      "Cherry Boat with Chest"
     ],
     "minecraft:cherry_door": [
       "Kirschholztür",
@@ -5152,7 +5152,7 @@
       "Clay Ball"
     ],
     "minecraft:client_request_placeholder_block": [
-      "Client Request Placeholder Block",
+      "Platzhalterblock für Client-Anfragen",
       "Client Request Placeholder Block"
     ],
     "minecraft:clock": [
@@ -5212,7 +5212,7 @@
       "Cobblestone"
     ],
     "minecraft:cobblestone_double_slab": [
-      "Cobblestone Double Slab",
+      "Bruchstein-Doppelstufe",
       "Cobblestone Double Slab"
     ],
     "minecraft:cobblestone_slab": [
@@ -5244,28 +5244,28 @@
       "Cod Spawn Egg"
     ],
     "minecraft:colored_torch_blue": [
-      "Colored Torch Blue",
-      "Colored Torch Blue"
+      "Blaue Fackel",
+      "Blue Torch"
     ],
     "minecraft:colored_torch_bp": [
-      "Colored Torch Bp",
-      "Colored Torch Bp"
+      "Gefärbte Fackel (blau/violett)",
+      "Colored Torch (Blue/Purple)"
     ],
     "minecraft:colored_torch_green": [
-      "Colored Torch Green",
-      "Colored Torch Green"
+      "Grüne Fackel",
+      "Green Torch"
     ],
     "minecraft:colored_torch_purple": [
-      "Colored Torch Purple",
-      "Colored Torch Purple"
+      "Violette Fackel",
+      "Purple Torch"
     ],
     "minecraft:colored_torch_red": [
-      "Colored Torch Red",
-      "Colored Torch Red"
+      "Rote Fackel",
+      "Red Torch"
     ],
     "minecraft:colored_torch_rg": [
-      "Colored Torch Rg",
-      "Colored Torch Rg"
+      "Gefärbte Fackel (rot/grün)",
+      "Colored Torch (Red/Green)"
     ],
     "minecraft:command_block": [
       "Befehlsblock",
@@ -5288,7 +5288,7 @@
       "Composter"
     ],
     "minecraft:compound_creator": [
-      "Compound Creator",
+      "Verbindungserzeuger",
       "Compound Creator"
     ],
     "minecraft:concrete": [
@@ -5296,7 +5296,7 @@
       "White Concrete"
     ],
     "minecraft:concrete_powder": [
-      "Concrete Powder",
+      "Trockenbeton",
       "Concrete Powder"
     ],
     "minecraft:concretepowder": [
@@ -5753,7 +5753,7 @@
     ],
     "minecraft:dark_oak_chest_boat": [
       "Schwarzeichenholz-Truhenboot",
-      "Dark Oak Chest Boat"
+      "Dark Oak Boat with Chest"
     ],
     "minecraft:dark_oak_door": [
       "Schwarzeichentür",
@@ -5944,7 +5944,7 @@
       "Dead Bush"
     ],
     "minecraft:debug_stick": [
-      "Debug Stick",
+      "Debug-Stab",
       "Debug Stick"
     ],
     "minecraft:decorated_pot": [
@@ -6032,15 +6032,15 @@
       "Deny"
     ],
     "minecraft:deprecated_anvil": [
-      "Deprecated Anvil",
+      "Amboss (veraltet)",
       "Deprecated Anvil"
     ],
     "minecraft:deprecated_purpur_block_1": [
-      "Deprecated Purpur Block 1",
+      "Purpurblock 1 (veraltet)",
       "Deprecated Purpur Block 1"
     ],
     "minecraft:deprecated_purpur_block_2": [
-      "Deprecated Purpur Block 2",
+      "Purpurblock 2 (veraltet)",
       "Deprecated Purpur Block 2"
     ],
     "minecraft:detector_rail": [
@@ -6168,20 +6168,20 @@
       "Plant"
     ],
     "minecraft:double_stone_block_slab": [
-      "Double Stone Block Slab",
-      "Double Stone Block Slab"
+      "Stein-Doppelstufe (alt, Typ 1)",
+      "Stone Double Slab (Legacy, Type 1)"
     ],
     "minecraft:double_stone_block_slab2": [
-      "Double Stone Block Slab2",
-      "Double Stone Block Slab2"
+      "Stein-Doppelstufe (alt, Typ 2)",
+      "Stone Double Slab (Legacy, Type 2)"
     ],
     "minecraft:double_stone_block_slab3": [
-      "Double Stone Block Slab3",
-      "Double Stone Block Slab3"
+      "Stein-Doppelstufe (alt, Typ 3)",
+      "Stone Double Slab (Legacy, Type 3)"
     ],
     "minecraft:double_stone_block_slab4": [
-      "Double Stone Block Slab4",
-      "Double Stone Block Slab4"
+      "Stein-Doppelstufe (alt, Typ 4)",
+      "Stone Double Slab (Legacy, Type 4)"
     ],
     "minecraft:double_stone_slab": [
       "Steinstufe",
@@ -6736,7 +6736,7 @@
       "Element 99"
     ],
     "minecraft:element_constructor": [
-      "Element Constructor",
+      "Elementkonstruktor",
       "Element Constructor"
     ],
     "minecraft:elytra": [
@@ -7083,6 +7083,10 @@
       "Frosch-Spawn-Ei",
       "Frog Spawn Egg"
     ],
+    "minecraft:frostbite_spawn_egg": [
+      "Frostbite-Spawn-Ei",
+      "Frostbite Spawn Egg"
+    ],
     "minecraft:frosted_ice": [
       "Brüchiges Eis",
       "Frosted Ice"
@@ -7144,7 +7148,7 @@
       "Glow Squid Spawn Egg"
     ],
     "minecraft:glow_stick": [
-      "Glow Stick",
+      "Knicklicht",
       "Glow Stick"
     ],
     "minecraft:glowingobsidian": [
@@ -7480,148 +7484,148 @@
       "Happy Ghast Spawn Egg"
     ],
     "minecraft:hard_black_stained_glass": [
-      "Hard Black Stained Glass",
-      "Hard Black Stained Glass"
+      "Gehärtetes schwarzes Glas",
+      "Hardened Black Stained Glass"
     ],
     "minecraft:hard_black_stained_glass_pane": [
-      "Hard Black Stained Glass Pane",
-      "Hard Black Stained Glass Pane"
+      "Gehärtete schwarze Glasscheibe",
+      "Hardened Black Stained Glass Pane"
     ],
     "minecraft:hard_blue_stained_glass": [
-      "Hard Blue Stained Glass",
-      "Hard Blue Stained Glass"
+      "Gehärtetes blaues Glas",
+      "Hardened Blue Stained Glass"
     ],
     "minecraft:hard_blue_stained_glass_pane": [
-      "Hard Blue Stained Glass Pane",
-      "Hard Blue Stained Glass Pane"
+      "Gehärtete blaue Glasscheibe",
+      "Hardened Blue Stained Glass Pane"
     ],
     "minecraft:hard_brown_stained_glass": [
-      "Hard Brown Stained Glass",
-      "Hard Brown Stained Glass"
+      "Gehärtetes braunes Glas",
+      "Hardened Brown Stained Glass"
     ],
     "minecraft:hard_brown_stained_glass_pane": [
-      "Hard Brown Stained Glass Pane",
-      "Hard Brown Stained Glass Pane"
+      "Gehärtete braune Glasscheibe",
+      "Hardened Brown Stained Glass Pane"
     ],
     "minecraft:hard_cyan_stained_glass": [
-      "Hard Cyan Stained Glass",
-      "Hard Cyan Stained Glass"
+      "Gehärtetes türkises Glas",
+      "Hardened Cyan Stained Glass"
     ],
     "minecraft:hard_cyan_stained_glass_pane": [
-      "Hard Cyan Stained Glass Pane",
-      "Hard Cyan Stained Glass Pane"
+      "Gehärtete türkise Glasscheibe",
+      "Hardened Cyan Stained Glass Pane"
     ],
     "minecraft:hard_glass": [
-      "Hard Glass",
-      "Hard Glass"
+      "Gehärtetes Glas",
+      "Hardened Glass"
     ],
     "minecraft:hard_glass_pane": [
-      "Hard Glass Pane",
-      "Hard Glass Pane"
+      "Gehärtete Glasscheibe",
+      "Hardened Glass Pane"
     ],
     "minecraft:hard_gray_stained_glass": [
-      "Hard Gray Stained Glass",
-      "Hard Gray Stained Glass"
+      "Gehärtetes graues Glas",
+      "Hardened Gray Stained Glass"
     ],
     "minecraft:hard_gray_stained_glass_pane": [
-      "Hard Gray Stained Glass Pane",
-      "Hard Gray Stained Glass Pane"
+      "Gehärtete graue Glasscheibe",
+      "Hardened Gray Stained Glass Pane"
     ],
     "minecraft:hard_green_stained_glass": [
-      "Hard Green Stained Glass",
-      "Hard Green Stained Glass"
+      "Gehärtetes grünes Glas",
+      "Hardened Green Stained Glass"
     ],
     "minecraft:hard_green_stained_glass_pane": [
-      "Hard Green Stained Glass Pane",
-      "Hard Green Stained Glass Pane"
+      "Gehärtete grüne Glasscheibe",
+      "Hardened Green Stained Glass Pane"
     ],
     "minecraft:hard_light_blue_stained_glass": [
-      "Hard Light Blue Stained Glass",
-      "Hard Light Blue Stained Glass"
+      "Gehärtetes hellblaues Glas",
+      "Hardened Light Blue Stained Glass"
     ],
     "minecraft:hard_light_blue_stained_glass_pane": [
-      "Hard Light Blue Stained Glass Pane",
-      "Hard Light Blue Stained Glass Pane"
+      "Gehärtete hellblaue Glasscheibe",
+      "Hardened Light Blue Stained Glass Pane"
     ],
     "minecraft:hard_light_gray_stained_glass": [
-      "Hard Light Gray Stained Glass",
-      "Hard Light Gray Stained Glass"
+      "Gehärtetes hellgraues Glas",
+      "Hardened Light Gray Stained Glass"
     ],
     "minecraft:hard_light_gray_stained_glass_pane": [
-      "Hard Light Gray Stained Glass Pane",
-      "Hard Light Gray Stained Glass Pane"
+      "Gehärtete hellgraue Glasscheibe",
+      "Hardened Light Gray Stained Glass Pane"
     ],
     "minecraft:hard_lime_stained_glass": [
-      "Hard Lime Stained Glass",
-      "Hard Lime Stained Glass"
+      "Gehärtetes hellgrünes Glas",
+      "Hardened Lime Stained Glass"
     ],
     "minecraft:hard_lime_stained_glass_pane": [
-      "Hard Lime Stained Glass Pane",
-      "Hard Lime Stained Glass Pane"
+      "Gehärtete hellgrüne Glasscheibe",
+      "Hardened Lime Stained Glass Pane"
     ],
     "minecraft:hard_magenta_stained_glass": [
-      "Hard Magenta Stained Glass",
-      "Hard Magenta Stained Glass"
+      "Gehärtetes magentafarbenes Glas",
+      "Hardened Magenta Stained Glass"
     ],
     "minecraft:hard_magenta_stained_glass_pane": [
-      "Hard Magenta Stained Glass Pane",
-      "Hard Magenta Stained Glass Pane"
+      "Gehärtete magentafarbene Glasscheibe",
+      "Hardened Magenta Stained Glass Pane"
     ],
     "minecraft:hard_orange_stained_glass": [
-      "Hard Orange Stained Glass",
-      "Hard Orange Stained Glass"
+      "Gehärtetes orangefarbenes Glas",
+      "Hardened Orange Stained Glass"
     ],
     "minecraft:hard_orange_stained_glass_pane": [
-      "Hard Orange Stained Glass Pane",
-      "Hard Orange Stained Glass Pane"
+      "Gehärtete orangefarbene Glasscheibe",
+      "Hardened Orange Stained Glass Pane"
     ],
     "minecraft:hard_pink_stained_glass": [
-      "Hard Pink Stained Glass",
-      "Hard Pink Stained Glass"
+      "Gehärtetes rosa Glas",
+      "Hardened Pink Stained Glass"
     ],
     "minecraft:hard_pink_stained_glass_pane": [
-      "Hard Pink Stained Glass Pane",
-      "Hard Pink Stained Glass Pane"
+      "Gehärtete rosa Glasscheibe",
+      "Hardened Pink Stained Glass Pane"
     ],
     "minecraft:hard_purple_stained_glass": [
-      "Hard Purple Stained Glass",
-      "Hard Purple Stained Glass"
+      "Gehärtetes violettes Glas",
+      "Hardened Purple Stained Glass"
     ],
     "minecraft:hard_purple_stained_glass_pane": [
-      "Hard Purple Stained Glass Pane",
-      "Hard Purple Stained Glass Pane"
+      "Gehärtete violette Glasscheibe",
+      "Hardened Purple Stained Glass Pane"
     ],
     "minecraft:hard_red_stained_glass": [
-      "Hard Red Stained Glass",
-      "Hard Red Stained Glass"
+      "Gehärtetes rotes Glas",
+      "Hardened Red Stained Glass"
     ],
     "minecraft:hard_red_stained_glass_pane": [
-      "Hard Red Stained Glass Pane",
-      "Hard Red Stained Glass Pane"
+      "Gehärtete rote Glasscheibe",
+      "Hardened Red Stained Glass Pane"
     ],
     "minecraft:hard_stained_glass": [
-      "Hard Stained Glass",
-      "Hard Stained Glass"
+      "Gefärbtes gehärtetes Glas",
+      "Hardened Stained Glass"
     ],
     "minecraft:hard_stained_glass_pane": [
-      "Hard Stained Glass Pane",
-      "Hard Stained Glass Pane"
+      "Gefärbte gehärtete Glasscheibe",
+      "Hardened Stained Glass Pane"
     ],
     "minecraft:hard_white_stained_glass": [
-      "Hard White Stained Glass",
-      "Hard White Stained Glass"
+      "Gehärtetes weißes Glas",
+      "Hardened White Stained Glass"
     ],
     "minecraft:hard_white_stained_glass_pane": [
-      "Hard White Stained Glass Pane",
-      "Hard White Stained Glass Pane"
+      "Gehärtete weiße Glasscheibe",
+      "Hardened White Stained Glass Pane"
     ],
     "minecraft:hard_yellow_stained_glass": [
-      "Hard Yellow Stained Glass",
-      "Hard Yellow Stained Glass"
+      "Gehärtetes gelbes Glas",
+      "Hardened Yellow Stained Glass"
     ],
     "minecraft:hard_yellow_stained_glass_pane": [
-      "Hard Yellow Stained Glass Pane",
-      "Hard Yellow Stained Glass Pane"
+      "Gehärtete gelbe Glasscheibe",
+      "Hardened Yellow Stained Glass Pane"
     ],
     "minecraft:hardened_clay": [
       "Keramik",
@@ -7731,9 +7735,21 @@
       "Eis",
       "Ice"
     ],
+    "minecraft:ice_ball": [
+      "Eisball",
+      "Ice Ball"
+    ],
     "minecraft:ice_bomb": [
-      "Ice Bomb",
+      "Eisbombe",
       "Ice Bomb"
+    ],
+    "minecraft:ice_crystal": [
+      "Eiskristall",
+      "Ice Crystal"
+    ],
+    "minecraft:icicle": [
+      "Eiszapfen",
+      "Icicle"
     ],
     "minecraft:infested_chiseled_stone_bricks": [
       "Befallener gemeißelter Steinziegel",
@@ -7764,12 +7780,12 @@
       "Infested Stone Bricks"
     ],
     "minecraft:info_update": [
-      "Info Update",
-      "Info Update"
+      "Aktualisierungsblock",
+      "Update Block"
     ],
     "minecraft:info_update2": [
-      "Info Update2",
-      "Info Update2"
+      "Aktualisierungsblock 2",
+      "Update Block 2"
     ],
     "minecraft:ink_sac": [
       "Tintenbeutel",
@@ -7885,7 +7901,7 @@
     ],
     "minecraft:jungle_chest_boat": [
       "Tropenholz-Truhenboot",
-      "Jungle Chest Boat"
+      "Jungle Boat with Chest"
     ],
     "minecraft:jungle_door": [
       "Tropenholztür",
@@ -7968,7 +7984,7 @@
       "Kelp"
     ],
     "minecraft:lab_table": [
-      "Lab Table",
+      "Labortisch",
       "Lab Table"
     ],
     "minecraft:ladder": [
@@ -8557,7 +8573,7 @@
     ],
     "minecraft:mangrove_chest_boat": [
       "Mangroven-Truhenboot",
-      "Mangrove Chest Boat"
+      "Mangrove Boat with Chest"
     ],
     "minecraft:mangrove_door": [
       "Mangrovenholztür",
@@ -8640,7 +8656,7 @@
       "Map"
     ],
     "minecraft:material_reducer": [
-      "Material Reducer",
+      "Stoffreduzierer",
       "Material Reducer"
     ],
     "minecraft:medium_amethyst_bud": [
@@ -8756,7 +8772,7 @@
       "Mourner Pottery Sherd"
     ],
     "minecraft:moving_block": [
-      "Moving Block",
+      "Bewegter Block",
       "Moving Block"
     ],
     "minecraft:mud": [
@@ -8924,7 +8940,7 @@
       "Nether Bricks"
     ],
     "minecraft:nether_brick_double_slab": [
-      "Nether Brick Double Slab",
+      "Netherziegel-Doppelstufe",
       "Nether Brick Double Slab"
     ],
     "minecraft:nether_brick_fence": [
@@ -9044,8 +9060,8 @@
       "Nether Star"
     ],
     "minecraft:normal_stone_double_slab": [
-      "Normal Stone Double Slab",
-      "Normal Stone Double Slab"
+      "Stein-Doppelstufe",
+      "Stone Double Slab"
     ],
     "minecraft:normal_stone_slab": [
       "Steinstufe",
@@ -9069,7 +9085,7 @@
     ],
     "minecraft:oak_chest_boat": [
       "Eichenholz-Truhenboot",
-      "Oak Chest Boat"
+      "Oak Boat with Chest"
     ],
     "minecraft:oak_double_slab": [
       "Eichenholz-Doppelstufe",
@@ -9345,7 +9361,7 @@
     ],
     "minecraft:pale_oak_chest_boat": [
       "Blasseichenholz-Truhenboot",
-      "Pale Oak Chest Boat"
+      "Pale Oak Boat with Chest"
     ],
     "minecraft:pale_oak_door": [
       "Blasseichentür",
@@ -9444,11 +9460,11 @@
       "Peony"
     ],
     "minecraft:petrified_oak_double_slab": [
-      "Petrified Oak Double Slab",
+      "Versteinerte Eichen-Doppelstufe",
       "Petrified Oak Double Slab"
     ],
     "minecraft:petrified_oak_slab": [
-      "Petrified Oak Slab",
+      "Versteinerte Eichenstufe",
       "Petrified Oak Slab"
     ],
     "minecraft:phantom_membrane": [
@@ -9464,8 +9480,8 @@
       "Photo"
     ],
     "minecraft:photo_item": [
-      "Photo Item",
-      "Photo Item"
+      "Foto",
+      "Photo"
     ],
     "minecraft:pig_spawn_egg": [
       "Schweine-Spawn-Ei",
@@ -9821,7 +9837,7 @@
     ],
     "minecraft:poplar_chest_boat": [
       "Pappel-Truhenboot",
-      "Poplar Chest Boat"
+      "Poplar Boat with Chest"
     ],
     "minecraft:poplar_door": [
       "Pappeltür",
@@ -9972,7 +9988,7 @@
       "Prismarine Crystals"
     ],
     "minecraft:prismarine_double_slab": [
-      "Prismarine Double Slab",
+      "Prismarin-Doppelstufe",
       "Prismarine Double Slab"
     ],
     "minecraft:prismarine_shard": [
@@ -10140,7 +10156,7 @@
       "Quartz Bricks"
     ],
     "minecraft:quartz_double_slab": [
-      "Quartz Double Slab",
+      "Quarz-Doppelstufe",
       "Quartz Double Slab"
     ],
     "minecraft:quartz_ore": [
@@ -10188,8 +10204,8 @@
       "Raiser Armor Trim"
     ],
     "minecraft:rapid_fertilizer": [
-      "Rapid Fertilizer",
-      "Rapid Fertilizer"
+      "Superdünger",
+      "Super Fertilizer"
     ],
     "minecraft:ravager_spawn_egg": [
       "Verwüster-Spawn-Ei",
@@ -10412,7 +10428,7 @@
       "Red Sandstone"
     ],
     "minecraft:red_sandstone_double_slab": [
-      "Red Sandstone Double Slab",
+      "Rote Sandstein-Doppelstufe",
       "Red Sandstone Double Slab"
     ],
     "minecraft:red_sandstone_slab": [
@@ -10584,7 +10600,7 @@
       "Sandstone"
     ],
     "minecraft:sandstone_double_slab": [
-      "Sandstone Double Slab",
+      "Sandstein-Doppelstufe",
       "Sandstone Double Slab"
     ],
     "minecraft:sandstone_slab": [
@@ -10900,7 +10916,7 @@
       "Smooth Stone"
     ],
     "minecraft:smooth_stone_double_slab": [
-      "Smooth Stone Double Slab",
+      "Glatte Stein-Doppelstufe",
       "Smooth Stone Double Slab"
     ],
     "minecraft:smooth_stone_slab": [
@@ -11005,7 +11021,7 @@
     ],
     "minecraft:spruce_chest_boat": [
       "Fichten-Truhenboot",
-      "Spruce Chest Boat"
+      "Spruce Boat with Chest"
     ],
     "minecraft:spruce_door": [
       "Fichtentür",
@@ -11136,23 +11152,23 @@
       "Stone Axe"
     ],
     "minecraft:stone_block_slab": [
-      "Stone Block Slab",
-      "Stone Block Slab"
+      "Steinstufe (alt, Typ 1)",
+      "Stone Slab (Legacy, Type 1)"
     ],
     "minecraft:stone_block_slab2": [
-      "Stone Block Slab2",
-      "Stone Block Slab2"
+      "Steinstufe (alt, Typ 2)",
+      "Stone Slab (Legacy, Type 2)"
     ],
     "minecraft:stone_block_slab3": [
-      "Stone Block Slab3",
-      "Stone Block Slab3"
+      "Steinstufe (alt, Typ 3)",
+      "Stone Slab (Legacy, Type 3)"
     ],
     "minecraft:stone_block_slab4": [
-      "Stone Block Slab4",
-      "Stone Block Slab4"
+      "Steinstufe (alt, Typ 4)",
+      "Stone Slab (Legacy, Type 4)"
     ],
     "minecraft:stone_brick_double_slab": [
-      "Stone Brick Double Slab",
+      "Steinziegel-Doppelstufe",
       "Stone Brick Double Slab"
     ],
     "minecraft:stone_brick_slab": [
@@ -11636,11 +11652,11 @@
       "Twisting Vines"
     ],
     "minecraft:underwater_tnt": [
-      "Underwater Tnt",
-      "Underwater Tnt"
+      "Unterwasser-TNT",
+      "Underwater TNT"
     ],
     "minecraft:underwater_torch": [
-      "Underwater Torch",
+      "Unterwasserfackel",
       "Underwater Torch"
     ],
     "minecraft:undyed_shulker_box": [

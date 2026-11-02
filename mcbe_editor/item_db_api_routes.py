@@ -179,6 +179,7 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
                     "Item-DB-Update konnte die Online-Quellen nicht erreichen." if category == "network-or-dns" else "Item-DB-Update ist fehlgeschlagen."
                 )
             if category == "network-or-dns":
+                result["category"] = category
                 result["hint"] = t(
                     "Der Container/App-Host hat vermutlich keinen funktionierenden DNS-/HTTPS-Ausgang. "
                     "Die App läuft weiter; nur das Item-DB-Update braucht Internet."
@@ -216,20 +217,18 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
             },
         )
 
+        result["outcome"] = update_outcome(success=result["success"], committed=update_committed, report=report)
         if update_committed:
             result["update_committed"] = True
             try:
                 result.update(deps.reload_item_db_after_update())
             except Exception as exc:
                 deps.log_api_exception("item_db_reload_after_update", exc)
-                result.update(
-                    {
-                        "reloaded": False,
-                        "reload_warning": t(
-                            "Die Item-Datenbank wurde aktualisiert, konnte aber im laufenden Server nicht neu geladen werden. Bitte die Anwendung neu starten."
-                        ),
-                    }
-                )
+                if result["outcome"] == "failed":
+                    warning = t("Der Prüfbericht wurde gespeichert, aber der Status konnte nicht neu geladen werden. Bitte die Anwendung neu starten.")
+                else:
+                    warning = t("Die Item-Datenbank wurde gespeichert. Bitte den Editor neu starten, um sie zu laden.")
+                result.update(reloaded=False, reload_warning=warning)
 
         if result["success"]:
             # A current diff does not imply a valid full verification receipt.
@@ -237,7 +236,6 @@ def update_db(data: dict, deps: ItemDbRouteDeps):
             status = deps.item_db_status_snapshot() if dry_run else result.get("item_db", {})
             result["verification_required"] = status.get("verification", {}).get("verified") is not True
 
-        result["outcome"] = update_outcome(success=result["success"], committed=update_committed, report=report)
         if report and report.get("blocked") and not interruption and not http_failure and not receipt_failed:
             result["error"] = t(
                 "Die Item-Datenbank wurde teilweise aktualisiert. Nicht prüfbare Bereiche bleiben unverändert."

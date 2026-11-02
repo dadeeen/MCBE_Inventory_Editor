@@ -2072,7 +2072,11 @@ def test_icon_update_reads_one_catalog_snapshot_per_run(monkeypatch, tmp_path):
     import scripts.update_icons as update_icons_module
 
     item_db = tmp_path / "item_db.json"
-    item_db.write_text(json.dumps({"items": {"minecraft:apple": [], "minecraft:stone": []}, "block_items": ["minecraft:stone"]}), encoding="utf-8")
+    item_db.write_text(
+        json.dumps({"items": {"minecraft:apple": ["Apfel", "Apple"], "minecraft:stone": ["Stein", "Stone"]}, "block_items": ["minecraft:stone"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(update_icons_module, "BUNDLED_ITEM_DB_JSON", item_db)
     original_read = Path.read_text
     reads = []
 
@@ -2080,7 +2084,7 @@ def test_icon_update_reads_one_catalog_snapshot_per_run(monkeypatch, tmp_path):
         text = original_read(path, *args, **kwargs)
         if path == item_db:
             reads.append(path)
-            path.write_text(json.dumps({"items": {"minecraft:dirt": []}, "block_items": ["minecraft:dirt"]}), encoding="utf-8")
+            path.write_text(json.dumps({"items": {"minecraft:dirt": ["Erde", "Dirt"]}, "block_items": ["minecraft:dirt"]}), encoding="utf-8")
         return text
 
     monkeypatch.setattr(Path, "read_text", read_then_replace)
@@ -2258,10 +2262,11 @@ def test_icon_item_database_reports_invalid_content(tmp_path, contents):
         update_icons_module.load_icon_targets(item_db)
 
 
-def test_icon_targets_follow_positive_addable_registry(tmp_path):
+def test_icon_targets_follow_positive_addable_registry(tmp_path, monkeypatch):
     import scripts.update_icons as update_icons_module
 
     item_db = tmp_path / "item_db.json"
+    monkeypatch.setattr(update_icons_module, "BUNDLED_ITEM_DB_JSON", item_db)
     item_db.write_text(
         json.dumps(
             {
@@ -2296,31 +2301,55 @@ def test_icon_targets_follow_positive_addable_registry(tmp_path):
     assert block_items == set()
 
 
-def test_block_icon_targets_follow_positive_block_registry(tmp_path):
+def test_block_icon_targets_follow_positive_block_registry(tmp_path, monkeypatch):
     import scripts.update_icons as update_icons_module
 
     item_db = tmp_path / "item_db.json"
+    monkeypatch.setattr(update_icons_module, "BUNDLED_ITEM_DB_JSON", item_db)
     item_db.write_text(
-        json.dumps({"block_items": ["minecraft:stone", "minecraft:acacia_slab", "invalid:custom-block"]}),
+        json.dumps({"items": {"minecraft:stone": ["Stein", "Stone"]}, "block_items": ["minecraft:stone", "minecraft:acacia_slab", "example:custom-block"]}),
         encoding="utf-8",
     )
 
-    assert update_icons_module.load_icon_targets(item_db) == ([], [], 0, {"stone", "acacia_slab", "invalid:custom_block"})
+    assert update_icons_module.load_icon_targets(item_db) == (["stone"], [], 1, {"stone", "acacia_slab"})
 
 
 @pytest.mark.parametrize(
-    ("data", "expected"),
+    "data",
     [
-        (None, ([], [], 0, set())),
-        ([], ([], [], 0, set())),
-        ({"items": [], "block_items": ["minecraft:stone"]}, ([], [], 0, {"stone"})),
-        ({"items": {"apple": []}, "block_items": None}, (["apple"], [], 1, set())),
-        ({"items": {"apple": [], "stone": []}, "block_only_items": ["stone"]}, (["apple"], ["stone"], 2, set())),
+        None,
+        [],
+        {"items": []},
+        {"items": {"apple": []}},
+        {"items": {"apple": ["Apfel", "Apple"]}, "block_items": None},
+        {"items": {}, "addable_items": {"minecraft:apple": True}},
+        {"items": {}, "addable_items": []},
+        {"items": {}, "addable_items": [{"id": "minecraft:apple"}]},
+        {"items": {}, "addable_items": ["minecraft:../../../escape_spawn_egg"]},
     ],
 )
-def test_icon_targets_preserve_missing_and_legacy_registry_handling(tmp_path, data, expected):
+def test_icon_targets_reject_invalid_catalogs_before_curation(tmp_path, data):
     import scripts.update_icons as update_icons_module
 
     item_db = tmp_path / "item_db.json"
     item_db.write_text(json.dumps(data), encoding="utf-8")
-    assert update_icons_module.load_icon_targets(item_db) == expected
+    with pytest.raises(RuntimeError, match="Item-DB JSON ist ungültig"):
+        update_icons_module.load_icon_targets(item_db)
+
+
+@pytest.mark.parametrize("release", [None, "v1.0.0", "v999.0.0"])
+def test_icon_targets_match_the_effective_runtime_registry(tmp_path, release):
+    from mcbe_editor import item_data
+    from scripts.update_icons import load_icon_targets
+
+    item_db = tmp_path / "items.json"
+    data = {"items": {"minecraft:apple": ["Apfel", "Apple"]}, "block_items": []}
+    if release:
+        data.update(addable_items=["minecraft:apple", "minecraft:future_widget"], behavior_item_source={"resource_pack_release": release})
+    item_db.write_text(json.dumps(data), encoding="utf-8")
+    catalog = item_data.prepare_item_catalog(item_db)
+    targets, _, _, blocks = load_icon_targets(item_db)
+    assert targets == sorted(item.removeprefix("minecraft:") for item in catalog["ADDABLE_ITEM_IDS"])
+    assert blocks == {item.removeprefix("minecraft:") for item in catalog["BLOCK_ITEM_IDS"]}
+    assert ("stick" in targets) == (release != "v999.0.0")
+    assert ("future_widget" in targets) == (release == "v999.0.0")

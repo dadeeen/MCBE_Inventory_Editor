@@ -12,6 +12,33 @@ from tests.test_update_source_quality import _members
 from tests.test_update_source_quality import updater as updater
 
 
+def test_registry_block_classification_does_not_require_names_and_only_publishes_valid_intersections(updater):
+    future = "minecraft:future_probe_block"
+    technical = "minecraft:future_probe_wall_sign"
+    members = _members(labels=False)
+    registry = json.dumps({"data_items": [{"name": key} for key in (future, "minecraft:wheat", "minecraft:beetroot", technical)]})
+    blocks = "metadata/vanilladata_modules/mojang-blocks.json"
+    members[blocks] = members["metadata/vanilladata_modules/mojang-items.json"] = registry
+    updater.write_source(members)
+    before = updater.snapshot()
+    code, preview = updater.run("--only", "items", "--dry-run")
+    assert code == 0 and updater.snapshot() == before
+    code, applied = updater.run("--only", "items")
+    assert code == 0 and preview["sections"]["block_items"] == applied["sections"]["block_items"]
+    db = updater.read_db()
+    assert db["block_items"] == [future] and future not in db["items"]
+    assert future in db["addable_items"] and technical not in db["addable_items"] and technical in db["block_only_items"]
+    with item_data.use_item_catalog(item_data.prepare_item_catalog(update_db.ITEM_DB_PATH)):
+        assert item_data.is_block_item_id(future)
+    updater.write_source({key: value for key, value in members.items() if key != blocks})
+    assert updater.run("--only", "items")[0] == 1
+    assert updater.read_db() == db
+    members[blocks] = json.dumps({"data_items": [{"name": "minecraft:other_block"}]})
+    updater.write_source(members)
+    assert updater.run("--only", "items")[0] == 0
+    assert updater.read_db()["block_items"] == []
+
+
 @pytest.mark.parametrize(
     "identifier,key",
     [

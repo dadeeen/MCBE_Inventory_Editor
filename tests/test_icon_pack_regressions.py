@@ -202,6 +202,21 @@ def test_catalog_replacement_during_scan_cannot_mix_item_rules(tmp_path, monkeyp
     assert identifier in second["icons"]
 
 
+def test_registered_pack_sprite_is_independent_of_translations(tmp_path, monkeypatch):
+    from mcbe_editor import item_data
+
+    identifier = "minecraft:future_widget"
+    _, rp = _pack(tmp_path / "resource_packs", "rp", {"textures/items/future_widget.png": b"future"})
+    world = _world(tmp_path, "world", [rp])
+    first, reader = _scan(tmp_path, world)
+    assert identifier not in first["icons"]
+    assert identifier not in item_data.ITEMS
+    monkeypatch.setattr(item_data, "ADDABLE_ITEM_IDS", item_data.ADDABLE_ITEM_IDS | {identifier})
+    second = routes.icons_status(reader, world_path=str(world))
+    assert second["cache"]["state"] == "rebuilt"
+    assert _bytes(reader, identifier) == b"future"
+
+
 @pytest.mark.parametrize("fresh_worker", [False, True])
 def test_readonly_rejects_publication_from_a_different_item_catalog(tmp_path, monkeypatch, fresh_worker):
     from mcbe_editor import item_data

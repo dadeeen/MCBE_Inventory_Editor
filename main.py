@@ -1315,9 +1315,7 @@ def item_db_status_snapshot() -> dict:
     )
     if _ITEM_DB_RELOAD_FAILURE is not None:
         snapshot["verification"] = {**snapshot["verification"], "verified": False, "reason": "runtime-reload-failed"}
-        snapshot["reload_warning"] = i18n.t(
-            "Die Item-Datenbank wurde aktualisiert, konnte aber im laufenden Server nicht neu geladen werden. Bitte die Anwendung neu starten."
-        )
+        snapshot["reload_warning"] = i18n.t("Die Item-Datenbank wurde gespeichert. Bitte den Editor neu starten, um sie zu laden.")
     return snapshot
 
 

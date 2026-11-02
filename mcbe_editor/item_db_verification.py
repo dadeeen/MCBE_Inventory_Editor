@@ -52,7 +52,7 @@ VERIFICATION_FIELD = "verification"
 VERIFICATION_SCHEMA_VERSION = 1
 # Bump deliberately when updater semantics change enough that existing receipts
 # must no longer count as a successful verification under the new code.
-UPDATER_CONTRACT_VERSION = 5
+UPDATER_CONTRACT_VERSION = 12
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 UPDATE_REVIEW_SCHEMA_VERSION = 3
@@ -397,8 +397,8 @@ def attach_item_db_verification(
     return result
 
 
-def item_db_verification_snapshot(metadata: Mapping[str, Any], item_db_path: Path) -> dict[str, Any]:
-    """Validate the persisted receipt against the current database and source."""
+def item_db_verification_snapshot(metadata: Mapping[str, Any], item_db_path: Path, *, require_current_contract: bool = True) -> dict[str, Any]:
+    """Validate file, source and coverage. Only a migration may reuse evidence from an older contract."""
 
     receipt = metadata.get(VERIFICATION_FIELD)
     result: dict[str, Any] = {
@@ -431,7 +431,11 @@ def item_db_verification_snapshot(metadata: Mapping[str, Any], item_db_path: Pat
     if type(schema_version) is not int or schema_version != VERIFICATION_SCHEMA_VERSION:
         result["reason"] = "schema-mismatch"
         return result
-    if type(contract_version) is not int or contract_version != UPDATER_CONTRACT_VERSION:
+    if (
+        type(contract_version) is not int
+        or not 1 <= contract_version <= UPDATER_CONTRACT_VERSION
+        or (require_current_contract and contract_version != UPDATER_CONTRACT_VERSION)
+    ):
         result["reason"] = "updater-contract-mismatch"
         return result
     if not isinstance(verified_at, str) or not verified_at.strip():

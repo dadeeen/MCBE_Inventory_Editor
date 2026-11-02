@@ -40,7 +40,7 @@ def _file_stamp(path: Path) -> _FileStamp | None:
 
 
 def _display_path(root: Path, asset_id: str) -> Path:
-    return root / "textures" / "display" / f"{asset_id.removeprefix('mcbe:')}.png"
+    return root / "textures" / "display" / icon_cache_state.icon_filename(asset_id.removeprefix("mcbe:"))
 
 
 def _reject_links(directory: str, names: list[str]) -> list[str]:

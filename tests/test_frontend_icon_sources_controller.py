@@ -37,7 +37,7 @@ def test_status_failure_hides_download_hints_and_preserves_existing_icon_data() 
             await controller.loadLocalIconIndex();
             assert.equal(applied.length, 2);
             assert.equal(applied[1].icons.apple, 'existing');
-            assert.deepEqual(requests, ['/api/icons/status', '/api/icons/status']);
+            assert.deepEqual(requests, ['/api/icons/status?world_path=', '/api/icons/status?world_path=']);
         })().catch(error => {console.error(error); process.exit(1);});
     """)
 
@@ -250,7 +250,7 @@ def test_icon_status_binds_the_selected_world_and_encodes_its_path() -> None:
                 assert.strictEqual(requested.length, 1);
                 const url = new URL(requested[0], "http://localhost");
                 assert.strictEqual(url.pathname, "/api/icons/status");
-                assert.strictEqual(url.searchParams.get("world_path"), world || null);
+                assert.strictEqual(url.searchParams.get("world_path"), world);
             }
         })().catch(error => { console.error(error); process.exitCode = 1; });
     """)
@@ -296,7 +296,8 @@ def test_stale_icon_mutation_reports_a_failed_refresh_instead_of_success() -> No
                 pending[2].resolve({ success: false, error: "Icon-Scan fehlgeschlagen." });
                 await mutation;
                 assert.deepStrictEqual(unavailable, ["Icon-Scan fehlgeschlagen."]);
-                assert.deepStrictEqual(toasts, [{ message: "Icon-Scan fehlgeschlagen.", type: "error" }]);
+                assert.deepStrictEqual(toasts, [{ message: action === actions.at(-1)
+                    ? 'Icon-Prüfung unvollständig. Details prüfen.' : 'Icon-Scan fehlgeschlagen.', type: 'error' }]);
             }
         })().catch(error => { console.error(error); process.exitCode = 1; });
     """)
@@ -349,7 +350,7 @@ def test_frontend_icon_sources_controller_loads_applies_and_renders() -> None:
             assert.deepStrictEqual(calls.find(call => call.payload).payload.icons, { "minecraft:apple": "/icons/apple.png" });
             assert.strictEqual(calls.find(call => call.payload).payload.summary.count, 1);
             assert.ok(calls.some(call => call.applied));
-            assert.ok(calls.some(call => call.url === "/api/icons/status"));
+            assert.ok(calls.some(call => call.url === "/api/icons/status?world_path="));
             })();
             """
         )
@@ -602,7 +603,7 @@ def test_frontend_icon_sources_controller_uses_status_in_read_only_even_when_res
             await controller.loadLocalIconIndex({ rescan: true });
 
             assert.strictEqual(controller.canRescanIcons(), false);
-            assert.ok(calls.some(call => call.url === "/api/icons/status"));
+            assert.ok(calls.some(call => call.url === "/api/icons/status?world_path="));
             assert.ok(!calls.some(call => call.url === "/api/icons/scan"));
             })();
             """
@@ -946,7 +947,7 @@ def test_vanilla_update_feedback_uses_current_banner_completeness() -> None:
                 assert.strictEqual(toasts[0].type, currentMissing ? "warning" : "success");
                 assert.strictEqual(statuses.at(-1).type, toasts[0].type);
                 assert.strictEqual(statuses.at(-1).options.active, currentMissing);
-                if (currentMissing) assert.ok(toasts[0].message.includes("Bannermuster"));
+                if (currentMissing) assert.equal(toasts[0].message, 'Icon-Prüfung unvollständig. Details prüfen.');
             }
         })().catch(error => { console.error(error); process.exitCode = 1; });
         """)
@@ -973,6 +974,7 @@ def test_frontend_icon_update_keeps_its_own_output_and_clears_stale_failure_deta
             const output = {textContent: ''};
             const result = {textContent: '', dataset: {}};
             const hint = {textContent: '', hidden: true};
+            const reason = {textContent: ''}, details = {hidden: true, open: false};
             const feedback = {hidden: true};
             const logDetails = {open: false};
             let response = {success: false, error: 'GitHub request limit reached.',
@@ -980,7 +982,7 @@ def test_frontend_icon_update_keeps_its_own_output_and_clears_stale_failure_deta
             let refreshFails = false;
             let requestFails = false;
             const controller = context.window.MCBEIconSourcesController.createIconSourcesController({
-                elements: {updateOutput: output, updateResult: result, updateHint: hint,
+                elements: {updateOutput: output, updateResult: result, updateHint: hint, updateReason: reason, updateDetails: details,
                     updateFeedback: feedback, updateLogDetails: logDetails},
                 fetchImpl: async () => {
                     if (requestFails) throw new Error('connection failed');
@@ -1000,7 +1002,10 @@ def test_frontend_icon_update_keeps_its_own_output_and_clears_stale_failure_deta
             await controller.updateVanillaIcons();
 
             assert.ok(output.textContent.includes(response.output));
-            assert.equal(result.textContent, response.error);
+            assert.equal(result.textContent, 'Icon-Prüfung unvollständig. Details prüfen.');
+            assert.equal(reason.textContent, response.error);
+            assert.equal(details.hidden, false);
+            assert.equal(details.open, false);
             assert.equal(hint.textContent, response.hint);
             assert.equal(hint.hidden, false);
             assert.equal(feedback.hidden, false);
@@ -1013,14 +1018,18 @@ def test_frontend_icon_update_keeps_its_own_output_and_clears_stale_failure_deta
             assert.equal(hint.textContent, '');
             assert.equal(hint.hidden, true);
             assert.ok(!result.textContent.includes('limit'));
+            assert.equal(reason.textContent, '');
+            assert.equal(details.hidden, true);
             refreshFails = true;
             await controller.updateVanillaIcons();
-            assert.equal(result.textContent, 'refresh failed');
+            assert.equal(reason.textContent, 'refresh failed');
+            assert.equal(details.hidden, false);
             assert.ok(output.textContent.includes(response.output));
             assert.ok(output.textContent.includes('refresh failed'));
             requestFails = true;
             await controller.updateVanillaIcons();
-            assert.equal(result.textContent, 'connection failed');
+            assert.equal(reason.textContent, 'connection failed');
+            assert.equal(result.textContent, 'Icon-Prüfung unvollständig. Details prüfen.');
             assert.ok(!output.textContent.includes(response.output));
             })();
             """

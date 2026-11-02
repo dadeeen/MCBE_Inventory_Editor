@@ -16,6 +16,7 @@ const document = {
 };
 const context = { window: {}, document, Intl, Date };
 vm.runInNewContext(fs.readFileSync("static/i18n.js", "utf8"), context, { filename: "static/i18n.js" });
+vm.runInNewContext(fs.readFileSync("static/update_db_view.js", "utf8"), context);
 vm.runInNewContext(fs.readFileSync("static/first_run_setup_view.js", "utf8"), context, { filename: "static/first_run_setup_view.js" });
 const view = context.window.MCBEFirstRunSetupView;
 
@@ -47,12 +48,16 @@ function buildElements() {
     };
     const rows = {};
     view.TODO_IDS.forEach(id => {
-        rows[id] = { item: fakeElement(), mark: fakeElement(), state: fakeElement(), button: fakeElement() };
+        rows[id] = { item: fakeElement(), mark: fakeElement(), state: fakeElement(), button: fakeElement(),
+            details: {...fakeElement(), hidden: true, open: false},
+            detailsSummary: {...fakeElement(), style: {display: ''}},
+            detailsContent: {...fakeElement(), style: {display: ''}},
+        };
     });
     return {
         documentObj,
         overlay: fakeElement(),
-        closeButton: fakeElement(),
+        closeButton: {...fakeElement(), style: {display: ''}},
         banner: fakeElement(),
         bannerDetail: fakeElement(),
         bannerButton: fakeElement(),
@@ -83,7 +88,7 @@ def test_setup_distinguishes_fallback_success_partial_commit_and_source_failure(
                 const elements = buildElements();
                 let pending = true, refreshes = 0, status = {};
                 const result = mode === "fallback"
-                    ? {success: true, update_committed: true, outcome: "updated_with_warnings"}
+                    ? {success: true, update_committed: true, outcome: "updated"}
                     : mode === "partial"
                         ? {success: false, update_committed: true, outcome: "partial"}
                         : {success: false, outcome: "failed", error: "Keine Änderung übernommen.",
@@ -104,24 +109,29 @@ def test_setup_distinguishes_fallback_success_partial_commit_and_source_failure(
                 assert.equal(refreshes, mode === "failure" ? 0 : 1);
                 if (mode === "fallback") {
                     assert.equal(row.mark.textContent, "✓");
-                    assert.match(row.state.textContent, /0 von 1 offiziellen Namen/);
-                    assert.match(row.state.textContent, /Ersatznamen/);
+                    assert.equal(row.state.textContent, 'Erledigt.');
+                    assert.match(row.detailsContent.textContent, /Geprüfte Editor-Namen/);
+                    assert.match(row.detailsContent.textContent, /Kein Handlungsbedarf wegen der Namen/);
+                    assert.equal(sourceView.itemDbSetupFeedback(status).warnings, false);
                     assert.equal(row.button.style.display, "none");
                     assert.equal(row.item.classList.flags["is-error"], false);
                 } else if (mode === "partial") {
                     assert.equal(row.mark.textContent, "!");
-                    assert.match(row.state.textContent, /Prüfung unvollständig/);
-                    assert.match(row.state.textContent, /Doppelte numerische IDs/);
-                    assert.match(row.state.textContent, /v-old/);
+                    assert.equal(row.state.textContent, 'Teilweise aktualisiert. Details prüfen.');
+                    assert.match(row.detailsContent.textContent, /Doppelte numerische IDs/);
+                    assert.match(row.detailsContent.textContent, /v-old/);
                     assert.equal(row.item.classList.flags["is-warning"], true);
                     assert.equal(row.item.classList.flags["is-done"], false);
                     assert.equal(row.item.classList.flags["is-error"], false);
                     assert.equal(row.button.disabled, false);
                 } else {
                     assert.equal(row.mark.textContent, "○");
-                    assert.match(row.state.textContent, /Sprachdatei fehlt/);
+                    assert.equal(row.state.textContent, 'Fehlgeschlagen. Details prüfen.');
+                    assert.match(row.detailsContent.textContent, /Sprachdatei fehlt/);
                     assert.equal(row.item.classList.flags["is-error"], true);
                 }
+                assert.equal(row.details.hidden, false);
+                assert.equal(row.details.open, false);
                 controller.render();
                 assert.equal(row.item.classList.flags["is-done"], mode === "fallback");
             }
@@ -215,6 +225,104 @@ def test_frontend_first_run_setup_opens_only_while_a_todo_is_open_and_undismisse
     )
 
 
+def test_setup_details_keep_all_causes_collapsed_and_keyboard_accessible_until_recovery() -> None:
+    _run_node(r"""
+        vm.runInNewContext(fs.readFileSync('static/data_source_view.js', 'utf8'), context);
+        const elements = buildElements(), row = elements.rows.item_db;
+        let pending = true, fail = true;
+        const causes = Array.from({length: 12}, (_, i) => `Cause ${i}: <script>text only</script>`);
+        const controller = view.createFirstRunSetupController({
+            elements, isItemDbPending: () => pending, isIconsPending: () => false,
+            runItemDbUpdate: async () => fail
+                ? {success: false, error: 'Shared source damaged', hint: 'Retry later',
+                    summary: {blocked: causes.map(reason => ({section: 'items', reason}))}}
+                : {success: true, update_committed: true},
+            refreshItemDbStatus: async () => {pending = false;},
+        });
+        (async () => {
+            controller.open();
+            await controller.runTodo('item_db');
+            assert.equal(row.state.textContent, 'Fehlgeschlagen. Details prüfen.');
+            for (const cause of causes) assert.ok(row.detailsContent.textContent.includes(cause));
+            assert.match(row.detailsContent.textContent, /Retry later/);
+            assert.equal(row.details.hidden, false);
+            assert.equal(row.details.open, false);
+            row.details.open = true;
+            controller.render();
+            assert.equal(row.details.open, true, 'Unchanged status must not close the details');
+            elements.documentObj.activeElement = row.detailsSummary;
+            elements.documentObj.fire('keydown', {key: 'Tab'});
+            assert.equal(row.detailsContent.focused, true);
+            elements.documentObj.activeElement = row.detailsContent;
+            elements.documentObj.fire('keydown', {key: 'Tab'});
+            assert.equal(row.button.focused, true);
+            elements.documentObj.activeElement = row.detailsSummary;
+            elements.documentObj.fire('keydown', {key: 'Tab', shiftKey: true});
+            assert.equal(elements.closeButton.focused, true);
+            fail = false;
+            await controller.runTodo('item_db');
+            assert.equal(row.state.textContent, 'Erledigt.');
+            assert.equal(row.details.hidden, true);
+            assert.equal(row.details.open, false);
+            assert.equal(row.detailsContent.textContent, '');
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
+def test_setup_saved_partial_result_retains_causes_when_status_refresh_fails() -> None:
+    _run_node(r"""
+        vm.runInNewContext(fs.readFileSync('static/data_source_view.js', 'utf8'), context);
+        (async () => {
+            for (const partial of [false, true]) {
+                const elements = buildElements(), row = elements.rows.item_db;
+                let pending = true;
+                const controller = view.createFirstRunSetupController({
+                    elements, isItemDbPending: () => pending, isIconsPending: () => false,
+                    runItemDbUpdate: async () => ({success: !partial, update_committed: true,
+                        outcome: partial ? 'partial' : 'updated',
+                        summary: {blocked: partial ? [{section: 'effects', reason: 'Effect IDs conflict'}] : []}}),
+                    refreshItemDbStatus: async () => {pending = null; throw new Error('Status HTTP 503');},
+                });
+                await controller.runTodo('item_db');
+                assert.equal(row.state.textContent, 'Änderungen gespeichert. Status erneut prüfen.');
+                assert.equal(row.button.textContent, 'Status erneut prüfen');
+                assert.equal(row.item.classList.flags['is-error'], false);
+                assert.equal(row.item.classList.flags['is-warning'], true);
+                assert.match(row.detailsContent.textContent, /Status HTTP 503/);
+                if (partial) assert.match(row.detailsContent.textContent, /Effect IDs conflict/);
+                assert.equal(row.details.open, false);
+                await controller.runTodo('item_db');
+                assert.equal(row.state.textContent, 'Änderungen gespeichert. Status erneut prüfen.');
+                if (partial) assert.match(row.detailsContent.textContent, /Effect IDs conflict/);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
+def test_verified_current_receipt_survives_failed_status_only_retries():
+    _run_node(r"""
+        (async () => {
+            const elements = buildElements(), row = elements.rows.item_db;
+            let pending = true, writes = 0;
+            const controller = view.createFirstRunSetupController({
+                elements, isItemDbPending: () => pending, isIconsPending: () => false,
+                runItemDbUpdate: async () => {
+                    writes++; return {success:true, outcome:'current', update_committed:true, item_db:{verification:{verified:true}}};
+                },
+                refreshItemDbStatus: async () => {pending = null; throw new Error('Read failed');},
+            });
+            for (let attempt = 0; attempt < 2; attempt++) {
+                await controller.runTodo('item_db');
+                assert.equal(writes, 1);
+                assert.equal(row.state.textContent, 'Datenbank geprüft. Status erneut prüfen.');
+                assert.equal(row.item.classList.flags['is-warning'], true);
+                assert.equal(row.item.classList.flags['is-error'], false);
+                assert.match(row.detailsContent.textContent, /Read failed/);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
 def test_frontend_first_run_setup_accepts_a_successful_no_op_as_verified() -> None:
     _run_node(
         textwrap.dedent(
@@ -281,7 +389,8 @@ def test_frontend_first_run_setup_reports_a_failed_update_without_ticking_it() -
             elements.rows.icons.button.fire("click");
             setTimeout(() => {
                 assert.strictEqual(elements.rows.icons.mark.textContent, "○");
-                assert.ok(elements.rows.icons.state.textContent.includes("Netzwerk weg"));
+                assert.equal(elements.rows.icons.state.textContent, 'Fehlgeschlagen. Details prüfen.');
+                assert.ok(elements.rows.icons.detailsContent.textContent.includes("Netzwerk weg"));
                 assert.strictEqual(elements.rows.icons.item.classList.flags["is-error"], true);
                 assert.strictEqual(elements.rows.icons.button.disabled, false, "Ein Fehlschlag muss erneut versuchbar bleiben");
             }, 0);
@@ -309,7 +418,8 @@ def test_frontend_first_run_setup_requires_a_confirmed_status_after_update() -> 
             elements.rows.item_db.button.fire("click");
             setTimeout(() => {
                 assert.strictEqual(elements.rows.item_db.mark.textContent, "–");
-                assert.ok(elements.rows.item_db.state.textContent.includes("Status konnte jedoch nicht bestätigt werden"));
+                assert.equal(elements.rows.item_db.state.textContent, 'Status nicht verfügbar. Bitte erneut prüfen.');
+                assert.ok(elements.rows.item_db.detailsContent.textContent.includes("Status konnte jedoch nicht bestätigt werden"));
                 assert.strictEqual(elements.rows.item_db.item.classList.flags["is-error"], true);
                 assert.strictEqual(elements.closeButton.textContent, "Später");
             }, 0);
@@ -434,7 +544,8 @@ def test_setup_status_retry_preserves_errors_and_never_downloads_in_read_only_mo
                 const row = elements.rows[id];
                 assert.equal(row.button.disabled, false);
                 await controller.runTodo(id);
-                assert.match(row.state.textContent, /HTTP 503: Dienst vorübergehend nicht erreichbar/);
+                assert.equal(row.state.textContent, 'Status nicht verfügbar. Bitte erneut prüfen.');
+                assert.match(row.detailsContent.textContent, /HTTP 503: Dienst vorübergehend nicht erreichbar/);
                 assert.equal(row.button.disabled, false);
                 const retry = controller.runTodo(id);
                 assert.equal(row.state.textContent, 'Status wird geprüft…');
@@ -465,7 +576,7 @@ def test_setup_status_retry_requires_another_click_before_downloading_missing_ic
             });
             controller.open();
             const row = elements.rows.icons;
-            assert.match(row.state.textContent, /HTTP 503: Icon-Dienst nicht erreichbar/);
+            assert.match(row.detailsContent.textContent, /HTTP 503: Icon-Dienst nicht erreichbar/);
             await controller.runTodo('icons');
             assert.equal(writes, 0);
             assert.equal(row.button.textContent, 'Jetzt laden');
@@ -491,18 +602,20 @@ def test_setup_uses_current_status_errors_and_clears_old_retry_errors_after_exte
             });
             await controller.runTodo('icons');
             const row = elements.rows.icons;
-            assert.match(row.state.textContent, /First retry failed/);
+            assert.match(row.detailsContent.textContent, /First retry failed/);
             // A later automatic refresh from the item-DB update supplies its
             // own error or a valid pending result, replacing the old error.
             message = 'HTTP 429: Bitte 10s warten.';
             controller.render();
-            assert.match(row.state.textContent, /HTTP 429: Bitte 10s warten/);
-            assert.ok(!row.state.textContent.includes('First retry failed'));
+            assert.match(row.detailsContent.textContent, /HTTP 429: Bitte 10s warten/);
+            assert.ok(!row.detailsContent.textContent.includes('First retry failed'));
             message = '';
             pending = true;
             controller.render();
             assert.equal(row.state.textContent, '');
             assert.equal(row.item.classList.flags['is-error'], false);
+            assert.equal(row.details.hidden, true);
+            assert.equal(row.detailsContent.textContent, '');
             assert.equal(row.button.textContent, 'Jetzt laden');
         })().catch(error => { console.error(error); process.exitCode = 1; });
     """)

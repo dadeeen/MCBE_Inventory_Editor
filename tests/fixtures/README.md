@@ -2,6 +2,10 @@
 
 Small synthetic fixtures and reviewed, non-playable reference data may live here. Private Bedrock worlds do not belong in this directory.
 
+`item_localization_reference.json` records the source keys and expected names for the 78 item-name fallbacks in editor v0.8.6 with Mojang Bedrock samples v1.26.60.5. The archive SHA-256 identifies the source. Check changes to these expectations against the source keys.
+
+`reviewed_german_item_names.json` and `reviewed_english_item_names.json` contain the original and replacement labels for name migrations. Each entry identifies its language-file, documentation or editorial origin.
+
 `public_scanner_world.zip` is a generated scanner fixture without the original LevelDB files. Review generated files before committing them. Isolated entity NBT records have a separate [fixture contract](../data/README.md) under `tests/data/`.
 
 `mount_reference.json` contains manually reviewed, distilled mount evidence. The exporter omits known custom-name tags and records known coordinate and identity tags by name only. Matching observed values become comparison candidates; single-specimen values remain in an unconfirmed section. This process does not provide general anonymization: unknown scalar values, definitions, attribute names, tag names and the supplied label can contain world-specific or user-authored content. Review the complete output before sharing or committing it, and remove names, XUIDs, account/server/device identifiers, local paths and any other personal or private data. Keep unreviewed exports under `fixtures/private/`.

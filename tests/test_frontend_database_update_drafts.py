@@ -99,6 +99,29 @@ def test_database_update_preserves_every_kind_of_unapplied_form() -> None:
     )
 
 
+def test_publishing_only_failure_metadata_refreshes_status_without_touching_the_loaded_player():
+    run_node(
+        _HARNESS
+        + r"""
+        (async () => {
+            for (const dirty of [false, true]) {
+                const {context, pending, calls} = createHarness();
+                pending.slot = dirty;
+                const result = await context.updateFinished({
+                    success: false, outcome: 'failed', update_committed: true, reloaded: true, item_db: {status: 'ok'},
+                });
+                assert.equal(calls.catalogUpdates, 1);
+                assert.equal(calls.iconReads, 0);
+                assert.equal(calls.reads, 0);
+                assert.equal(calls.discarded, 0);
+                assert.equal(pending.slot, dirty);
+                assert.equal(result.warning, undefined);
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """
+    )
+
+
 def test_database_update_reads_live_changes_and_reloads_a_clean_player() -> None:
     run_node(
         _HARNESS

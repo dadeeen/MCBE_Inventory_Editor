@@ -27,6 +27,7 @@
         const running = {};
         const errors = {};
         const statusErrors = {};
+        const results = {};
         let returnFocus = null;
 
         const TODO_LABELS = {
@@ -44,18 +45,32 @@
             return todoState(id) === "pending";
         }
 
-        function anyPending() {
-            return TODO_IDS.some(isPending);
+        function needsSetup(id) {
+            const state = todoState(id);
+            if (state === "unknown" && id === "item_db") return Boolean(results.item_db?.update_committed || getItemDbFeedback()?.reloadWarning);
+            return state === "pending";
         }
 
         function isDismissed() {
             return Boolean(loadWorkspace()?.[DISMISSED_KEY]);
         }
 
+        function recordUpdateResult(id, result) {
+            results[id] = result;
+            delete errors[id];
+            delete statusErrors[id];
+        }
+
+        async function onItemDbApply(result) {
+            recordUpdateResult("item_db", result);
+            render();
+            if (result?.update_committed && !result.reloaded && !running.item_db) await refreshItemDbStatus();
+        }
+
         function renderRow(id) {
             const row = rows[id];
             if (!row) return;
-            const { mark, state, button } = row;
+            const { mark, state, button, details, detailsContent, detailsSummary } = row;
             const locked = !canWriteAppState();
             // "Done" is derived from the live status rather than from the update
             // call returning cleanly, so a run that silently changed nothing can
@@ -64,32 +79,70 @@
             const done = stateValue === "done";
             const unknown = stateValue === "unknown";
             const busy = Boolean(running[id]);
-            const error = unknown ? getStatusError(id) || statusErrors[id] || errors[id] : errors[id];
             const feedback = id === "item_db" ? getItemDbFeedback() || {} : {};
-            const partial = feedback.partial && !done;
+            const iconHint = id === "icons" ? getIconsPendingHint() : "";
+            // A verified live status supersedes a failed or incomplete attempt,
+            // including when another browser repaired the installation.
+            const previous = results[id];
+            const obsoleteIconIssue = id === "icons" && (previous?.success === false || previous?.client_warning || previous?.scan_warning);
+            if (done && (previous?.outcome === "partial" || previous?.outcome === "failed" || obsoleteIconIssue)) {
+                recordUpdateResult(id, null);
+            } else if (done && previous?.reload_warning) {
+                results[id] = {...previous, reload_warning: ""};
+            }
+            const result = results[id];
+            const saved = id === "item_db" && window.MCBEUpdateDbView.catalogDataSaved(result);
+            const confirmedCurrent = result?.outcome === "current" && result.item_db?.verification?.verified === true;
+            const failed = result?.outcome === "failed" || (result?.success === false && !saved && !result.scan_warning);
+            const error = unknown ? getStatusError(id) || statusErrors[id] || errors[id] : errors[id];
+            const partial = !failed && !done && (feedback.partial || result?.outcome === "partial" || (id === "icons" && (result?.client_warning || result?.scan_warning)));
+            const keepResultNotes = saved || result?.client_warning || result?.reload_warning || result?.scan_warning;
+            const resultNotes = [result?.error, result?.hint, result?.reload_warning, result?.client_warning, result?.scan_warning,
+                ...(window.MCBEDataSourceView?.itemDbBlockedMessages(result?.summary?.blocked) || [])].filter(Boolean);
 
             if (mark) mark.textContent = done ? "✓" : busy ? "⋯" : partial ? "!" : unknown ? "–" : "○";
             if (row.item) {
                 row.item.classList.toggle("is-done", done);
                 row.item.classList.toggle("is-running", busy);
-                row.item.classList.toggle("is-error", Boolean(error) && !done && !busy);
+                row.item.classList.toggle("is-error", Boolean(failed || error) && !done && !busy && !partial && !saved && !confirmedCurrent);
                 row.item.classList.toggle("is-unknown", unknown);
-                row.item.classList.toggle("is-warning", Boolean(partial) && !busy && !error);
+                row.item.classList.toggle("is-warning", Boolean(partial || ((saved || confirmedCurrent) && error)) && !done && !busy);
             }
             if (state) {
-                if (done) state.textContent = [t("Erledigt."), feedback.message].filter(Boolean).join(" ");
+                if (done) state.textContent = feedback.warnings || (keepResultNotes && resultNotes.length)
+                    ? t("Erledigt. Hinweise in den Details.") : t("Erledigt.");
                 else if (busy) state.textContent = running[id] === "status" ? t("Status wird geprüft…") : t("Wird geladen…");
-                else if (unknown) state.textContent = error
-                    ? t("Status konnte nicht geladen werden: {error}", { error }) : t("Status nicht verfügbar. Bitte erneut prüfen.");
-                else if (error) state.textContent = t("Fehlgeschlagen: {error}", { error });
-                else if (partial) state.textContent = [t("Prüfung unvollständig"), feedback.message].filter(Boolean).join(" · ");
+                else if (failed) state.textContent = window.MCBEUpdateDbView.sourceFailureMessage(result) || t("Fehlgeschlagen. Details prüfen.");
+                else if (unknown && feedback.reloadWarning) state.textContent = t("Bitte den Editor neu starten.");
+                else if (unknown && confirmedCurrent) state.textContent = t("Datenbank geprüft. Status erneut prüfen.");
+                else if (unknown) state.textContent = saved
+                    ? t("Änderungen gespeichert. Status erneut prüfen.") : t("Status nicht verfügbar. Bitte erneut prüfen.");
+                else if (partial) state.textContent = saved && result.outcome === "partial"
+                    ? t("Teilweise aktualisiert. Details prüfen.") : t("Prüfung unvollständig. Details prüfen.");
+                else if (error) state.textContent = saved
+                    ? t("Änderungen gespeichert. Details prüfen.") : t("Fehlgeschlagen. Details prüfen.");
                 else if (locked) state.textContent = readOnlyMessage;
-                else state.textContent = id === "icons" ? getIconsPendingHint() : "";
+                else state.textContent = iconHint;
             }
             if (button) {
                 button.disabled = done || TODO_IDS.some(todo => running[todo]) || (locked && !unknown);
-                button.textContent = done ? t("Erledigt") : unknown ? t("Status erneut prüfen") : t("Jetzt laden");
+                button.textContent = done ? t("Erledigt") : unknown ? t("Status erneut prüfen")
+                    : failed || partial ? t("Erneut versuchen") : iconHint ? t("Icons abgleichen") : t("Jetzt laden");
                 button.style.display = done ? "none" : "";
+            }
+            if (details && detailsContent) {
+                const lines = busy ? [] : [...new Set([
+                    !done ? error : "", ...(!done || keepResultNotes ? resultNotes : []), ...(feedback.details || []),
+                ].filter(Boolean))];
+                const text = lines.join("\n\n");
+                if (detailsContent.textContent !== text) detailsContent.textContent = text;
+                details.hidden = !text;
+                if (details.hidden) {
+                    details.open = false;
+                    if ([detailsSummary, detailsContent].includes(documentObj?.activeElement)) {
+                        (button && !button.disabled && button.style.display !== "none" ? button : closeButton)?.focus?.();
+                    }
+                }
             }
         }
 
@@ -97,7 +150,7 @@
             if (!banner) return;
             // The banner is the way back after "Später": it appears only once the
             // overlay has been dismissed, so the two never compete for attention.
-            const open = TODO_IDS.filter(isPending);
+            const open = TODO_IDS.filter(needsSetup);
             const show = open.length > 0 && isDismissed() && !isOpen();
             banner.style.display = show ? "" : "none";
             banner.classList.toggle("includes-icon-setup", show && open.includes("icons"));
@@ -149,7 +202,7 @@
         }
 
         function maybeOpenOnStart() {
-            if (isDismissed() || !anyPending()) {
+            if (isDismissed() || !TODO_IDS.some(needsSetup)) {
                 render();
                 return false;
             }
@@ -162,7 +215,7 @@
             const retryStatus = todoState(id) === "unknown";
             if (!retryStatus && (!canWriteAppState() || !isPending(id))) return;
             running[id] = retryStatus ? "status" : "update";
-            errors[id] = "";
+            if (!retryStatus) recordUpdateResult(id, null);
             statusErrors[id] = "";
             render();
             try {
@@ -178,14 +231,15 @@
                 let result;
                 if (id === "item_db") {
                     result = await runItemDbUpdate();
+                    recordUpdateResult(id, result);
                     if (result?.success || result?.update_committed) await refreshItemDbStatus();
                     if (result?.outcome === "partial" && result?.update_committed) return;
                     if (!result?.success) {
-                        const reasons = window.MCBEDataSourceView?.itemDbBlockedMessages(result?.summary?.blocked) || [];
-                        throw new Error([result?.error || t("Item-DB-Aktualisierung fehlgeschlagen."), ...reasons].join(" "));
+                        throw new Error(result?.error || t("Item-DB-Aktualisierung fehlgeschlagen."));
                     }
                 } else {
                     result = await runIconsUpdate();
+                    recordUpdateResult(id, result);
                     if (!result?.success) {
                         throw new Error(result?.error || t("Icon-Aktualisierung fehlgeschlagen."));
                     }
@@ -198,7 +252,7 @@
                         : t("Aktualisierung abgeschlossen, der Status ist jedoch weiterhin offen."));
                 }
             } catch (err) {
-                (retryStatus ? statusErrors : errors)[id] = err?.message || String(err);
+                (retryStatus || todoState(id) === "unknown" ? statusErrors : errors)[id] = err?.message || String(err);
             } finally {
                 running[id] = false;
                 render();
@@ -219,7 +273,14 @@
             }
             if (event.key !== "Tab") return;
             const actions = [
-                ...TODO_IDS.map(id => rows[id]?.button),
+                ...TODO_IDS.flatMap(id => {
+                    const row = rows[id];
+                    return [
+                        !row?.details?.hidden && row?.detailsSummary,
+                        !row?.details?.hidden && row?.details?.open && row?.detailsContent,
+                        row?.button,
+                    ];
+                }),
                 closeButton,
             ].filter(button => button && !button.disabled && button.style?.display !== "none");
             if (!actions.length) return;
@@ -232,7 +293,7 @@
             actions[nextIndex].focus?.();
         });
 
-        return { close, isOpen, maybeOpenOnStart, open, render, runTodo };
+        return { close, isOpen, maybeOpenOnStart, onItemDbApply, open, render, runTodo };
     }
 
     function collectFirstRunSetupElements(doc = document) {
@@ -244,6 +305,9 @@
                 mark: item?.querySelector("[data-role='mark']") || null,
                 state: item?.querySelector("[data-role='state']") || null,
                 button: item?.querySelector("[data-role='run']") || null,
+                details: item?.querySelector("[data-role='details']") || null,
+                detailsContent: item?.querySelector("[data-role='details-content']") || null,
+                detailsSummary: item?.querySelector("[data-role='details'] > summary") || null,
             };
         });
         const banner = doc.getElementById("setupTodoBanner");

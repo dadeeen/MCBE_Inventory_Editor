@@ -545,8 +545,9 @@ def test_legacy_repair_and_full_verification_reuse_the_existing_images(cache_cas
     assert icon_cache_state.assess_cache(case.target, inputs)["reason"] == "legacy"
     before = {path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_ino) for path in case.target.rglob("*.png")}
     db = case.target.parent / "items.json"
-    db.write_text(json.dumps({"items": {"minecraft:apple": []}, "block_items": []}), encoding="utf-8")
+    db.write_text(json.dumps({"items": {"minecraft:apple": ["Apfel", "Apple"]}, "block_items": []}), encoding="utf-8")
     monkeypatch.setattr(update_icons, "ITEM_DB_PATH", db)
+    monkeypatch.setattr(update_icons, "BUNDLED_ITEM_DB_JSON", db)
     monkeypatch.setattr(update_icons, "ICON_ROOT", case.target)
     monkeypatch.setattr(update_icons, "CACHE_DIR", case.downloads)
     monkeypatch.setattr(update_icons, "RELEASE_METADATA_PATH", case.downloads / "source.json")

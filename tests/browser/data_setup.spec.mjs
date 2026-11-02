@@ -47,9 +47,11 @@ for (const [width, locale] of [[1440, "de"], [390, "en"]]) {
     await expect(row).toContainText("Synthetic interrupted update");
     await expect(run).toBeEnabled();
     await run.click();
-    await expect(row.locator('[data-role="mark"]')).toHaveText("○");
-    await expect(row.locator('[data-role="state"]')).toContainText(/weiterhin offen|still pending/);
-    await expect(page.locator(".toast-warning")).toContainText(/weiterhin Bannermuster|banner patterns are still missing/);
+    await expect(row.locator('[data-role="mark"]')).toHaveText("!");
+    await expect(row.locator('[data-role="state"]')).toHaveText(locale === 'de' ? 'Prüfung unvollständig. Details prüfen.' : 'Verification incomplete. Check the details.');
+    await expect(row.locator('[data-role="details-content"]')).toBeHidden();
+    await expect(row.locator('[data-role="details-content"]')).toContainText(/weiterhin Bannermuster|banner patterns are still missing/);
+    await expect(page.locator(".toast-warning")).toContainText(locale === 'de' ? 'Icon-Prüfung unvollständig. Details prüfen.' : 'Icon check incomplete. See the details.');
     await page.locator("#btnFirstRunSetupClose").click();
     await expect(banner).toContainText(hint);
     await page.locator("#btnSetupTodoBanner").click();
@@ -70,7 +72,7 @@ test("fresh browser storage does not turn unavailable data statuses into setup w
     contentType: "application/json",
     body: JSON.stringify({ success: false, error: "Item-DB status unavailable" }),
   }));
-  await page.route("**/api/icons/status", route => route.fulfill({
+  await page.route("**/api/icons/status*", route => route.fulfill({
     status: 503,
     contentType: "application/json",
     body: JSON.stringify({ success: false, error: "Icon status unavailable" }),
@@ -117,7 +119,7 @@ test("regular tools update refreshes the dismissed setup banner and resolves rel
       },
     }),
   }));
-  await page.route("**/api/icons/status", route => route.fulfill({
+  await page.route("**/api/icons/status*", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({
@@ -208,7 +210,7 @@ test("first-run setup overlay guides through item DB and icons, then hands over 
       },
     }),
   }));
-  await page.route("**/api/icons/status", route => route.fulfill({
+  await page.route("**/api/icons/status*", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ success: true, icons: {}, display_icons: {}, count: 0, sources: [], warnings: [] }),

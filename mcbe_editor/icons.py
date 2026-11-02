@@ -1042,6 +1042,12 @@ def _sources_signature(sources: list[dict]) -> str:
             )
         },
     }
+    # Older indexes only resolved declared pack sprites for named IDs. Keep
+    # unaffected v10 publications usable on read-only installations.
+    if any(source.get("pack_kind") and source.get("enabled", True) for source in sources):
+        unnamed_targets = (catalog["ADDABLE_ITEM_IDS"] | catalog["BLOCK_ONLY_ITEM_IDS"]) - catalog["ITEMS"].keys()
+        if unnamed_targets:
+            payload["unnamed_pack_targets"] = sorted(unnamed_targets)
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 

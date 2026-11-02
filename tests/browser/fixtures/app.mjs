@@ -236,7 +236,7 @@ export async function openPlayerSwitchFixture(page, { fromProtected = false, toP
   // keep their repeated page starts out of the shared server rate limit.
   for (const [url, response] of Object.entries({
     "**/api/server_status": { success: true, server_status: { status: "offline" }, write_gate: { allowed: true } },
-    "**/api/icons/status": { success: true, icons: {}, count: 0 },
+    "**/api/icons/status*": { success: true, icons: {}, count: 0 },
     "**/api/item-db/status": { success: true, item_db: { status: "ready", counts: {} } },
     "**/api/backup/settings": { success: true, settings: { max_uncompressed_mib: 2048, source: "default" } },
     "**/api/backups": { success: true, backups: [] },

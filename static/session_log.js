@@ -136,6 +136,7 @@
                 time: formatSessionTime(),
                 type: normalizedType,
                 message: text,
+                details: options.details,
                 category,
                 key,
                 active: typeof options.active === "boolean" ? options.active : undefined,

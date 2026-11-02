@@ -43,13 +43,14 @@
             emptyStateHint,
             emptyStateVanillaButton,
             sourceDialog, openSourceButton, closeSourceButton, sourceFeedback,
-            updateFeedback, updateResult, updateHint, updateOutput, updateLogDetails, clearUpdateOutputButton,
+            updateFeedback, updateResult, updateHint, updateOutput, updateLogDetails, updateDetails, updateReason, clearUpdateOutputButton,
         } = elements;
         let iconSourceSummary = { status: "loading", roots: [], warnings: [] };
         let iconRescanRunning = false;
         let iconRequestId = 0;
         let sourceAdding = false;
         let availableVanillaUpdate = null;
+        let updateExplanation = "";
 
         function currentIconWorld() {
             return getWorldPath() || getSelectedWorldPath() || "";
@@ -231,9 +232,7 @@
             try {
                 const data = rescan && canRescanIcons()
                     ? await postJson("/api/icons/scan", { world_path: request.world })
-                    : await parseJsonResponse(await fetchImpl(
-                        request.world ? `/api/icons/status?world_path=${encodeURIComponent(request.world)}` : "/api/icons/status"
-                    ));
+                    : await parseJsonResponse(await fetchImpl(`/api/icons/status?world_path=${encodeURIComponent(request.world)}`));
                 if (!iconRequestIsCurrent(request)) return null;
                 requireSuccess(
                     data,
@@ -376,10 +375,17 @@
         }
 
         function showUpdateResult(message, state, data = {}) {
+            const brief = state === "incomplete" ? t("Icon-Prüfung unvollständig. Details prüfen.") : message;
+            updateExplanation = [brief !== message ? message : "", data.hint].filter(Boolean).join("\n\n");
             if (updateFeedback) updateFeedback.hidden = false;
             if (updateResult) {
-                updateResult.textContent = message;
+                updateResult.textContent = brief;
                 updateResult.dataset.state = state;
+            }
+            if (updateReason) updateReason.textContent = brief !== message ? message : "";
+            if (updateDetails) {
+                updateDetails.hidden = brief === message && !data.hint;
+                updateDetails.open = false;
             }
             if (updateHint) {
                 updateHint.textContent = data.hint || "";
@@ -392,6 +398,7 @@
                 }
                 updateOutput.textContent = output;
             }
+            return brief;
         }
 
         async function updateVanillaIcons({ checkOnly = false, allowDownload = true } = {}) {
@@ -414,6 +421,7 @@
             const updateStatus = (message, type, active = undefined) => logStatus(message, type, {
                 key: "vanilla-icons-update",
                 active,
+                details: updateExplanation,
             });
             updateStatus(runningMessage, "running", true);
             const request = beginIconRequest();
@@ -428,9 +436,9 @@
                 if (data.success) progress?.finalizing();
                 if (!data.success) {
                     const message = data.error || t("Vanilla-Icons konnten nicht geladen werden.");
-                    showUpdateResult(message, "incomplete", data);
-                    updateStatus(message, "error", true);
-                    showToast(message, "error", 6000);
+                    const brief = showUpdateResult(message, "incomplete", data);
+                    updateStatus(brief, "error", true);
+                    showToast(brief, "error", 6000);
                     return { ...data, success: false, error: message };
                 }
                 if (data.icon_update?.needs_update) {
@@ -447,18 +455,18 @@
                     return data;
                 }
                 if (data.scan_warning) {
-                    showUpdateResult(data.scan_warning, "incomplete", data);
-                    updateStatus(data.scan_warning, "warning", true);
-                    showToast(data.scan_warning, "warning", 8000);
+                    const brief = showUpdateResult(data.scan_warning, "incomplete", data);
+                    updateStatus(brief, "warning", true);
+                    showToast(brief, "warning", 8000);
                     return { ...data, success: false, error: data.scan_warning };
                 }
                 const summary = await applyMutationIconIndexData(data, request);
                 if (summary?.missing_banner_patterns?.length && !data.icon_update?.already_current) {
                     const message = t("Vanilla-Icons wurden geladen, aber es fehlen weiterhin Bannermuster. Prüfe die Icon-Quellen unter Werkzeuge & Einstellungen.");
-                    showUpdateResult(message, "incomplete", data);
-                    updateStatus(message, "warning", true);
-                    showToast(message, "warning", 8000);
-                    return data;
+                    const brief = showUpdateResult(message, "incomplete", data);
+                    updateStatus(brief, "warning", true);
+                    showToast(brief, "warning", 8000);
+                    return { ...data, client_warning: message };
                 }
                 const mapped = data.manifest?.mapped_items ?? data.count ?? 0;
                 const known = data.manifest?.known_items ?? "?";
@@ -472,9 +480,9 @@
             } catch (err) {
                 consoleObj.error("updateVanillaIcons:", err);
                 const message = err?.message || t("Verbindungsfehler beim Laden der Vanilla-Icons.");
-                showUpdateResult(message, "incomplete", responseData);
-                updateStatus(message, "error", true);
-                showToast(message, "error", 6000);
+                const brief = showUpdateResult(message, "incomplete", responseData);
+                updateStatus(brief, "error", true);
+                showToast(brief, "error", 6000);
                 return { success: false, error: message };
             } finally {
                 progress?.stop();
@@ -504,6 +512,8 @@
                     updateHint.hidden = true;
                 }
                 if (updateOutput) updateOutput.textContent = "";
+                if (updateReason) updateReason.textContent = "";
+                if (updateDetails) { updateDetails.open = false; updateDetails.hidden = true; }
                 if (updateLogDetails) updateLogDetails.open = false;
                 updateVanillaButton?.focus();
             });
@@ -588,6 +598,8 @@
             updateVanillaButton: doc.getElementById("btnUpdateVanillaIcons"),
             updateFeedback: doc.getElementById("iconUpdateFeedback"),
             updateResult: doc.getElementById("iconUpdateResult"),
+            updateDetails: doc.getElementById("iconUpdateDetails"),
+            updateReason: doc.getElementById("iconUpdateReason"),
             updateHint: doc.getElementById("iconUpdateHint"),
             updateOutput: doc.getElementById("iconUpdateOutput"),
             updateLogDetails: doc.getElementById("iconUpdateLogDetails"),

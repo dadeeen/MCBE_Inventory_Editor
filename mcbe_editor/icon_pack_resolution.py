@@ -7,6 +7,7 @@ import zipfile
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
+from .icon_cache_state import icon_filename
 from .icon_diagnostics import IconSourceError, error_record, warning_record
 from .icon_resolution import inventory_sprite_keys, item_icon_key
 from .resource_packs import PackReader, _pack_key, read_json_file, relative_name
@@ -102,7 +103,7 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
                         base_paths.setdefault(item, original)
                         from .icons import IconCandidate, _token_for
 
-                        image_path = root / "textures/items" / (item.removeprefix("minecraft:") + ".png")
+                        image_path = root / "textures/items" / icon_filename(item.removeprefix("minecraft:"))
                         if image_path.is_file():
                             assets.setdefault(original, (IconCandidate(item, image_path, source["label"], _token_for(image_path), source_root=root), priority))
                 for key, paths in manifest.get("item_texture_data", {}).items():
@@ -199,7 +200,8 @@ def resolve_pack_icons(sources: list[dict]) -> tuple[dict, list[dict], dict[int,
     for item, path in base_paths.items():
         if item not in base_bindings and unique_paths.get(path) is not None:
             base_bindings[item] = unique_paths[path]
-    targets = set(definitions) | set(base_paths) | set(base_bindings) | set(catalog_values()["ITEMS"])
+    catalog = catalog_values()
+    targets = set(definitions) | set(base_paths) | set(base_bindings) | catalog["ITEMS"].keys() | catalog["ADDABLE_ITEM_IDS"] | catalog["BLOCK_ONLY_ITEM_IDS"]
     result = {}
     for item in targets:
         component, definition_priority = definitions.get(item, (base_bindings.get(item), len(sources)))

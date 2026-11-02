@@ -7,7 +7,7 @@
     const EMPTY_OUTPUT = t("Noch keine Prüfung ausgeführt.");
     const outputBuffers = new WeakMap();
     const sectionLabels = {
-        items: "Katalogeinträge", stack_limits: "Stapellimits", durability: "Haltbarkeitswerte",
+        items: "Katalogeinträge", confirmed_item_labels: "Vergleichswerte für Anzeigenamen", stack_limits: "Stapellimits", durability: "Haltbarkeitswerte",
         effects: "Effekte", enchants: "Verzauberungen", addable_items: "Hinzufügbare Items",
         block_items: "Block-Items", block_only_items: "Reine Block-IDs",
         enchantable: "Verzauberbare Items", wearable: "Tragbare Items", allow_off_hand: "Nebenhand-Items",
@@ -40,6 +40,35 @@
             : t("Keine inhaltlichen Änderungen. „Update anwenden“ bestätigt die vollständige Prüfung der Item-Datenbank.");
     }
 
+    // A transaction may save only the failure report. The API outcome describes
+    // the catalog data, while update_committed tells the parent to reload files.
+    function catalogDataSaved(result) {
+        return result?.update_committed === true && result.outcome !== "failed" && result.outcome !== "current";
+    }
+
+    function sourceFailureMessage(data) {
+        if (data?.category === "network-or-dns") return t("Online-Quelle nicht erreichbar.");
+        if (data?.category === "client-connection") return t("Verbindung zum Editor unterbrochen.");
+        if (data?.category === "github-rate-limit") return t("GitHub-Anfragelimit erreicht. Bitte später erneut versuchen.");
+        return "";
+    }
+
+    function compactUpdateMessage(data, dryRun, quality = {}) {
+        if (!data.success && !catalogDataSaved(data) && sourceFailureMessage(data)) return sourceFailureMessage(data);
+        if (!data.success && dryRun) return data.summary?.blocked?.length || quality.blocked?.length
+            ? t("Prüfung unvollständig. Details prüfen.") : t("Prüfung fehlgeschlagen. Details prüfen.");
+        if (!data.success) {
+            if (!catalogDataSaved(data)) return t("Aktualisierung fehlgeschlagen. Details prüfen.");
+            return data.outcome === "partial" ? t("Teilweise aktualisiert. Details prüfen.") : t("Änderungen gespeichert. Hinweise in den Details.");
+        }
+        if (data.client_warning || data.reload_warning) return t("Datenbank aktualisiert. Anzeige noch nicht erneuert. Details prüfen.");
+        if (data.summary?.status === "current") {
+            if (data.verification_required) return t("Prüfung abgeschlossen. Bestätigung erforderlich.");
+            return quality.hasWarnings ? t("Bereits aktuell. Hinweise in den Details.") : t("Bereits aktuell.");
+        }
+        return dryRun ? t("Prüfung abgeschlossen mit Hinweisen. Details prüfen.") : t("Aktualisiert mit Hinweisen. Details prüfen.");
+    }
+
     function renderResult(outputEl, data, dryRun, scopeText, only = null) {
         const doc = outputEl?.ownerDocument;
         const result = doc?.getElementById?.("updateDbResult");
@@ -59,7 +88,7 @@
         const report = data.summary;
         const quality = window.MCBEDataSourceView?.itemDbQualityModel(report?.quality) || {};
         const state = !data.success ? "incomplete" : report?.status || "unknown";
-        result.dataset.state = state;
+        result.dataset.state = !data.success && !catalogDataSaved(data) ? "failed" : state;
         const titles = {
             available: t("Datenbank-Aktualisierung verfügbar"), current: t("Keine inhaltlichen Änderungen"),
             metadata_only: t("Nur Quelleninformationen geändert"), incomplete: t("Prüfung unvollständig oder fehlgeschlagen"),
@@ -75,6 +104,12 @@
             add(result, currentResultMessage(data.verification_required === true, only), "p").className = "update-db-mode";
         } else if (dryRun && ["available", "metadata_only"].includes(state)) {
             add(result, t("Vorschau – noch nicht übernommen"), "p").className = "update-db-mode";
+        } else if (!dryRun && data.outcome === "partial" && catalogDataSaved(data)) {
+            const groups = new Set((report?.blocked || []).map(entry => String(entry.section).toLowerCase()));
+            const sections = [...groups].map(key => sectionLabels[key === "enchantments" ? "enchants" : key]).filter(Boolean).map(label => t(label));
+            add(result, sections.length
+                ? t("Die geprüften Änderungen sind gespeichert. Der bisherige Stand für {sections} bleibt erhalten.", {sections: sections.join(", ")})
+                : t("Die geprüften Änderungen sind gespeichert."), "p").className = "update-db-mode";
         } else if (!dryRun && data.outcome !== "failed" && (data.update_committed || data.reloaded)) {
             add(result, t("Änderungen an der Item-Datenbank übernommen."), "p").className = "update-db-mode";
         }
@@ -90,19 +125,20 @@
                 add(field, release ? `Mojang ${release}` : t("Nicht dokumentiert"), "dd");
                 sources.appendChild(field);
             }
-            result.appendChild(sources);
+            auditEl.appendChild(sources);
         }
-        add(result, t("Bereich: {scope}", {scope: scopeText})).className = "hint-text";
-        if (quality.summary) add(result, quality.summary);
-        for (const line of quality.lines || []) add(result, line);
+        add(auditEl, t("Bereich: {scope}", {scope: scopeText})).className = "hint-text";
+        if (quality.brief && data.outcome !== "partial") add(result, quality.brief);
+        if (quality.summary) add(auditEl, quality.summary);
+        for (const line of quality.lines || []) add(auditEl, line);
         if (quality.details?.length) {
-            add(auditEl, t("Verwendete Ersatznamen"), "strong");
+            add(auditEl, t("Namensherkunft"), "strong");
             for (const line of quality.details) add(auditEl, line);
         }
-        if (data.error) add(result, data.error);
-        if (data.hint) add(result, data.hint).className = "hint-text";
-        if (data.reload_warning) add(result, data.reload_warning);
-        if (data.outcome === "partial") add(result, t("Einige Bereiche konnten nicht aktualisiert werden. Die übernommenen Bereiche sind bereits gespeichert."));
+        for (const message of new Set([data.error, data.hint, data.reload_warning, data.client_warning, data.pending_reload_warning].filter(Boolean))) add(auditEl, message);
+        if (data.reload_warning) add(result, t("Bitte den Editor neu starten."));
+        else if (data.client_warning) add(result, t("Hinweise zum weiteren Vorgehen stehen in den Details."));
+        else if (sourceFailureMessage(data)) add(result, sourceFailureMessage(data));
         const changes = doc.createElement("ul");
         changes.className = "update-db-change-list";
         for (const [key, counts] of Object.entries(report?.sections || {})) {
@@ -140,7 +176,7 @@
         }
         const audit = report?.audit;
         if (audit) {
-            add(result, t("Automatischer Abgleich: {count} Katalogeinträge geprüft.", {count: number(audit.checked_items)}));
+            add(auditEl, t("Automatischer Abgleich: {count} Katalogeinträge geprüft.", {count: number(audit.checked_items)}));
             const issues = audit.issues || [];
             const expectedNames = audit.expected_name_differences || [];
             if (expectedNames.length && technicalNotes) {
@@ -165,7 +201,7 @@
             }
             if (!issues.length && !quality.hasWarnings) add(result, t("Keine Auffälligkeiten in den geprüften Daten."));
             else if (issues.length) {
-                add(result, t("Abgleich: {findings}. Siehe Änderungsdetails.", {findings: issues.map(issue => `${t(issueLabels[issue.code] || issue.code)}: ${issue.count}`).join(" · ")}));
+                add(auditEl, t("Abgleich: {findings}. Siehe Änderungsdetails.", {findings: issues.map(issue => `${t(issueLabels[issue.code] || issue.code)}: ${issue.count}`).join(" · ")}));
                 for (const issue of issues) {
                     add(auditEl, `${t(issueLabels[issue.code] || issue.code)} (${issue.count})`, "strong");
                     if (issue.comparisons?.length) {
@@ -180,7 +216,7 @@
         for (const blocked of report?.blocked || []) {
             const section = String(blocked.section).toLowerCase();
             if (quality.blocked?.includes(section === "enchantments" ? "enchants" : section)) continue;
-            add(result, `${t(sectionLabels[section === "enchantments" ? "enchants" : section] || blocked.section)}: ${blocked.reason}`);
+            add(auditEl, `${t(sectionLabels[section === "enchantments" ? "enchants" : section] || blocked.section)}: ${blocked.reason}`);
         }
         if (detailsEl) {
             detailsEl.hidden = !auditEl.childElementCount;
@@ -286,6 +322,8 @@
         showToast = () => {},
         showConfirmDialog = async () => true,
         onReloaded = () => {},
+        onApplyResult = () => {},
+        canWriteAppState = () => true,
         startUpdateProgress = title => window.MCBEAssetUpdateProgress?.start(title),
     } = {}) {
         const append = (text) => appendOutput(outputEl, text);
@@ -293,8 +331,8 @@
         let reviewedSources = null;
         let currentResult = null;
         let confirming = false;
-        let failedPreviewScope;
-        let failedApplyScope;
+        const unresolvedRuns = new Map();
+        let pendingReloadWarning = "";
 
         function isApplyUnnecessary(only = onlySelect?.value || null) {
             return currentResult?.only === only && (!currentResult.verificationRequired || only !== null);
@@ -303,11 +341,13 @@
         function setUpdateControlsDisabled(disabled) {
             const only = onlySelect?.value || null;
             const current = currentResult?.only === only;
-            if (dryRunButton) dryRunButton.disabled = disabled;
-            if (applyButton) applyButton.disabled = disabled || isApplyUnnecessary(only);
-            if (onlySelect) onlySelect.disabled = disabled;
+            const locked = !canWriteAppState();
+            if (dryRunButton) dryRunButton.disabled = disabled || locked;
+            if (applyButton) applyButton.disabled = disabled || locked || isApplyUnnecessary(only);
+            if (onlySelect) onlySelect.disabled = disabled || locked;
             if (clearButton) clearButton.disabled = disabled;
-            if (actionHint) actionHint.textContent = current && currentResult.verificationRequired
+            if (actionHint) actionHint.textContent = locked ? t("Nur ansehen: Diese Instanz darf keine App-Daten schreiben.")
+                : current && currentResult.verificationRequired
                 ? currentResultMessage(true, only)
                 : current
                     ? t("Keine Änderungen bei der letzten Prüfung. Für einen neuen Abgleich „Änderungen prüfen“ wählen.")
@@ -315,6 +355,7 @@
         }
 
         async function run(dryRun, force = false, options = {}) {
+            if (!canWriteAppState()) return {success: false, error: t("Nur ansehen: Diese Instanz darf keine App-Daten schreiben.")};
             options = options && typeof options === "object" ? options : {};
             if (!outputEl) {
                 return { success: false, error: t("Update-Ausgabe ist nicht verfügbar.") };
@@ -338,21 +379,24 @@
             if (logDetailsEl) logDetailsEl.open = false;
 
             const mode = dryRun ? t("Prüfung") : t("Update");
-            const statusKey = dryRun ? "database-update:dry-run" : "database-update:apply";
             const only = Object.prototype.hasOwnProperty.call(options, "only")
                 ? (options.only || null)
                 : (onlySelect?.value || null);
+            const statusKey = ["database-update", dryRun ? "dry-run" : "apply", only].filter(Boolean).join(":");
             const matchingReview = !dryRun && reviewedSources?.only === only ? reviewedSources : null;
             const resolveKeys = [];
-            const coversFailure = scope => scope !== undefined && (only === null || only === scope);
-            if (dryRun) failedPreviewScope = undefined;
-            else failedApplyScope = undefined;
+            unresolvedRuns.delete(statusKey);
             if (dryRun) reviewedSources = null;
-            const updateStatus = (message, type, active = undefined) => logStatus(message, type, {
-                key: statusKey,
-                active,
-                resolveKeys: [...resolveKeys],
-            });
+            let statusDetails = "";
+            let needsReload = false;
+            const scopeDetail = only ? t("Bereich: {scope}", {scope: selectedScopeText(onlySelect, only)}) : "";
+            const updateStatus = (message, type, active) => {
+                if (active && type !== "running") unresolvedRuns.set(statusKey, {only, dryRun, needsReload});
+                logStatus(message, type, {
+                    key: statusKey, active, resolveKeys: [...resolveKeys],
+                    details: [scopeDetail, statusDetails].filter(Boolean).join("\n\n"),
+                });
+            };
             append(`\n${t("=== {mode} gestartet ===", { mode })}`);
             append(t("Bereich: {scope}", { scope: selectedScopeText(onlySelect, only) }));
             append(matchingReview
@@ -364,6 +408,8 @@
             const progress = startUpdateProgress(dryRun ? t("Item-Datenbank prüfen") : t("Item-Datenbank aktualisieren"));
             updateStatus(t("{mode} läuft...", { mode }), "running", true);
 
+            let responseReceived = false;
+            let result;
             try {
                 const res = await fetchImpl("/api/update_db", {
                     method: "POST",
@@ -376,6 +422,7 @@
                         expectedUpdateReviewToken: matchingReview?.token || null,
                     })),
                 });
+                responseReceived = true;
                 const data = await parseJsonResponse(res);
                 const quality = window.MCBEDataSourceView?.itemDbQualityModel(data.summary?.quality) || {};
                 const reviewToken = data.update_review_token || data.release_cache_token;
@@ -386,7 +433,6 @@
                 }
 
                 if (data.output) append(data.output);
-                renderResult(outputEl, data, dryRun, selectedScopeText(onlySelect, only), only);
 
                 if (data.success || data.reloaded) progress?.finalizing();
                 let clientWarning = "";
@@ -396,53 +442,71 @@
                         clientWarning = reloadOutcome.warning || "";
                     } catch (reloadError) {
                         console.error("onReloaded:", reloadError);
-                        clientWarning = t("Die Item-Datenbank ist aktualisiert, aber die Browseransicht konnte nicht vollständig aktualisiert werden. Lade die Seite neu.");
+                        clientWarning = data.outcome === "failed" ? t("Der Prüfstatus konnte im Browser nicht aktualisiert werden. Lade die Seite neu.")
+                            : t("Die Item-Datenbank ist aktualisiert, aber die Browseransicht konnte nicht vollständig aktualisiert werden. Lade die Seite neu.");
                     }
-                    if (data.summary?.status !== "current") append("\n" + t("Datenbank aktualisiert und Server neu geladen."));
+                    if (data.outcome === "failed") append("\n" + t("Prüfbericht gespeichert und Status neu geladen."));
+                    else if (data.summary?.status !== "current") append("\n" + t("Item-Datenbank aktualisiert."));
                     if (clientWarning) append(clientWarning);
                 }
+                // A later preview must not erase the still-active explanation
+                // for an earlier saved update whose view could not be refreshed.
+                const reloadWarning = data.reload_warning || (!dryRun && data.success && data.update_committed && !data.reloaded
+                    ? t("Die Item-Datenbank wurde gespeichert. Bitte den Editor neu starten, um sie zu laden.") : "");
+                needsReload = Boolean(clientWarning || reloadWarning);
+                if (data.outcome !== "failed") {
+                    if (!dryRun && data.reloaded && !clientWarning && !reloadWarning) pendingReloadWarning = "";
+                    if (clientWarning || reloadWarning) pendingReloadWarning = clientWarning || reloadWarning;
+                }
+                const feedbackData = { ...data, reload_warning: reloadWarning, client_warning: clientWarning, pending_reload_warning: pendingReloadWarning };
+                statusDetails = [...new Set([
+                    data.error, data.hint, reloadWarning, clientWarning, pendingReloadWarning,
+                    quality.summary, ...(quality.lines || []),
+                    ...(data.summary?.blocked || []).map(entry => `${t(sectionLabels[entry.section] || entry.section)}: ${entry.reason}`),
+                ].filter(Boolean))].join("\n\n");
+                renderResult(outputEl, feedbackData, dryRun, selectedScopeText(onlySelect, only), only);
+                const notice = compactUpdateMessage(feedbackData, dryRun, quality);
                 if (data.success) {
                     // Applying a checked scope resolves its earlier preview failure.
                     // A preview can only resolve a failed write when it confirms that
                     // the database is already current and fully verified.
-                    if (!dryRun && coversFailure(failedPreviewScope)) {
-                        resolveKeys.push("database-update:dry-run");
-                        failedPreviewScope = undefined;
-                    } else if (dryRun && data.summary?.status === "current" && data.verification_required === false && coversFailure(failedApplyScope)) {
-                        resolveKeys.push("database-update:apply");
-                        failedApplyScope = undefined;
+                    const verifiedCurrent = data.summary?.status === "current" && data.verification_required === false;
+                    for (const [key, run] of unresolvedRuns) {
+                        if (only !== null && run.only !== only) continue;
+                        if (run.needsReload && (!data.reloaded || clientWarning || reloadWarning)) continue;
+                        if (dryRun && !run.dryRun && !verifiedCurrent) continue;
+                        resolveKeys.push(key);
+                        unresolvedRuns.delete(key);
                     }
                     if (!dryRun) {
                         reviewedSources = null;
                     }
                     // A player-view warning does not invalidate the confirmed database state.
-                    if (data.summary?.status === "current" && !data.reload_warning) {
+                    if (data.summary?.status === "current" && !reloadWarning) {
                         currentResult = {only, verificationRequired: data.verification_required === true};
                     }
                     if (currentResult && !clientWarning) {
                         const message = [currentResultMessage(currentResult.verificationRequired, only), quality.summary].filter(Boolean).join(" ");
                         append("\n" + message);
-                        showToast(message, quality.hasWarnings ? "warning" : "success", 3000);
-                        updateStatus(message, quality.hasWarnings ? "warning" : "success", Boolean(quality.hasWarnings));
-                    } else if (quality.hasWarnings && !clientWarning && !data.reload_warning) {
+                        showToast(notice, quality.hasWarnings ? "warning" : "success", 3000);
+                        updateStatus(notice, quality.hasWarnings ? "warning" : "success", Boolean(quality.hasWarnings));
+                    } else if (quality.hasWarnings && !clientWarning && !reloadWarning) {
                         const message = [dryRun ? t("Prüfung abgeschlossen mit Hinweisen.") : t("Aktualisiert mit Hinweisen"), quality.summary].filter(Boolean).join(" ");
                         append("\n" + message);
-                        showToast(message, "warning", 5000);
-                        updateStatus(message, "warning", true);
+                        showToast(notice, "warning", 5000);
+                        updateStatus(notice, "warning", true);
                     } else if (data.reloaded) {
                         if (clientWarning) {
-                            showToast(clientWarning, "warning", 8000);
-                            updateStatus(clientWarning, "warning", true);
+                            showToast(notice, "warning", 8000);
+                            updateStatus(notice, "warning", true);
                         } else {
-                            showToast(t("Datenbank aktualisiert. Server wurde neu geladen."), "success", 5000);
+                            showToast(t("Item-Datenbank aktualisiert."), "success", 5000);
                             updateStatus(t("{mode} erfolgreich.", { mode }), "success", false);
                         }
                     } else if (!dryRun && data.update_committed) {
-                        const warning = data.reload_warning ||
-                            t("Die Item-Datenbank wurde aktualisiert, aber der Server konnte sie nicht neu laden. Bitte Anwendung neu starten.");
-                        append(`\n${warning}`);
-                        updateStatus(warning, "warning", true);
-                        showToast(warning, "warning", 8000);
+                        append(`\n${reloadWarning}`);
+                        updateStatus(notice, "warning", true);
+                        showToast(notice, "warning", 8000);
                     } else if (dryRun) {
                         append("\n" + t("Prüfung abgeschlossen. Keine Änderungen übernommen."));
                         showToast(t("Prüfung abgeschlossen. Keine Änderungen übernommen."), "success", 3000);
@@ -453,8 +517,6 @@
                         updateStatus(t("{mode} erfolgreich.", { mode }), "success", false);
                     }
                 } else {
-                    if (dryRun) failedPreviewScope = only;
-                    else if (!data.update_committed && !data.reload_warning && !clientWarning) failedApplyScope = only;
                     if (!hasPreviewReceipt) reviewedSources = null;
                     append(`\n${t("Fehler (Code {code}): {error}", { code: data.returncode, error: data.error || t("Unbekannter Fehler") })}`);
                     // The backend message already says what failed.
@@ -463,23 +525,31 @@
                         reason => t("{mode} fehlgeschlagen: {error}", { mode, error: reason }),
                     );
                     const message = [data.outcome === "partial" ? t("Aktualisierung teilweise übernommen") : "", failure, data.reload_warning, clientWarning].filter(Boolean).join("\n");
-                    const severity = data.update_committed ? "warning" : "error";
-                    updateStatus(message, severity, true);
-                    showToast(message, severity, 8000);
+                    const severity = catalogDataSaved(data) ? "warning" : "error";
+                    append(message);
+                    updateStatus(notice, severity, true);
+                    showToast(notice, severity, 8000);
                 }
-                return data;
+                result = clientWarning || reloadWarning ? feedbackData : data;
+                return result;
             } catch (e) {
-                if (dryRun) failedPreviewScope = only;
                 reviewedSources = null;
                 currentResult = null;
                 console.error("runUpdateDb:", e);
                 const message = e?.message || t("Verbindungsfehler beim Datenbank-Update.");
+                statusDetails = message;
                 append(`\n${t("{mode} fehlgeschlagen: {error}", { mode, error: message })}`);
-                updateStatus(t("{mode} fehlgeschlagen: {error}", { mode, error: message }), "error", true);
-                showToast(message, "error", 5000);
-                renderResult(outputEl, {success: false, error: message}, dryRun, selectedScopeText(onlySelect, only), only);
-                return { success: false, error: message };
+                result = {success: false, error: message, ...(!responseReceived ? {category: "client-connection"} : {})};
+                const notice = compactUpdateMessage(result, dryRun);
+                updateStatus(notice, "error", true);
+                showToast(notice, "error", 5000);
+                renderResult(outputEl, {...result, pending_reload_warning: pendingReloadWarning}, dryRun, selectedScopeText(onlySelect, only), only);
+                return result;
             } finally {
+                if (!dryRun && result) {
+                    try { await onApplyResult(result); }
+                    catch (err) { console.error("Item-DB setup status:", err); }
+                }
                 progress?.stop();
                 hideLoading();
                 updateRunning = false;
@@ -487,6 +557,7 @@
             }
         }
 
+        setUpdateControlsDisabled(false);
         dryRunButton?.addEventListener("click", () => run(true, false));
         onlySelect?.addEventListener?.("change", () => {
             reviewedSources = null;
@@ -496,7 +567,7 @@
             if (summary) summary.textContent = selectedScopeText(onlySelect);
         });
         applyButton?.addEventListener("click", async () => {
-            if (updateRunning || confirming || isApplyUnnecessary()) return;
+            if (!canWriteAppState() || updateRunning || confirming || isApplyUnnecessary()) return;
             confirming = true;
             const only = onlySelect?.value || null;
             const matchingReview = reviewedSources?.only === only ? reviewedSources : null;
@@ -509,7 +580,7 @@
                         ? t("Angewendet werden die zuvor geprüften Quellen (Mojang {release}).", { release: matchingReview.release })
                         : t("Empfohlen: Zuerst „Änderungen prüfen“ wählen und die Vorschau kontrollieren."))
                 );
-                if (ok && !isApplyUnnecessary(only)) await run(false, true, {only});
+                if (ok && canWriteAppState() && !isApplyUnnecessary(only)) await run(false, true, {only});
             } finally {
                 confirming = false;
             }
@@ -552,6 +623,8 @@
         showToast = () => {},
         showConfirmDialog = async () => true,
         onReloaded = () => {},
+        onApplyResult = () => {},
+        canWriteAppState = () => true,
     } = {}) {
         return createUpdateDbController({
             ...collectUpdateDbElements(doc),
@@ -563,6 +636,8 @@
             showToast,
             showConfirmDialog,
             onReloaded,
+            onApplyResult,
+            canWriteAppState,
         });
     }
 
@@ -570,6 +645,8 @@
     window.MCBEUpdateDbView = {
         EMPTY_OUTPUT,
         appendOutput,
+        catalogDataSaved,
+        sourceFailureMessage,
         collectUpdateDbElements,
         createInventoryUpdateDbController,
         createUpdateDbController,

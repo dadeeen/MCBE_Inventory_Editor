@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from mcbe_editor.item_data import _validated_item_components
+from mcbe_editor.item_catalog_file import _validated_item_components
 from scripts.update_db import parse_json_item_components
 
 
@@ -17,7 +17,7 @@ def test_offhand_component_survives_update_and_database_validation(raw):
     with zipfile.ZipFile(io.BytesIO(data.getvalue())) as archive:
         _, _, components = parse_json_item_components(archive)
     expected = raw if isinstance(raw, bool) else raw["value"]
-    assert _validated_item_components(components)["allow_off_hand"]["minecraft:test_item"] == {"value": expected}
+    assert _validated_item_components(components, {})["allow_off_hand"]["minecraft:test_item"] == {"value": expected}
 
 
 @pytest.mark.parametrize("raw", ["false", 1, None, {}, {"value": "true"}])

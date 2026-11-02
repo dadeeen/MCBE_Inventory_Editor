@@ -5509,6 +5509,7 @@ input.item-count-fixed::-webkit-inner-spin-button, input.item-count-fixed::-webk
 #updateDbResult, #iconUpdateResult, #iconUpdateHint { overflow-wrap: anywhere; }
 #updateDbResult p { margin: 8px 0; }
 #updateDbResult[data-state="incomplete"], #iconUpdateResult[data-state="incomplete"] { border-left: 3px solid var(--warning); padding-left: 12px; }
+#updateDbResult[data-state="failed"] { border-left: 3px solid var(--danger); padding-left: 12px; }
 #updateDbAudit { overflow-wrap: anywhere; }
 #updateDbAudit p { margin: 8px 0; }
 #dashIcons .icon-source-row { border: 0; border-bottom: 1px solid var(--border-color); border-radius: 0; background: none; padding: 12px 0; }
@@ -5601,6 +5602,11 @@ body:has(.tool-source-dialog[open]) { overflow: hidden; }
 .first-run-todo-text strong { display: block; font-size: .92rem; color: var(--text-primary); }
 .first-run-todo-text span { display: block; font-size: .78rem; color: var(--text-secondary); margin-top: 2px; overflow-wrap: anywhere; }
 .first-run-todo-state:empty { display: none; }
+.first-run-todo-details { margin-top: 6px; padding: 4px 0 0; font-size: .78rem; }
+.first-run-todo-details[hidden] { display: none; }
+.first-run-todo-details [data-role="details-content"] { max-height: 16rem; overflow: auto; overflow-wrap: anywhere; white-space: pre-line; color: var(--text-secondary); }
+.first-run-todo-details [data-role="details-content"]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.status-stack-details > div { white-space: pre-line; overflow-wrap: anywhere; }
 .first-run-footnote { margin: 0; font-size: .76rem; color: var(--text-secondary); }
 /* Status text can move a retry button beneath a stationary pointer. Keep its
    hit area fixed instead of oscillating into and out of the hover transform. */

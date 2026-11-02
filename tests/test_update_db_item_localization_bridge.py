@@ -97,9 +97,9 @@ def test_structural_bridge_handles_different_chest_boat_wording_and_legacy_varia
         item_localizations=localizations,
     )
 
-    assert merged["minecraft:acacia_chest_boat"] == ("Akazienholztruhenboot", "Acacia Chest Boat")
-    assert merged["minecraft:dark_oak_chest_boat"] == ("Schwarzeichenholztruhenboot", "Dark Oak Chest Boat")
-    assert merged["minecraft:bamboo_chest_raft"] == ("Bambusfloß mit Truhe", "Bamboo Chest Raft")
+    assert merged["minecraft:acacia_chest_boat"] == ("Akazienholztruhenboot", "Acacia Boat with Chest")
+    assert merged["minecraft:dark_oak_chest_boat"] == ("Schwarzeichenholztruhenboot", "Dark Oak Boat with Chest")
+    assert merged["minecraft:bamboo_chest_raft"] == ("Bambusfloß mit Truhe", "Bamboo Raft with Chest")
 
 
 def test_structural_bridge_maps_renamed_spawn_egg_by_entity_id() -> None:
@@ -212,7 +212,7 @@ def test_derived_and_variant_names_preserve_a_custom_label_in_either_language() 
         "bed.black": source_pairs["minecraft:bed"],
     }
     for language in range(2):
-        current = {item_id: tuple("Personal label" if i == language else name for i, name in enumerate(names)) for item_id, names in source_pairs.items()}
+        current = {item_id: tuple(name.lower() if i == language else name for i, name in enumerate(names)) for item_id, names in source_pairs.items()}
         assert (
             update_db.merge_items(
                 current,

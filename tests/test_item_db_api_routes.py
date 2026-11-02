@@ -69,6 +69,77 @@ def test_blocked_source_reports_applied_partial_separately_from_no_changes(appli
     assert ("teilweise" if applied else "nicht geändert") in result["error"]
 
 
+@pytest.mark.parametrize("safe_change", ["none", "contents", "source"])
+def test_partial_publication_distinguishes_changed_checked_sections_from_failure_metadata(updater, safe_change):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    assert updater.run()[0] == 0
+    members = _members()
+    effects = "metadata/vanilladata_modules/mojang-effects.json"
+    members[effects] = '{"data_items":[]}'.ljust(len(members[effects]))
+    updater.write_source(members)
+    if safe_change == "contents":
+        db = updater.read_db()
+        db["enchantments"] = {}
+        updater.write_db(db)
+    elif safe_change == "source":
+        meta = updater.read_metadata()
+        meta["update_quality"]["sections"]["enchants"]["release"] = "v-older"
+        updater_script.SOURCE_VERSION_JSON.write_text(json.dumps(meta), encoding="utf-8")
+    before = updater_script.ITEM_DB_PATH.read_bytes()
+    for args in (("--dry-run",), ()):
+        code, report = updater.run(*args)
+        assert code == 1 and report["checked_sections_changed"] is (safe_change != "none")
+        deps = _deps(run_update_db=Mock(return_value=(code, REPORT_PREFIX + json.dumps(report))))
+        result = item_db_api_routes.update_db({"dry_run": bool(args), "force": True}, deps)[1]
+        assert result["outcome"] == ("failed" if args or safe_change == "none" else "partial")
+        if not args:
+            assert result["update_committed"] is True
+    if safe_change == "none":
+        assert updater_script.ITEM_DB_PATH.read_bytes() == before
+        assert "nicht geändert" in result["error"]
+
+
+@pytest.mark.parametrize("changed", ["learn_labels", "wiki_revision", "learn_page_only", "unchecked_wiki"])
+def test_partial_publication_counts_only_source_identities_checked_in_this_run(updater, monkeypatch, changed):
+    from mcbe_editor.update_db_report import REPORT_PREFIX
+
+    learn = {"stone": "Stone"}
+    stamp = {"microsoft_item_listing_content_hash": "a" * 64, "microsoft_item_listing_count": 1}
+    wiki = {"wiki_revision_id": 123}
+    monkeypatch.setattr(
+        updater_script,
+        "resolve_microsoft_item_listing_snapshot",
+        lambda **_kwargs: (learn, {**stamp, "microsoft_item_listing_items_hash": item_db_verification.item_listing_sha256(learn)}),
+    )
+    monkeypatch.setattr(updater_script, "optional_wiki_enchantment_check", lambda enabled, _levels: wiki if enabled else None)
+    assert updater.run("--check-wiki")[0] == 0
+    members = _members()
+    effects = "metadata/vanilladata_modules/mojang-effects.json"
+    members[effects] = '{"data_items":[]}'.ljust(len(members[effects]))
+    updater.write_source(members)
+    options = () if changed == "unchecked_wiki" else ("--check-wiki",)
+    if changed == "learn_labels":
+        learn["stone"] = "Rock"  # The language-file label still wins.
+    elif changed == "wiki_revision":
+        wiki["wiki_revision_id"] += 1
+    elif changed == "learn_page_only":
+        stamp["microsoft_item_listing_content_hash"] = "b" * 64
+    expected_change = changed in {"learn_labels", "wiki_revision"}
+    before = updater.snapshot()
+    code, preview = updater.run("--dry-run", *options)
+    assert code == 1 and preview["checked_sections_changed"] is expected_change and updater.snapshot() == before
+    code, result = updater.run(*options)
+    assert code == 1 and result["applied"] and result["checked_sections_changed"] is expected_change
+    assert updater.snapshot()["item_db.json"] == before["item_db.json"]
+    metadata = updater.read_metadata()
+    assert metadata["microsoft_item_listing_items_hash"] == item_db_verification.item_listing_sha256(learn)
+    assert metadata.get("wiki_revision_id") == (wiki["wiki_revision_id"] if options else None)
+    deps = _deps(run_update_db=Mock(return_value=(code, REPORT_PREFIX + json.dumps(result))))
+    response = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
+    assert response["outcome"] == ("partial" if expected_change else "failed")
+
+
 @pytest.mark.parametrize("scope", ["all", "effects"])
 def test_persisting_only_blocked_metadata_is_not_reported_as_a_partial_data_update(scope):
     from mcbe_editor.update_db_report import REPORT_PREFIX
@@ -92,7 +163,8 @@ def test_persisting_only_blocked_metadata_is_not_reported_as_a_partial_data_upda
 
 
 @pytest.mark.parametrize("status", ["current", "available"])
-def test_successful_update_with_missing_official_names_is_not_a_failure(status):
+@pytest.mark.parametrize("source", ["curated", "identifier", "other_language"])
+def test_successful_update_with_missing_official_names_is_not_a_failure(status, source):
     from mcbe_editor.update_db_report import REPORT_PREFIX
 
     quality = {
@@ -102,7 +174,7 @@ def test_successful_update_with_missing_official_names_is_not_a_failure(status):
                 "status": "checked",
                 "release": "v1",
                 "attempted_release": "v1",
-                "locales": {"de": {"total": 1, "official": 0, "fallbacks": [{"id": "freezing", "source": "curated"}]}},
+                "locales": {"de": {"total": 1, "official": 0, "fallbacks": [{"id": "freezing", "source": source}]}},
             }
         },
     }
@@ -113,7 +185,7 @@ def test_successful_update_with_missing_official_names_is_not_a_failure(status):
     )
     result = item_db_api_routes.update_db({"dry_run": False, "force": True}, deps)[1]
     assert result["success"] is True
-    assert result["outcome"] == ("current" if status == "current" else "updated_with_warnings")
+    assert result["outcome"] == ("current" if status == "current" else "updated" if source == "curated" else "updated_with_warnings")
     assert result["verification_required"] is False
     assert "error" not in result
 
@@ -348,6 +420,7 @@ def test_update_db_network_failure_adds_hint_and_logs_failure():
     assert payload["success"] is False
     assert payload["returncode"] == 1
     assert payload["error"] == "Item-DB-Update konnte die Online-Quellen nicht erreichen."
+    assert payload["category"] == "network-or-dns"
     assert "HTTPS-Ausgang" in payload["hint"]
     logger.warning.assert_called_once()
     deps.audit_event.assert_called_once()
@@ -889,7 +962,7 @@ def test_update_db_reports_reload_failure_after_successful_commit():
     assert payload["success"] is True
     assert payload["update_committed"] is True
     assert payload["reloaded"] is False
-    assert "Anwendung neu starten" in payload["reload_warning"]
+    assert "Editor neu starten" in payload["reload_warning"]
     deps.log_api_exception.assert_called_once_with("item_db_reload_after_update", reload_error)
 
 

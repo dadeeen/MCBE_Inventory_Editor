@@ -43,6 +43,7 @@
             time = "",
             type = "info",
             message = "",
+            details = "",
             category = "",
             key = "",
             active = undefined,
@@ -55,6 +56,7 @@
                 time: normalizeText(time),
                 type: normalizedType,
                 message: normalizeText(message),
+                ...(normalizeText(details) ? { details: normalizeText(details) } : {}),
                 category: normalizedCategory,
                 key: normalizeText(key),
                 active: typeof active === "boolean"
@@ -80,6 +82,7 @@
                 latest
                 && latest.type === normalized.type
                 && latest.message === normalized.message
+                && latest.details === normalized.details
                 && latest.category === normalized.category
                 && latest.key === normalized.key
                 && latest.active === normalized.active

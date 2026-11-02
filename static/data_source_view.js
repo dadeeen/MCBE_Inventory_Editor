@@ -49,10 +49,11 @@
 
     function itemDbQualityModel(quality) {
         const sections = { items: "Items", effects: "Effekte", enchants: "Verzauberungen" };
-        const sources = { curated: "geprüfter Katalogname", existing: "vorhandener Name", other_language: "andere Sprache", identifier: "technische Kennung", microsoft: "Microsoft-Learn-Itemliste" };
+        const sources = { curated: "geprüfter Katalogname", existing: "beibehaltener Name", other_language: "andere Sprache", identifier: "technische Kennung", microsoft: "Microsoft-Learn-Itemliste", composed: "aus Quellen zusammengesetzter Name" };
+        const reasons = { ambiguous: "Quellzuordnung mehrdeutig", composed: "Bezeichnung und Titel stehen in der Quelle getrennt", category: "geprüfte Sammelbezeichnung für Varianten", editorial: "redaktionelle Bezeichnung des Editors", documented: "Bezeichnung aus offizieller Mojang-Dokumentation" };
         const lines = [], details = [], blocked = [];
-        let replacements = 0;
-        if (quality?.schema !== 1 || !quality.sections) return { hasWarnings: false, blocked, summary: "", lines, details };
+        let unresolved = 0, notes = 0;
+        if (quality?.schema !== 1 || !quality.sections) return { hasWarnings: false, hasNotes: false, blocked, summary: "", lines, details };
         for (const [section, label] of Object.entries(sections)) {
             const entry = quality.sections[section];
             if (!entry) continue;
@@ -63,33 +64,49 @@
             }
             for (const [locale, language] of [["de", "DE"], ["en", "EN"]]) {
                 const names = entry.locales?.[locale];
-                if (!names || !Number.isInteger(names.total) || !Number.isInteger(names.official) || names.total <= names.official) continue;
+                if (!names || !Number.isInteger(names.total) || !Number.isInteger(names.official)) continue;
                 const missing = Math.max(0, names.total - Math.max(0, names.official));
-                replacements += missing;
+                const fallbacks = Array.isArray(names.fallbacks) ? names.fallbacks : [];
+                const retained = Array.isArray(names.retained) ? names.retained : [];
+                if (!missing && !retained.length) continue;
                 lines.push(t("{section} ({language}): {official} von {total} offiziellen Namen verfügbar.", {
                     section: t(label), language: t(language), official: formatDeNumber(Math.max(0, names.official)), total: formatDeNumber(names.total),
                 }));
-                const fallbacks = Array.isArray(names.fallbacks) ? names.fallbacks : [];
-                for (const fallback of fallbacks.filter(entry => entry && typeof entry.id === "string").slice(0, 100)) {
-                    details.push(`${t(label)} · ${t(language)} · ${fallback.id}: ${t(sources[fallback.source] || "technische Kennung")}`);
+                // Old reports remain readable. Missing classifications cannot
+                // be silently promoted to checked names.
+                unresolved += Math.max(0, missing - fallbacks.length);
+                const entries = [...fallbacks, ...retained];
+                for (const entry of entries) {
+                    const uncertain = !entry || !sources[entry.source] || entry.reason === "ambiguous" || ["identifier", "other_language"].includes(entry.source);
+                    if (uncertain) unresolved++; else notes++;
                 }
-                if (fallbacks.length > 100) details.push(t("{count} weitere Ersatznamen", { count: formatDeNumber(fallbacks.length - 100) }));
+                for (const entry of entries.filter(entry => entry && typeof entry.id === "string").slice(0, 100)) {
+                    const explanation = reasons[entry.reason] || (retained.includes(entry) ? "abweichend vom verfügbaren Mojang-Namen" : "kein eindeutig zugeordneter Quellenname");
+                    details.push(`${t(label)} · ${t(language)} · ${entry.id}: ${t(sources[entry.source] || "technische Kennung")} · ${t(explanation)}`);
+                }
+                if (entries.length > 100) details.push(t("{count} weitere Namenseinträge", { count: formatDeNumber(entries.length - 100) }));
             }
         }
         return {
-            hasWarnings: blocked.length > 0 || replacements > 0,
+            hasWarnings: blocked.length > 0 || unresolved > 0,
+            hasNotes: notes > 0,
             blocked, lines, details,
-            summary: replacements ? t("Für {count} Namen werden Ersatznamen verwendet.", { count: formatDeNumber(replacements) }) : "",
+            brief: blocked.length ? t("Einige Bereiche bleiben unverändert. Details prüfen.")
+                : unresolved ? t("Einige Namen sind nicht eindeutig. Die Datenbank bleibt nutzbar.") : "",
+            summary: [
+                unresolved ? t("Für {count} Sprachwerte fehlt ein eindeutiger Name in der jeweiligen Sprache.", { count: formatDeNumber(unresolved) }) : "",
+                unresolved ? t("Vorhandene Namen bleiben nutzbar. Ein erneuter Download derselben Quelle behebt fehlende Übersetzungen nicht.") : "",
+                notes && !unresolved && !blocked.length ? t("Geprüfte Editor-Namen und eigene Namen bleiben erhalten. Kein Handlungsbedarf wegen der Namen.") : "",
+            ].filter(Boolean).join(" "),
         };
     }
 
     function itemDbQualityHtml(quality) {
         const model = itemDbQualityModel(quality);
-        if (!model.hasWarnings) return "";
-        return `<div class="tool-notice" data-db-quality>
-            ${model.summary ? `<p>${escapeHtml(model.summary)}</p>` : ""}
-            ${model.lines.map(line => `<p>${escapeHtml(line)}</p>`).join("")}
-            ${model.details.length ? `<details class="tool-details"><summary>${t("Verwendete Ersatznamen")}</summary><ul>${model.details.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : ""}
+        if (!model.hasWarnings && !model.hasNotes) return "";
+        return `<div class="${model.hasWarnings ? "tool-notice" : "hint-text"}" data-db-quality>
+            ${model.brief || model.summary ? `<p>${escapeHtml(model.brief || model.summary)}</p>` : ""}
+            ${model.lines.length || model.details.length ? `<details class="tool-details"><summary>${t("Details anzeigen")}</summary>${model.brief && model.summary ? `<p>${escapeHtml(model.summary)}</p>` : ""}<strong>${t("Namensherkunft")}</strong><p>${t("Die Quellenabdeckung zählt Namen aus den aktuellen Mojang-Sprachdateien. Bezeichnungen aus Mojang-Dokumentation, redaktionelle und eigene Namen sind getrennt gekennzeichnet. Deutsch und Englisch werden getrennt gezählt.")}</p>${model.lines.map(line => `<p>${escapeHtml(line)}</p>`).join("")}<ul>${model.details.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : ""}
         </div>`;
     }
 
@@ -98,7 +115,8 @@
         return {
             partial: model.blocked.length > 0,
             warnings: model.hasWarnings,
-            message: [model.summary, ...model.lines].filter(Boolean).join(" "),
+            reloadWarning: status?.reload_warning || "",
+            details: [status?.reload_warning, model.summary, ...model.lines, ...model.details].filter(Boolean),
         };
     }
 

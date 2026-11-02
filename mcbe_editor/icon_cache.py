@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from mcbe_editor.banner_patterns import BANNER_TEXTURES
+from mcbe_editor.icon_cache_state import has_catalog_icons, icon_filename
 from mcbe_editor.path_safety import is_linklike_stat
 from mcbe_editor.update_output_i18n import output_t as tr
 from mcbe_editor.world_locks import locked_file
@@ -54,13 +55,10 @@ def _complete_cache_manifest(path: Path, *, allow_missing_display: bool = False)
     for item_id, texture_path in items.items():
         if not isinstance(item_id, str) or not item_id.startswith("minecraft:") or not isinstance(texture_path, str) or not texture_path.strip():
             return None
-        asset_name = item_id.removeprefix("minecraft:")
-        if not asset_name or asset_name in {".", ".."} or "\0" in asset_name or "/" in asset_name or "\\" in asset_name:
-            return None
-        icon_path = path / "textures" / "items" / f"{asset_name}.png"
         try:
+            icon_path = path / "textures" / "items" / icon_filename(item_id.removeprefix("minecraft:"))
             icon_stat = icon_path.stat(follow_symlinks=False)
-        except OSError:
+        except (ValueError, OSError):
             return None
         if not stat.S_ISREG(icon_stat.st_mode) or is_linklike_stat(icon_stat) or icon_stat.st_size <= 0:
             return None
@@ -70,17 +68,14 @@ def _complete_cache_manifest(path: Path, *, allow_missing_display: bool = False)
     for asset_id, texture_path in display_assets.items():
         if not isinstance(asset_id, str) or not asset_id.startswith("mcbe:") or not isinstance(texture_path, str) or not texture_path.strip():
             return None
-        asset_name = asset_id.removeprefix("mcbe:")
-        if not asset_name or asset_name in {".", ".."} or "\0" in asset_name or "/" in asset_name or "\\" in asset_name:
-            return None
-        icon_path = path / "textures" / "display" / f"{asset_name}.png"
         try:
+            icon_path = path / "textures" / "display" / icon_filename(asset_id.removeprefix("mcbe:"))
             icon_stat = icon_path.stat(follow_symlinks=False)
         except FileNotFoundError:
             if allow_missing_display:
                 continue
             return None
-        except OSError:
+        except (ValueError, OSError):
             return None
         if not stat.S_ISREG(icon_stat.st_mode) or is_linklike_stat(icon_stat):
             return None
@@ -91,6 +86,15 @@ def _complete_cache_manifest(path: Path, *, allow_missing_display: bool = False)
 
 def _cache_is_complete(path: Path) -> bool:
     return _complete_cache_manifest(path) is not None
+
+
+def _has_regular_items(manifest: dict) -> bool:
+    try:
+        targets = manifest["verification"]["inputs"]["items"]
+    except (KeyError, TypeError):
+        # Older manifests do not have an explicit target list.
+        return bool(manifest["items"]) and manifest.get("mapped_items") != 0
+    return isinstance(targets, list) and has_catalog_icons(manifest["items"], targets)
 
 
 def _rollback_paths(target_root: Path) -> list[Path]:
@@ -191,7 +195,9 @@ def publish_icon_cache(
                 return False
         previous_manifest = _complete_cache_manifest(target_root)
         if previous_manifest is not None:
-            if previous_manifest["items"] and not staged_manifest["items"]:
+            if (previous_manifest["items"] and not staged_manifest["items"]) or (
+                _has_regular_items(previous_manifest) and not _has_regular_items(staged_manifest)
+            ):
                 raise ValueError(tr("Der neue Icon-Cache enthält keine Item-Icons. Der vorhandene Cache bleibt erhalten."))
             previous_banners = {f"mcbe:banner_{code}" for code in BANNER_TEXTURES} & previous_manifest.get("display_assets", {}).keys()
             if not previous_banners <= staged_manifest.get("display_assets", {}).keys():

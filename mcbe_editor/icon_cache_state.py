@@ -7,7 +7,7 @@ import json
 import os
 import re
 import stat
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 from .i18n import t
@@ -163,6 +163,19 @@ def read_manifest(root: Path, *, strict: bool = False) -> dict | None:
         return None
 
 
+def icon_filename(name: str) -> str:
+    """Keep generated item, data-value and display PNGs in one directory."""
+    if not name or "/" in name or "\\" in name or is_unsafe_windows_name(name):
+        raise ValueError("Invalid icon filename")
+    return f"{name}.png"
+
+
+def has_catalog_icons(mapped: Mapping[str, str], targets: Iterable[str]) -> bool:
+    """Count base sprites and data-value variants belonging to a regular item."""
+    namespaced = {f"minecraft:{name}" for name in targets}
+    return any(identifier.partition("#")[0] in namespaced for identifier in mapped)
+
+
 def image_files(manifest: dict) -> list[str]:
     files = []
     if not isinstance(manifest.get("items"), dict):
@@ -174,10 +187,7 @@ def image_files(manifest: dict) -> list[str]:
         for identifier, texture in mapping.items():
             if not isinstance(identifier, str) or not identifier.startswith(prefix) or not isinstance(texture, str) or not texture:
                 raise ValueError("Invalid icon identifier")
-            name = identifier.removeprefix(prefix)
-            if not name or name in {".", ".."} or any(char in name for char in ("/", "\\", "\0")) or is_unsafe_windows_name(name):
-                raise ValueError("Invalid icon filename")
-            files.append(f"textures/{directory}/{name}.png")
+            files.append(f"textures/{directory}/{icon_filename(identifier.removeprefix(prefix))}")
     if len(files) > MAX_ICON_FILES:
         raise ValueError("Oversized icon mapping")
     return sorted(files)
@@ -229,6 +239,12 @@ def assess_cache(root: Path, inputs: dict, *, manifest: dict | None = None) -> d
         return {"state": "unverified", "reason": "invalid_verification"}
     if receipt.get("inputs_sha256") != digest(inputs):
         return {"state": "stale", "reason": "inputs_changed"}
+    mapped = manifest.get("items")
+    targets = inputs.get("items")
+    if not isinstance(targets, list):
+        return {"state": "unverified", "reason": "invalid_verification"}
+    if isinstance(mapped, dict) and targets and not has_catalog_icons(mapped, targets):
+        return {"state": "stale", "reason": "no_mapped_items"}
     try:
         if receipt.get("files") != image_hashes(root, manifest):
             return {"state": "damaged", "reason": "files_changed"}

@@ -136,12 +136,15 @@
                     ${entry.time ? `<span class="status-stack-time">${escapeHtml(entry.time)}</span>` : ""}
                 </span>
                 <span class="status-stack-message">${escapeHtml(t(entry.message))}</span>
+                ${entry.details ? `<details class="tool-details status-stack-details"><summary>${t("Details anzeigen")}</summary><div>${escapeHtml(entry.details)}</div></details>` : ""}
                 ${action}
             </div>
         `;
             }).join("")
             : `<div class="status-stack-entry save-status">${t("Keine Hinweise")}</div>`;
     }
+
+    const lastPanelHtml = new WeakMap();
 
     function applyStatusStackModel(elements = {}, model = {}) {
         const {
@@ -161,7 +164,15 @@
             }
             button.setAttribute?.("aria-label", model.ariaLabel || t("Status anzeigen"));
         }
-        if (panel) panel.innerHTML = statusStackPanelHtml(model.entries || []);
+        if (panel) {
+            // Compare with the last rendered model. Reading panel.innerHTML
+            // here would include the user's native <details open> attribute.
+            const html = statusStackPanelHtml(model.entries || []);
+            if (html !== lastPanelHtml.get(panel)) {
+                panel.innerHTML = html;
+                lastPanelHtml.set(panel, html);
+            }
+        }
         if (live && live.textContent !== model.liveMessage) live.textContent = model.liveMessage || "";
     }
 

@@ -869,8 +869,11 @@
                             </div>
                             <div role="status" aria-live="polite">
                                 <div id="iconUpdateResult"></div>
-                                <p id="iconUpdateHint" class="hint-text" hidden></p>
                             </div>
+                            <details id="iconUpdateDetails" class="tool-details" hidden><summary>{{ t("Details anzeigen") }}</summary>
+                                <p id="iconUpdateReason"></p>
+                                <p id="iconUpdateHint" class="hint-text" hidden></p>
+                            </details>
                             <details id="iconUpdateLogDetails" class="tool-details"><summary>{{ t("Technisches Protokoll") }}</summary>
                                 <pre id="iconUpdateOutput" class="update-db-output" tabindex="0" aria-label="{{ t('Technisches Protokoll des Icon-Updates') }}"></pre>
                             </details>
@@ -974,8 +977,8 @@
                                 </div></details>
 
                                 <div class="update-db-actions">
-                                    <button id="btnUpdateDbDryRun" class="btn btn-secondary">{{ t("Änderungen prüfen") }}</button>
-                                    <button id="btnUpdateDbApply" class="btn btn-primary" aria-describedby="updateDbActionHint">{{ t("Update anwenden") }}</button>
+                                    <button id="btnUpdateDbDryRun" class="btn btn-secondary"{% if app_config.read_only %} disabled{% endif %}>{{ t("Änderungen prüfen") }}</button>
+                                    <button id="btnUpdateDbApply" class="btn btn-primary" aria-describedby="updateDbActionHint"{% if app_config.read_only %} disabled{% endif %}>{{ t("Update anwenden") }}</button>
                                 </div>
                             </div>
                             <p id="updateDbActionHint" class="hint-text">{{ t("Prüfe zuerst die Vorschau. Erst „Update anwenden“ übernimmt Änderungen an der Item-Datenbank.") }}</p>
@@ -986,7 +989,7 @@
                                     <button id="btnClearUpdateOutput" class="btn-text">{{ t("Leeren") }}</button>
                                 </div>
                                 <div id="updateDbResult" role="status" aria-live="polite"></div>
-                                <details id="updateDbDetails" class="tool-details" hidden><summary>{{ t("Änderungsdetails") }}</summary>
+                                <details id="updateDbDetails" class="tool-details" hidden><summary>{{ t("Details anzeigen") }}</summary>
                                 <div id="updateDbAudit"></div>
                                 </details>
                                 <details id="updateDbLogDetails" class="tool-details"><summary>{{ t("Technisches Protokoll") }}</summary>
@@ -1277,6 +1280,10 @@
                         <strong>{{ t("Item-Datenbank laden") }}</strong>
                         <span>{{ t("Lädt offizielle Item-Identifier und Namen aus dem Mojang/bedrock-samples Release und ersetzt den mitgelieferten Stand.") }}</span>
                         <span class="first-run-todo-state" data-role="state" aria-live="polite"></span>
+                        <details class="tool-details first-run-todo-details" data-role="details" hidden>
+                            <summary>{{ t("Details anzeigen") }}</summary>
+                            <div data-role="details-content" tabindex="0" aria-label="{{ t('Details zur Item-Datenbank') }}"></div>
+                        </details>
                     </div>
                     <button class="btn btn-primary btn-sm" data-role="run" type="button">{{ t("Jetzt laden") }}</button>
                 </li>
@@ -1284,8 +1291,12 @@
                     <span class="first-run-todo-mark" data-role="mark" aria-hidden="true">○</span>
                     <div class="first-run-todo-text">
                         <strong>{{ t("Item-Icons laden") }}</strong>
-                        <span>{{ t("Extrahiert die Vanilla-Texturen aus demselben Release nach data/icons. Ohne sie zeigt jeder Slot ein Ersatzsymbol.") }}</span>
+                        <span>{{ t("Verwendet vorhandene Vanilla-Icons und lädt bei Bedarf Texturen von Mojang. Für fehlende Icons zeigt der Editor Ersatzsymbole.") }}</span>
                         <span class="first-run-todo-state" data-role="state" aria-live="polite"></span>
+                        <details class="tool-details first-run-todo-details" data-role="details" hidden>
+                            <summary>{{ t("Details anzeigen") }}</summary>
+                            <div data-role="details-content" tabindex="0" aria-label="{{ t('Details zu den Item-Icons') }}"></div>
+                        </details>
                     </div>
                     <button class="btn btn-primary btn-sm" data-role="run" type="button">{{ t("Jetzt laden") }}</button>
                 </li>

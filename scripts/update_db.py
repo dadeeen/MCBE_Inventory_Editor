@@ -24,8 +24,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _load_runtime_dependencies():
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    from mcbe_editor import item_db_transaction, item_db_verification, update_source_quality
-    from mcbe_editor.item_name_policy import reviewed_item_label_repairs
+    from mcbe_editor import item_db_transaction, item_db_verification, item_localization, update_source_quality
+    from mcbe_editor.item_name_policy import (
+        DOCUMENTED_ENGLISH_ITEM_IDS,
+        EDITORIAL_ITEM_IDS_BY_LOCALE,
+        EXPECTED_ITEM_NAME_DIFFERENCES,
+        REPLACEABLE_CATALOG_ITEM_IDS,
+        confirmed_item_label_pair,
+        is_expected_item_name_difference,
+        item_label_reference,
+        reviewed_item_label_repairs,
+        reviewed_variant_name_overrides,
+    )
     from mcbe_editor.item_registry_policy import is_non_item_lang_key_id, is_technical_block_only_item_id
     from mcbe_editor.numeric_catalog_policy import canonical_numeric_name, reconcile_numeric_catalog
     from mcbe_editor.runtime_data import BUNDLED_ITEM_DB_JSON, atomic_seed_file
@@ -47,6 +57,15 @@ def _load_runtime_dependencies():
         reconcile_numeric_catalog,
         report_http_errors,
         update_source_quality,
+        item_localization,
+        is_expected_item_name_difference,
+        EDITORIAL_ITEM_IDS_BY_LOCALE,
+        REPLACEABLE_CATALOG_ITEM_IDS,
+        DOCUMENTED_ENGLISH_ITEM_IDS,
+        EXPECTED_ITEM_NAME_DIFFERENCES,
+        reviewed_variant_name_overrides,
+        item_label_reference,
+        confirmed_item_label_pair,
     )
 
 
@@ -64,6 +83,15 @@ def _load_runtime_dependencies():
     reconcile_numeric_catalog,
     report_http_errors,
     update_source_quality,
+    item_localization,
+    is_expected_item_name_difference,
+    EDITORIAL_ITEM_IDS_BY_LOCALE,
+    REPLACEABLE_CATALOG_ITEM_IDS,
+    DOCUMENTED_ENGLISH_ITEM_IDS,
+    EXPECTED_ITEM_NAME_DIFFERENCES,
+    reviewed_variant_name_overrides,
+    item_label_reference,
+    confirmed_item_label_pair,
 ) = _load_runtime_dependencies()
 DEFAULT_ITEM_DB_PATH = BUNDLED_ITEM_DB_JSON
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
@@ -1450,7 +1478,7 @@ def _serialization_lang_key(value: object) -> str:
         key = key[:-5]
     key = key.strip(".")
     base = key.split(".", 1)[0]
-    return _normalize_item_key(base)
+    return key if _normalize_item_key(base) and re.fullmatch(r"[a-z0-9_]+(?:\.[a-z0-9_]+)*", key) else ""
 
 
 def validate_update_sources(zf: zipfile.ZipFile, scope: str | None, *, allow_partial: bool = False) -> dict[str, str]:
@@ -1460,6 +1488,8 @@ def validate_update_sources(zf: zipfile.ZipFile, scope: str | None, *, allow_par
     invalid identifiers. Shared missing/unreadable language files still reject
     the snapshot. Invalid registries block only the section that consumes them.
     """
+    from mcbe_editor.item_registry_policy import is_vanilla_registry_id
+
     modules = {"items": ("items", "blocks"), "effects": ("effects",), "enchants": ("enchantments",)}
     registry_keys = {
         "items": ("command_name", "name", "serialization_name"),
@@ -1505,7 +1535,7 @@ def validate_update_sources(zf: zipfile.ZipFile, scope: str | None, *, allow_par
                         and all(
                             isinstance(entry, dict)
                             and any(entry.get(key) for key in keys)
-                            and all(isinstance(entry[key], str) and re.fullmatch(r"(?:minecraft:)?[a-z0-9_./-]+", entry[key]) for key in keys if key in entry)
+                            and all(is_vanilla_registry_id(entry[key]) for key in keys if key in entry)
                             for entry in entries
                         )
                     )
@@ -1582,7 +1612,7 @@ def complete_registry_names(items: dict, registry_ids: list[str], reviewed_items
     return result
 
 
-def compute_block_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]]) -> list[str]:
+def compute_block_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]] | None = None) -> list[str]:
     """Als Blockitem geeignete IDs aus Mojangs Item-/Block-Registries.
 
     Diese Metadaten ergänzen die semantischen Browser-Kategorien. Dadurch
@@ -1594,9 +1624,8 @@ def compute_block_item_ids(zf: zipfile.ZipFile, items: dict[str, tuple[str, str]
     non_placeable_registry_collisions = {"minecraft:beetroot", "minecraft:wheat"}
     item_ids = _vanilla_registry_ids(zf, "mojang-items.json")
     block_ids = _vanilla_registry_ids(zf, "mojang-blocks.json")
-    if not item_ids or not block_ids:
-        return []
-    return sorted(key for key in items if key in item_ids and key in block_ids and key not in non_placeable_registry_collisions)
+    del items  # Anzeigenamen können einer gültigen Registry-ID noch fehlen.
+    return sorted(key for key in (item_ids & block_ids) - non_placeable_registry_collisions if not is_technical_block_only_item_id(key))
 
 
 def parse_json_item_serialization_aliases(zf: zipfile.ZipFile) -> dict[str, str]:
@@ -1732,29 +1761,7 @@ def _derived_item_localization_keys(item_id: str) -> list[str]:
     These rules describe Mojang's key schema, not individual item translations.
     A derived key is only used when it exists in the parsed language catalog.
     """
-    # ``minecraft:bed`` ist in Bedrock weiterhin ein einzelnes Inventaritem,
-    # dessen Datenwert die Farbe bestimmt. Der Standardwert 0 ist weiß; ohne
-    # diese explizite kanonische Variante liefert Microsoft Learn derzeit
-    # irreführend den Namen der schwarzen Variante.
-    if item_id == "bed":
-        return ["bed.white"]
-    variant_aliases = {"dark_oak": "big_oak"}
-    if item_id.endswith("_chest_boat"):
-        variant = item_id.removesuffix("_chest_boat")
-        return [f"chest_boat.{variant_aliases.get(variant, variant)}"]
-    if item_id.endswith("_chest_raft"):
-        variant = item_id.removesuffix("_chest_raft")
-        return [f"chest_boat.{variant_aliases.get(variant, variant)}"]
-    if item_id.endswith("_boat"):
-        variant = item_id.removesuffix("_boat")
-        return [f"boat.{variant_aliases.get(variant, variant)}"]
-    if item_id.endswith("_raft"):
-        variant = item_id.removesuffix("_raft")
-        return [f"boat.{variant_aliases.get(variant, variant)}"]
-    if item_id.endswith("_spawn_egg"):
-        entity_id = item_id.removesuffix("_spawn_egg")
-        return [f"spawn_egg.entity.{entity_id}"]
-    return []
+    return [key.removeprefix("item.").removesuffix(".name") for key in item_localization.variant_language_keys(item_id)]
 
 
 def _localized_names_for_item_key(
@@ -1791,24 +1798,23 @@ def _base_name_for_variant_label(
     base = localizations.get(item_id)
     if not base or not all(update_source_quality.usable_source_name(name) for name in base):
         return None
-    base_de, base_en = (_normalized_display_label(value) for value in base)
-    current_de, current_en = (_normalized_display_label(value) for value in current)
-    if (current_de, current_en) == (base_de, base_en):
+    if current == base:
         return None
+    base_en = _normalized_display_label(base[1])
     prefix = f"{item_id}."
     variants = [
-        (_normalized_display_label(de), _normalized_display_label(en))
+        (de, en)
         for key, (de, en) in localizations.items()
         if key.startswith(prefix)
         and update_source_quality.usable_source_name(de)
         and update_source_quality.usable_source_name(en)
         and _normalized_display_label(en) != base_en
     ]
-    if len({en for _de, en in variants}) < 2:
+    if len({_normalized_display_label(en) for _de, en in variants}) < 2:
         return None
-    if not any((current_de, current_en) == (de, en) or current_de == current_en == en for de, en in variants):
+    if not any(current == (de, en) or current == (en, en) for de, en in variants):
         return None
-    return _normalize_display_name(base[0], base[1]), _normalize_display_name(base[1], item_id)
+    return base[0] or base[1], base[1] or item_id
 
 
 def _candidate_item_keys(item_id: str, serialization_aliases: dict[str, str]) -> list[str]:
@@ -1835,14 +1841,6 @@ def _old_name_for_keys(old: dict[str, tuple[str, str]], keys: list[str]) -> tupl
     return None
 
 
-def _normalize_display_name(value: str, fallback: str) -> str:
-    text = value or fallback
-    if text.startswith("minecraft:"):
-        return text
-    text = text[0].upper() + text[1:] if text else fallback
-    return text.replace("_", " ").replace("/", " ")
-
-
 def _looks_like_fallback_name(de_name: str, en_name: str) -> bool:
     return not str(de_name or "").strip() or str(de_name or "").strip() == str(en_name or "").strip()
 
@@ -1856,9 +1854,11 @@ def _resolved_item_names(
     serialization_aliases: dict[str, str],
     item_localizations: dict[str, tuple[str, str]],
     localization_label_index: dict[str, tuple[str, str]],
+    source_labels: dict | None = None,
 ) -> tuple[tuple[str, str], dict[str, str], tuple[str, str]]:
     """Resolve names and their provenance together for merging and reporting."""
     keys = _candidate_item_keys(item_id, serialization_aliases)
+    has_source = item_id in (source_labels or {})
     full_id = f"minecraft:{item_id}"
     curated = _bundled_limits.get("items", {}).get(full_id, ("", ""))
     previous = old.get(full_id, ("", ""))
@@ -1876,16 +1876,29 @@ def _resolved_item_names(
 
     official = {"de": _first_name(de_items, [item_id]), "en": direct_en_name}
     existing = list(previous)
-    if alias_matches_canonical:
+    if alias_matches_canonical and not has_source:
         for index, (locale, mapping) in enumerate((("de", de_items), ("en", en_items))):
             official[locale] = official[locale] or _first_name(mapping, keys[1:])
             if not existing[index] and old_alias_name:
                 existing[index] = old_alias_name[index]
-    secondary = {"en": _first_name(microsoft_items, [item_id]) or (_first_name(microsoft_items, keys[1:]) if alias_matches_canonical else "")}
+    secondary = {
+        "en": _first_name(microsoft_items, [item_id]) or (_first_name(microsoft_items, keys[1:]) if alias_matches_canonical and not has_source else "")
+    }
+    source = (source_labels or {}).get(item_id, {})
+    # A complete reference from the exact registry identity is stronger than
+    # display-label matching against the independently maintained Learn list.
+    if has_source:
+        official = {"de": "", "en": "", **source.get("official", {})}
+        localized_names = None
+    else:
+        official.update(source.get("official", {}))
+    for locale in source.get("reasons", {}):
+        official[locale] = ""
     # A cross-key label bridge needs a current English source for this identity.
     # Display fallbacks (including custom/curated names) are not identity evidence.
-    source_en_name = official["en"] or secondary["en"]
-    localized_names = localized_names or localization_label_index.get(_normalized_display_label(source_en_name))
+    source_en_name = "" if source.get("reasons", {}).get("en") == "ambiguous" else official["en"] or secondary["en"]
+    if not has_source:
+        localized_names = localized_names or localization_label_index.get(_normalized_display_label(source_en_name))
     if localized_names:
         for index, locale in enumerate(("de", "en")):
             official[locale] = official[locale] or localized_names[index]
@@ -1894,11 +1907,16 @@ def _resolved_item_names(
             # its two locales through the same fallback policy as other items;
             # an absent counterpart is not an official source translation.
             official = dict(zip(("de", "en"), localized_names, strict=True))
-    names, sources = update_source_quality.resolve_names(full_id, official, curated, existing, secondary)
-    names = (_normalize_display_name(names[0], names[1]), _normalize_display_name(names[1], full_id))
+    for locale, reason in source.get("reasons", {}).items():
+        if reason == "ambiguous":
+            official[locale] = ""
+    names, sources = update_source_quality.resolve_names(full_id, official, curated, existing, secondary, composed=source.get("composed"))
+    variant_names = reviewed_variant_name_overrides(full_id, _bundled_limits["items"], official)
+    names = tuple(variant_names.get(locale, names[index]) for index, locale in enumerate(("de", "en")))
+    sources = tuple("curated" if locale in variant_names else sources[index] for index, locale in enumerate(("de", "en")))
     # Preserve the existing exact shipped-label migration even when a reviewed
     # German fallback means the intermediate pair is no longer English-only.
-    if not official["de"]:
+    if not official["de"] and not (has_source and official["en"]):
         repaired = reviewed_item_label_repairs({full_id: (names[1], names[1])}, _bundled_limits.get("items", {})).get(full_id)
         if repaired:
             names = repaired
@@ -1914,6 +1932,12 @@ def merge_items(
     serialization_aliases: dict[str, str] | None = None,
     item_localizations: dict[str, tuple[str, str]] | None = None,
     registry_ids: list[str] | None = None,
+    source_labels: dict | None = None,
+    *,
+    label_records: dict | None = None,
+    previous_confirmed: dict | None = None,
+    has_explicit_registry: bool = False,
+    registry_label_ids: set[str] | None = None,
 ) -> dict[str, tuple[str, str]]:
     """Merge existing items + official item IDs.
 
@@ -1926,19 +1950,25 @@ def merge_items(
     """
     merged = {item_id: names for item_id, names in old.items() if not is_non_item_lang_key_id(item_id)}
     # Repair exact shipped pairs before a fallback changes only one language.
-    merged.update(reviewed_item_label_repairs(merged, _bundled_limits.get("items", {})))
+    catalog = _bundled_limits.get("items", {})
+    previous_confirmed = previous_confirmed or {}
     microsoft_items = microsoft_items or {}
+    if label_records is None:
+        label_records = {}
+    label_records.update({key: value for key, value in previous_confirmed.items() if key in merged})
+    repairs = reviewed_item_label_repairs(merged, catalog)
+    merged.update({key: names for key, names in repairs.items() if key not in previous_confirmed})
     serialization_aliases = serialization_aliases or {}
     item_localizations = item_localizations or {}
     localization_label_index = build_item_localization_label_index(item_localizations)
-    all_ids = sorted(
-        set(en_items)
-        | set(de_items)
-        | set(microsoft_items)
-        | set(serialization_aliases)
-        | {identifier.removeprefix("minecraft:") for identifier in registry_ids or ()}
-    )
-    for item_id in all_ids:
+    # Standalone callers can supply already identified label maps. The worker
+    # reads raw language keys, where a future tooltip may resemble an item ID.
+    language_ids = en_items.keys() | de_items.keys()
+    if registry_ids is not None or registry_label_ids is not None:
+        known_label_ids = merged.keys() | catalog.keys() | (registry_label_ids or set())
+        language_ids = {key for key in language_ids if f"minecraft:{key}" in known_label_ids}
+    all_ids = language_ids | set(microsoft_items) | set(serialization_aliases) | {identifier.removeprefix("minecraft:") for identifier in registry_ids or ()}
+    for item_id in sorted(all_ids):
         if is_non_item_lang_key_id(item_id):
             continue
         full_id = f"minecraft:{item_id}"
@@ -1951,16 +1981,54 @@ def merge_items(
             serialization_aliases,
             item_localizations,
             localization_label_index,
+            source_labels,
         )
         # A validated identity is not a display name. New entries without any
         # usable name keep the runtime fallback; existing entries stay intact.
         if full_id not in merged and _sources == ("identifier", "identifier"):
             continue
+        current = old.get(full_id)
+        previous = previous_confirmed.get(full_id)
+        record = previous
+        if source_labels is None or item_id in source_labels or item_id in microsoft_items:
+            record = item_label_reference(
+                full_id, current, previous, catalog, _official, (source_labels or {}).get(item_id, {}).get("composed"), microsoft_items.get(item_id)
+            )
+        if record:
+            label_records[full_id] = record
+            candidate = confirmed_item_label_pair(record)
+            if previous:
+                prior = confirmed_item_label_pair(previous)
+                merged[full_id] = tuple(new if local == last else local for local, last, new in zip(current, prior, candidate, strict=True))
+                continue
+            if current == tuple(candidate):
+                # A current source can legitimately use a historical spelling.
+                merged[full_id] = current
+                continue
         existing = merged.get(full_id)
         if existing:
+            # Fill generated ID placeholders before reconciling the pair. This
+            # lets the same comparison repair any newly recognizable fallback.
+            if full_id in existing:
+                old_de, old_en = existing
+                existing = merged[full_id] = (de_name if old_de == full_id else old_de, en_name if old_en == full_id else old_en)
+            if is_expected_item_name_difference(full_id, existing, {locale: {full_id: value} for locale, value in _official.items()}):
+                continue
+            reviewed_pair = catalog.get(full_id)
+            replaceable = full_id in REPLACEABLE_CATALOG_ITEM_IDS
+            if reviewed_pair and ((item_id in (source_labels or {}) and full_id not in EXPECTED_ITEM_NAME_DIFFERENCES) or replaceable):
+                # Each unchanged reviewed locale can receive its own translation.
+                inherited = tuple(
+                    value if (replaceable or _official.get(locale)) and existing[index] in (reviewed_pair[index], _official.get(locale)) else existing[index]
+                    for index, (locale, value) in enumerate((("de", de_name), ("en", en_name)))
+                )
+                if inherited != existing or replaceable:
+                    merged[full_id] = inherited
+                    continue
             old_de, old_en = existing
             has_authoritative_derived_name = (
                 item_id == "bed"
+                and not (source_labels or {}).get(item_id, {}).get("reasons")
                 and _localized_names_for_item_key(item_id, item_localizations) is not None
                 and any(
                     (old_de, old_en) == pair or old_de == old_en == pair[1]
@@ -1969,27 +2037,27 @@ def merge_items(
                 )
             )
             base_name = _base_name_for_variant_label(item_id, existing, item_localizations)
+            if item_id in (source_labels or {}) and base_name != tuple(_official.get(locale, "") for locale in ("de", "en")):
+                base_name = None
             if has_authoritative_derived_name and (old_de, old_en) != (de_name, en_name):
                 merged[full_id] = (de_name, en_name)
             elif base_name is not None:
                 merged[full_id] = base_name
-            elif old_de == full_id or old_en == full_id:
-                # Exact technical placeholders are generated fallbacks, not a
-                # basis for preserving a missing translation indefinitely.
-                merged[full_id] = (de_name if old_de == full_id else old_de, en_name if old_en == full_id else old_en)
             elif (
-                _looks_like_fallback_name(old_de, old_en)
+                not has_explicit_registry
+                and _looks_like_fallback_name(old_de, old_en)
                 and old_en in (en_name, microsoft_items.get(item_id))
                 and not _looks_like_fallback_name(de_name, en_name)
             ):
                 merged[full_id] = (de_name, old_en or en_name)
-            elif old_de == old_en == de_name and de_name != en_name:
+            elif not has_explicit_registry and old_de == old_en == de_name and de_name != en_name:
                 merged[full_id] = (old_de, en_name)
             continue
         merged[full_id] = (de_name, en_name)
     # Run after localization fallback resolution as well: a formerly English-only
     # pair can acquire its German half during this merge (e.g. poplar signs).
-    merged.update(reviewed_item_label_repairs(merged, _bundled_limits.get("items", {})))
+    repairs = reviewed_item_label_repairs(merged, catalog, label_records)
+    merged.update({key: names for key, names in repairs.items() if key not in previous_confirmed})
     return merged
 
 
@@ -2047,24 +2115,64 @@ def numeric_label_quality(old, merged, identifiers, numeric_ids, en_names, de_na
         official, curated, existing = _numeric_label_inputs(identifier, numeric_id, old, bundled, numeric_ids, en_names, de_names)
         names, sources = update_source_quality.resolve_names(f"minecraft:{identifier}", official, curated, existing)
         actual = merged.get(numeric_id, names)
-        sources = tuple("existing" if actual[index] != names[index] else source for index, source in enumerate(sources))
+        actual_sources = update_source_quality.display_name_sources(actual, official, curated)
+        sources = tuple(
+            actual_sources[index] if actual[index] != names[index] or actual_sources[index] == "official" else source for index, source in enumerate(sources)
+        )
         records.append((f"minecraft:{identifier}", official, sources))
     return update_source_quality.coverage(records)
 
 
-def item_label_quality(registry_ids, items, old, en_names, de_names, serialization_aliases, localizations, microsoft_items=None):
+def item_label_quality(
+    registry_ids, items, old, en_names, de_names, serialization_aliases, localizations, microsoft_items=None, source_labels=None, *, label_records=None
+):
     records = []
     label_index = build_item_localization_label_index(localizations)
     for full_id in sorted(set(registry_ids)):
         identifier = full_id.removeprefix("minecraft:")
         names, official, sources = _resolved_item_names(
-            identifier, old, en_names, de_names, microsoft_items or {}, serialization_aliases, localizations, label_index
+            identifier, old, en_names, de_names, microsoft_items or {}, serialization_aliases, localizations, label_index, source_labels
         )
         actual = items.get(full_id)
         if actual:
-            sources = tuple("existing" if actual[index] != names[index] else source for index, source in enumerate(sources))
+            curated = _bundled_limits["items"].get(full_id, (None, None))
+            actual_sources = update_source_quality.display_name_sources(actual, official, curated, (source_labels or {}).get(identifier, {}).get("composed"))
+            sources = tuple(
+                actual_sources[index] if actual[index] != names[index] or actual_sources[index] == "official" else source
+                for index, source in enumerate(sources)
+            )
+            record = (label_records or {}).get(full_id)
+            if record:
+                reference = confirmed_item_label_pair(record)
+                sources = list(sources)
+                for index, locale in enumerate(("de", "en")):
+                    if actual[index] != reference[index]:
+                        sources[index] = "existing"
+                    elif not official[locale] and actual_sources[index] == "existing":
+                        if isinstance(record, dict) and record["borrowed"] == locale:
+                            sources[index] = "other_language"
+                        elif sources[index] == "other_language":
+                            sources[index] = "existing"
         records.append((full_id, official, sources))
-    return update_source_quality.coverage(records)
+    quality = update_source_quality.coverage(records)
+    for index, (locale, coverage) in enumerate(quality.items()):
+        for fallback in [*coverage["fallbacks"], *coverage.get("retained", [])]:
+            identifier = fallback["id"].removeprefix("minecraft:")
+            source = (source_labels or {}).get(identifier, {})
+            if reason := source.get("reasons", {}).get(locale):
+                fallback["reason"] = reason
+            elif fallback["source"] == "curated" and fallback["id"] in EDITORIAL_ITEM_IDS_BY_LOCALE.get(locale, ()):
+                fallback["reason"] = "editorial"
+            elif locale == "en" and fallback["source"] == "curated" and fallback["id"] in DOCUMENTED_ENGLISH_ITEM_IDS:
+                fallback["reason"] = "documented"
+            elif source.get("composed", {}).get(locale):
+                fallback["reason"] = "composed"
+            elif (
+                identifier in item_localization.CATEGORY_ITEM_NAMES
+                and items.get(fallback["id"], ("", ""))[index] == _bundled_limits["items"].get(fallback["id"], (None, None))[index]
+            ):
+                fallback["reason"] = "category"
+    return quality
 
 
 def merge_effects(
@@ -2373,6 +2481,7 @@ def write_all_dicts(
     item_components: dict[str, dict[str, dict]] | None = None,
     behavior_item_source: dict | None = None,
     updated_sections: set[str] | None = None,
+    confirmed_item_labels: dict | None = None,
 ) -> None:
     data = _load_item_db_json()
     selected = {"items", "effects", "enchants"} if updated_sections is None else updated_sections
@@ -2385,6 +2494,11 @@ def write_all_dicts(
         data.setdefault("durability", {})
         data.setdefault("item_components", {component: {} for component in TRACKED_ITEM_COMPONENTS})
         data["items"] = {key: [de, en] for key, (de, en) in sorted(items.items())}
+        if confirmed_item_labels is not None:
+            if confirmed_item_labels:
+                data["confirmed_item_labels"] = confirmed_item_labels
+            else:
+                data.pop("confirmed_item_labels", None)
         if block_only_items is not None:
             data["block_only_items"] = sorted(block_only_items)
         if block_items is not None:
@@ -2555,6 +2669,7 @@ def commit_update_files(
     item_components: dict[str, dict[str, dict]] | None = None,
     behavior_item_source: dict | None = None,
     updated_sections: set[str] | None = None,
+    confirmed_item_labels: dict | None = None,
 ) -> None:
     """Commit item data and matching source metadata as one recoverable unit."""
 
@@ -2575,6 +2690,7 @@ def commit_update_files(
                 item_components=item_components,
                 behavior_item_source=behavior_item_source,
                 updated_sections=updated_sections,
+                confirmed_item_labels=confirmed_item_labels,
             )
         if source_metadata is not None:
             committed_metadata = source_metadata
@@ -2699,6 +2815,42 @@ def main() -> int:
         return _run_update(args)
 
 
+def _previous_item_label_records(stored, items, locales, metadata):
+    """Read exact automatic baselines, including reconstructible older Learn fallbacks."""
+    records = {}
+    borrowed = update_source_quality.borrowed_item_locales(locales)
+    for key, record in stored.items() if isinstance(stored, dict) else ():
+        pair = confirmed_item_label_pair(record)
+        if key in items and pair:
+            if not isinstance(record, dict) and pair[0] == pair[1] and borrowed.get(key):
+                record = {"names": pair, "borrowed": borrowed[key]}
+            records[key] = record
+    for entry in locales.get("en", {}).get("fallbacks", []):
+        key = entry["id"]
+        if entry["source"] == "microsoft" and key in items and key not in records:
+            # Learn publishes the identifier. Its rendered title is reproducible
+            # even when the next release no longer lists it.
+            title = _friendly_name_from_identifier(key.removeprefix("minecraft:"))
+            reviewed = _bundled_limits["items"].get(key, (None, None))
+            records[key] = {"names": [title, title], "borrowed": "de"} if borrowed.get(key) == "de" else [reviewed[0], title]
+    # Older quality reports identify the borrowed locale but omit the actual
+    # wording. Recover it only from the exact file the report verified.
+    official = {
+        locale: items.keys() - {row["id"] for row in section["fallbacks"] + section.get("retained", [])}
+        for locale, section in locales.items()
+        if len(section["fallbacks"]) == section["total"] - section["official"]
+    }
+    candidates = {
+        key: locale
+        for key, locale in borrowed.items()
+        if locale and key not in records and key in items and items[key][0] == items[key][1] and key in official.get("de" if locale == "en" else "en", ())
+    }
+    if candidates and item_db_verification.item_db_verification_snapshot(metadata, ITEM_DB_PATH, require_current_contract=False)["verified"]:
+        for key, locale in candidates.items():
+            records[key] = {"names": list(items[key]), "borrowed": locale}
+    return records
+
+
 def _prepare_item_update(
     zf,
     en_lang,
@@ -2711,6 +2863,8 @@ def _prepare_item_update(
     old_durability,
     old_item_components,
     old_behavior_item_source,
+    previous_item_locales,
+    previous_metadata,
 ):
     """Prepare one complete item section without changing the publishable state."""
     from mcbe_editor.update_db_report import audit_items
@@ -2734,6 +2888,20 @@ def _prepare_item_update(
     if item_serialization_aliases:
         log(f"  {Colors.GREEN}{tr('Mojang-Serialization-Aliasse: {count}', count=len(item_serialization_aliases))}{Colors.END}")
     new_addable_items = compute_addable_item_ids(zf, old_items)
+    source_labels = item_localization.registry_item_labels(
+        new_addable_items,
+        json.loads(read_utf8(zf, "metadata/vanilladata_modules/mojang-items.json")),
+        json.loads(read_utf8(zf, "metadata/vanilladata_modules/mojang-blocks.json")),
+        {
+            "en": item_localization.parse_source_labels(en_lang.read_text(encoding="utf-8-sig")),
+            "de": item_localization.parse_source_labels(de_lang.read_text(encoding="utf-8-sig")) if de_lang else {},
+        },
+        microsoft_items,
+    )
+    raw_db = _load_item_db_json()
+    old_confirmed = raw_db.get("confirmed_item_labels", {})
+    previous_confirmed = _previous_item_label_records(old_confirmed, old_items, previous_item_locales, previous_metadata)
+    confirmed_labels = {}
     new_items = merge_items(
         old_items,
         en_item_names,
@@ -2742,8 +2910,14 @@ def _prepare_item_update(
         item_serialization_aliases,
         item_localizations,
         new_addable_items,
+        source_labels,
+        label_records=confirmed_labels,
+        previous_confirmed=previous_confirmed,
+        has_explicit_registry=isinstance(raw_db.get("addable_items"), list),
+        registry_label_ids=_vanilla_registry_ids(zf, "mojang-items.json") | _vanilla_registry_ids(zf, "mojang-blocks.json"),
     )
     new_items = complete_registry_names(new_items, new_addable_items, _bundled_limits.get("items", {}))
+    confirmed_labels = {key: record for key, record in confirmed_labels.items() if key in new_items}
     if show_diff("ITEMS", old_items, new_items):
         changes.append("ITEMS")
         final_items = format_items(new_items)
@@ -2836,9 +3010,9 @@ def _prepare_item_update(
         changes.append("BEHAVIOR_ITEM_SOURCE")
         final_behavior_item_source = new_behavior_item_source
 
-    new_block_items = compute_block_item_ids(zf, new_items)
+    new_block_items = compute_block_item_ids(zf)
     old_block_items = read_block_item_ids()
-    if new_block_items and new_block_items != old_block_items:
+    if new_block_items != old_block_items:
         show_diff("BLOCK_ITEMS", dict.fromkeys(old_block_items, True), dict.fromkeys(new_block_items, True))
         changes.append("BLOCK_ITEMS")
         final_block_items = new_block_items
@@ -2850,8 +3024,20 @@ def _prepare_item_update(
     log(f"  {Colors.GREEN}{message}{Colors.END}")
 
     quality = item_label_quality(
-        new_addable_items, final_items, old_items, en_item_names, de_item_names, item_serialization_aliases, item_localizations, microsoft_items
+        new_addable_items,
+        final_items,
+        old_items,
+        en_item_names,
+        de_item_names,
+        item_serialization_aliases,
+        item_localizations,
+        microsoft_items,
+        source_labels,
+        label_records=confirmed_labels,
     )
+    if old_confirmed != confirmed_labels:
+        sections["confirmed_item_labels"] = (old_confirmed if isinstance(old_confirmed, dict) else {}, confirmed_labels)
+        changes.append("CONFIRMED_ITEM_LABELS")
     sections.update(
         {
             "items": (old_items, final_items),
@@ -2870,15 +3056,29 @@ def _prepare_item_update(
     )
     for component in TRACKED_ITEM_COMPONENTS:
         sections[component] = (old_item_components.get(component, {}), final_item_components.get(component, {}))
+    label_index = build_item_localization_label_index(item_localizations)
+    audit_names = {"de": {}, "en": {}}
+    for full_id in new_addable_items:
+        _names, official, _sources = _resolved_item_names(
+            full_id.removeprefix("minecraft:"),
+            old_items,
+            en_item_names,
+            de_item_names,
+            microsoft_items,
+            item_serialization_aliases,
+            item_localizations,
+            label_index,
+            source_labels,
+        )
+        for locale, value in official.items():
+            if value:
+                audit_names[locale][full_id] = value
     audit = audit_items(
         final_items,
         new_addable_items,
         final_stack_limits,
         final_durability,
-        {
-            "de": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in de_item_names.items()},
-            "en": {f"minecraft:{key}": _normalize_display_name(value, key) for key, value in en_item_names.items()},
-        },
+        audit_names,
         {"stack_limits": component_stack_limits, "durability": component_durability},
         {"stack_limits": CURATED_ENGINE_STACK_LIMITS, "durability": CURATED_ENGINE_DURABILITY},
     )
@@ -2895,6 +3095,7 @@ def _prepare_item_update(
         "block_items": final_block_items,
         "addable_items": final_addable_items,
         "listing": item_listing_snapshot,
+        "confirmed_item_labels": confirmed_labels,
         "quality": quality,
         "audit": audit,
         "sections": sections,
@@ -3011,6 +3212,7 @@ def _run_update(args) -> int:
     final_block_only: list[str] | None = None
     final_block_items: list[str] | None = None
     final_addable_items: list[str] | None = None
+    final_confirmed_item_labels = None
     changes: list[str] = []
     blocked_sections: list[tuple[str, str]] = [(section_labels[section], reason) for section, reason in source_blocks.items()]
     checked_quality: dict = {}
@@ -3053,6 +3255,8 @@ def _run_update(args) -> int:
                         old_durability=old_durability,
                         old_item_components=old_item_components,
                         old_behavior_item_source=old_behavior_item_source,
+                        previous_item_locales=previous_quality.get("sections", {}).get("items", {}).get("locales", {}),
+                        previous_metadata=old_version,
                     )
                     audit = prepared["audit"]
                     if any(issue["severity"] == "error" for issue in audit["issues"]):
@@ -3071,6 +3275,7 @@ def _run_update(args) -> int:
                     final_block_items = prepared["block_items"]
                     final_addable_items = prepared["addable_items"]
                     item_listing_snapshot = prepared["listing"]
+                    final_confirmed_item_labels = prepared["confirmed_item_labels"]
                     checked_quality["items"] = prepared["quality"]
                     sections.update(prepared["sections"])
                     changes.extend(prepared["changes"])
@@ -3122,7 +3327,6 @@ def _run_update(args) -> int:
                     id_count=len(local_numeric_ids),
                 )
                 log(f"  {Colors.GREEN}{message}{Colors.END}")
-                wiki_snapshot = optional_wiki_enchantment_check(args.check_wiki, local_max_levels)
                 new_enchants = merge_enchantments(
                     old_enchants,
                     json_enchants,
@@ -3131,6 +3335,7 @@ def _run_update(args) -> int:
                     local_max_levels,
                     local_numeric_ids,
                 )
+                wiki_snapshot = optional_wiki_enchantment_check(args.check_wiki, local_max_levels)
             except RuntimeError as exc:
                 blocked_sections.append(("ENCHANTMENTS", str(exc)))
                 log(f"  {Colors.RED}{tr('ENCHANTMENTS übersprungen: {error}', error=exc)}{Colors.END}")
@@ -3160,7 +3365,9 @@ def _run_update(args) -> int:
     new_version["update_quality"] = quality
     quality_changed = old_version.get("update_quality") != quality
     verification_eligible = args.only is None and not blocked_sections
-    source_identity_changed = source_identity_from_metadata(old_version) != source_identity_from_metadata(new_version)
+    old_identity = source_identity_from_metadata(old_version)
+    new_identity = source_identity_from_metadata(new_version)
+    source_identity_changed = old_identity != new_identity
     receipt_removed = (
         not verification_eligible
         and item_db_verification.VERIFICATION_FIELD in old_version
@@ -3176,6 +3383,20 @@ def _run_update(args) -> int:
         blocked=blocked_sections,
         quality=quality,
     )
+    if blocked_sections:
+        # Recording a failure alone also commits metadata. Only data or source
+        # changes in a successfully checked section make this a partial update.
+        old_sections = previous_quality.get("sections", {})
+        checked_source_fields = set(_SOURCE_RESOURCE_PACK_FIELDS) if checked_quality else set()
+        if "items" in checked_quality:
+            checked_source_fields.update((*_SOURCE_ITEM_LISTING_FIELDS, "microsoft_item_listing_items_hash"))
+        if "enchants" in checked_quality and wiki_snapshot is not None:
+            checked_source_fields.update(_SOURCE_WIKI_FIELDS)
+        report["checked_sections_changed"] = (
+            bool(changes)
+            or any(quality["sections"][section] != old_sections.get(section) for section in checked_quality)
+            or any(old_identity.get(field) != new_identity.get(field) for field in checked_source_fields)
+        )
     if args.json_summary:
         print(REPORT_PREFIX + json.dumps(report, ensure_ascii=True))
     if source_identity_changed:
@@ -3227,6 +3448,7 @@ def _run_update(args) -> int:
         item_components=final_item_components,
         behavior_item_source=final_behavior_item_source,
         updated_sections=set(checked_quality),
+        confirmed_item_labels=final_confirmed_item_labels,
     )
     # Publish the confirmed outcome after the atomic write, including partial
     # updates whose skipped sections still produce a nonzero exit code.

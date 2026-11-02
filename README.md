@@ -34,7 +34,7 @@ Choose how you want to run the editor:
 
 All three options use the same editor. Release ZIPs are available on [GitHub Releases](https://github.com/dadeeen/MCBE_Inventory_Editor/releases).
 
-On first start, follow the setup dialog. Download **Item DB** and **Vanilla icons**, and wait for the completion message. You can do this later under **Tools**; until then, the editor uses the bundled item data and placeholder icons.
+On first start, the setup dialog shows whether the **Item DB** or **Vanilla icons** need attention. Choose the data you want to load, or return later under **Tools**. The editor can use the bundled item data and shows a placeholder for missing icons.
 
 ## Why this exists
 
@@ -278,8 +278,8 @@ Player changes and staged mounts are written to the world together when you save
 
 ## Data safety and privacy
 
-- Editing works offline. Online update checks for **Item DB** and **Vanilla icons**, and the optional network check, need internet access over HTTPS. Under **Icons → Check for updates**, valid icons are kept and the editor reports **Already up to date**. It offers local verification or a download only when needed. Older icon installations remain usable; if their verification record is missing, the editor explains the required comparison. An item database update refreshes local icon status without automatically downloading icons. Failed status requests show their cause and can be retried. Each update tab shows failures and a collapsible technical log. GitHub rate limits include the earliest retry time when supplied by GitHub.
-- Missing official names do not prevent an **Item DB** update: reviewed or existing names, the other language or a technical identifier provide fallbacks. Setup and Item DB tools show translation coverage and hints. Unreliable identities preserve the affected section while safe sections can update; damaged shared sources leave the database unchanged. Partial results identify the retained sections and their causes, including after a restart.
+- Editing works offline. Online checks for the **Item DB** and **Vanilla icons** use HTTPS. After an Item DB update, the editor checks the installed icons locally. If they still match, it shows **Already up to date**. Otherwise, **Icons → Check for updates** offers to reuse the matching source archive or download it. You can retry a failed check.
+- The **Item DB** can update even when Mojang omits a translation. A later official translation can replace a fallback. Your own catalog names are kept separately for German and English. Open **Show details** to see where a name comes from or why part of an update was skipped. A skipped section keeps its previous data.
 - Before saving, the editor checks server status, file locks and concurrent changes. It creates a full-world backup before each actual change.
 - If a restore is interrupted or its outcome is uncertain, keep the backup and recovery files and follow the [recovery instructions](SECURITY.md#interrupted-restores) before editing further.
 - World folders must contain ordinary files and directories. Symlinks, Windows junctions and other reparse points are unsupported.

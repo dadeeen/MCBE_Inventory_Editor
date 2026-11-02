@@ -1,8 +1,69 @@
 import { expect, test } from "@playwright/test";
-import { NORMAL_BASE_URL, captureBrowserEvidence, collectBrowserErrors } from "./fixtures/app.mjs";
+import { NORMAL_BASE_URL, captureBrowserEvidence, collectBrowserErrors, openAppWithEmptyWorldScan } from "./fixtures/app.mjs";
 
 const readyIcons = { success: true, icons: {}, count: 1, sources: [], warnings: [], missing_banner_patterns: [] };
 const initialFailure = { success: false, error: "HTTP 503: Icon-Status vorübergehend nicht erreichbar" };
+
+for (const [cacheState, hint] of [["damaged", "Einige Vanilla-Icons fehlen"], ["stale", "Icon-Zuordnung muss geprüft werden"]]) {
+  test(`setup repairs a ${cacheState} vanilla cache with a nonzero count and a complete banner list`, async ({page}) => {
+    let state = cacheState, downloads = 0;
+    const localIcons = () => ({...readyIcons, vanilla_cache: {state}});
+    await page.route("**/api/item-db/status", route => route.fulfill({json: {success: true, item_db: {status: "ok", verification: {verified: true}}}}));
+    await page.route("**/api/icons/status*", route => {
+      expect(new URL(route.request().url()).searchParams.get("world_path")).toBe("");
+      return route.fulfill({json: localIcons()});
+    });
+    await page.route("**/api/icons/vanilla/update", route => {
+      downloads++;
+      state = "current";
+      return route.fulfill({json: {...localIcons(), icon_update: {already_current: false}}});
+    });
+    await openAppWithEmptyWorldScan(page);
+    await page.locator("#btnSetupTodoBanner").click();
+    const row = page.locator('[data-first-run-todo="icons"]');
+    await expect(row).toContainText(hint);
+    await expect(row).not.toHaveClass(/is-done/);
+    expect(downloads).toBe(0);
+    await row.getByRole("button", {name: "Icons abgleichen"}).click();
+    await expect(row).toHaveClass(/is-done/);
+    expect(downloads).toBe(1);
+  });
+}
+
+test("a saved partial update keeps its reload warning until a new receipt verifies the database", async ({page}) => {
+  const restart = "Der laufende Editor konnte den neuen Katalog nicht laden.";
+  let updates = 0, readsAfterWrite = 0, repaired = false;
+  await page.route("**/api/icons/status*", route => route.fulfill({json: readyIcons}));
+  await page.route("**/api/item-db/status", route => {
+    if (updates && ++readsAfterWrite === 1) return route.fulfill({json: {success: false, error: "Status vorübergehend nicht verfügbar."}});
+    const verified = !updates || repaired;
+    return route.fulfill({json: {success: true, item_db: {status: "ok", verification: {verified}, reload_warning: verified ? "" : restart}}});
+  });
+  await page.route("**/api/update_db", route => {
+    updates++;
+    return route.fulfill({json: {success: false, outcome: "partial", update_committed: true, reloaded: false, reload_warning: restart,
+      summary: {status: "incomplete", blocked: [{section: "effects", reason: "Effect registry missing"}]}}});
+  });
+  await openAppWithEmptyWorldScan(page);
+  await page.locator('.app-workflow-nav [data-workflow-view="tools"]').click();
+  await page.locator('[data-tab-dash="dashUpdate"]').click();
+  await page.locator("#btnUpdateDbApply").click();
+  await page.locator("#confirmOk").click();
+  await expect(page.locator("#loadingOverlay")).toBeHidden();
+  await page.locator('.app-section-nav [data-workflow-view="world"]').click();
+  await page.locator("#btnSetupTodoBanner").click();
+  const row = page.locator('[data-first-run-todo="item_db"]');
+  await expect(row).not.toHaveClass(/is-done/);
+  await expect(row.locator('[data-role="details-content"]')).toContainText(restart);
+  const retry = row.getByRole("button", {name: "Status erneut prüfen"});
+  await retry.click();
+  await expect(row.locator('[data-role="state"]')).toHaveText("Bitte den Editor neu starten.");
+  repaired = true;
+  await retry.click();
+  await expect(row.locator('[data-role="state"]')).toHaveText("Erledigt.");
+  await expect(row).not.toContainText(restart);
+  expect(updates).toBe(1);
+});
 
 async function prepareStatusRecovery(page, responses, { width, locale }) {
   await page.setViewportSize({ width, height: 900 });
@@ -38,6 +99,8 @@ async function prepareStatusRecovery(page, responses, { width, locale }) {
   await expect(overlay).toBeVisible();
   const iconRow = overlay.locator('[data-first-run-todo="icons"]');
   await expect(iconRow).toContainText(responses[0].error);
+  await expect(iconRow.locator('[data-role="state"]')).not.toContainText(responses[0].error);
+  await expect(iconRow.locator('[data-role="details-content"]')).toBeHidden();
   return {
     overlay, iconRow,
     counts: () => ({ statusReads, iconDownloads }),

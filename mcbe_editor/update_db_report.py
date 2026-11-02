@@ -12,6 +12,30 @@ from .item_registry_policy import is_non_item_lang_key_id
 REPORT_PREFIX = "MCBE_UPDATE_REPORT_V1:"
 
 
+def _snapshot_name_origins(value):
+    if not isinstance(value, list):
+        return None
+    checked = []
+    seen = set()
+    for entry in value:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("id"), str)
+            or not entry["id"].strip()
+            or entry["id"] in seen
+            or not isinstance(entry.get("source"), str)
+            or entry["source"] not in {"curated", "existing", "other_language", "identifier", "microsoft", "composed"}
+            or (
+                "reason" in entry
+                and (not isinstance(entry["reason"], str) or entry["reason"] not in {"ambiguous", "composed", "category", "editorial", "documented"})
+            )
+        ):
+            return None
+        seen.add(entry["id"])
+        checked.append({key: entry[key] for key in ("id", "source", "reason") if key in entry})
+    return checked
+
+
 def snapshot_update_quality(value: object) -> dict[str, Any]:
     """Read persisted coverage without treating absent or malformed data as success."""
     if not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 1 or not isinstance(value.get("sections"), dict):
@@ -30,20 +54,15 @@ def snapshot_update_quality(value: object) -> dict[str, Any]:
             if locale not in {"de", "en"} or not isinstance(coverage, dict):
                 return {}
             total, official = coverage.get("total"), coverage.get("official")
-            fallbacks = coverage.get("fallbacks", [])
-            if type(total) is not int or type(official) is not int or not 0 <= official <= total or not isinstance(fallbacks, list):
+            fallbacks = _snapshot_name_origins(coverage.get("fallbacks", []))
+            retained = _snapshot_name_origins(coverage.get("retained", []))
+            if type(total) is not int or type(official) is not int or not 0 <= official <= total or fallbacks is None or retained is None:
                 return {}
-            checked_fallbacks = []
-            for fallback in fallbacks:
-                if (
-                    not isinstance(fallback, dict)
-                    or not isinstance(fallback.get("id"), str)
-                    or not fallback["id"].strip()
-                    or fallback.get("source") not in {"curated", "existing", "other_language", "identifier", "microsoft"}
-                ):
-                    return {}
-                checked_fallbacks.append({"id": fallback["id"], "source": fallback["source"]})
-            checked_locales[locale] = {"total": total, "official": official, "fallbacks": checked_fallbacks}
+            if len(fallbacks) > total - official or len(retained) > official or {entry["id"] for entry in fallbacks} & {entry["id"] for entry in retained}:
+                return {}
+            checked_locales[locale] = {"total": total, "official": official, "fallbacks": fallbacks}
+            if retained:
+                checked_locales[locale]["retained"] = retained
         sections[name] = {
             "status": entry["status"],
             "release": entry.get("release"),
@@ -55,11 +74,18 @@ def snapshot_update_quality(value: object) -> dict[str, Any]:
 
 
 def quality_has_warnings(value: object) -> bool:
-    return any(
-        coverage["official"] < coverage["total"]
-        for section in snapshot_update_quality(value).get("sections", {}).values()
-        for coverage in section["locales"].values()
-    )
+    for section in snapshot_update_quality(value).get("sections", {}).values():
+        if section["status"] == "blocked":
+            return True
+        for coverage in section["locales"].values():
+            if len(coverage["fallbacks"]) < coverage["total"] - coverage["official"]:
+                return True
+            if any(
+                entry.get("reason") == "ambiguous" or entry["source"] in {"identifier", "other_language"}
+                for entry in [*coverage["fallbacks"], *coverage.get("retained", [])]
+            ):
+                return True
+    return False
 
 
 def update_outcome(*, success: bool, committed: bool, report: dict | None) -> str:
@@ -68,6 +94,9 @@ def update_outcome(*, success: bool, committed: bool, report: dict | None) -> st
     if not success:
         if committed:
             if report.get("blocked"):
+                if type(report.get("checked_sections_changed")) is bool:
+                    return "partial" if report["checked_sections_changed"] else "failed"
+                # Older worker reports do not record the checked sections' diff.
                 quality = snapshot_update_quality(report.get("quality"))
                 requested = {report["scope"]} if report.get("scope") not in (None, "all") else {"items", "effects", "enchants"}
                 checked = any(section in requested and entry["status"] == "checked" for section, entry in quality.get("sections", {}).items())
@@ -157,7 +186,9 @@ def describe_changes(sections):
 
 def build_report(*, scope, release, sections, metadata_changed, audit, blocked, previous_release=None, quality=None):
     counts = {name: diff_counts(old, new) for name, (old, new) in sections.items()}
-    changed = any(any(values.values()) for values in counts.values())
+    changed = {name for name, values in counts.items() if any(values.values())}
+    metadata_changed = metadata_changed or "confirmed_item_labels" in changed
+    changed.discard("confirmed_item_labels")
     incomplete = bool(blocked) or any(issue["severity"] == "error" for issue in (audit or {}).get("issues", []))
     return {
         "schema": 1,

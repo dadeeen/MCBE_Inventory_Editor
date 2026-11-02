@@ -3,6 +3,34 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_status_details_remain_collapsed_and_escaped_without_entering_the_header_or_live_message():
+    run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}};
+        for (const file of ['status_store', 'status_stack_view'])
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, 'utf8'), context);
+        const store = context.window.MCBEStatusStore.createStatusStore();
+        const view = context.window.MCBEStatusStackView;
+        const details = 'Original reason <img src=x onerror=alert(1)>\nRetry after repair';
+        store.addNotice({message: 'Short status', details, type: 'error', key: 'check', active: true});
+        const model = view.statusStackModel({visibleNotices: store.allNotices()});
+        assert.equal(model.summary, 'Short status');
+        assert.doesNotMatch(model.liveMessage, /Original reason/);
+        const html = view.statusStackPanelHtml(model.entries);
+        assert.match(html, /<details[^>]*><summary>Details anzeigen/);
+        assert.match(html, /Original reason &lt;img/);
+        assert.doesNotMatch(html, /<img|<details[^>]*\bopen/);
+        store.addNotice({message: 'Applied', type: 'success', key: 'apply', active: false, resolveKeys: ['check']});
+        const previous = store.allNotices().find(entry => entry.key === 'check');
+        assert.equal(previous.active, false);
+        assert.equal(previous.details, details);
+        assert.match(view.statusStackPanelHtml([previous]), /Retry after repair/);
+        store.addNotice({message: 'Same headline', details: 'First reason'});
+        store.addNotice({message: 'Same headline', details: 'Second reason'});
+        assert.equal(store.allNotices().filter(entry => entry.message === 'Same headline').length, 2);
+    """)
+
+
 def test_frontend_status_stack_view_builds_models_and_escapes_html() -> None:
     run_node(
         textwrap.dedent(

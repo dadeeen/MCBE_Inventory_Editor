@@ -22,6 +22,9 @@ These inherited pairs describe a tooltip, status message, color or individual pa
 | `minecraft:bed` | Weißes Bett / White Bed | Data value 0 selects the white bed. The source's base name is Bett / Bed; the catalog's variant-aware browser exposes the other colors separately. |
 | `minecraft:yellow_flower` | Löwenzahn / Dandelion | This legacy ID has one flower variant. The specific name is more useful than the source's generic Blume / Flower. |
 | `minecraft:stonecutter` | Steinsäge (alt, ohne Funktion) / Stonecutter (Legacy, No Function) | The suffix distinguishes the nonfunctional legacy block from `minecraft:stonecutter_block`. |
+| `minecraft:light_block_0` … `minecraft:light_block_15` | Lichtblock N / Light Block N | Mojang's shared Hell / Light label does not distinguish light levels. |
+| `minecraft:undyed_shulker_box` | Shulker-Kiste (ungefärbt) / Undyed Shulker Box | The addition distinguishes the undyed container from colored variants. |
+| `minecraft:petrified_oak_slab` | Versteinerte Eichenstufe / Petrified Oak Slab | The editorial German name preserves the legacy distinction; Mojang's block label is the less specific Holzstufe / Wooden Slab. |
 
 These pairs appear only in the technical log as a flat list of expected name differences in the active UI language. They are absent from the change details and the list of unresolved findings. Classification requires the exact reviewed ID, both catalog names and both source names. Changed or missing labels return to the ordinary comparison; the IDs are not exempt from validation.
 
@@ -36,7 +39,7 @@ The following old names identify the correct object, but the bundled catalog fol
 
 ## Shared migration policy
 
-`mcbe_editor/item_name_policy.py` contains the known obsolete pairs, including their English-only fallback form. Replacement names come from the bundled catalog; the policy does not duplicate a second replacement dictionary. Both runtime loading and the updater use the same helper. A replacement requires an exact match of both inherited language values and a complete reviewed replacement. Custom names, including a custom value in just one language, remain unchanged.
+`mcbe_editor/item_name_policy.py` contains the known obsolete pairs, including their English-only fallback form and pairs with a reviewed German name and an inherited English label. Both the runtime and updater take replacement names from the bundled catalog. Both inherited values must match a known pair, except that a literal item ID represents a missing value. Changing one half prevents that historical pair migration. Later translations are compared independently for each language.
 
 The updater applies these repairs before and after resolving localization fallbacks, so a formerly English-only entry can receive both the German name and the corrected English name in one update. Generic fallback translation requires the existing English label to match the source; equal names in both languages alone do not identify an untranslated item. Repeating the update does not repeat the migration. The dry run previews it without writing the persistent database. These catalog repairs do not change an item's custom display name, lore or saved NBT.
 
@@ -52,38 +55,66 @@ Freezing uses the editorial German translation “Gefrieren” and the English n
 
 ## Missing source labels
 
-Source integrity and display-name coverage are separate checks. A valid language
-file can omit one name or an entire category without invalidating the registry.
-For each validated identity and locale, the updater prefers the official label,
-then an exact reviewed catalog name, an unambiguously matched existing name,
-the other language, and finally the technical identifier. Item names can also
-use the Microsoft Learn item list as an explicitly recorded fallback source.
-This does not count as coverage in Mojang's language files. Reconciliation still
-preserves custom names. Labels never establish numeric IDs or maximum levels.
-Direct and safely derived variant labels are resolved independently per locale:
-a German-only or English-only source label remains official in that language,
-while only the missing language receives a fallback. Ambiguous labels cannot
-establish an item identity or authorize replacing a custom name.
-Matching a label across different localization keys requires a current source
-name associated with the same item identity. Existing and curated fallback names
-cannot establish that association or count as official coverage.
-Unresolved source templates are unavailable names, independently in each locale.
-Resolution and coverage use the same rule for items, effects and enchantments;
-a usable name in the other language remains available. Custom display names are
-preserved without applying the source-template filter to them.
-Untranslated future item IDs remain in the addable registry and receive runtime
-display fallbacks; they do not require invented entries in the persisted name
-catalog.
-Name resolution and coverage use the same validated registry identities, so a
-known variant-key translation also applies before an item reaches the Learn
-listing. An identity or serialization alias alone does not create a display name.
+The updater resolves each language separately. A usable Mojang translation takes
+priority. Missing labels can come from a source composition, the bundled catalog,
+a saved name, a Microsoft Learn identifier, the other language or the item ID.
 
-`update_quality` in source metadata records each section's source release,
-attempted release, official DE/EN coverage and fallback sources. A fallback does
-not count as an official translation. The setup dialog and Item DB tools expose
-these hints after reloads and restarts. A successful comparison with fallback
-names can be current; repeating a download is not a remedy for absent upstream
-translations.
+`mcbe_editor/item_localization.py` follows each item's `serialization_id` and preserves
+the distinction between item keys, block keys and variant suffixes. A matching block
+reference can supply a name unless the block represents a different object, as with
+wheat and beetroot crops. Multiple references must agree in the same language.
+Direct references take precedence over matches on an English display name. Conflicting
+matches and unresolved localization templates leave that translation open.
+
+IDs known only from Microsoft Learn can use their own `item.<id>.name`. Suffixless
+keys require a registry identity or a recognized legacy key. Disc names combine the
+record label with the subtitle from that disc's registry reference in the same
+language. Potion categories keep their catalog names. The positive item registry
+determines which items the editor can add, including items that lack a translation.
+
+### Existing installations
+
+`confirmed_item_labels` records the last automatic name per language. An unchanged
+value can receive a later official translation. A local edit keeps its exact spelling,
+even if German and English are identical. A missing translation keeps its last known
+name. If that name was copied from the other language, the record identifies which
+language borrowed it. Skipping the item section preserves these records.
+
+For older catalogs, the previous coverage report can identify a title derived from a
+Learn identifier. Other copied names can be recovered when the verification receipt
+matches both the catalog and the report. In a catalog with a positive item registry,
+equal names alone do not establish that either was copied.
+
+### Name sources
+
+The German and English reference fixtures record inherited names, replacements and
+their sources. Bedrock samples v1.26.60.5 supplies *Stein-Doppelstufe* and
+*Prismarin-Doppelstufe*. The remaining German replacements in that fixture are
+editorial. English labels such as *Heat Block* and *Super Fertilizer* come from
+Mojang's documentation. Legacy slab and torch names retain their type or colors
+when a source gives only a group name. [German fixtures](../tests/fixtures/reviewed_german_item_names.json) · [English fixtures](../tests/fixtures/reviewed_english_item_names.json) · [Chemistry Lab Journal](https://education.minecraft.net/content/dam/education-edition/software-downloads/Chemistry-Lab-Journal.pdf) · [Bedrock torch names](https://www.minecraft.net/en-us/article/minecraft-1-21-30-bedrock-changelog)
+
+Community terminology informs editorial names such as *Knicklicht*. The German
+Frostbite spawn egg keeps the creature's source name because the German Wiki labels
+its translation provisional. [Minecraft Wiki terminology](https://de.minecraft.wiki/w/Minecraft_Wiki:Inhalt) · [Erfrorener](https://de.minecraft.wiki/w/Erfrorener)
+
+Of the 78 item IDs in the source fixture for v1.26.60.5, 49 have exact source labels,
+22 have disc compositions, three are potion categories and four lack item labels.
+The two effects `fatal_poison` and `freezing` are counted separately. [Source fixture](../tests/fixtures/item_localization_reference.json)
+
+### Update results
+
+The `update_quality` metadata records each section's source release, attempted
+release, official coverage and fallback origins for German and English. The
+`retained` list identifies displayed names that differ from an available official
+translation. The `documented` reason identifies wording from Mojang documentation.
+
+Setup and the update tool show a short status. **Show details** lists name origins
+and the causes of failures. Unresolved translations and ambiguous mappings produce
+warnings. Reviewed and custom names are informational. A partial update requires a
+successful section with changed data or source information. A saved failure message
+alone does not qualify. The source comparison uses the normalized Learn listing and
+validated enchantment comparison, ignoring fetch times and unrelated page markup.
 
 Missing, unreadable, empty or structurally unusable shared language files prevent
 publication. Invalid per-section registries or uncertain numeric identities

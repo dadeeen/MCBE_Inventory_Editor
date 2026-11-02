@@ -39,6 +39,7 @@ def installed(tmp_path, monkeypatch):
     db.write_text(json.dumps({"items": {"minecraft:apple": ["Apfel", "Apple"]}, "block_items": []}), encoding="utf-8")
     monkeypatch.setattr(updater, "ICON_ROOT", root)
     monkeypatch.setattr(updater, "ITEM_DB_PATH", db)
+    monkeypatch.setattr(updater, "BUNDLED_ITEM_DB_JSON", db)
     monkeypatch.setattr(updater, "CACHE_DIR", cache)
     monkeypatch.setattr(updater, "RELEASE_METADATA_PATH", cache / "source.json")
     monkeypatch.setattr(updater, "EXTRA_ITEM_ICON_IDS", set())
@@ -80,7 +81,7 @@ def test_catalog_labels_editor_metadata_and_unrelated_blocks_do_not_invalidate_i
         json.dumps(
             {
                 "items": {"minecraft:apple": ["Name geändert", "Renamed"]},
-                "effects": {"38": "Freezing"},
+                "effects": {"38": ["Gefrieren", "Freezing", ""]},
                 "block_items": ["minecraft:unrelated_block"],
             }
         ),
@@ -96,7 +97,7 @@ def test_catalog_labels_editor_metadata_and_unrelated_blocks_do_not_invalidate_i
 def test_changed_build_inputs_need_only_the_valid_local_archive(installed, monkeypatch, capsys, change):
     data = json.loads(installed.db.read_text(encoding="utf-8"))
     if change == "target":
-        data["items"]["minecraft:stick"] = []
+        data["items"]["minecraft:stick"] = ["Stock", "Stick"]
     elif change == "block":
         data["block_items"] = ["minecraft:apple"]
     else:
@@ -128,6 +129,66 @@ def test_damaged_images_are_repaired_locally_even_at_same_release(installed, cap
     assert run(capsys, "--no-download")["images_changed"]
     assert path.read_bytes() == original
     assert run(capsys)["already_current"]
+
+
+@pytest.mark.parametrize("installed_before", [True, False])
+def test_worker_refuses_extra_only_builds(installed, monkeypatch, installed_before):
+    if not installed_before:
+        monkeypatch.setattr(updater, "ICON_ROOT", installed.root.with_name("new"))
+    before = snapshot(updater.ICON_ROOT)
+    monkeypatch.setattr(updater, "EXTRA_ITEM_ICON_IDS", {"stick"})
+    installed.db.write_text(json.dumps({"items": {"minecraft:missing": ["Fehlend", "Missing"]}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="keine Item-Icons"):
+        updater.main(["--no-download"])
+    assert snapshot(updater.ICON_ROOT) == before
+    installed.download.assert_not_called()
+
+
+def test_worker_leaves_valid_cache_intact_on_invalid_catalog(installed):
+    before = snapshot(installed.root)
+    installed.db.write_text('{"items":[]}', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Item-DB JSON ist ungültig"):
+        updater.main(["--no-download"])
+    assert snapshot(installed.root) == before
+    assert installed.db.read_text(encoding="utf-8") == '{"items":[]}'
+    installed.download.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"behavior_item_source": {"stack_limit_items": "broken"}},
+        {"behavior_item_source": {"durability_items": [None]}},
+        {"stack_limits": {"minecraft:apple": 0}},
+    ],
+)
+def test_catalog_rejected_by_editor_cannot_remove_installed_icons(installed, monkeypatch, invalid):
+    from mcbe_editor import item_data
+
+    catalog = {
+        "items": {"minecraft:apple": ["Apfel", "Apple"], "minecraft:stick": ["Stock", "Stick"]},
+        "addable_items": ["minecraft:apple", "minecraft:stick"],
+        "behavior_item_source": {"resource_pack_release": "v1.0.0"},
+    }
+    reviewed = installed.db.with_name("reviewed.json")
+    reviewed.write_text(json.dumps(catalog), encoding="utf-8")
+    monkeypatch.setattr(updater, "BUNDLED_ITEM_DB_JSON", reviewed)
+    monkeypatch.setattr(item_data, "BUNDLED_ITEM_DB_JSON", reviewed)
+    installed.db.write_bytes(reviewed.read_bytes())
+    assert updater.main(["--no-download"]) == 0
+    before = snapshot(installed.root)
+    assert (installed.root / "textures/items/stick.png").is_file()
+    catalog.update(invalid, addable_items=["minecraft:apple"])
+    catalog["behavior_item_source"]["resource_pack_release"] = "v2.1.0"
+    original = json.dumps(catalog).encode()
+    installed.db.write_bytes(original)
+    with pytest.raises(item_data.InvalidItemDatabaseError):
+        item_data.prepare_item_catalog(installed.db)
+    with pytest.raises(RuntimeError, match="Item-DB JSON ist ungültig"):
+        updater.main(["--no-download"])
+    assert snapshot(installed.root) == before
+    assert installed.db.read_bytes() == original
+    installed.download.assert_not_called()
 
 
 def make_legacy(root):
@@ -179,7 +240,9 @@ def test_changed_source_requires_new_archive_without_mutating_existing_icons(ins
 
 
 def test_known_missing_source_textures_do_not_create_an_endless_update(installed, capsys):
-    installed.db.write_text(json.dumps({"items": {"minecraft:apple": [], "minecraft:missing_texture": []}}), encoding="utf-8")
+    installed.db.write_text(
+        json.dumps({"items": {"minecraft:apple": ["Apfel", "Apple"], "minecraft:missing_texture": ["Fehlend", "Missing"]}}), encoding="utf-8"
+    )
     run(capsys, "--no-download")
     assert "minecraft:missing_texture" in state.read_manifest(installed.root)["missing_items"]
     assert run(capsys)["already_current"]
@@ -345,7 +408,7 @@ def test_unknown_and_empty_block_classifications_cannot_share_a_build_receipt(in
     assert explicit["items"] == {}
     assert unknown["verification"]["inputs"] != explicit["verification"]["inputs"]
     assert state.assess_cache(installed.root, updater.icon_build_inputs(installed.info, ["brick"], set()))["state"] == "stale"
-    assert state.assess_cache(explicit_root, updater.icon_build_inputs(installed.info, ["brick"], set()))["state"] == "current"
+    assert state.assess_cache(explicit_root, updater.icon_build_inputs(installed.info, ["brick"], set())) == {"state": "stale", "reason": "no_mapped_items"}
 
 
 def test_previous_build_contract_is_reverified_without_replacing_images(installed, capsys):

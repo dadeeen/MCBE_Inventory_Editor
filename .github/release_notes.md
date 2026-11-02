@@ -1,16 +1,15 @@
-## What's changed in v0.8.6
+## What's changed in v0.8.7
 
-- Update the item database even when official translations are missing, with clear notices for fallback names.
-- Preserve existing data when a source section cannot be validated; explain partial updates and keep previews consistent with applied changes.
-- Handle slow world loads with progress, cancellation and clear timeout messages; cancel outdated comparison and copy requests.
-- Strengthen validation of world-loading requests and keep internal error details out of public responses.
+- Correct German and English item and variant names. Updates replace fallback names when Mojang provides a translation and keep custom names in each language.
+- Keep installed icons if the item database is damaged. When block mappings change, the editor can recheck them using the cached resource pack.
+- Show a short update result in setup and tools. Open **Show details** to see why an update failed or only some data was saved.
 
 ## Updating
 
-Windows: close the editor, extract the new ZIP into a fresh folder and copy your existing `data` folder. Browser runtime: run `setup.bat` before `start.bat`.
+Close the editor, extract the new ZIP into a fresh folder and copy your existing `data` folder into it.
 
-Download `_windows_x64.zip` (WebView2 required, unsigned) or `_runtime.zip`, with the matching `.sha256` file.
+The unsigned Windows app (`_windows_x64.zip`) requires WebView2. For the browser runtime (`_runtime.zip`), run `setup.bat` before `start.bat`. Each ZIP has a matching `.sha256` file.
 
-Back up your world and stop Minecraft or the Bedrock server before editing. Mount creation remains experimental.
+Back up your world and stop Minecraft or the Bedrock server before editing.
 
-[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.6/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.6/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.6/SECURITY.md)
+[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.7/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.7/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.7/SECURITY.md)

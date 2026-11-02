@@ -190,7 +190,7 @@ def test_release_download_failure_preserves_cache_and_reports_the_download_host(
         "ICON_ROOT": tmp_path / "icons",
     }.items():
         monkeypatch.setattr(script, name, path, raising=False)
-    (tmp_path / "item_db.json").write_text('{"items":{"minecraft:apple":[]}}', encoding="utf-8")
+    (tmp_path / "item_db.json").write_text('{"items":{"minecraft:apple":["Apfel","Apple"]}}', encoding="utf-8")
     info = {
         "resource_pack_release": "test",
         "resource_pack_asset": "bedrock-samples-test-full.zip",

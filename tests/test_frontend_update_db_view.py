@@ -52,8 +52,8 @@ def test_name_quality_survives_status_rendering_and_current_does_not_repeat_appl
             await controller.run(false, true);
             assert.equal(apply.disabled, true);
             assert.equal(notices.at(-1).type, "warning");
-            assert.match(notices.at(-1).message, /Kein Update erforderlich/);
-            assert.match(notices.at(-1).message, /Ersatznamen/);
+            assert.equal(notices.at(-1).message, 'Bereits aktuell. Hinweise in den Details.');
+            assert.doesNotMatch(notices.at(-1).message, /Sprachwerte/);
             await apply.click();
             assert.equal(calls, 1);
         })().catch(error => {console.error(error); process.exitCode = 1;});
@@ -94,6 +94,168 @@ def test_partial_preview_binds_safe_apply_to_its_checked_sources() -> None:
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_compact_update_feedback_keeps_causes_in_details_and_distinguishes_preview_from_commit():
+    run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}, console: {error() {}}};
+        for (const file of ['api_client', 'data_source_view', 'update_db_view'])
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, 'utf8'), context);
+        const element = () => ({children: [], dataset: {}, text: '', hidden: true, open: false,
+            get textContent() {return this.text + this.children.map(child => child.textContent).join('\n');},
+            set textContent(value) {this.text = value; this.children = [];},
+            get childElementCount() {return this.children.length;},
+            appendChild(child) {this.children.push(child);},
+            replaceChildren(...children) {this.text = ''; this.children = children;},
+        });
+        (async () => {
+            for (const dryRun of [false, true]) {
+                const nodes = Object.fromEntries(['updateDbResult', 'updateDbAudit', 'updateDbDetails'].map(id => [id, element()]));
+                const doc = {createElement: element, getElementById: id => nodes[id]};
+                const output = {...element(), ownerDocument: doc};
+                const causes = ['effects', 'enchants'].map(section => ({section, reason: `${section} conflict: ` + '<script>source</script>'.repeat(25)}));
+                const quality = {schema: 1, sections: Object.fromEntries(causes.map(cause => [cause.section,
+                    {status: 'blocked', release: 'v-retained', reason: cause.reason, locales: {}}]))};
+                const notices = [], toasts = [];
+                let response = {success: false, outcome: dryRun ? 'failed' : 'partial', update_committed: !dryRun,
+                    error: 'Main source error', hint: 'Retry after source repair',
+                    summary: {status: 'incomplete', blocked: causes, quality}};
+                const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                    outputEl: output, withCsrf: () => ({}), fetchImpl: async () => response,
+                    parseJsonResponse: async value => value,
+                    logStatus: message => notices.push(message), showToast: message => toasts.push(message),
+                });
+                await controller.run(dryRun, true);
+                const visible = nodes.updateDbResult.textContent;
+                assert.doesNotMatch(visible, /Main source error|v-retained|script|Retry after/);
+                for (const cause of causes) assert.ok(nodes.updateDbAudit.textContent.includes(cause.reason));
+                assert.match(nodes.updateDbAudit.textContent, /Retry after source repair/);
+                assert.equal(nodes.updateDbDetails.hidden, false);
+                assert.equal(nodes.updateDbDetails.open, false);
+                assert.ok(toasts.at(-1).length < 100);
+                assert.equal(toasts.at(-1), notices.at(-1));
+                if (dryRun) {
+                    assert.match(toasts.at(-1), /Prüfung unvollständig/);
+                    assert.doesNotMatch(visible + toasts.at(-1), /gespeichert|übernommen|Teilweise aktualisiert/);
+                } else assert.match(visible, /geprüften Änderungen sind gespeichert/);
+                nodes.updateDbDetails.open = true;
+                response = {success: true, outcome: 'current', verification_required: false, summary: {status: 'current'}};
+                await controller.run(true);
+                assert.equal(nodes.updateDbDetails.open, false);
+                assert.doesNotMatch(nodes.updateDbAudit.textContent, /source error|source repair|v-retained/);
+                assert.equal(toasts.at(-1), 'Bereits aktuell.');
+            }
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
+def test_saved_update_refresh_cause_remains_in_details_across_preview_until_refresh_succeeds():
+    run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}, console};
+        vm.runInNewContext(fs.readFileSync('static/update_db_view.js', 'utf8'), context);
+        const element = () => ({children: [], dataset: {}, text: '',
+            get textContent() {return this.text + this.children.map(child => child.textContent).join('\n');},
+            set textContent(value) {this.text = value; this.children = [];},
+            get childElementCount() {return this.children.length;},
+            appendChild(child) {this.children.push(child);},
+            replaceChildren(...children) {this.text = ''; this.children = children;},
+        });
+        const nodes = Object.fromEntries(['updateDbResult', 'updateDbAudit', 'updateDbDetails'].map(id => [id, element()]));
+        const doc = {createElement: element, getElementById: id => nodes[id]};
+        let warning = 'Player refresh requires keeping the unsaved draft';
+        let reloaded = true;
+        const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+            outputEl: {...element(), ownerDocument: doc}, withCsrf: () => ({}),
+            fetchImpl: async () => ({success: true, reloaded, update_committed: true, summary: {status: 'current'}}),
+            parseJsonResponse: async value => value, onReloaded: () => ({warning}),
+        });
+        (async () => {
+            const result = await controller.run(false, true);
+            assert.equal(result.client_warning, warning);
+            assert.ok(nodes.updateDbAudit.textContent.includes(warning));
+            warning = '';
+            await controller.run(true);
+            assert.match(nodes.updateDbAudit.textContent, /unsaved draft/);
+            await controller.run(false, true);
+            assert.doesNotMatch(nodes.updateDbAudit.textContent, /unsaved draft/);
+            reloaded = false;
+            const saved = await controller.run(false, true);
+            assert.match(saved.reload_warning, /Editor neu starten/);
+            assert.match(nodes.updateDbAudit.textContent, /Editor neu starten/);
+            await controller.run(true);
+            assert.match(nodes.updateDbAudit.textContent, /Editor neu starten/);
+            reloaded = true;
+            await controller.run(false, true);
+            assert.doesNotMatch(nodes.updateDbAudit.textContent, /Editor neu starten/);
+        })().catch(error => {console.error(error); process.exitCode = 1;});
+    """)
+
+
+def test_source_notes_distinguish_composed_category_and_unresolved_names():
+    run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}};
+        vm.runInNewContext(fs.readFileSync('static/data_source_view.js', 'utf8'), context);
+        const view = context.window.MCBEDataSourceView;
+        const quality = {schema: 1, sections: {items: {status: 'checked', locales: {
+            de: {total: 4, official: 0, fallbacks: [
+                {id: 'disc', source: 'composed', reason: 'composed'},
+                {id: 'potion', source: 'curated', reason: 'category'},
+                {id: 'future', source: 'identifier'},
+                {id: 'conflict', source: 'existing', reason: 'ambiguous'},
+            ]},
+        }}}};
+        const result = view.itemDbQualityModel(quality);
+        assert.equal(result.hasWarnings, true);
+        assert.match(result.summary, /Für 2 Sprachwerte/);
+        assert.match(result.summary, /erneuter Download derselben Quelle/);
+        assert.match(result.details.join(' '), /Bezeichnung und Titel stehen in der Quelle getrennt/);
+        assert.match(result.details.join(' '), /geprüfte Sammelbezeichnung für Varianten/);
+        assert.match(result.details.join(' '), /aus Quellen zusammengesetzter Name/);
+        assert.match(result.details.join(' '), /Quellzuordnung mehrdeutig/);
+        assert.match(result.details.join(' '), /kein eindeutig zugeordneter Quellenname/);
+    """)
+
+
+def test_reviewed_names_are_neutral_and_old_160_reports_only_count_unresolved_language_values():
+    run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}};
+        vm.runInNewContext(fs.readFileSync('static/data_source_view.js', 'utf8'), context);
+        const view = context.window.MCBEDataSourceView;
+        const makeQuality = source => ({schema: 1, sections: {items: {status: 'checked', locales: {
+            de: {total: 1627, official: 1547, fallbacks: Array.from({length: 80}, (_, i) => ({id: `item_${i}`, source: i < 76 ? 'curated' : source}))},
+            en: {total: 1627, official: 1547, fallbacks: Array.from({length: 80}, (_, i) => ({id: `item_${i}`, source: i < 76 ? 'curated' : source}))},
+        }}}});
+        const legacy = view.itemDbQualityModel(makeQuality('identifier'));
+        assert.equal(legacy.hasWarnings, true);
+        assert.match(legacy.summary, /Für 8 Sprachwerte/);
+        assert.doesNotMatch(legacy.summary, /160/);
+        const quality = makeQuality('curated');
+        const status = {status: 'ok', verification: {verified: true}, update_quality: quality};
+        const model = view.itemDbQualityModel(quality);
+        assert.equal(model.hasWarnings, false);
+        assert.equal(model.hasNotes, true);
+        assert.match(model.summary, /Kein Handlungsbedarf wegen der Namen/);
+        assert.doesNotMatch(model.summary, /160|Ersatznamen/);
+        assert.equal(view.itemDbStatusValue(status), 'geprüft');
+        assert.equal(view.assetDataStatusHtml({itemDbStatus: status}), '');
+        assert.match(view.itemDbQualityHtml(quality), /class="hint-text"/);
+        assert.match(view.itemDbQualityHtml(quality), /Namensherkunft/);
+        assert.equal(view.itemDbSetupFeedback(status).warnings, false);
+        const retained = {schema: 1, sections: {items: {status: 'checked', locales: {
+            de: {total: 1, official: 1, fallbacks: [], retained: [{id: 'petrified_oak_slab', source: 'curated', reason: 'editorial'}]},
+        }}}};
+        assert.match(view.itemDbQualityModel(retained).details.join(' '), /redaktionelle Bezeichnung des Editors/);
+        assert.equal(view.itemDbQualityModel(retained).hasWarnings, false);
+        retained.sections.items.locales.en = {total: 1, official: 0, fallbacks: [{id: 'chemical_heat', source: 'curated', reason: 'documented'}]};
+        const documented = view.itemDbQualityModel(retained);
+        assert.match(documented.details.join(' '), /Bezeichnung aus offizieller Mojang-Dokumentation/);
+        assert.equal(documented.hasWarnings, false);
+        assert.match(view.itemDbQualityHtml(retained), /Die Quellenabdeckung zählt Namen aus den aktuellen Mojang-Sprachdateien/);
+    """)
+
+
 def test_committed_worker_interruption_reports_saved_data_without_claiming_partial_update() -> None:
     run_node(r"""
         const assert = require('node:assert/strict');
@@ -123,7 +285,8 @@ def test_committed_worker_interruption_reports_saved_data_without_claiming_parti
         (async () => {
             await controller.run(false, true);
             assert.match(result.textContent, /Aktualisiert mit Hinweisen/);
-            assert.match(result.textContent, /vollständig übernommen/);
+            assert.match(audit.textContent, /vollständig übernommen/);
+            assert.doesNotMatch(result.textContent, /Update-Skript wurde unterbrochen/);
             assert.doesNotMatch(result.textContent, /nichts übernommen|teilweise|Einige Bereiche/);
             assert.doesNotMatch(notices.at(-1).message, /teilweise/);
             assert.equal(notices.at(-1).type, 'warning');
@@ -166,7 +329,7 @@ def test_success_resolves_only_covered_update_failures_and_preserves_history() -
                     fetchImpl: async () => responses.shift(), parseJsonResponse: async value => value,
                     withCsrf: () => ({}), logStatus: session.logStatus,
                 });
-                const oldKey = firstDryRun ? 'database-update:dry-run' : 'database-update:apply';
+                const oldKey = ['database-update', firstDryRun ? 'dry-run' : 'apply', firstScope].filter(Boolean).join(':');
                 await controller.run(firstDryRun, !firstDryRun, {only: firstScope});
                 const original = {...store.allNotices().find(entry => entry.key === oldKey)};
                 store.addNotice({key: 'vanilla-icons-update', type: 'error', message: 'Unrelated icon failure', active: true});
@@ -174,6 +337,8 @@ def test_success_resolves_only_covered_update_failures_and_preserves_history() -
                 const oldNotice = store.allNotices().find(entry => entry.key === oldKey);
                 assert.equal(oldNotice.active, !resolved);
                 assert.equal(oldNotice.message, original.message);
+                assert.match(oldNotice.details, /Previous failure/);
+                assert.equal(oldNotice.details, original.details);
                 assert.equal(oldNotice.time, original.time);
                 assert.equal(oldNotice.type, 'error');
                 assert.equal(store.allNotices().find(entry => entry.key === 'vanilla-icons-update').active, true);
@@ -225,6 +390,67 @@ def test_database_update_replaces_running_status_with_success() -> None:
             """
         ),
     )
+
+
+def test_repeating_preview_or_apply_in_another_scope_keeps_the_first_failure():
+    run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}, console};
+        for (const file of ['api_client', 'status_store', 'update_db_view'])
+            vm.runInNewContext(fs.readFileSync('static/' + file + '.js', 'utf8'), context);
+        (async () => {
+            for (const dryRun of [false, true]) {
+                const store = context.window.MCBEStatusStore.createStatusStore();
+                let response = {success: false, category: 'network-or-dns', error: 'DNS lookup failed'};
+                const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+                    outputEl: {}, fetchImpl: async () => response, parseJsonResponse: async value => value,
+                    withCsrf: () => ({}), logStatus: (message, type, options) => store.addNotice({message, type, ...options}),
+                });
+                await controller.run(dryRun, !dryRun, {only: 'items'});
+                response = {success: true, reloaded: !dryRun, summary: {status: 'current'}, verification_required: false};
+                await controller.run(dryRun, !dryRun, {only: 'effects'});
+                const active = store.allNotices().filter(entry => entry.active);
+                assert.equal(active.length, 1);
+                assert.match(active[0].key, /:items$/);
+                assert.equal(active[0].message, 'Online-Quelle nicht erreichbar.');
+                assert.match(active[0].details, /DNS lookup failed/);
+                await controller.run(dryRun, !dryRun, {only: null});
+                assert.equal(store.allNotices().filter(entry => entry.active).length, 0);
+            }
+        })().catch(err => {console.error(err); process.exitCode = 1;});
+    """)
+
+
+def test_clean_full_apply_resolves_a_scoped_quality_warning_and_viewer_cannot_start_an_update():
+    run_node(r"""
+        const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+        const context = {window: {}, console};
+        for (const file of ['api_client', 'data_source_view', 'status_store', 'update_db_view'])
+            vm.runInNewContext(fs.readFileSync('static/' + file + '.js', 'utf8'), context);
+        const store = context.window.MCBEStatusStore.createStatusStore();
+        const quality = {schema: 1, sections: {items: {status: 'checked', locales: {de: {
+            total: 1, official: 0, fallbacks: [{id: 'minecraft:future', source: 'other_language'}],
+        }}}}};
+        let mayWrite = false, reads = 0;
+        const controller = context.window.MCBEUpdateDbView.createUpdateDbController({
+            outputEl: {}, withCsrf: () => ({}), canWriteAppState: () => mayWrite,
+            parseJsonResponse: async v => v,
+            fetchImpl: async () => (++reads === 1 ? {success: true, summary: {status: 'available', quality}}
+                : {success: true, reloaded: true, summary: {status: 'current'}, verification_required: false}),
+            logStatus: (message, type, options) => store.addNotice({message, type, ...options}),
+        });
+        (async () => {
+            assert.equal((await controller.run(true)).success, false);
+            assert.equal((await controller.run(false, true)).success, false);
+            assert.equal(reads, 0);
+            mayWrite = true;
+            await controller.run(true, false, {only: 'items'});
+            await controller.run(false, true, {only: 'effects'});
+            assert.ok(store.allNotices().some(n => n.active && n.key.endsWith(':items') && n.type === 'warning'));
+            await controller.run(false, true, {only: null});
+            assert.equal(store.allNotices().filter(n => n.active).length, 0);
+        })().catch(err => {console.error(err); process.exitCode = 1;});
+    """)
 
 
 def test_database_update_can_force_full_scope_without_mutating_tools_selection() -> None:
@@ -318,11 +544,11 @@ def test_database_update_surfaces_loaded_player_refresh_warning() -> None:
                 assert.equal(stopped, true);
                 assert.strictEqual(notice.type, "warning");
                 assert.strictEqual(notice.active, true);
-                assert.strictEqual(notice.message, "Spieler später neu laden.");
+                assert.strictEqual(notice.message, "Datenbank aktualisiert. Anzeige noch nicht erneuert. Details prüfen.");
                 assert.strictEqual(toasts.length, 1);
                 assert.strictEqual(toasts[0].type, "warning");
                 assert.strictEqual(toasts[0].duration, 8000);
-                assert.match(outputEl.textContent, /Datenbank aktualisiert und Server neu geladen/);
+                assert.match(outputEl.textContent, /Item-Datenbank aktualisiert/);
                 assert.match(outputEl.textContent, /Spieler später neu laden/);
             })().catch(error => { console.error(error); process.exit(1); });
             """
@@ -507,7 +733,7 @@ def test_dry_run_does_not_resolve_apply_reload_warning() -> None:
                 const dryRunNotice = notices.find(entry => entry.key === "database-update:dry-run");
                 assert.strictEqual(applyNotice.type, "warning");
                 assert.strictEqual(applyNotice.active, true);
-                assert.strictEqual(applyNotice.message, "Neustart erforderlich.");
+                assert.strictEqual(applyNotice.message, "Datenbank aktualisiert. Anzeige noch nicht erneuert. Details prüfen.");
                 assert.strictEqual(dryRunNotice.type, "success");
                 assert.strictEqual(dryRunNotice.active, false);
             })().catch(error => { console.error(error); process.exit(1); });
@@ -863,7 +1089,7 @@ def test_verified_current_database_stays_current_when_only_player_refresh_warns(
                             : /Server restart required/;
                     assert.equal(notices.at(-1).type, "warning", mode);
                     assert.equal(toasts.at(-1).type, "warning", mode);
-                    assert.match(notices.at(-1).message, warning, mode);
+                    assert.equal(notices.at(-1).message, 'Datenbank aktualisiert. Anzeige noch nicht erneuert. Details prüfen.', mode);
                     assert.match(output.textContent, warning, mode);
                     if (serverReloaded) {
                         assert.match(hint.textContent, /Keine Änderungen bei der letzten Prüfung/, mode);

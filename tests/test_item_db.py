@@ -283,7 +283,7 @@ class TestJsonBackedItemDb(unittest.TestCase):
     def test_dotted_localization_key_families_have_german_names_on_real_item_ids(self):
         expected = {
             "minecraft:acacia_boat": ("Akazienboot", "Acacia Boat"),
-            "minecraft:acacia_chest_boat": ("Akazien-Truhenboot", "Acacia Chest Boat"),
+            "minecraft:acacia_chest_boat": ("Akazien-Truhenboot", "Acacia Boat with Chest"),
             "minecraft:allay_spawn_egg": ("Hilfsgeist-Spawn-Ei", "Allay Spawn Egg"),
             "minecraft:oak_slab": ("Eichenstufe", "Oak Slab"),
             "minecraft:andesite_wall": ("Andesitmauer", "Andesite Wall"),
