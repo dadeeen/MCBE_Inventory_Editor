@@ -1,4 +1,4 @@
-"""Pure-Python readonly reader for Mojang's Bedrock LevelDB fork.
+"""Readonly reader for Mojang's Bedrock LevelDB fork, with optional native CRC32C.
 
 Opening a LevelDB with a native engine (Minecraft's own or amulet-leveldb)
 always mutates the database directory: it acquires the LOCK file, replays the
@@ -53,6 +53,14 @@ from collections import OrderedDict
 from typing import BinaryIO, NamedTuple
 
 from .i18n import t
+
+try:
+    import google_crc32c
+except (ImportError, OSError):
+    _native_crc32c = None
+else:
+    # Its own Python fallback is slower than our existing word-at-a-time code.
+    _native_crc32c = google_crc32c.value if google_crc32c.implementation == "c" else None
 
 LOGGER = logging.getLogger(__name__)
 
@@ -130,7 +138,7 @@ def _crc32c_word_tables() -> tuple[tuple[int, ...], tuple[int, ...]]:
     return low, high
 
 
-def _crc32c(data: bytes) -> int:
+def _crc32c_python(data: bytes) -> int:
     low, high = _crc32c_word_tables()
     view = memoryview(data)
     aligned = len(view) - len(view) % 4
@@ -146,6 +154,18 @@ def _crc32c(data: bytes) -> int:
     for byte in view[aligned:]:
         crc = table[(crc ^ byte) & 0xFF] ^ (crc >> 8)
     return crc ^ 0xFFFFFFFF
+
+
+def _crc32c(data: bytes | bytearray | memoryview) -> int:
+    """Compute the same Castagnoli checksum with either available backend."""
+
+    # Normalize buffer layouts for both backends. Database reads already supply
+    # bytes, so the hot path needs no copy.
+    if not isinstance(data, bytes):
+        data = bytes(memoryview(data))
+    if _native_crc32c is not None:
+        return _native_crc32c(data)
+    return _crc32c_python(data)
 
 
 def _mask_crc32c(crc: int) -> int:

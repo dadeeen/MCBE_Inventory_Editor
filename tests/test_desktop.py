@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import contextlib
+import json
 import subprocess
 import sys
 import threading
@@ -12,6 +13,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from mcbe_editor import desktop_app, desktop_window, desktop_worker, gui_dialogs, update_script_runner
+from scripts import build_desktop
 from scripts.build_desktop import verify_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -216,6 +218,78 @@ def test_desktop_bundle_rejects_private_or_unrelated_files(tmp_path, extra):
 def test_desktop_bundle_requires_embedded_python_and_assets(tmp_path):
     with pytest.raises(ValueError, match="Missing"):
         verify_bundle(tmp_path)
+
+
+@pytest.mark.parametrize("has_policy", [False, True])
+def test_desktop_bundles_the_build_runtimes_ssl_policy_without_other_certificates(tmp_path, monkeypatch, has_policy):
+    runtime = tmp_path / "Lib"
+    runtime.mkdir()
+    monkeypatch.setattr(build_desktop.ssl, "__file__", str(runtime / "ssl.py"))
+    policy = runtime / "codex-rejected-cas.pem"
+    if has_policy:
+        policy.write_text("runtime CA policy", encoding="ascii")
+    (runtime / "unrelated-private.pem").write_text("unrelated file", encoding="ascii")
+
+    expected = [(str(policy), ".")] if has_policy else []
+    assert build_desktop.ssl_runtime_data_files() == expected
+
+
+@pytest.mark.parametrize("backend", ["native", "missing", "incorrect"])
+def test_frozen_diagnose_requires_a_working_native_crc32c(monkeypatch, tmp_path, backend):
+    import urllib.request
+
+    from mcbe_editor import leveldb_readonly
+
+    response = SimpleNamespace(status=200, read=lambda: b"packaged asset")
+    opener = Mock()
+    opener.open.side_effect = lambda *args, **kwargs: contextlib.nullcontext(response)
+    monkeypatch.setattr(urllib.request, "build_opener", Mock(return_value=opener))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    native = Mock(return_value=0xE3069283 if backend == "native" else 0)
+    monkeypatch.setattr(leveldb_readonly, "_native_crc32c", None if backend == "missing" else native)
+    workers = Mock(return_value=SimpleNamespace(returncode=0, stdout="usage: updater --help"))
+    monkeypatch.setattr(desktop_app, "run_frozen_update", workers)
+    application = SimpleNamespace(APP_ROOT=tmp_path, APP_CONFIG=SimpleNamespace(data_root=str(tmp_path / "data")))
+    server = SimpleNamespace(port=12345)
+
+    if backend == "native":
+        result = desktop_app._diagnose(application, server)
+        assert result["ok"] is True
+        assert result["checks"]["native_crc32c"] is True
+        native.assert_called_once_with(b"123456789")
+        assert workers.call_count == len(desktop_app.WORKERS)
+    else:
+        with pytest.raises(RuntimeError, match="native CRC32C check failed"):
+            desktop_app._diagnose(application, server)
+        workers.assert_not_called()
+
+
+@pytest.mark.parametrize("crc_check", ["passed", "failed", "missing"])
+def test_bundle_smoke_requires_explicit_native_crc32c_success(monkeypatch, tmp_path, crc_check):
+    bundle = tmp_path / "bundle"
+    temporary = tmp_path / "smoke"
+    bundle.mkdir()
+    temporary.mkdir()
+    monkeypatch.setenv("SYSTEMROOT", str(tmp_path / "Windows"))
+    checks = {"native_close": True}
+    if crc_check != "missing":
+        checks["native_crc32c"] = crc_check == "passed"
+
+    def run(command, **kwargs):
+        report = Path(command[command.index("--diagnose") + 1])
+        report.write_text(json.dumps({"ok": True, "checks": checks}), encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(build_desktop.subprocess, "run", run)
+    recovery = Mock()
+    monkeypatch.setattr(build_desktop, "smoke_recovery", recovery)
+    if crc_check == "passed":
+        build_desktop.smoke_bundle(bundle, temporary)
+        recovery.assert_called_once()
+    else:
+        with pytest.raises(RuntimeError, match="Packaged application check failed"):
+            build_desktop.smoke_bundle(bundle, temporary)
+        recovery.assert_not_called()
 
 
 @pytest.mark.parametrize("state", [None, {}, {"dirty": 0}, {"dirty": "false"}, {"dirty": True}])

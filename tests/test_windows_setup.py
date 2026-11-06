@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import subprocess
 from pathlib import Path
 
@@ -14,11 +15,12 @@ def installation(tmp_path, monkeypatch):
     (tmp_path / ".venv").mkdir()
     requirements = tmp_path / "requirements"
     requirements.mkdir()
-    for name in ("bootstrap", "runtime"):
+    for name in ("bootstrap", "runtime", "crc32c"):
         (requirements / f"{name}.lock").write_text(f"-r {name}.txt\n")
         (requirements / f"{name}.txt").write_text("# fixture\n")
     monkeypatch.setattr(setup.sys, "prefix", str(tmp_path / ".venv"))
     monkeypatch.setattr(setup, "supported_python", lambda: True)
+    monkeypatch.setattr(setup.sysconfig, "get_platform", lambda: "win-amd64")
     return tmp_path
 
 
@@ -49,38 +51,90 @@ def test_install_rejects_environments_outside_project(installation, monkeypatch,
         setup.install(installation)
 
 
-def test_missing_lock_aborts_before_installation(installation, monkeypatch):
-    (installation / "requirements/runtime.txt").unlink()
+@pytest.mark.parametrize("missing", ["runtime.txt", "crc32c.lock", "crc32c.txt"])
+def test_missing_lock_aborts_before_installation(installation, monkeypatch, missing):
+    (installation / "requirements" / missing).unlink()
     monkeypatch.setattr(setup.subprocess, "run", lambda *a, **kw: pytest.fail("No unlocked fallback"))
     with pytest.raises(ValueError, match="Missing hash-locked"):
         setup.install(installation)
 
 
-def test_install_uses_only_locked_wheels_and_checks_real_imports(installation, monkeypatch):
+@pytest.mark.parametrize(
+    "python_platform,machine,expected_locks",
+    [
+        ("win-amd64", "AMD64", ["bootstrap", "runtime", "crc32c"]),
+        ("win32", "AMD64", ["bootstrap", "runtime"]),  # 32-bit Python on 64-bit Windows.
+        ("win-arm64", "ARM64", ["bootstrap", "runtime"]),
+    ],
+)
+def test_install_uses_only_locked_wheels_and_checks_real_imports(installation, monkeypatch, python_platform, machine, expected_locks):
+    from mcbe_editor import leveldb_readonly
+
     calls = []
 
     def run(command, **kwargs):
         assert kwargs == {"cwd": installation, "check": True}
         calls.append(command)
 
-    monkeypatch.setattr(setup.subprocess, "run", run)
-    setup.install(installation)
+    monkeypatch.setattr(setup.sysconfig, "get_platform", lambda: python_platform)
+    monkeypatch.setattr(setup.platform, "machine", lambda: machine)
+    with monkeypatch.context() as installation_patch:
+        installation_patch.setattr(setup.subprocess, "run", run)
+        setup.install(installation)
     installs = [command for command in calls if "install" in command]
-    assert len(installs) == 2
+    assert [command[-1] for command in installs] == [f"requirements/{name}.lock" for name in expected_locks]
     for command in installs:
         assert "--only-binary=:all:" in command
         assert "--require-hashes" in command
-        assert command[-1] in ("requirements/bootstrap.lock", "requirements/runtime.lock")
     assert calls[-2][-2:] == ["pip", "check"]
     assert calls[-1][:2] == [setup.sys.executable, "-c"]
     assert "mcbe_editor.db" in calls[-1][-1]
-    assert "leveldb" not in calls[-1][-1]
+    imports = ast.walk(ast.parse(calls[-1][-1]))
+    modules = set()
+    for node in imports:
+        if isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module.split(".")[0])
+    assert modules.isdisjoint({"leveldb", "amulet_nbt"})
+    # Run the generated check: native installs must not quietly accept fallback,
+    # while the portable installation still works without the optional module.
+    monkeypatch.setattr(leveldb_readonly, "_native_crc32c", None)
+    if python_platform == "win-amd64":
+        with pytest.raises(AssertionError):
+            exec(calls[-1][-1], {})
+    else:
+        exec(calls[-1][-1], {})
 
 
-@pytest.mark.parametrize("fail_at", ["install", "check", "import"])
+@pytest.mark.parametrize("python_platform", ["win32", "win-arm64"])
+def test_non_x64_installation_does_not_require_the_optional_native_lock(installation, monkeypatch, python_platform):
+    (installation / "requirements/crc32c.lock").unlink()
+    (installation / "requirements/crc32c.txt").unlink()
+    calls = []
+    monkeypatch.setattr(setup.sysconfig, "get_platform", lambda: python_platform)
+    monkeypatch.setattr(setup.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    setup.install(installation)
+    assert len([command for command in calls if "install" in command]) == 2
+    assert calls[-1][:2] == [setup.sys.executable, "-c"]
+
+
+@pytest.mark.parametrize("fail_at", ["install", "crc32c", "check", "import"])
 def test_installation_or_import_failure_is_reported(installation, monkeypatch, capsys, fail_at):
+    calls = []
+
     def fail(command, **kwargs):
-        if fail_at == "install" and "install" in command or fail_at == "check" and command[-1] == "check" or fail_at == "import" and command[1] == "-c":
+        calls.append(command)
+        if (
+            fail_at == "install"
+            and "install" in command
+            or fail_at == "crc32c"
+            and command[-1] == "requirements/crc32c.lock"
+            or fail_at == "check"
+            and command[-1] == "check"
+            or fail_at == "import"
+            and command[1] == "-c"
+        ):
             raise subprocess.CalledProcessError(1, command)
 
     monkeypatch.setattr(setup.subprocess, "run", fail)
@@ -88,6 +142,14 @@ def test_installation_or_import_failure_is_reported(installation, monkeypatch, c
     monkeypatch.setattr(setup.sys, "argv", ["windows_setup.py", "install"])
     assert setup.main() == 1
     assert "Setup unavailable" in capsys.readouterr().err
+    if fail_at == "crc32c":
+        assert calls[-1][-1] == "requirements/crc32c.lock"
+        assert len(calls) == 3  # No retry without hashes or silent downgrade.
+
+
+@pytest.mark.parametrize("suffix", ["lock", "txt"])
+def test_runtime_release_includes_optional_native_installation_requirements(suffix):
+    assert is_runtime_relative_path(Path(f"requirements/crc32c.{suffix}"))
 
 
 @pytest.mark.parametrize(

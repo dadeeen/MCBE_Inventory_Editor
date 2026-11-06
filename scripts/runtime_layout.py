@@ -37,6 +37,8 @@ RUNTIME_REQUIREMENT_PATHS = frozenset(
     {
         "requirements/bootstrap.lock",
         "requirements/bootstrap.txt",
+        "requirements/crc32c.lock",
+        "requirements/crc32c.txt",
         "requirements/dev.lock",
         "requirements/dev.txt",
         "requirements/docker.lock",

@@ -80,6 +80,7 @@ COPY templates/ ./templates/
 COPY scripts/__init__.py scripts/update_db.py scripts/update_icons.py ./scripts/
 RUN python -m mcbe_editor.distribution --write-manifest /app \
  && python -c "from mcbe_editor.distribution import distribution_snapshot; status = distribution_snapshot(); assert status['kind'] == 'release', status" \
+ && python -c "from mcbe_editor.leveldb_readonly import _native_crc32c, _crc32c; assert _native_crc32c is not None and _crc32c(b'123456789') == 0xE3069283" \
  && mkdir -p /worlds /data/cache/item_update /data/backups /data/audit \
  && chown -R app:app /app /data /worlds \
  && python -m pip check

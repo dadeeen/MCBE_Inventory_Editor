@@ -259,6 +259,11 @@ def _diagnose(application, server) -> dict:
                 raise RuntimeError(f"Desktop resource check failed: {path}")
             checks[path] = len(body)
     if getattr(sys, "frozen", False):
+        from .leveldb_readonly import _crc32c, _native_crc32c
+
+        if _native_crc32c is None or _crc32c(b"123456789") != 0xE3069283:
+            raise RuntimeError("Packaged native CRC32C check failed")
+        checks["native_crc32c"] = True
         for module in sorted(WORKERS):
             result = run_frozen_update(module, ["--help"], cwd=str(application.APP_ROOT), env=dict(os.environ), timeout=45)
             if result.returncode != 0 or "usage:" not in result.stdout.lower():

@@ -1,5 +1,6 @@
 # Isolated Windows build environment, never installed by browser/Docker setup.
 -r runtime.in
+-r crc32c.in
 -c runtime.txt
 -c dev.txt
 pywebview==6.2.1 ; sys_platform == "win32"

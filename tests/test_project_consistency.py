@@ -35,6 +35,9 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
         "bootstrap.in",
         "bootstrap.lock",
         "bootstrap.txt",
+        "crc32c.in",
+        "crc32c.lock",
+        "crc32c.txt",
         "dev.in",
         "dev.lock",
         "dev.txt",
@@ -65,7 +68,7 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
     runtime_dependencies = [line.strip() for line in _base._read("requirements/runtime.in").splitlines() if line.strip() and not line.lstrip().startswith("#")]
     assert runtime_dependencies == project_dependencies
 
-    for name in ("bootstrap", "runtime", "docker", "dev", "nbt-reference", "leveldb-reference", "desktop-build"):
+    for name in ("bootstrap", "runtime", "crc32c", "docker", "dev", "nbt-reference", "leveldb-reference", "desktop-build"):
         assert _base._read(f"requirements/{name}.lock") == f"-r {name}.txt\n"
 
     # Dependabot cannot run pip-compile, so it can only widen version ceilings

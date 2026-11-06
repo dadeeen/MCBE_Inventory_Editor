@@ -14,6 +14,7 @@ REQUIREMENTS_DIR = ROOT / "requirements"
 LOCK_TARGETS = [
     (REQUIREMENTS_DIR / "bootstrap.in", REQUIREMENTS_DIR / "bootstrap.txt"),
     (REQUIREMENTS_DIR / "runtime.in", REQUIREMENTS_DIR / "runtime.txt"),
+    (REQUIREMENTS_DIR / "crc32c.in", REQUIREMENTS_DIR / "crc32c.txt"),
     (REQUIREMENTS_DIR / "docker.in", REQUIREMENTS_DIR / "docker.txt"),
     (REQUIREMENTS_DIR / "dev.in", REQUIREMENTS_DIR / "dev.txt"),
 ]

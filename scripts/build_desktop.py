@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def ssl_runtime_data_files() -> list[tuple[str, str]]:
+    """Keep the optional CA policy file used by the build interpreter's ssl.py."""
+    policy = Path(ssl.__file__).with_name("codex-rejected-cas.pem")
+    # Frozen ssl.__file__ resolves under _internal, beside this bundled data.
+    return [(str(policy), ".")] if policy.is_file() else []
 
 
 def verify_bundle(directory: Path) -> None:
@@ -76,12 +84,17 @@ def smoke_bundle(directory: Path, temporary: Path) -> None:
         check=False,
     )
     result = json.loads(report.read_text(encoding="utf-8")) if report.is_file() else {}
-    if proc.returncode or result.get("ok") is not True or result.get("checks", {}).get("native_close") is not True:
+    if (
+        proc.returncode
+        or result.get("ok") is not True
+        or result.get("checks", {}).get("native_close") is not True
+        or result.get("checks", {}).get("native_crc32c") is not True
+    ):
         log = temporary / "data" / "desktop.log"
         details = log.read_text(encoding="utf-8")[-8000:] if log.is_file() else "No desktop log was written."
         raise RuntimeError(f"Packaged application check failed: {result}\n{details}")
     smoke_recovery(directory / "MCBEInventoryEditor.exe", temporary, env)
-    print("Packaged assets, updater entry points, native window/close and guarded recovery passed with no Python in PATH.")
+    print("Packaged assets, native CRC32C, updater entry points, native window/close and guarded recovery passed with no Python in PATH.")
 
 
 def smoke_recovery(executable: Path, temporary: Path, env: dict[str, str]) -> None:

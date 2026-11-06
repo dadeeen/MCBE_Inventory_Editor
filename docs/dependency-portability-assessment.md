@@ -9,7 +9,9 @@ free-threaded CPython and alternative interpreters require separate validation.
   the editor with the Python standard library. Amulet-NBT, NumPy and
   Amulet-MUTF8 belong only to the optional reference-test environment.
 - `mcbe_editor/leveldb_readonly.py` and `mcbe_editor/leveldb_writer.py` read
-  and write Bedrock's LevelDB with the standard library. The writer appends
+  and write Bedrock's LevelDB with the standard library, with optional
+  `google-crc32c` acceleration for checksums and the existing Python fallback.
+  Checksum validation and the complete player scan remain enabled. The writer appends
   atomic batches to a new write-ahead log, which Minecraft integrates when it
   next opens the world; see [the writer design](leveldb-writer.md). Write locks,
   backups and rollback checks surround database writes.
@@ -22,6 +24,10 @@ free-threaded CPython and alternative interpreters require separate validation.
 - Requirement sources and hash-locked outputs are under `requirements/`.
   Canonical lock generation uses Python 3.12. Docker uses a pinned
   Python 3.12 base image; CI checks Python 3.12–3.14 on Windows and Linux.
+  Windows desktop release builds use a separate CPython 3.12 environment.
+  Conditional runtime-file packaging for local CPython 3.12 distributions and
+  the shared EXE validation requirements are described in the
+  [desktop build guide](desktop.md#build).
 
 ## Codec contract
 

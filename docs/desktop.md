@@ -1,9 +1,9 @@
 # Portable Windows desktop
 
 The Windows x64 edition hosts the existing Flask application in a pywebview
-window using the installed WebView2 Runtime. PyInstaller bundles standard CPython
-3.12, dependencies and the shared frontend in an onedir package. There is one
-editor implementation across desktop, browser and Docker.
+window using the installed WebView2 Runtime. Release builds use PyInstaller to
+bundle CPython 3.12, dependencies and the shared frontend in an onedir package.
+There is one editor implementation across desktop, browser and Docker.
 
 ## Ownership
 
@@ -112,8 +112,11 @@ an existing output path and never merges a build into a user installation.
 
 ## Build
 
-Use Windows x64 with standard CPython 3.12. A clean environment prevents optional
-GUI frameworks from being collected accidentally. From the repository root:
+Release builds use Windows x64 and CPython 3.12 in a clean, isolated environment,
+matching the desktop CI job and the hash-locked build dependencies. This is the
+reference desktop build configuration; the browser/source runtime supports
+CPython 3.12–3.14. A clean build environment prevents optional GUI frameworks from
+being collected accidentally. From the repository root:
 
 ```powershell
 py -3.12 -m venv .tmp/desktop-build
@@ -127,6 +130,17 @@ The small pure-Python `proxy-tools` dependency publishes only a source archive.
 Its source hash is pinned; it is built using the already locked setuptools/wheel
 environment with build isolation disabled. Other packages use wheels. No build
 tool or package installation runs on the end user's machine.
+
+Local builds can use CPython 3.12 distributions with additional runtime data when
+the packaging rules include those required files. Their EXEs must pass the same
+packaged window, updater and recovery checks as release builds.
+
+The packaging rules conditionally include `codex-rejected-cas.pem` when it is
+present beside the build interpreter's `ssl.py`. This supports the runtime CA
+policy used by the Codex Python distribution. The file stays beside the frozen
+`ssl` module, preserving that interpreter's certificate policy and verification.
+The compatibility handling applies only when the file is present; unrelated
+certificate files from the build machine are excluded.
 
 The EXE embeds `packaging/windows/app.ico` (16–256 px, including common DPI sizes).
 Its source image is `app-icon.png` in the same directory; changing the icon requires

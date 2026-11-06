@@ -1,0 +1,2 @@
+# Optional native checksums; the core runtime retains its Python fallback.
+google-crc32c==1.9.0

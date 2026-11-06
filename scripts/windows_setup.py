@@ -33,11 +33,15 @@ def install(root: Path) -> None:
     environment = Path(sys.prefix).resolve()
     if environment != (root / ".venv").resolve() or not environment.is_relative_to(root.resolve()):
         raise ValueError("Run setup.bat to install exclusively into this project's .venv")
-    for name in ("bootstrap", "runtime"):
+    # Check the interpreter's wheel platform, not the host CPU: 32-bit Python
+    # on x64 Windows must remain installable without an unavailable native wheel.
+    native_crc32c = sysconfig.get_platform() == "win-amd64"
+    requirements = ("bootstrap", "runtime", "crc32c") if native_crc32c else ("bootstrap", "runtime")
+    for name in requirements:
         if not all((root / "requirements" / f"{name}.{suffix}").is_file() for suffix in ("lock", "txt")):
             raise ValueError(f"Missing hash-locked requirements/{name}.lock or {name}.txt")
     print(f"Installing runtime wheels for Python {platform.python_version()}", flush=True)
-    for name in ("bootstrap", "runtime"):
+    for name in requirements:
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--only-binary=:all:", "--require-hashes", "-r", f"requirements/{name}.lock"],
             cwd=root,
@@ -45,8 +49,13 @@ def install(root: Path) -> None:
         )
     subprocess.run([sys.executable, "-m", "pip", "check"], cwd=root, check=True)
     # A fresh process sees newly installed packages and detects broken imports.
+    import_check = "import flask, waitress; from mcbe_editor.db import LevelDbAdapter; from mcbe_editor import nbt"
+    if native_crc32c:
+        import_check += (
+            "; from mcbe_editor.leveldb_readonly import _native_crc32c, _crc32c; assert _native_crc32c is not None and _crc32c(b'123456789') == 0xE3069283"
+        )
     subprocess.run(
-        [sys.executable, "-c", "import flask, waitress; from mcbe_editor.db import LevelDbAdapter; from mcbe_editor import nbt"],
+        [sys.executable, "-c", import_check],
         cwd=root,
         check=True,
     )

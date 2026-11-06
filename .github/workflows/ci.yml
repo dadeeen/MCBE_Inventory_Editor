@@ -98,7 +98,9 @@ jobs:
       - name: Verify application environment has no native references
         run: python -c "import importlib.util; assert all(importlib.util.find_spec(name) is None for name in ('leveldb', 'amulet_nbt', 'numpy', 'Cython'))"
       - name: Smoke checks
-        run: MCBE_SMOKE_IMPORT_APP=true python scripts/smoke_check.py
+        run: |
+          python -c "from mcbe_editor.leveldb_readonly import _native_crc32c, _crc32c; assert _native_crc32c is not None and _crc32c(b'123456789') == 0xE3069283"
+          MCBE_SMOKE_IMPORT_APP=true python scripts/smoke_check.py
       - name: Tests
         run: python scripts/test_full.py -v
       - name: Backend combined line and branch coverage

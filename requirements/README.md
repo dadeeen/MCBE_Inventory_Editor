@@ -3,6 +3,12 @@
 The editor supports Python 3.12–3.14. Shared locks are generated on Python 3.12.
 
 - `runtime.in` contains the direct runtime dependencies and matches `pyproject.toml`.
+- `crc32c.in` pins the optional native checksum accelerator. Docker, dev and
+  desktop builds include it; Windows setup installs it for x64 Python. Other
+  architectures retain the existing Python checksum implementation. For a
+  source runtime on a platform with a published wheel, install it with
+  `python -m pip install --only-binary=:all: --require-hashes -r requirements/crc32c.lock`.
+  All checksum validations remain enabled.
 - `docker.in` and `dev.in` extend runtime for Docker and development/CI.
 - `desktop-build.in` extends runtime for the Windows EXE build. It is separate
   from browser/Docker installations and constrained by the existing runtime/dev
@@ -56,7 +62,7 @@ python scripts/test_full.py --require-references -q
 Normal environments contain no Amulet, NumPy or Cython. Windows setup installs
 only prebuilt hash-checked wheels; no compiler, SDK or LevelDB bundle is needed.
 Docker verifies downloads in a separate stage and installs runtime wheels offline.
-The runtime ZIP includes only bootstrap/runtime/docker/dev lockfiles needed for
+The runtime ZIP includes only bootstrap/runtime/crc32c/docker/dev lockfiles needed for
 installation and auditing. Reference locks, requirement sources and maintainer
 documentation stay in the full Git source tree. Setup does not remove optional
 packages from existing environments; validate minimal runtime installs in fresh
