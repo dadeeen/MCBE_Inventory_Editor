@@ -116,6 +116,7 @@ jobs:
 
   browser-smoke:
     name: Browser smoke tests
+    timeout-minutes: 40
     # Keep browser dependencies on an explicitly supported Ubuntu release.
     runs-on: ubuntu-24.04
     steps:
@@ -132,9 +133,20 @@ jobs:
           python -m pip install --require-hashes -r requirements/bootstrap.lock
           python -m pip install --only-binary=:all: --require-hashes -r requirements/dev.lock
       - name: Install browser test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit browser test dependencies
+        run: npm audit --audit-level=high
+      - name: Verify browser dependency signatures and provenance
+        run: npm audit signatures
+      - name: Install managed Chromium
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Prepare Chromium sandbox permissions
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          profile="$RUNNER_TEMP/mcbe-playwright.apparmor"
+          python scripts/browser_sandbox.py --profile "$profile"
+          if [ -f "$profile" ]; then
+            sudo apparmor_parser --replace "$profile"
+          fi
       - name: JavaScript unit tests
         run: npm run test:javascript
       - name: Browser smoke tests

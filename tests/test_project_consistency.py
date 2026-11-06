@@ -74,8 +74,11 @@ def test_requirements_are_grouped_without_legacy_plaintext_fallbacks():
     # Dependabot cannot run pip-compile, so it can only widen version ceilings
     # in pyproject.toml and the .in files while the hash-pinned lockfiles keep
     # installing the old version -- a green pipeline that proves nothing.
-    # Dependency updates stay deliberate; SECURITY.md documents the procedure.
-    assert not (_base.ROOT / ".github" / "dependabot.yml").exists()
+    # Python updates stay deliberate; npm can update its own lockfile safely.
+    dependabot = _base._read(".github/dependabot.yml")
+    assert dependabot.count("package-ecosystem:") == 1
+    assert "package-ecosystem: npm" in dependabot
+    assert "interval: weekly" in dependabot
 
     dockerignore = _base._read(".dockerignore")
     assert "requirements/*.in" in dockerignore
