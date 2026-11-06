@@ -1,9 +1,8 @@
-## What's changed in v0.8.7
+## What's changed in v0.8.8
 
-- Correct German and English item and variant names. Updates replace fallback names when Mojang provides a translation and keep custom names in each language.
-- Keep installed icons if the item database is damaged. When block mappings change, the editor can recheck them using the cached resource pack.
-- Show a short update result in setup and tools. Open **Show details** to see why an update failed or only some data was saved.
-- Preserve the selected keyboard action in the backup restore confirmation dialog.
+- Speed up world database checksum verification on Windows x64 and in Docker.
+- Include the SSL runtime required for HTTPS updates in the Windows desktop app.
+- Preserve keyboard focus in the backup restore confirmation dialog.
 
 ## Updating
 
@@ -13,4 +12,4 @@ The unsigned Windows app (`_windows_x64.zip`) requires WebView2. For the browser
 
 Back up your world and stop Minecraft or the Bedrock server before editing.
 
-[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.7/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.7/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.7/SECURITY.md)
+[README](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.8/README.md) · [Deutsch](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.8/README.de.md) · [Security](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/v0.8.8/SECURITY.md)
