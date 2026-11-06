@@ -335,7 +335,11 @@
                 confirmInput?.addEventListener("input", onInput);
                 document.addEventListener("keydown", onKeyDown);
                 overlay.style.display = "flex";
-                focusTimer = setTimeout(() => confirmInput?.focus(), 40);
+                focusTimer = setTimeout(() => {
+                    // A fast keyboard user may already have chosen another
+                    // control before the initial focus delay finishes.
+                    if (!overlay.contains(document.activeElement)) confirmInput?.focus();
+                }, 40);
             });
         }
 

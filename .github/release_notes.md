@@ -3,6 +3,7 @@
 - Correct German and English item and variant names. Updates replace fallback names when Mojang provides a translation and keep custom names in each language.
 - Keep installed icons if the item database is damaged. When block mappings change, the editor can recheck them using the cached resource pack.
 - Show a short update result in setup and tools. Open **Show details** to see why an update failed or only some data was saved.
+- Preserve the selected keyboard action in the backup restore confirmation dialog.
 
 ## Updating
 
