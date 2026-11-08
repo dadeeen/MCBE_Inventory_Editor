@@ -561,6 +561,7 @@ class BedrockEditorService:
         pre_write_check: WriteCheck | None = None,
         extra_batch_builder: ExtraBatchBuilder | None = None,
         extra_batch_validator: ExtraBatchValidator | None = None,
+        extra_batch_reopen_validator: ExtraBatchValidator | None = None,
     ) -> SaveResult:
         with self._locked_world(world_path):
             ensure_valid_world_path(world_path)
@@ -712,6 +713,8 @@ class BedrockEditorService:
                         db = None
 
                 try:
+                    if pre_write_check:
+                        pre_write_check()
                     backup_file = create_backup(world_path, prune_after=False)
                 except PermissionError as exc:
                     raise ValueError(
@@ -746,6 +749,8 @@ class BedrockEditorService:
                     extra_writes = dict(extra_batch.get("writes") or {})
                     if player_changed:
                         extra_writes[player_key] = serialized_bytes
+                    if pre_write_check:
+                        pre_write_check()
                     if extra_batch_builder:
                         if not extra_writes:
                             raise ValueError("Speichern abgelehnt: Der gemeinsame Schreibplan ist leer.")
@@ -787,6 +792,17 @@ class BedrockEditorService:
                         )
                     finally:
                         db = None
+                    if extra_batch_reopen_validator:
+                        verify_db = None
+                        try:
+                            verify_db = self._open_db_readonly(world_path)
+                            extra_batch_reopen_validator(verify_db, extra_batch)
+                        except Exception as exc:
+                            post_write_errors.append(
+                                step_failure_text("Nachprüfung der gespeicherten Welt fehlgeschlagen", exc, context="workspace.save reopen")
+                            )
+                        finally:
+                            close_db_preserving_active_exception(verify_db, context="Workspace-Nachprüfung")
                     try:
                         prune_backups(world_path, keep_paths=[backup_file])
                     except Exception as exc:

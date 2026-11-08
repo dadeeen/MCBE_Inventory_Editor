@@ -13,8 +13,8 @@
 
     function viewAllowed(view, context = {}) {
         if (view === "world" || view === "tools") return true;
-        if (view === "player") return Boolean(context.worldPath);
-        if (view === "inventory" || view === "player-edit" || view === "save") return hasLoadedEditablePlayer(context);
+        if (view === "player" || view === "villagers" || view === "save") return Boolean(context.worldPath);
+        if (view === "inventory" || view === "player-edit") return hasLoadedEditablePlayer(context);
         if (view === "mounts") return hasLoadedMountReferencePlayer(context);
         return false;
     }
@@ -32,6 +32,7 @@
             inventory: t("Inventar bearbeiten"),
             "player-edit": t("Spielerdaten bearbeiten"),
             mounts: t("Mounts erzeugen"),
+            villagers: t("Dorfbewohner verwalten"),
             save: t("Änderungen prüfen & speichern"),
             tools: t("Tools & Diagnose"),
         }[view] || t("Arbeitsbereich");
@@ -39,9 +40,9 @@
 
     function disabledReason(view, context = {}) {
         if (view === "world") return t("Welt suchen oder wechseln.");
-        if (view === "player" && !context.worldPath) return t("Lade zuerst eine Welt.");
+        if ((view === "player" || view === "villagers" || view === "save") && !context.worldPath) return t("Lade zuerst eine Welt.");
         if (view === "tools") return t("Diagnose, Icons, Backups und technische Details öffnen.");
-        if ((view === "inventory" || view === "player-edit" || view === "save") && !hasLoadedEditablePlayer(context)) return t("Lade zuerst einen bearbeitbaren Spieler.");
+        if ((view === "inventory" || view === "player-edit") && !hasLoadedEditablePlayer(context)) return t("Lade zuerst einen bearbeitbaren Spieler.");
         if (view === "mounts" && !hasLoadedMountReferencePlayer(context)) return t("Lade zuerst einen Spieler.");
         if (view === "save" && context.hasPendingSlotDraft) return t("Eingaben offen");
         if (view === "save" && !context.isDirty) return t("Keine ungespeicherten Änderungen.");
@@ -49,9 +50,9 @@
     }
 
     function unavailableMessage(view) {
-        if (view === "inventory" || view === "player-edit" || view === "save") return t("Lade zuerst einen bearbeitbaren Spieler.");
+        if (view === "inventory" || view === "player-edit") return t("Lade zuerst einen bearbeitbaren Spieler.");
         if (view === "mounts") return t("Lade zuerst einen Spieler.");
-        if (view === "player") return t("Lade zuerst eine Welt.");
+        if (view === "player" || view === "villagers" || view === "save") return t("Lade zuerst eine Welt.");
         return t("Dieser Arbeitsbereich ist aktuell nicht verfügbar.");
     }
 
@@ -119,7 +120,7 @@
                 // A resize must not restore an old inventory toggle over the
                 // currently selected workflow (for example the player page).
                 const workflowPanel = ["world", "save"].includes(view) ? "left"
-                    : ["player", "player-edit", "mounts", "tools"].includes(view) ? "right" : null;
+                    : ["player", "player-edit", "mounts", "villagers", "tools"].includes(view) ? "right" : null;
                 activatePanel(workflowPanel || activeToggle?.dataset.panel || "left");
             } else {
                 toggles.forEach(btn => { btn.style.display = "none"; });
@@ -153,6 +154,7 @@
         renderSaveWorkflowPanel = () => {},
         renderToolsDashboard = () => {},
         renderMountsPanel = () => {},
+        renderVillagersPanel = () => {},
         guardSaveView = () => false,
     } = {}) {
         const buttons = Array.from(navButtons || []);
@@ -207,6 +209,7 @@
             if (activeView === "save") renderSaveWorkflowPanel();
             if (activeView === "tools") renderToolsDashboard();
             if (activeView === "mounts") renderMountsPanel();
+            if (activeView === "villagers") renderVillagersPanel();
 
             if (scroll) {
                 const target = getScrollTarget(activeView) || doc.body;
@@ -243,6 +246,7 @@
         onSaveView = () => {},
         onToolsView = () => {},
         onMountsView = () => {},
+        onVillagersView = () => {},
         guardSaveView = () => false,
     } = {}) {
         const responsivePanelController = createResponsivePanelController({
@@ -264,6 +268,7 @@
             getScrollTarget: view => view === "world" ? (targets.world || doc.body)
                 : view === "player" ? targets.player
                 : view === "mounts" ? targets.mounts
+                : view === "villagers" ? targets.villagers
                 : view === "save" ? targets.save
                 : view === "tools" || view === "player-edit" ? targets.tools
                 : targets.inventory,
@@ -271,6 +276,7 @@
             renderSaveWorkflowPanel: onSaveView,
             renderToolsDashboard: onToolsView,
             renderMountsPanel: onMountsView,
+            renderVillagersPanel: onVillagersView,
             guardSaveView,
         });
         workflowShellController.wireNav();
@@ -313,6 +319,7 @@
                 player: doc.getElementById("playerManager"),
                 inventory: inventoryContainer,
                 mounts: doc.getElementById("mountsPanel"),
+                villagers: doc.getElementById("villagersPanel"),
                 save: doc.getElementById("saveWorkflowPanel"),
                 tools: doc.getElementById("dashboardPanel"),
             },
@@ -321,6 +328,7 @@
             onSaveView: actions.onSaveView,
             onToolsView: actions.onToolsView,
             onMountsView: actions.onMountsView,
+            onVillagersView: actions.onVillagersView,
             guardSaveView: actions.guardSaveView,
         });
     }
@@ -377,6 +385,7 @@
         hasSelection = selection => Boolean(selection),
         clearSelection = () => {},
         showToast = () => {},
+        handleWorkspaceShortcut = () => false,
     } = {}) {
         function handleKeydown(event) {
             // Modal dialogs make the page inert, but document listeners still
@@ -385,6 +394,7 @@
                 if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") event.preventDefault();
                 return;
             }
+            if (handleWorkspaceShortcut(event)) return;
             const isEditableTarget = isEditableTextTarget(event.target);
             const key = event.key.toLowerCase();
             if ((event.ctrlKey || event.metaKey) && key === "z" && !event.shiftKey && !isEditableTarget) {
@@ -448,6 +458,7 @@
             hasSelection: selection.hasSelection,
             clearSelection: selection.clearSelection,
             showToast: helpers.showToast,
+            handleWorkspaceShortcut: actions.handleWorkspaceShortcut,
         });
     }
 

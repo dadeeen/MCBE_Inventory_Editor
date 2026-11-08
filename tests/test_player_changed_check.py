@@ -172,6 +172,13 @@ def test_the_presence_poll_only_reports_the_fingerprint_of_a_watched_player(pres
     presence.service.stored_player_revision.assert_not_called()
 
 
+def test_world_workspaces_can_watch_a_fingerprint_without_loading_a_player(presence):
+    result = presence.post(player_key="", watch_world=True)
+    assert result["world_fingerprint"] == "now"
+    assert "player_revision" not in result
+    presence.service.stored_player_revision.assert_not_called()
+
+
 def test_the_player_is_read_once_the_changed_world_stayed_the_same_for_a_poll(presence):
     # Just changed: the program that changed it may still be writing.
     first = presence.post(fingerprint_baseline="then", fingerprint_seen="")

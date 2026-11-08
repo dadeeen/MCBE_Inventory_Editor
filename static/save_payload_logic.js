@@ -128,6 +128,7 @@
         }
 
         function buildChangedStatsPayload() {
+            if (typeof getCurrentPlayerKey === "function" && !getCurrentPlayerKey()) return {};
             const before = getCleanSnapshot()?.stats || {};
             const current = getPlayerStats() || {};
             const statsPayload = {};
@@ -231,6 +232,10 @@
         }
 
         function buildSavePayload() {
+            if (!getCurrentPlayerKey()) return {
+                world_path: getWorldPath(), session_id: getWorldPresenceSessionId(),
+                server_guard_epoch: getServerGuardEpoch(), server_guard_token: getServerGuardToken(),
+            };
             const collectedAbilities = syncPendingEditorStateForSave();
             const inventory = getInventory();
             const enderChestInventory = getEnderChestInventory();

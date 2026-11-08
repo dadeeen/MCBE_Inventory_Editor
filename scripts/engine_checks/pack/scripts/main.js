@@ -4,6 +4,8 @@ import { referenceItem, snapshot } from "./items.js";
 import { measureMatrix } from "./matrix.js";
 import { runBehaviors } from "./behavior.js";
 import { clientRoundtrip } from "./client.js";
+import { villagerRoundtrip } from "./villagers.js";
+import { villageRoundtrip } from "./village.js";
 
 let sequence = 0;
 const totals = { items: 0, cases: 0, errors: 0 };
@@ -94,7 +96,7 @@ world.afterEvents.worldLoad.subscribe(() => {
     started = true;
     emit("begin");
     const task = config.phase === "catalog" || config.phase === "addon_catalog" ? catalog() : config.phase === "matrix" ? measureMatrix(config, emit) :
-        config.client_profile ? clientRoundtrip(config, emit) : roundtrip();
+        config.village_profile ? villageRoundtrip(config, emit) : config.client_profile ? clientRoundtrip(config, emit) : config.villager_profile ? villagerRoundtrip(config, emit) : roundtrip();
     function advance() {
         try {
             for (let budget = 0; budget < 25; budget++) {
@@ -109,11 +111,16 @@ world.afterEvents.worldLoad.subscribe(() => {
         }
     }
     system.run(() => {
-        if (config.client_profile || ["catalog", "addon_catalog", "matrix"].includes(config.phase)) { advance(); return; }
+        if (config.client_profile || config.village_profile || ["catalog", "addon_catalog", "matrix"].includes(config.phase)) { advance(); return; }
         const count = new Set(config.cases.map(test => test.carrier)).size;
+        const area = config.villager_profile ? {
+            from: { x: 0, y: 64, z: 0 }, to: { x: 40, y: 90, z: Math.ceil(config.cases.length / 5) * 8 },
+        } : {
+            from: { x: 0, y: 64, z: 0 }, to: { x: 47, y: 68, z: Math.floor((count - 1) / 16) * 3 },
+        };
         world.tickingAreaManager.createTickingArea("engine_probe", {
             dimension: world.getDimension("overworld"),
-            from: { x: 0, y: 64, z: 0 }, to: { x: 47, y: 68, z: Math.floor((count - 1) / 16) * 3 },
+            ...area,
         }).then(() => system.run(advance), error => {
             emit("error", { message: String(error) });
             emit("done", totals);

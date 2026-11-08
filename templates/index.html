@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='mount_model_preview.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='special_item_editor.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='nbt_inspector.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='villagers.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script id="appConfigJson" type="application/json">{{ app_config | tojson }}</script>
     <script id="i18nCatalog" type="application/json">{{ i18n_catalog | tojson }}</script>
@@ -28,6 +29,7 @@
                 <button type="button" data-workflow-view="inventory" disabled>{{ t("Inventar") }}</button>
                 <button type="button" class="layout-player-editor-link" data-workflow-view="player-edit" disabled>{{ t("Spielerdaten") }}</button>
                 <button type="button" data-workflow-view="mounts" disabled>Mounts</button>
+                <button type="button" data-workflow-view="villagers" disabled>{{ t("Dorfbewohner") }}</button>
                 <button type="button" data-workflow-view="save" disabled>{{ t("Speichern") }}</button>
                 <span class="nav-separator" aria-hidden="true"></span>
                 <button type="button" data-workflow-view="tools">{{ t("Werkzeuge") }}</button>
@@ -423,12 +425,11 @@
                     <div class="card-header save-workflow-header">
                         <div>
                             <h2 data-view-landing="save" tabindex="-1">{{ t("Speichern prüfen") }}</h2>
-                            <p class="section-subtitle">{{ t("Nur geänderte Bereiche werden geschrieben. Andere Spielerdaten bleiben unverändert.") }}</p>
                         </div>
                         <button id="btnSaveWorkflowRefresh" class="btn-text" type="button">{{ t("Neu prüfen") }}</button>
                     </div>
                     <div id="saveWorkflowSummary" class="save-workflow-summary">
-                        <div class="no-backups">{{ t("Lade zuerst einen Spieler und bearbeite Slots, Effekte, Fähigkeiten oder Stats.") }}</div>
+                        <div class="no-backups">{{ t("Lade zuerst eine Welt.") }}</div>
                     </div>
                     <details class="decision-log-panel" id="saveDecisionDetails">
                         <summary>{{ t("Diagnose-Schreibplan") }} <span>{{ t("Warum wird etwas geschrieben, ausgelassen oder blockiert?") }}</span></summary>
@@ -503,6 +504,8 @@
                     <div id="mountPendingPanel" aria-live="polite"></div>
                     <div id="mountCreateStatus" role="status" aria-live="polite" aria-atomic="true"></div>
                 </section>
+
+                {% include "villagers.html" %}
 
                 <!-- Instruction state (when nothing loaded) -->
                 <div class="glass-card empty-state" id="emptyState">
@@ -1662,6 +1665,12 @@
     <script src="{{ url_for('static', filename='mount_model_preview.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_view.js') }}"></script>
     <script src="{{ url_for('static', filename='mount_controller.js') }}"></script>
+    <script src="{{ url_for('static', filename='villager_model.js') }}"></script>
+    <script src="{{ url_for('static', filename='villager_inventory.js') }}"></script>
+    <script src="{{ url_for('static', filename='villager_api.js') }}"></script>
+    <script src="{{ url_for('static', filename='villager_map.js') }}"></script>
+    <script src="{{ url_for('static', filename='villager_view.js') }}"></script>
+    <script src="{{ url_for('static', filename='villager_controller.js') }}"></script>
     <script src="{{ url_for('static', filename='presence_view.js') }}"></script>
     <script src="{{ url_for('static', filename='restore_review.js') }}"></script>
     <script src="{{ url_for('static', filename='scan_paths_view.js') }}"></script>

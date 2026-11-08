@@ -285,10 +285,11 @@ def _decode_length_prefixed(data: bytes, pos: int) -> tuple[bytes, int]:
 
 
 def _split_internal_key(internal_key: bytes) -> tuple[bytes, int, int]:
-    if len(internal_key) < 8:
+    tail_offset = len(internal_key) - 8
+    if tail_offset < 0:
         raise CorruptDatabaseError("Interner Schlüssel ist zu kurz.")
-    user_key = internal_key[:-8]
-    tail = struct.unpack("<Q", internal_key[-8:])[0]
+    user_key = internal_key[:tail_offset]
+    tail = struct.unpack_from("<Q", internal_key, tail_offset)[0]
     entry_type = tail & 0xFF
     if entry_type not in (_TYPE_DELETION, _TYPE_VALUE):
         raise CorruptDatabaseError("Unbekannter Eintragstyp im internen SST-Schlüssel.")
@@ -484,9 +485,19 @@ def _iter_block_entries(block: bytes):
     pos = 0
     key = b""
     while pos < data_end:
-        shared, pos = _decode_varint(block, pos)
-        non_shared, pos = _decode_varint(block, pos)
-        value_len, pos = _decode_varint(block, pos)
+        # Key lengths usually fit in one byte. Avoid two general varint calls
+        # per entry, retaining that decoder for long lengths and short headers.
+        if pos + 3 <= data_end and block[pos] < 128 and block[pos + 1] < 128:
+            shared = block[pos]
+            non_shared = block[pos + 1]
+            value_len = block[pos + 2]
+            pos += 3
+            if value_len >= 128:
+                value_len, pos = _decode_varint(block, pos - 1)
+        else:
+            shared, pos = _decode_varint(block, pos)
+            non_shared, pos = _decode_varint(block, pos)
+            value_len, pos = _decode_varint(block, pos)
         if shared > len(key) or pos + non_shared + value_len > data_end:
             raise CorruptDatabaseError("Ungültiger Eintrag im Tabellenblock.")
         key = key[:shared] + block[pos : pos + non_shared]

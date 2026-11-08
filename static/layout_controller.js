@@ -30,6 +30,10 @@
             title: "Mounts (experimentell)",
             description: "Optionaler Bereich: Mounts erstellen und prüfen. Nicht nötig für andere Änderungen.",
         },
+        villagers: {
+            title: "Dorfbewohner verwalten",
+            description: "Gespeicherte Bewohner finden, Regionen zuordnen und Gesundheitswerte sicher bearbeiten.",
+        },
         save: {
             title: "Änderungen prüfen & speichern",
             description: "Prüfe vorgemerkte Änderungen und speichere mit vorherigem Backup.",

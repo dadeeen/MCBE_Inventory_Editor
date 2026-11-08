@@ -1,6 +1,6 @@
 """Bounded, resumable read jobs with private cross-process result storage.
 
-Only the two world/player read routes opt in. A client-generated identifier
+World/player and villager read routes opt in. A client-generated identifier
 deduplicates retries even when the initial HTTP response is lost. Short polls
 renew a lease; abandoned reads stop at cooperative checkpoints. Results expire
 and are scoped to the requesting CSRF session, never a persistent world cache.

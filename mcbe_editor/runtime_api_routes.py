@@ -97,13 +97,16 @@ def _loaded_player_check(data: dict, world_path: str, deps: RuntimeRouteDeps) ->
 
     baseline = data.get("fingerprint_baseline")
     player_key = data.get("player_key")
-    if not isinstance(baseline, str) or not baseline or not isinstance(player_key, str) or not player_key:
+    watched_player = isinstance(baseline, str) and bool(baseline) and isinstance(player_key, str) and bool(player_key)
+    if not watched_player and data.get("watch_world") is not True:
         return {}
     try:
         fingerprint = deps.world_fingerprint(world_path)
     except OSError:
         return {}
     result: dict = {"world_fingerprint": fingerprint}
+    if not watched_player:
+        return result
     if fingerprint == baseline or fingerprint != data.get("fingerprint_seen"):
         return result
     if deps.require_world_db_access_allowed() is not None:

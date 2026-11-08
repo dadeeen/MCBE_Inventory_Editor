@@ -31,11 +31,11 @@ def test_frontend_save_workflow_view_empty_states_are_owned_by_view_module() -> 
             const view = context.window.MCBESaveWorkflowView;
             assert.strictEqual(
                 view.emptyWorkflowHtml(),
-                '<div class="no-backups">Lade zuerst einen bearbeitbaren Spieler. Danach zeigt dieser Schritt exakt, welche Bereiche geschrieben werden.</div>',
+                '<div class="no-backups">Lade zuerst eine Welt.</div>',
             );
             assert.strictEqual(
                 view.emptyDecisionLogHtml(),
-                '<div class="no-backups">Noch kein Spieler geladen. Es gibt deshalb keinen Schreibplan.</div>',
+                '<div class="no-backups">Lade zuerst eine Welt.</div>',
             );
             assert.strictEqual(
                 view.decisionLogHtml([]),

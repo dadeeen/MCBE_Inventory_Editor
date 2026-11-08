@@ -1,0 +1,124 @@
+<section id="villagersPanel" class="glass-card villagers-panel" aria-labelledby="villagersTitle">
+    <header class="villager-heading">
+        <div><h2 id="villagersTitle" data-view-landing="villagers" tabindex="-1">{{ t("Dorfbewohner") }}</h2><p id="villagerWorldLabel" class="villager-world-label"></p></div>
+        <div class="villager-actions"><span id="villagerDraftStatus" class="villager-draft-status" role="status" hidden></span><button type="button" id="villagerScan" class="btn btn-secondary btn-sm">{{ t("Dorfbewohner suchen") }}</button><button type="button" id="villagerCancelScan" class="btn btn-secondary btn-sm" hidden>{{ t("Suche abbrechen") }}</button></div>
+    </header>
+    <div id="villagerScanProgress" class="villager-progress" hidden><progress aria-label="{{ t('Dorfbewohner suchen') }}"></progress><span id="villagerProgressText" role="status" aria-live="polite"></span></div>
+    <div id="villagerStatus" class="villager-notice" role="status" aria-live="polite" hidden></div>
+    <section id="villagerPending" class="villager-notice" aria-labelledby="villagerPendingTitle" hidden>
+        <h3 id="villagerPendingTitle">{{ t("Zum Speichern vorgemerkt") }}</h3>
+        <p>{{ t("Ein erneuter Scan verwirft die Vormerkungen.") }}</p>
+        <div id="villagerPendingRows"></div>
+        <button type="button" id="villagerReviewPending" class="btn btn-primary btn-sm">{{ t("Zum Speichern") }}</button>
+    </section>
+    <div id="villagerStale" class="villager-notice warning" role="alert" hidden></div>
+    <p id="villagerWriteGate" class="villager-notice warning" hidden></p>
+    <div id="villagerEmpty" class="villager-empty"><h3>{{ t("Alle Bewohner deiner Welt im Blick") }}</h3><p>{{ t("Der Scan liest gespeicherte Dorfbewohner aller Dimensionen. Ein Namensschild oder eine manuelle Registrierung ist nicht nötig.") }}</p></div>
+    <div id="villagerResults" hidden>
+        <div class="villager-filters">
+            <div class="villager-main-filters">
+                <label class="villager-search">{{ t("Suchen") }}<input id="villagerSearch" type="search" autocomplete="off" placeholder="{{ t('Name, Beruf oder Koordinaten …') }}" aria-description="{{ t('Auch eindeutige IDs, Handelsstufen und Regionen werden durchsucht.') }}"></label>
+                <label>{{ t("Beruf") }}<select id="villagerProfession"><option value="">{{ t("Alle Berufe") }}</option></select></label>
+                <label>{{ t("Region") }}<select id="villagerRegion"><option value="">{{ t("Alle Regionen") }}</option></select></label>
+                <label class="villager-check villager-injured-filter"><input id="villagerOnlyInjured" type="checkbox"><span>{{ t("Nur Verletzte") }} <span id="villagerInjured" class="villager-count"></span></span></label>
+            </div>
+            <div class="villager-filter-footer">
+                <details id="villagerMoreFilters" class="villager-more-filters">
+                    <summary><span>{{ t("Weitere Filter") }}</span><span id="villagerMoreFilterCount" class="villager-count" hidden></span></summary>
+                    <div class="villager-extra-filters">
+                        <label>{{ t("Handelsstufe") }}<select id="villagerTier"><option value="">{{ t("Alle Handelsstufen") }}</option></select></label>
+                        <label>{{ t("Dimension") }}<select id="villagerDimension"><option value="">{{ t("Alle Dimensionen") }}</option></select></label>
+                        <label class="villager-check"><input id="villagerOnlyEditable" type="checkbox">{{ t("Nur bearbeitbare") }}</label>
+                    </div>
+                </details>
+                <div id="villagerActiveFilters" class="villager-active-filters" aria-label="{{ t('Aktive Filter') }}" hidden></div>
+                <button type="button" id="villagerResetFilters" class="btn-text" hidden>{{ t("Zurücksetzen") }}</button>
+            </div>
+        </div>
+        <div class="villager-list-toolbar">
+            <p id="villagerResultInfo" class="villager-result-info" role="status"><span id="villagerTotal">0</span> {{ t("Bewohner") }}</p>
+            <div class="villager-list-tools">
+                <button type="button" id="villagerMapToggle" class="btn-text villager-tool-toggle" aria-controls="villagerMapPanel" aria-expanded="false">{{ t("Karte") }}</button>
+                <button type="button" id="villagerRegionsToggle" class="btn-text villager-tool-toggle" aria-controls="villagerRegionsPanel" aria-expanded="false">{{ t("Regionen") }}<span id="villagerRegionDraftMark" class="villager-draft-dot" hidden aria-label="{{ t('Ungespeicherte Eingaben') }}">•</span></button>
+                <div class="villager-sort-controls"><label for="villagerSort" class="visually-hidden">{{ t("Sortieren") }}</label><select id="villagerSort" aria-label="{{ t('Sortieren') }}"><option value="name">{{ t("Name") }}</option><option value="profession">{{ t("Beruf") }}</option><option value="tier">{{ t("Handelsstufe") }}</option><option value="health">{{ t("Gesundheit") }}</option><option value="region">{{ t("Region") }}</option><option value="dimension">{{ t("Dimension") }}</option></select><button type="button" id="villagerSortDirection" class="btn-text" aria-label="{{ t('Absteigend sortieren') }}">↑</button></div>
+            </div>
+        </div>
+        <section id="villagerMapPanel" class="villager-tool-panel" aria-labelledby="villagerMapToggle" hidden>
+            <div class="villager-map-layout">
+                <div class="villager-map-toolbar">
+                    <div class="villager-map-options">
+                        <label>{{ t("Kartendimension") }}<select id="villagerMapDimension"><option value="0">{{ t("Oberwelt") }}</option><option value="1">{{ t("Nether") }}</option><option value="2">{{ t("Ende") }}</option></select></label>
+                        <label>{{ t("Spieler auf der Karte") }}<select id="villagerMapPlayers"><option value="selected">{{ t("Ausgewählter Spieler") }}</option><option value="all">{{ t("Alle Spieler") }}</option><option value="none">{{ t("Keine Spieler") }}</option></select></label>
+                    </div>
+                    <details class="villager-map-help"><summary>{{ t("Kartenbedienung") }}</summary><p class="hint-text">{{ t("Die Karte zeigt die gefilterte Liste. Ein Punkt öffnet den zugehörigen Bewohner.") }}</p><p id="villagerMapHelp" class="hint-text">{{ t("Mausrad: zoomen · Ziehen: verschieben · Touch: mit zwei Fingern zoomen und verschieben. Tastatur: + / −, Pfeiltasten, Pos1.") }}</p></details>
+                    <p class="hint-text">{{ t("Grün: Dorfbewohner · Orange: verletzt · Umrandung: ausgewählt") }}</p>
+                    <p id="villagerMapPlayerHint" class="hint-text"></p>
+                    <p id="villagerMapCaption" class="hint-text"></p>
+                </div>
+                <div class="villager-map-canvas">
+                    <div class="villager-map-controls" role="group" aria-label="{{ t('Kartenausschnitt') }}">
+                        <button type="button" id="villagerMapZoomIn" class="btn btn-secondary btn-sm" aria-label="{{ t('Vergrößern') }}">+</button>
+                        <button type="button" id="villagerMapZoomOut" class="btn btn-secondary btn-sm" aria-label="{{ t('Verkleinern') }}">−</button>
+                        <output id="villagerMapZoom" aria-label="{{ t('Kartenzoom') }}">100 %</output>
+                        <button type="button" id="villagerMapFit" class="btn btn-secondary btn-sm">{{ t("Alle anzeigen") }}</button>
+                    </div>
+                    <div id="villagerMap" class="villager-map" role="group" tabindex="0" aria-label="{{ t('Dorfbewohner auf der X/Z-Ebene') }}" aria-describedby="villagerMapHelp">
+                        <div id="villagerMapMarkers" class="villager-map-markers"></div>
+                        <p id="villagerMapEmpty" class="villager-map-empty" hidden>{{ t("Keine passenden Koordinaten in dieser Dimension.") }}</p>
+                        <span class="villager-map-axis x" aria-hidden="true">X →</span><span class="villager-map-axis z" aria-hidden="true">Z ↓</span>
+                        <span id="villagerMapScale" class="villager-map-scale"></span>
+                    </div>
+                    <p id="villagerMapCoordinates" class="hint-text villager-map-coordinates"></p>
+                    <p id="villagerMapPlayerInfo" class="hint-text villager-map-player-info" role="status" hidden></p>
+                </div>
+            </div>
+        </section>
+        <section id="villagerRegionsPanel" class="villager-tool-panel" aria-labelledby="villagerRegionsToggle" hidden>
+            <p class="hint-text">{{ t("Regionen gelten nur im Editor.") }}</p>
+            <ul id="villagerRegionList" class="villager-region-list"></ul>
+            <form id="villagerRegionForm" class="villager-region-form">
+                <input id="villagerRegionId" type="hidden">
+                <label>{{ t("Regionsname") }}<input id="villagerRegionName" type="text" maxlength="80" required placeholder="{{ t('z. B. Hauptdorf') }}"></label>
+                <label>{{ t("Dimension") }}<select id="villagerRegionDimension"><option value="0">{{ t("Oberwelt") }}</option><option value="1">{{ t("Nether") }}</option><option value="2">{{ t("Ende") }}</option></select></label>
+                <label>{{ t("X von") }}<input id="villagerRegionMinX" type="number" step="any" required></label><label>{{ t("X bis") }}<input id="villagerRegionMaxX" type="number" step="any" required></label>
+                <label>{{ t("Z von") }}<input id="villagerRegionMinZ" type="number" step="any" required></label><label>{{ t("Z bis") }}<input id="villagerRegionMaxZ" type="number" step="any" required></label>
+                <label>{{ t("Y von (optional)") }}<input id="villagerRegionMinY" type="number" step="any"></label><label>{{ t("Y bis (optional)") }}<input id="villagerRegionMaxY" type="number" step="any"></label>
+                <div class="villager-actions"><span id="villagerRegionDirty" class="villager-draft-status" hidden>{{ t("Ungespeichert") }}</span><button type="submit" id="villagerRegionSave" class="btn btn-secondary btn-sm">{{ t("Region speichern") }}</button><button type="button" id="villagerRegionReset" class="btn-text">{{ t("Neue Region") }}</button><button type="button" id="villagerRegionUseSelection" class="btn-text">{{ t("Bereich aus Auswahl") }}</button></div>
+            </form>
+        </section>
+        <div id="villagerWorkspace" class="villager-workspace">
+            <div class="villager-table-area">
+                <div class="villager-selection-tools"><button type="button" id="villagerSelectFiltered" class="btn-text">{{ t("Alle gefilterten markieren") }}</button></div>
+                <form id="villagerBatchForm" class="villager-batch" hidden>
+                    <div class="villager-batch-heading"><strong id="villagerSelectionInfo" role="status" aria-live="polite"></strong><span id="villagerBatchDirty" class="villager-draft-status" hidden>{{ t("Ungespeichert") }}</span><button type="button" id="villagerClearSelection" class="btn-text">{{ t("Auswahl aufheben") }}</button></div>
+                    <fieldset id="villagerBatchFields" class="villager-health-fields">
+                        <legend class="visually-hidden">{{ t("Gesundheit gemeinsam bearbeiten") }}</legend>
+                        <label>{{ t("Aktuelle Lebenspunkte") }}<input id="villagerBatchCurrent" type="number" min="1" max="2048" step="any" placeholder="{{ t('Unverändert') }}"></label>
+                        <label>{{ t("Maximale Lebenspunkte") }}<input id="villagerBatchMax" type="number" min="1" max="2048" step="any" placeholder="{{ t('Unverändert') }}"></label>
+                        <label class="villager-check"><input id="villagerBatchHeal" type="checkbox">{{ t("Vollständig heilen") }}</label>
+                        <button type="submit" id="villagerBatchPreview" class="btn btn-primary btn-sm">{{ t("Änderungen prüfen") }}</button>
+                    </fieldset>
+                    <div class="villager-batch-footer"><span id="villagerBatchHint" class="hint-text">{{ t("Leere Werte bleiben unverändert.") }}</span><button type="button" id="villagerBatchReset" class="btn-text" hidden>{{ t("Verwerfen") }}</button></div>
+                </form>
+                <div class="villager-table-scroll" tabindex="0" role="region" aria-label="{{ t('Dorfbewohnertabelle') }}"><table class="villager-table"><caption class="visually-hidden">{{ t("Gefundene Dorfbewohner mit Beruf, Gesundheit und Position") }}</caption><thead id="villagerTableHead"><tr>
+                    <th scope="col"><label class="villager-row-check"><input id="villagerSelectPage" type="checkbox" aria-label="{{ t('Alle Bewohner dieser Seite markieren') }}"></label></th>
+                    <th scope="col" data-sort-columns="name" aria-sort="ascending"><button type="button" class="villager-sort-heading" data-action="sort" data-sort="name"><span>{{ t("Name") }}</span><span class="villager-sort-arrow" aria-hidden="true">↑</span></button></th>
+                    <th scope="col" data-sort-columns="profession tier"><div class="villager-sort-stack"><button type="button" class="villager-sort-heading" data-action="sort" data-sort="profession"><span>{{ t("Beruf") }}</span><span class="villager-sort-arrow" aria-hidden="true">↕</span></button><button type="button" class="villager-sort-heading" data-action="sort" data-sort="tier"><span>{{ t("Handelsstufe") }}</span><span class="villager-sort-arrow" aria-hidden="true">↕</span></button></div></th>
+                    <th scope="col" data-sort-columns="health"><button type="button" class="villager-sort-heading" data-action="sort" data-sort="health"><span>{{ t("Gesundheit") }}</span><span class="villager-sort-arrow" aria-hidden="true">↕</span></button></th>
+                    <th scope="col" data-sort-columns="region dimension"><div class="villager-sort-stack"><button type="button" class="villager-sort-heading" data-action="sort" data-sort="region"><span>{{ t("Region") }}</span><span class="villager-sort-arrow" aria-hidden="true">↕</span></button><button type="button" class="villager-sort-heading" data-action="sort" data-sort="dimension"><span>{{ t("Dimension") }}</span><span class="villager-sort-arrow" aria-hidden="true">↕</span></button></div></th>
+                </tr></thead><tbody id="villagerRows"></tbody></table></div>
+                <div class="villager-pagination"><button type="button" id="villagerPreviousPage" class="btn btn-secondary btn-sm">{{ t("Zurück") }}</button><span id="villagerPageInfo" role="status"></span><button type="button" id="villagerNextPage" class="btn btn-secondary btn-sm">{{ t("Weiter") }}</button></div>
+            </div>
+            <aside id="villagerDetail" class="villager-detail" aria-labelledby="villagerDetailTitle" hidden></aside>
+        </div>
+        <details id="villagerDiagnostics" class="villager-disclosure villager-scan-diagnostics" hidden><summary id="villagerDiagnosticsSummary">{{ t("Scan-Diagnose") }}</summary><ul id="villagerDiagnosticList" class="villager-diagnostics"></ul></details>
+    </div>
+    <dialog id="villagerPreviewDialog" class="villager-preview-dialog" aria-labelledby="villagerPreviewTitle" aria-describedby="villagerPreviewSummary">
+        <header class="villager-heading"><div><h2 id="villagerPreviewTitle">{{ t("Änderungen prüfen") }}</h2><p id="villagerPreviewWorld" class="hint-text"></p></div><button type="button" id="villagerPreviewClose" class="btn-text" aria-label="{{ t('Schließen') }}">✕</button></header>
+        <p id="villagerPreviewSummary" class="villager-preview-summary"></p>
+        <div id="villagerPreviewNotice" class="villager-notice warning" role="alert" hidden></div>
+        <div class="villager-preview-table-scroll" tabindex="0" role="region" aria-label="{{ t('Änderungsvorschau') }}"><table class="villager-table"><thead><tr><th scope="col">{{ t("Dorfbewohner") }}</th><th scope="col">{{ t("Vorher") }}</th><th scope="col">{{ t("Nachher") }}</th><th scope="col">{{ t("Ergebnis") }}</th></tr></thead><tbody id="villagerPreviewRows"></tbody></table></div>
+        <p class="hint-text">{{ t("Gespeichert wird im Reiter „Speichern“, mit Weltbackup.") }}</p>
+        <footer class="villager-actions"><button type="button" id="villagerPreviewCancel" class="btn btn-secondary">{{ t("Zurück zur Bearbeitung") }}</button><button type="button" id="villagerSave" class="btn btn-primary">{{ t("Änderungen vormerken") }}</button></footer>
+    </dialog>
+</section>

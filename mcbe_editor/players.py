@@ -18,6 +18,7 @@ from mcbe_editor import nbt
 
 from .archive_errors import ZIP_READ_ERRORS
 from .bedrock_nbt import load_player_nbt
+from .entities import entity_position, scalar_integer
 from .i18n import t
 from .inventory import extract_player_stats, nbt_to_json, protected_player_nbt_flags
 from .path_safety import is_linklike, is_linklike_stat
@@ -169,11 +170,13 @@ def _looks_like_nbt_candidate(raw_bytes: bytes) -> bool:
 def _looks_like_unknown_player_candidate(raw_bytes: bytes) -> bool:
     """Cheaply reject ordinary actor NBT before the bounded fallback parser."""
 
-    if not _looks_like_nbt_candidate(raw_bytes):
+    # Both accepted shapes contain Inventory. Reject ordinary NBT with one
+    # search before looking for the more specific ender chest/player markers.
+    if not _looks_like_nbt_candidate(raw_bytes) or b"Inventory" not in raw_bytes:
         return False
     if b"EnderChestInventory" in raw_bytes:
         return True
-    return b"Inventory" in raw_bytes and any(marker in raw_bytes for marker in UNKNOWN_KEY_STRONG_PLAYER_HINT_BYTES)
+    return any(marker in raw_bytes for marker in UNKNOWN_KEY_STRONG_PLAYER_HINT_BYTES)
 
 
 def classify_player_record(key: bytes, raw_bytes: bytes, *, allow_unknown_key: bool = False) -> dict | None:
@@ -290,6 +293,13 @@ def classify_player_record_and_tag(key: bytes, raw_bytes: bytes, *, allow_unknow
         reason_code = "insufficient_player_shape"
         reason = "Datensatz ist nicht ausreichend als sicher bearbeitbarer Player-NBT erkennbar; read-only."
 
+    position = entity_position(player_tag)
+    if position is not None and any(abs(position[axis]) > 2**35 for axis in ("x", "z")):
+        position = None
+    dimension = scalar_integer(player_tag.get("DimensionId"))
+    if dimension is not None and not -(2**31) <= dimension < 2**31:
+        dimension = None
+
     return {
         "player_key": encode_player_key(key),
         "raw_key_preview": _safe_key_label(key),
@@ -309,6 +319,8 @@ def classify_player_record_and_tag(key: bytes, raw_bytes: bytes, *, allow_unknow
         "has_ender_chest": has_ender_chest_list,
         "has_ender_chest_tag": has_ender_chest_tag,
         "ender_chest_opaque": ender_chest_opaque,
+        "position": position,
+        "dimension": dimension,
     }, named_tag
 
 
@@ -360,11 +372,12 @@ class PlayerScanner:
                 checkpoint(current=count)
             if key in seen_keys:
                 continue
-            player = classify_player_record(key, value)
-            if player:
-                players.append(player)
-                seen_keys.add(key)
-                continue
+            if _looks_like_player_key(key):
+                player = classify_player_record(key, value)
+                if player:
+                    players.append(player)
+                    seen_keys.add(key)
+                    continue
             if len(fallback_candidates) < FALLBACK_PLAYER_SCAN_LIMIT and _looks_like_unknown_player_candidate(value):
                 fallback_candidates.append((key, value))
 

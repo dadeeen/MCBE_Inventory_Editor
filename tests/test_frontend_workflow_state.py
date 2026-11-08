@@ -56,7 +56,7 @@ def test_frontend_workflow_state_resolves_views_and_button_models() -> None:
             };
             assert.strictEqual(workflow.resolvedView("inventory", emptyContext), "world");
             assert.strictEqual(workflow.resolvedView("player-edit", emptyContext), "world");
-            assert.strictEqual(workflow.unavailableMessage("save"), "Lade zuerst einen bearbeitbaren Spieler.");
+            assert.strictEqual(workflow.unavailableMessage("save"), "Lade zuerst eine Welt.");
             assert.strictEqual(workflow.unavailableMessage("player"), "Lade zuerst eine Welt.");
             assert.strictEqual(
                 JSON.stringify(workflow.appBodyClassModel(emptyContext)),
@@ -74,8 +74,8 @@ def test_frontend_workflow_state_resolves_views_and_button_models() -> None:
                 JSON.stringify({
                     active: false,
                     ariaCurrent: "false",
-                    disabled: true,
-                    title: "Lade zuerst einen bearbeitbaren Spieler.",
+                    disabled: false,
+                    title: "Keine ungespeicherten Änderungen.",
                 }),
             );
 

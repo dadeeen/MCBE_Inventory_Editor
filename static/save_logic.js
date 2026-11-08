@@ -33,6 +33,8 @@
             getHiddenUnknownSlots,
             getInventory,
             getPendingMounts = () => [],
+            getPendingVillagers = () => [],
+            getHasEditablePlayer = () => true,
             getPlayerAbilities,
             getPlayerEffects,
             getProtectedKnownSlots,
@@ -133,6 +135,14 @@
                     label: t("{mount} wird bei {coordinates} erzeugt ({safety}).", { mount: mount.mountLabel || mount.mountType || "Mount", coordinates, safety }),
                 });
             });
+            if (!getHasEditablePlayer()) changes.length = 0;
+            getPendingVillagers().forEach(entry => entry.rows.forEach(row => {
+                const describe = value => row.kind === "inventory"
+                    ? (value?.slots || []).map(slot => `${t("Slot")} ${slot.slot + 1}: ${slot.item ? `${slot.item.count} × ${entry.itemLabels?.[slot.item.name] || itemDisplayName(slot.item)}` : t("Leer")}`).join(", ")
+                    : row.kind === "name" ? value?.name || t("Ohne Namen") : window.MCBEVillagerModel.healthText(value);
+                changes.push({ type: "villager", kind: "changed",
+                    label: `${row.label || row.name || row.id} · ${row.kind === "inventory" ? t("Vorräte") : row.kind === "name" ? t("Name in Minecraft") : t("Gesundheit")}: ${describe(row.before)} → ${describe(row.after)}` });
+            }));
             return {
                 total: changes.length,
                 shown: changes.slice(0, limit),
@@ -151,6 +161,7 @@
         }
 
         function writePlanRows() {
+            if (!getHasEditablePlayer()) return [];
             const before = getCleanSnapshot() || { inv: {}, ec: {}, stats: {}, effects: [], abilities: {} };
             const current = takeSnapshot();
             const statsPayload = buildChangedStatsPayload();
@@ -221,6 +232,8 @@
                 { severity: validation.errors > 0 ? "error" : validation.warnings > 0 ? "warning" : "ok", title: t("Validierung"), text: t("{errors} Fehler, {warnings} Warnungen, {infos} Hinweise.", { errors: validation.errors, warnings: validation.warnings, infos: validation.infos }) + " " + (validation.errors > 0 ? t("Fehler blockieren den Save.") : t("Keine blockierenden Validierungsfehler.")) },
             ];
             const pendingMounts = getPendingMounts();
+            if (getPendingVillagers().length) rows.push({ severity: "changed", title: t("Dorfbewohner: vorgemerkt"),
+                text: t("Namen, Gesundheit und Vorräte werden mit allen anderen Änderungen in einem gemeinsamen Schreibvorgang gesichert, gespeichert und erneut gelesen.") });
             rows.push({
                 severity: pendingMounts.length ? "changed" : "ok",
                 title: pendingMounts.length ? t("Mounts: werden erzeugt") : t("Mounts: unangetastet"),
@@ -387,6 +400,10 @@
 
         function validateInventoryState({ limit = 12 } = {}) {
             const issues = [];
+            getPendingVillagers().forEach(entry => {
+                if (entry.staleReason) issues.push({ level: "error", label: entry.staleReason });
+                if (entry.expiresAt <= Date.now()) issues.push({ level: "error", label: t("Eine Dorfbewohner-Vorschau ist abgelaufen. Entferne die Vormerkung und erstelle eine neue Vorschau.") });
+            });
             const scan = (items, containerName) => {
                 Object.entries(items || {}).forEach(([slotKey, item]) => {
                     const slot = Number(slotKey);

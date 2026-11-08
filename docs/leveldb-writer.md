@@ -148,6 +148,21 @@ The cache avoids repeated block reads, CRC checks and decompression while a
 batch of nearby keys is validated. A cold full-world scan and WAL replay remain
 separate costs.
 
+## Full player scans
+
+Player discovery visits every visible database record, including records with
+unknown keys. Reading compressed table blocks can expand the input substantially;
+CRC validation and bounded decompression precede entry decoding. The entry parser
+reads single-byte key-prefix and key-suffix lengths directly and uses the uint64
+varint decoder for longer lengths and incomplete headers, with the same entry
+bounds and internal-key type checks.
+
+Player-like keys receive full classification. Other keys pass through the bounded
+NBT fallback search. Both accepted fallback shapes contain `Inventory`, so records
+without that marker need no separate `EnderChestInventory` search. Possible matches
+still undergo complete NBT parsing and player-shape validation. Discovery keeps
+the existing candidate order and limit; finding a known player does not end it.
+
 ## Player list after saves
 
 `content_token()` returns `None` on a writer, so a write session never feeds the
@@ -255,6 +270,59 @@ existing survival world. The verified behavior includes:
 This client coverage includes a horse. The
 [mount acceptance experiment](mount-game-validation.md) covers all supported
 mount types with v0.5.21 and the native backend.
+
+## Villager health and supply records
+
+The v0.8.8 villager editor treats names, health and supplies as independent
+patches. Actual names use `CustomName` (String); an explicit empty name removes
+the tag. A missing or empty tag is already unnamed and a no-op preserves its
+original bytes. The editor accepts up to 80 Unicode code points, trims outer
+whitespace and rejects control characters, surrogate code points and line
+separators. Unsupported name tag types remain protected. Visibility flags,
+other actor fields and editor aliases remain untouched.
+Health is stored in the `minecraft:health` entry of `Attributes`. Explicit
+`Current` and `Max` values take precedence. If a field is absent, the reader uses
+its stored Float default: `Base` for `Current`, `DefaultMax` for `Max`. Missing
+or malformed defaults do not imply 20 health, and malformed explicit values
+cannot hide behind valid defaults. The same resolved values drive inspection,
+the injured filter, preview validation and editing.
+
+No-op health changes preserve the original record bytes, including omitted
+fields. A changed current value writes `Current`; a changed maximum writes
+`Max` and updates an existing, coupled `DefaultMax`. `Base` and unrelated
+attributes remain unchanged. Unsupported numeric types, non-finite values,
+inconsistent bounds, modifiers and health-boost effects keep their existing
+write protections.
+
+Reviewed `villager_v2` records with `InventoryVersion` values from 1.21.30 to
+1.26.52 use `ChestItems`, a dense list of eight compounds. Each compound has
+`Slot` (Byte, equal to the list index), `Name` (String), `Count` (Byte),
+`Damage` (Short), and `WasPickedUp` (Byte). Empty slots keep their compound,
+with an empty name and zero count/damage; `WasPickedUp` can be either zero or
+one and is preserved. Other shapes and unknown item metadata are protected.
+
+The allowed supplies follow the vanilla inventory shareables in
+[bedrock-samples v1.26.60.5](https://github.com/Mojang/bedrock-samples/blob/v1.26.60.5/behavior_pack/entities/villager_v2.json).
+Single-villager slot patches use signed previews, exact record and world
+revisions, backups, atomic writes, and read-back validation. The central
+workspace save composes staged name, health and supply previews with player changes
+and mount creation in one backed-up write batch, including world-only edits
+without a player. Every preview is checked before backup creation and again
+under the writer lock. Names, health and supplies on the same actor are merged through
+their disjoint `CustomName`, `Attributes` and `ChestItems` fields; overlapping edits to the same
+field are rejected. Shared chunk indexes include all staged mount additions.
+Both the live writer and a fresh read-only reader verify the final records. Unchanged health, trades,
+professions, equipment, `InventoryVersion`, and unchanged slots are preserved.
+Synthetic tests cover compact and explicit health attributes, native slot
+replacement/clearing, preservation and the write lifecycle. The
+[villager engine suite](engine-checks.md#villager-health-and-supply-suite)
+passes with editor 0.8.8 and BDS 1.26.61.1: 24 residents, 23 backed-up saves,
+44 no-op checks, 23 stale-revision rejections and four post-edit save/reload
+cycles. Live Script API observations and saved typed NBT agree for names, health and
+supplies; the exact [reference input hashes](engine-checks.md#villager-reference)
+identify this evidence. Client interactions, trading, food sharing, breeding,
+farming, legacy schemas and arbitrary add-ons remain outside that persistence
+coverage.
 
 ## Dependency separation
 

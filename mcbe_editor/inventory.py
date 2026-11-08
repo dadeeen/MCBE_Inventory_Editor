@@ -191,6 +191,7 @@ __all__ = (
     "item_payload_matches_original",
     "items_by_slot_for_origin",
     "nbt_to_json",
+    "nbt_view_value",
     "parse_abilities",
     "parse_effects",
     "parse_ender_chest",
@@ -201,6 +202,11 @@ __all__ = (
     "validate_item_original_bounds",
     "validate_item_stack_count",
 )
+
+
+def nbt_view_value(tag):
+    """Return the shared bounded, typed read-only NBT projection."""
+    return _core._nbt_view_value(tag)
 
 
 def _canonical_nbt(tag):

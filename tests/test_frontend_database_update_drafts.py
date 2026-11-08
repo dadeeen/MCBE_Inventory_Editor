@@ -14,7 +14,7 @@ function createHarness() {
     for (const name of ["player_view_models", "player_load_controller", "update_db_view"]) {
         vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
     }
-    const pending = {slot: false, special: false, stats: false, effects: false};
+    const pending = {slot: false, special: false, stats: false, effects: false, villagers: false};
     const calls = {reads: 0, confirmations: 0, discarded: 0, catalogUpdates: 0, iconReads: 0, iconChecksInvalidated: 0};
     const state = {
         worldPath: "world-a", currentPlayerKey: "a", currentPlayer: {player_key: "a"},
@@ -35,6 +35,7 @@ function createHarness() {
         slotDetailController: {hasPendingChanges: () => pending.slot},
         statsFormController: {hasPendingChanges: () => pending.stats},
         effectsAbilitiesController: {hasPendingChanges: () => pending.effects},
+        villagerController: {hasPendingChanges: () => pending.villagers},
     });
     Object.defineProperties(context, {
         isDirty: {get: () => state.isDirty},
@@ -80,7 +81,7 @@ def test_database_update_preserves_every_kind_of_unapplied_form() -> None:
         _HARNESS
         + r"""
         (async () => {
-            for (const kind of ["slot", "special", "stats", "effects"]) {
+            for (const kind of ["slot", "special", "stats", "effects", "villagers"]) {
                 const {context, pending, calls, state} = createHarness();
                 pending[kind] = true;
                 assert.equal(state.isDirty, false);

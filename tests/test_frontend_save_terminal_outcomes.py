@@ -8,11 +8,12 @@ from tests.node_runner import run_node
 
 
 @pytest.mark.parametrize("with_mounts", [False, True])
+@pytest.mark.parametrize("with_villagers", [False, True])
 @pytest.mark.parametrize("confirmation", ["none", "server", "presence", "both"])
 @pytest.mark.parametrize("outcome", ["reload", "committed", "committed-reload", "success-reload"])
-def test_terminal_save_outcomes_block_retries_and_preserve_the_known_result(with_mounts, confirmation, outcome):
+def test_terminal_save_outcomes_block_retries_and_preserve_the_known_result(with_mounts, with_villagers, confirmation, outcome):
     result = run_node(
-        f"const config = {json.dumps({'mounts': with_mounts, 'confirmation': confirmation, 'outcome': outcome})};\n"
+        f"const config = {json.dumps({'villagers': with_villagers, 'mounts': with_mounts, 'confirmation': confirmation, 'outcome': outcome})};\n"
         + r"""
 const assert = require('node:assert/strict'), fs = require('fs'), vm = require('vm');
 const context = {window: {}, console: {error() {}}};
@@ -34,12 +35,14 @@ for (const name of ['api_client', 'save_controller']) {
     };
     const noop = () => {};
     let posts = 0, dialogs = 0, dirty = true, reason = '', revision = 'loaded-revision';
-    let cleaned = 0, normalized = 0, finalized = 0;
+    let cleaned = 0, normalized = 0, finalized = 0, villagersFinalized = 0;
     let pendingMounts = config.mounts ? [{id: 'draft-horse', worldPath: 'world', playerKey: 'player'}] : [];
     const statuses = [], buttonStates = [];
     const controller = context.window.MCBESaveController.createSaveController({
         getWorldPath: () => 'world', getCurrentPlayerKey: () => 'player',
         getIsDirty: () => dirty, getPendingMounts: () => pendingMounts,
+        getPendingVillagers: () => config.villagers ? [{token: 'signed-preview'}] : [],
+        finalizePendingVillagers: () => {villagersFinalized++;},
         getCurrentWriteGate: () => ({}), writeBlocked: () => Boolean(reason),
         getCreateRequiresConfirmation: () => ({}),
         buildSavePayload: () => ({stats: {health: 18}, base_revision: 'loaded-revision'}),
@@ -68,6 +71,7 @@ for (const name of ['api_client', 'save_controller']) {
     assert.equal(cleaned, committed ? 1 : 0);
     assert.equal(normalized, committed ? 1 : 0);
     assert.equal(finalized, config.mounts && committed ? 1 : 0);
+    assert.equal(villagersFinalized, config.villagers && committed ? 1 : 0);
     assert.equal(pendingMounts.length, config.mounts && !committed ? 1 : 0);
     assert.equal(statuses.at(-1).type, 'error');
     assert.ok(!buttonStates.includes(false), 'Do not briefly offer an unsafe retry');

@@ -305,14 +305,17 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_fallback_scanner_detects_player_shape_on_unknown_leveldb_key():
+@pytest.mark.parametrize("container", ["Inventory", "EnderChestInventory"])
+def test_fallback_scanner_detects_player_shape_on_unknown_leveldb_key(container):
     player = nbt.CompoundTag(
         {
             "Pos": nbt.ListTag([nbt.DoubleTag(5.0), nbt.DoubleTag(70.0), nbt.DoubleTag(5.0)]),
             "Health": nbt.FloatTag(20.0),
-            "EnderChestInventory": nbt.ListTag([]),
+            container: nbt.ListTag([]),
         }
     )
+    if container == "Inventory":
+        player["PlayerLevel"] = nbt.IntTag(1)
     raw = nbt.NamedTag(player).save_to(compressed=False, little_endian=True)
 
     from mcbe_editor.players import PlayerScanner
@@ -330,7 +333,7 @@ def test_fallback_scanner_detects_player_shape_on_unknown_leveldb_key():
     assert players[0]["kind"] == "unknown"
     assert players[0]["editable"] is True
     assert players[0]["inventory_will_be_created"] is False
-    assert players[0]["inventory_create_requires_confirmation"] is True
+    assert players[0]["inventory_create_requires_confirmation"] is (container == "EnderChestInventory")
 
 
 def test_fallback_scanner_detects_unknown_player_alongside_local_player():

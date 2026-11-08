@@ -10,6 +10,7 @@
             buildChangeSummary,
             buildSavePayload,
             finalizePendingMounts = () => {},
+            finalizePendingVillagers = () => {},
             confirmPresenceConflict,
             currentPlayerLabel,
             flashSaveButton,
@@ -18,6 +19,7 @@
             getCurrentWriteGate,
             getIsDirty,
             getPendingMounts = () => [],
+            getPendingVillagers = () => [],
             getWorldPath,
             hideLoading,
             loadBackupsList,
@@ -27,6 +29,7 @@
             normalizeOriginsToCurrentSavedState,
             openSaveReview,
             onSaveBusyChanged = () => {},
+            onSaveRejected = () => {},
             payloadContainsUserChanges,
             postSavePayload,
             recordAction,
@@ -166,7 +169,7 @@
         }
 
         async function performSaveCurrentPlayer({ skipReview = false } = {}) {
-            if (!getWorldPath() || !getCurrentPlayerKey() || !getIsDirty()) return;
+            if (!getWorldPath() || !getIsDirty()) return;
             if (currentWriteActionBlocked()) return;
 
             const saveWorldPath = getWorldPath();
@@ -175,6 +178,8 @@
             const payload = buildSavePayload();
             const hasPlayerChanges = payloadContainsUserChanges(payload);
             const pendingMounts = getPendingMounts();
+            const pendingVillagers = getPendingVillagers();
+            payload.villager_previews = pendingVillagers.map(entry => entry.token);
             const hasForeignPendingMount = pendingMounts.some(mount => (
                 (mount?.worldPath && mount.worldPath !== saveWorldPath)
                 || (mount?.playerKey && mount.playerKey !== savePlayerKey)
@@ -187,7 +192,7 @@
                 updateWriteControls();
                 return;
             }
-            if (!hasPlayerChanges && pendingMounts.length === 0) {
+            if (!hasPlayerChanges && pendingMounts.length === 0 && pendingVillagers.length === 0) {
                 markCleanState();
                 logSaveStatus(t("Keine speicherbaren Änderungen erkannt. Es wurde kein Backup erstellt und nichts geschrieben."), "warning");
                 showToast(t("Keine speicherbaren Änderungen erkannt."), "warning", 3000);
@@ -355,6 +360,7 @@
                 if (data.write_gate) {
                     renderWriteGate(data.write_gate);
                 }
+                if (pendingVillagers.length && (data.success || data.write_committed === true)) finalizePendingVillagers(data);
                 const mountResults = Array.isArray(data.mounts) ? data.mounts : [];
                 const committedWriteFailure = data.success === false && data.write_committed === true;
                 if (committedWriteFailure) {
@@ -443,6 +449,7 @@
                         flashSaveButton();
                     }
                 } else {
+                    onSaveRejected(data);
                     if (data.write_gate) {
                         renderWriteGate(data.write_gate);
                     }
@@ -475,13 +482,13 @@
                     logSaveOutcome(message, "error");
                     showToast(message, "error", 8000);
                     loadBackupsList();
-                } else if (pendingMounts.length) {
+                } else if (pendingMounts.length || pendingVillagers.length) {
                     // Bei einem Transport-/Parsingfehler kann der atomare Workspace-
                     // Batch bereits committed worden sein, obwohl keine auswertbare
                     // Antwort angekommen ist. Ein erneuter Save könnte die Mounts mit
                     // neuen Actor-IDs doppelt erzeugen; deshalb bleibt Schreiben bis
                     // zum Neuladen gesperrt.
-                    const message = t("Die Verbindung wurde während der Mount-Speicherung unterbrochen. Ob der Batch bereits geschrieben wurde, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen.");
+                    const message = t("Die Verbindung wurde während der gemeinsamen Speicherung unterbrochen. Ob der Batch bereits geschrieben wurde, ist unbekannt. Nicht erneut speichern; Welt neu laden und Backup prüfen.");
                     enterReloadRequiredState(message);
                     logSaveOutcome(message, "error");
                     showToast(message, "error", 8000);
@@ -619,6 +626,9 @@
             buildChangeSummary = () => ({}),
             collectAbilitiesFromUI = () => ({}),
             finalizePendingMounts = () => {},
+            finalizePendingVillagers = () => {},
+            afterSaveSettled = () => {},
+            onSaveRejected = () => {},
             confirmPresenceConflict = async () => false,
             currentPlayerLabel = () => t("Spieler"),
             hideLoading = () => {},
@@ -690,7 +700,7 @@
                     allow_unchecked_placement: mount.allowUncheckedPlacement === true,
                 }));
             }
-            const res = await fetchFn(pendingMounts.length ? "/api/workspace/save" : "/api/player/save", {
+            const res = await fetchFn(pendingMounts.length || payload.villager_previews?.length ? "/api/workspace/save" : "/api/player/save", {
                 method: "POST",
                 headers: withCsrf(),
                 body: JSON.stringify(requestPayload),
@@ -715,6 +725,8 @@
                 getHiddenUnknownSlots: () => state.getHiddenUnknownSlots?.() || {},
                 getInventory: () => state.getInventory?.() || {},
                 getPendingMounts: () => state.getPendingMounts?.() || [],
+                getPendingVillagers: () => state.getPendingVillagers?.() || [],
+                getHasEditablePlayer: () => Boolean(state.getCurrentPlayerKey?.()),
                 getPlayerAbilities: () => state.getPlayerAbilities?.() || {},
                 getPlayerEffects: () => state.getPlayerEffects?.() || [],
                 getProtectedKnownSlots: () => state.getProtectedKnownSlots?.() || {},
@@ -767,6 +779,7 @@
                 ),
                 buildChangeSummary,
                 finalizePendingMounts,
+                finalizePendingVillagers,
                 confirmPresenceConflict,
                 currentPlayerLabel,
                 flashSaveButton,
@@ -775,6 +788,8 @@
                 getCurrentWriteGate: () => state.getCurrentWriteGate?.(),
                 getIsDirty: () => state.getIsDirty?.() || false,
                 getPendingMounts: () => state.getPendingMounts?.() || [],
+                getPendingVillagers: () => state.getPendingVillagers?.() || [],
+                getHasEditablePlayer: () => Boolean(state.getCurrentPlayerKey?.()),
                 getWorldPath: () => state.getWorldPath?.() || "",
                 hideLoading,
                 loadBackupsList,
@@ -783,10 +798,12 @@
                 markCleanState,
                 normalizeOriginsToCurrentSavedState,
                 openSaveReview,
+                onSaveRejected,
                 onSaveBusyChanged: busy => {
                     if (editorContainer) editorContainer.inert = busy;
                     updateWriteControls();
                     updateUndoButtons();
+                    if (!busy) afterSaveSettled();
                 },
                 payloadContainsUserChanges: window.MCBESavePayloadLogic.payloadContainsUserChanges,
                 postSavePayload,

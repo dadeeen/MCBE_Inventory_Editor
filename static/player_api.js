@@ -156,6 +156,7 @@
 
         return {
             applyStateTransfer,
+            readWorld,
             listPlayers,
             loadPlayer,
             loadPlayerOrThrow,

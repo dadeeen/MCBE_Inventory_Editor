@@ -926,7 +926,7 @@ def test_configured_save_locks_editing_through_review_and_request_and_releases_o
 def test_configured_save_controller_uses_atomic_workspace_endpoint_for_mounts() -> None:
     source = (ROOT / "static" / "save_controller.js").read_text(encoding="utf-8")
 
-    assert 'pendingMounts.length ? "/api/workspace/save" : "/api/player/save"' in source
+    assert 'pendingMounts.length || payload.villager_previews?.length ? "/api/workspace/save" : "/api/player/save"' in source
     assert "requestPayload.mounts = pendingMounts.map" in source
     assert "finalizeCommittedMountResults(mountResults)" in source
     assert "finalizeCommittedMountResults(mountResults, { validationFailed: true })" in source

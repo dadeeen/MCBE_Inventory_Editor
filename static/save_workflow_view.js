@@ -57,8 +57,8 @@
         return `
         <div class="save-workflow-status-grid">
             <div><span>Status</span><strong>${escapeHtml(cleanText)}</strong><small>${escapeHtml(playerLabel)}</small></div>
-            <div><span>${t("Schreibbereiche")}</span><strong>${escapeHtml(summary.total ?? 0)}</strong><small>${t("Nur geänderte Sektionen werden gesendet")}</small></div>
-            <div><span>${t("Prüfung")}</span><strong class="${validationClass}">${escapeHtml(validationLabel(validation))}</strong><small>${t("Backup vor jedem Save")}</small></div>
+            <div><span>${t("Schreibbereiche")}</span><strong>${escapeHtml(summary.total ?? 0)}</strong></div>
+            <div><span>${t("Prüfung")}</span><strong class="${validationClass}">${escapeHtml(validationLabel(validation))}</strong></div>
         </div>
         <div class="save-workflow-pills">${sectionPills(sectionLabels)}</div>
         <div class="save-review-section">
@@ -74,11 +74,11 @@
     }
 
     function emptyWorkflowHtml() {
-        return `<div class="no-backups">${t("Lade zuerst einen bearbeitbaren Spieler. Danach zeigt dieser Schritt exakt, welche Bereiche geschrieben werden.")}</div>`;
+        return `<div class="no-backups">${t("Lade zuerst eine Welt.")}</div>`;
     }
 
     function emptyDecisionLogHtml() {
-        return `<div class="no-backups">${t("Noch kein Spieler geladen. Es gibt deshalb keinen Schreibplan.")}</div>`;
+        return `<div class="no-backups">${t("Lade zuerst eine Welt.")}</div>`;
     }
 
     function decisionLogHtml(rows = []) {
@@ -110,6 +110,7 @@
         elements = {},
         getCleanSnapshot = () => null,
         getPendingMounts = () => [],
+        getPendingVillagers = () => [],
         takeSnapshot = () => ({}),
         sectionChanged = () => false,
         workflowStateContext = () => ({}),
@@ -135,7 +136,9 @@
 
         function sectionLabels() {
             const cleanSnapshot = getCleanSnapshot();
-            if (!cleanSnapshot) return [t("Spieler neu geladen")];
+            const villagers = getPendingVillagers().length ? [t("Dorfbewohner")] : [];
+            if (!window.MCBEWorkflowState.hasLoadedEditablePlayer(workflowStateContext())) return villagers;
+            if (!cleanSnapshot) return [t("Spieler neu geladen"), ...villagers];
             const current = takeSnapshot();
             const labels = [];
             if (sectionChanged(cleanSnapshot.inv, current.inv)) labels.push(t("Inventar"));
@@ -144,13 +147,13 @@
             if (sectionChanged(cleanSnapshot.effects, current.effects)) labels.push(t("Effekte"));
             if (sectionChanged(cleanSnapshot.abilities, current.abilities)) labels.push(t("Fähigkeiten"));
             if (getPendingMounts().length) labels.push("Mounts");
-            return labels;
+            return [...labels, ...villagers];
         }
 
         function render() {
             if (!panel || !summary) return;
             const hasPlayer = window.MCBEWorkflowState.hasLoadedEditablePlayer(workflowStateContext());
-            if (!hasPlayer) {
+            if (!workflowStateContext().worldPath) {
                 applyWorkflowPanelModel({
                     summary,
                     decisionLog,
@@ -176,12 +179,12 @@
                     summary: changeSummary,
                     validation,
                     isDirty: getIsDirty(),
-                    playerLabel: currentPlayerLabel(),
+                    playerLabel: hasPlayer ? currentPlayerLabel() : t("Weltänderungen ohne Spieler"),
                     sectionLabels: sectionLabels(),
                     changeKindLabel,
                 }),
                 decisionLogHtml: decisionLogHtml(collectEditorDecisionDetails(changeSummary, validation)),
-                copyDisabled: !hasPlayer,
+                copyDisabled: false,
                 runDisabled: !getIsDirty() || writeBlocked() || validation.errors > 0,
             });
         }
@@ -235,6 +238,8 @@
     function createDirtyActionsController({
         elements = {},
         getCurrentPlayerKey = () => "",
+        getPendingVillagers = () => [],
+        discardPendingVillagers = () => {},
         saveCurrentPlayer = () => {},
         setWorkflowView = () => {},
         loadPlayer = async () => {},
@@ -256,10 +261,13 @@
 
         async function discardChanges() {
             const playerKey = getCurrentPlayerKey();
-            if (!playerKey) return false;
-            const ok = await showConfirmDialog(t("Ungespeicherte Änderungen verwerfen und den zuletzt gespeicherten Spielerstand neu laden?"));
+            const hasVillagers = getPendingVillagers().length > 0;
+            if (!playerKey && !hasVillagers) return false;
+            const ok = await showConfirmDialog(hasVillagers
+                ? t("Vorgemerkte Dorfbewohneränderungen und ungespeicherte Spieleränderungen verwerfen?")
+                : t("Ungespeicherte Änderungen verwerfen und den zuletzt gespeicherten Spielerstand neu laden?"));
             if (!ok) return false;
-            const reloaded = await loadPlayer(playerKey, true);
+            const reloaded = playerKey ? await loadPlayer(playerKey, true) : true;
             if (reloaded !== true) {
                 showToast(
                     t("Änderungen konnten nicht verworfen werden. Der gespeicherte Spielerstand wurde nicht neu geladen."),
@@ -268,6 +276,7 @@
                 );
                 return false;
             }
+            if (hasVillagers) discardPendingVillagers();
             showToast(t("Änderungen verworfen. Zuletzt gespeicherter Stand wurde neu geladen."), "success", 3500);
             return true;
         }
@@ -315,6 +324,8 @@
     function createInventoryDirtyActionsController({
         doc = document,
         getCurrentPlayerKey = () => "",
+        getPendingVillagers = () => [],
+        discardPendingVillagers = () => {},
         saveCurrentPlayer = () => {},
         setWorkflowView = () => {},
         loadPlayer = async () => {},
@@ -324,6 +335,8 @@
         return createDirtyActionsController({
             elements: collectDirtyActionElements(doc),
             getCurrentPlayerKey,
+            getPendingVillagers,
+            discardPendingVillagers,
             saveCurrentPlayer,
             setWorkflowView,
             loadPlayer,

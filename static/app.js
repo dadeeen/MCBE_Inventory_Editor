@@ -85,6 +85,7 @@ window.MCBEWorkspaceView.migrateBrowserStorage({
 let themeController = null;
 let workspaceController = null;
 let mountController = null;
+let villagerController = null;
 let playerLoadApp = null;
 
 // Appearance and workspace helpers
@@ -163,6 +164,36 @@ function getMountController() {
 function renderMountsPanel() {
     return getMountController().refresh();
 }
+function getVillagerController() {
+    if (!villagerController) {
+        const api = window.MCBEVillagerApi.createVillagerApiClient({ fetchFn: fetch, withCsrf, parseJsonResponse, buildErrorMessage });
+        villagerController = window.MCBEVillagerController.createVillagerController({
+            doc: document, api,
+            getWorldPath: () => worldPath,
+            getWorldLabel: () => worldNameEl?.textContent || selectedWorld?.name || worldPath,
+            getSelectedPlayerKey: () => currentPlayerKey,
+            getWriteGate: () => currentWriteGate,
+            getServerGuard: () => ({ epoch: currentServerGuardEpoch, token: currentServerGuardToken }),
+            getReadOnly: () => appConfig.read_only === true,
+            getIsBusy: () => Boolean(saveAppController?.isSaving() || playerLoadApp?.isLoading()),
+            getSessionId: getWorldPresenceSessionId,
+            getActiveView: () => activeWorkflowView,
+            showToast, showConfirmDialog, buildErrorMessage, copyTextToClipboard, confirmPresenceConflict,
+            onBusyChanged: () => { updateWriteControls(); updateUndoButtons(); scheduleWorldPresenceUpdate(); },
+            onDraftChanged: () => scheduleWorldPresenceUpdate(),
+            onPendingChanged: () => setDirty(buildChangeSummary({ limit: 1, includeSections: true }).total > 0),
+            onReviewRequested: () => setWorkflowView("save", { user: true }),
+            onWriteGate: writeGate => renderServerStatus({ write_gate: writeGate, server_status: writeGate.server_status }, { authoritativeBlock: true }),
+            onWorldWritten: result => {
+                recordAction(t("Änderungen an {count} Dorfbewohnern gespeichert.", { count: result.changed_count || 0 }), "save");
+                loadBackupsList();
+                scheduleWorldPresenceUpdate();
+            },
+        });
+    }
+    return villagerController;
+}
+function renderVillagersPanel() { return getVillagerController().activate(); }
 function buildFallbackWriteGate(message = t("Serverstatus noch nicht geprüft.")) {
     return window.MCBEWriteStatusView.fallbackWriteGate(appConfig, message);
 }
@@ -264,7 +295,11 @@ const workflowShell = window.MCBEWorkflowState.createConfiguredInventoryEditorWo
     doc: document,
     state: {
         getActiveView: () => activeWorkflowView,
-        setActiveView: value => { activeWorkflowView = value; },
+        setActiveView: value => {
+            const leavingVillagers = activeWorkflowView === "villagers" && value !== "villagers";
+            activeWorkflowView = value;
+            if (leavingVillagers) villagerController?.deactivate();
+        },
         getCurrentPlayer: () => currentPlayer,
         getCurrentPlayerKey: () => currentPlayerKey,
         getIsDirty: () => isDirty,
@@ -280,6 +315,7 @@ const workflowShell = window.MCBEWorkflowState.createConfiguredInventoryEditorWo
             loadAbilitiesUI();
         },
         onMountsView: renderMountsPanel,
+        onVillagersView: renderVillagersPanel,
         onSaveView: renderSaveWorkflowPanel,
         onToolsView: () => {
             switchDashTab("dashDiagnostics");
@@ -664,6 +700,7 @@ const saveWorkflowController = window.MCBESaveWorkflowView.createInventorySaveWo
     doc: document,
     getCleanSnapshot: () => undoRedoAppController.getCleanSnapshot(),
     getPendingMounts: () => getMountController().getPendingMounts(),
+    getPendingVillagers: () => villagerController?.getPendingChanges() || [],
     takeSnapshot,
     sectionChanged,
     workflowStateContext,
@@ -750,10 +787,10 @@ const writeGateController = window.MCBEWriteStatusView.createInventoryWriteGateC
     getCurrentPlayerKey: () => currentPlayerKey,
     getIsDirty: () => isDirty,
     buildChangeSummary,
-    getIsSaving: () => saveAppController?.isSaving() || false,
+    getIsSaving: () => Boolean(saveAppController?.isSaving() || villagerController?.isSaving()),
     getIsLoading: () => playerLoadApp?.isLoading() || false,
     updateImportControls: () => updateImportControls(),
-    onEditControlsUpdated: () => statsFormController.refreshLocationConversion(),
+    onEditControlsUpdated: () => { statsFormController.refreshLocationConversion(); villagerController?.updateContext(); },
     updatePlayerTransferControls: () => getPlayerToolsController().updateStateTransferWriteControl(),
     renderSaveWorkflowPanel,
     updateDirtyBanner,
@@ -818,7 +855,7 @@ const dirtyStateController = window.MCBEWorkflowState.createDirtyStateController
 function setDirty(dirty) {
     // An edit can return to the loaded state without using Undo (for example,
     // moving the same item back). Keep all dirty indicators on the same baseline.
-    dirtyStateController.setDirty(Boolean(dirty) && !undoRedoAppController.currentStateIsClean());
+    dirtyStateController.setDirty((Boolean(dirty) && !undoRedoAppController.currentStateIsClean()) || !!villagerController?.getPendingChanges().length);
     renderUndoRedoPanel();
 }
 
@@ -838,14 +875,16 @@ const worldPresenceController = window.MCBEPresenceView.createConfiguredWorldPre
         getCurrentPlayerLabel: currentPlayerLabel,
         getCurrentPlayerRevision: () => currentPlayerRevision,
         getLoadedWorldFingerprint: () => loadedWorldFingerprint,
+        getWatchWorld: () => villagerController?.hasScan() || false,
         getIsDirty: hasUnsavedChanges,
-        getIsBusy: () => Boolean(saveAppController?.isSaving() || playerLoadApp?.isLoading()),
+        getIsBusy: () => Boolean(saveAppController?.isSaving() || playerLoadApp?.isLoading() || villagerController?.isSaving()),
     },
     helpers: {
         logStatus,
         clearStatus,
         showToast,
         showConfirmDialog,
+        onWorldStatus: (data, context) => villagerController?.observeWorldStatus(data, context),
         reloadPlayer: () => (currentPlayerKey ? loadPlayer(currentPlayerKey, true) : false),
     },
 });
@@ -897,7 +936,7 @@ const PLAYER_LOAD_STATE_KEYS = [
 ];
 
 const assignAppStatePatch = appStateBridge.createPatchAssigner({
-    worldPath: value => { worldPath = value; },
+    worldPath: value => { worldPath = value; villagerController?.updateContext({ reset: true }); },
     inventory: value => { inventory = value; },
     enderChestInventory: value => { enderChestInventory = value; },
     hasEnderChest: value => { hasEnderChest = value; },
@@ -948,7 +987,12 @@ const assignAppStatePatch = appStateBridge.createPatchAssigner({
     onUnknownKey: appStateBridge.unknownPatchKeyLogger(console, "Unbekanntes App-State-Patch-Feld"),
 });
 
-function assignAppState(patch = {}) { return assignAppStatePatch(patch); }
+function assignAppState(patch = {}) {
+    assignAppStatePatch(patch);
+    // Player resets must retain world-level changes; a successful world reload
+    // clears them even when its path is unchanged. Reconcile after the patch.
+    if (patch && (Object.hasOwn(patch, "isDirty") || Object.hasOwn(patch, "worldPath"))) setDirty(isDirty);
+}
 function playerLoadState() {
     return appStateBridge.pickState({
         worldPath,
@@ -1186,7 +1230,8 @@ function openSpecialEditor(slot, container = "inventory", draft = null, childSlo
 
 function hasUnsavedChanges() {
     return isDirty || specialItemEditor.hasPendingChanges() || slotDetailController.hasPendingChanges()
-        || statsFormController.hasPendingChanges() || Boolean(effectsAbilitiesController?.hasPendingChanges());
+        || statsFormController.hasPendingChanges() || Boolean(effectsAbilitiesController?.hasPendingChanges())
+        || Boolean(villagerController?.hasPendingChanges());
 }
 
 function guardPendingEditorChanges() {
@@ -1226,7 +1271,7 @@ inventoryClipboardController.bindContextMenu();
 window.MCBEWorkflowState.createConfiguredAppKeyboardController({
     doc: document,
     inventoryClipboardController,
-    actions: { undo, redo },
+    actions: { undo, redo, handleWorkspaceShortcut: event => villagerController?.handleKeyboard(event) || false },
     state: { getActiveWorkflowView: () => activeWorkflowView },
     selection: {
         currentSelectionState,
@@ -1269,6 +1314,8 @@ worldBrowserController.wire();
 window.MCBESaveWorkflowView.createInventoryDirtyActionsController({
     doc: document,
     getCurrentPlayerKey: () => currentPlayerKey,
+    getPendingVillagers: () => villagerController?.getPendingChanges() || [],
+    discardPendingVillagers: () => villagerController?.clearPending(),
     saveCurrentPlayer,
     setWorkflowView,
     loadPlayer,
@@ -1296,10 +1343,10 @@ function createConfiguredSaveAppController() {
             getAbilitiesTouched: () => abilitiesTouched,
             getCleanSnapshot: () => undoRedoAppController.getCleanSnapshot(),
             getCurrentPlayer: () => currentPlayer,
-            getCurrentPlayerKey: () => currentPlayerKey,
+            getCurrentPlayerKey: () => window.MCBEWorkflowState.hasLoadedEditablePlayer(workflowStateContext()) ? currentPlayerKey : "",
             getCurrentPlayerRevision: () => currentPlayerRevision,
-            getCurrentPlayerServerGuardEpoch: () => currentPlayerServerGuardEpoch,
-            getCurrentPlayerServerGuardToken: () => currentPlayerServerGuardToken,
+            getCurrentPlayerServerGuardEpoch: () => currentPlayerKey ? currentPlayerServerGuardEpoch : currentServerGuardEpoch,
+            getCurrentPlayerServerGuardToken: () => currentPlayerKey ? currentPlayerServerGuardToken : currentServerGuardToken,
             getCurrentWriteGate: () => effectiveWriteGate(),
             getEnchantmentsDb: () => enchDb,
             getEffectsCreateRequiresConfirmation: () => effectsCreateRequiresConfirmation,
@@ -1310,6 +1357,7 @@ function createConfiguredSaveAppController() {
             getHiddenUnknownSlots: () => hiddenUnknownSlots,
             getInventory: () => inventory,
             getPendingMounts: () => getMountController().getPendingMounts(),
+            getPendingVillagers: () => villagerController?.getPendingChanges() || [],
             getInventoryCreateRequiresConfirmation: () => inventoryCreateRequiresConfirmation,
             getIsDirty: () => isDirty,
             getPlayerAbilities: () => playerAbilities,
@@ -1362,6 +1410,9 @@ function createConfiguredSaveAppController() {
             writeBlocked,
             guardWorldWriteAction,
             finalizePendingMounts: (results, options) => getMountController().finalizePendingMounts(results, options),
+            finalizePendingVillagers: result => villagerController?.finalizePending(result),
+            afterSaveSettled: () => villagerController?.refreshAfterSave(),
+            onSaveRejected: data => villagerController?.rejectPending(data),
         },
     });
 }

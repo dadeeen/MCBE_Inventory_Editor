@@ -14,6 +14,8 @@ import threading
 import time
 import uuid
 import zipfile
+from collections.abc import Callable
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -110,7 +112,7 @@ def prepare_pack(server: Path, config: dict) -> None:
     if config.get("controlled_addon"):
         manifest["modules"].append({"type": "data", "uuid": DATA_MODULE_ID, "version": [1, 0, 0]})
         prepare_addon(pack)
-    if config.get("client_profile"):
+    if config.get("client_profile") or config.get("village_profile"):
         manifest["dependencies"][0]["version"] = CLIENT_API_VERSION
         manifest["header"]["min_engine_version"] = [1, 26, 60]
     write_json(pack / "manifest.json", manifest)
@@ -215,7 +217,7 @@ def container_arguments(server: Path, name: str, image_id: str, owner: str | Non
     ]
 
 
-def client_progress(run_dir: Path, phase: str, status: str, port: int, connections: int) -> None:
+def client_progress(run_dir: Path, phase: str, status: str, port: int, connections: int, *, profile: str = "inventory") -> None:
     """Expose only runner-owned progress; never log player identity or raw NBT."""
     connection = {"seed": 1, "reload1": 2, "reload2": 3}[phase]
     messages = {
@@ -226,6 +228,13 @@ def client_progress(run_dir: Path, phase: str, status: str, port: int, connectio
         "stopped": "Server stopped cleanly. Checking the saved data; please wait.",
         "editing": "Applying offline editor changes. Please wait for the next join invitation.",
     }
+    if profile == "village":
+        messages.update(
+            client_connected="Connected. Loading the natural village; wait for the trade instruction.",
+            trade_required="Buy bread once from the named farmer with emeralds, then close the trade screen.",
+            pickup_required="Close the trade screen and drop one selected carrot with Q in front of the named farmer.",
+            chunk_reload="Checking natural villagers after a real chunk unload and reload. Please wait.",
+        )
     message = messages[status]
     write_json(
         run_dir / "client-status.json",
@@ -245,6 +254,7 @@ def run_phase(
     *,
     client_port: int | None = None,
     client_connections: int = 3,
+    client_profile: str = "inventory",
 ) -> list[dict]:
     name = f"mcbe-engine-{uuid.uuid4().hex}"
     owner = uuid.uuid4().hex
@@ -255,7 +265,7 @@ def run_phase(
     failure = None
     try:
         if client_port is not None:
-            client_progress(run_dir, phase, "starting", client_port, client_connections)
+            client_progress(run_dir, phase, "starting", client_port, client_connections, profile=client_profile)
         created_id = docker_command(container_arguments(server, name, image_id, owner, client_port=client_port))
         if not re.fullmatch(r"[0-9a-f]{64}", created_id):
             raise ProbeError("Docker did not return an owned container ID")
@@ -303,11 +313,14 @@ def run_phase(
                 transcript.feed(line)
                 if client_port is not None and len(transcript.events) > previous_events:
                     event = transcript.events[-1]
-                    if event["kind"] == "checkpoint" and event.get("stage") in {"waiting_for_client", "client_connected"}:
-                        client_progress(run_dir, phase, event["stage"], client_port, client_connections)
+                    stages = {"waiting_for_client", "client_connected"}
+                    if client_profile == "village":
+                        stages.update({"trade_required", "pickup_required", "chunk_reload"})
+                    if event["kind"] == "checkpoint" and event.get("stage") in stages:
+                        client_progress(run_dir, phase, event["stage"], client_port, client_connections, profile=client_profile)
                 if transcript.done and not stop_sent:
                     if client_port is not None:
-                        client_progress(run_dir, phase, "saving", client_port, client_connections)
+                        client_progress(run_dir, phase, "saving", client_port, client_connections, profile=client_profile)
                     assert process.stdin is not None
                     process.stdin.write("stop\n")
                     process.stdin.flush()
@@ -320,7 +333,7 @@ def run_phase(
             raise ProbeError(f"{phase}: server did not stop cleanly")
         events = transcript.finish()
         if client_port is not None:
-            client_progress(run_dir, phase, "stopped", client_port, client_connections)
+            client_progress(run_dir, phase, "stopped", client_port, client_connections, profile=client_profile)
         return events
     except BaseException as exc:
         failure = exc
@@ -377,9 +390,9 @@ def editor_provenance() -> dict:
     }
 
 
-def nbt_worker(run_dir: Path, action: str) -> dict:
+def nbt_worker(run_dir: Path, action: str, *, module: str = "scripts.engine_checks.nbt_roundtrip") -> dict:
     env = {
-        **os.environ,
+        **{key: value for key, value in os.environ.items() if not key.startswith("MCBE_")},
         "MCBE_DATA_ROOT": str(run_dir / "app-data"),
         "MCBE_BACKUP_ROOT": str(run_dir / "backups"),
         "MCBE_ITEM_DB_PATH": str(run_dir / "catalog.json"),
@@ -387,7 +400,7 @@ def nbt_worker(run_dir: Path, action: str) -> dict:
         "MCBE_ENCHANTMENT_COMPATIBILITY_PATH": str(ROOT / "mcbe_editor/enchantment_compatibility.json"),
     }
     result = subprocess.run(
-        [sys.executable, "-m", "scripts.engine_checks.nbt_roundtrip", str(run_dir), action],
+        [sys.executable, "-m", module, str(run_dir), action],
         cwd=ROOT,
         env=env,
         capture_output=True,
@@ -412,9 +425,13 @@ def nbt_worker(run_dir: Path, action: str) -> dict:
     if action != "rules":
         if report["status"] != "pass":
             raise ProbeError(f"Offline NBT {action} reported failed checks")
-        cases = json.loads((run_dir / "cases.json").read_text(encoding="utf-8"))
-        if not isinstance(cases, list) or not cases or type(report.get("cases")) is not int or report["cases"] != len(cases):
-            raise ProbeError(f"Offline NBT {action} did not verify every planned case")
+        if module == "scripts.engine_checks.village_worker":
+            if type(report.get("native_trades")) is not int or report["native_trades"] != 1:
+                raise ProbeError(f"Offline NBT {action} did not verify a native client trade")
+        else:
+            cases = json.loads((run_dir / "cases.json").read_text(encoding="utf-8"))
+            if not isinstance(cases, list) or not cases or type(report.get("cases")) is not int or report["cases"] != len(cases):
+                raise ProbeError(f"Offline NBT {action} did not verify every planned case")
     return report
 
 
@@ -500,6 +517,129 @@ def public_summary(report: dict) -> dict:
         },
         "client": {key: client[key] for key in ("status", "required_connections", "completed_connections", "profile") if key in client},
         "equipment": {key: equipment[key] for key in ("status", "cases", "backed_up_saves", "no_op_checks") if key in equipment},
+        "villagers": {
+            key: value
+            for key, value in report.get("villagers", {"status": "not_selected"}).items()
+            if key in {"status", "cases", "warmup_cycles", "reload_cycles", "backed_up_saves", "no_op_checks", "stale_revision_rejections"}
+        },
+        "village": {
+            key: value
+            for key, value in report.get("village", {"status": "not_selected"}).items()
+            if key in {"status", "required_connections", "completed_connections", "reload_cycles", "backed_up_saves", "trades", "pickups", "chunk_reloads"}
+        },
+    }
+
+
+def run_villager_checks(run_dir: Path, report: dict, config: dict, phase: Callable[[str], list[dict]], observations: dict, limits: dict) -> None:
+    from .villager_profile import edit_groups, make_villager_cases, validate_villager_events
+
+    cases = make_villager_cases(observations, limits)
+    write_json(run_dir / "cases.json", cases)
+    report["cases_sha256"] = sha256(run_dir / "cases.json")
+    report["villagers"] = {"status": "incomplete", "cases": len(cases), "warmup_cycles": 2, "reload_cycles": 4}
+    report["not_covered"] = [
+        "real client UI and player persistence",
+        "villager trading, breeding, food sharing, farming and combat gameplay",
+        "legacy villager schemas and version migration",
+        "third-party add-ons, overrides and experimental features",
+        "name, health and supply combinations outside the explicit cases",
+        "item-carrier and specialized-item persistence",
+    ]
+    config.update(villager_profile=True, cases=cases)
+
+    def worker(action):
+        write_json(run_dir / "run.json", report)
+        result = nbt_worker(run_dir, action, module="scripts.engine_checks.villager_worker")
+        report.setdefault("villager_results", {})[action] = result
+        return result
+
+    validate_villager_events(phase("seed"), cases, stage="seed")
+    report["phases"]["seed"] = "pass"
+    worker("seed")
+    for name in ("warmup1", "warmup2"):
+        validate_villager_events(phase(name), cases, stage="seed")
+        worker(name)
+        report["phases"][name] = "pass"
+
+    for action, stage, reloads in (("edit", "edited", ("reload1", "reload2")), ("revise", "revised", ("reload3", "reload4"))):
+        edit_phase = "revision" if action == "revise" else "edit"
+        report["phases"][edit_phase] = "running"
+        result = worker(action)
+        for field in ("backed_up_saves", "no_op_checks", "stale_revision_rejections"):
+            expected_checks = 1 if action == "revise" and field != "no_op_checks" else len(edit_groups(cases, action))
+            if type(result.get(field)) is not int or result[field] != expected_checks:
+                raise ProbeError("Villager worker did not complete every planned service check: " + field)
+            report["villagers"][field] = report["villagers"].get(field, 0) + result[field]
+        if action == "revise" and result.get("central_workspace") is not True:
+            raise ProbeError("Villager worker omitted the central workspace save")
+        report["phases"][edit_phase] = "pass"
+        for name in reloads:
+            validate_villager_events(phase(name), cases, stage=stage)
+            report[name + "_disk"] = worker("verify")
+            report["phases"][name] = "pass"
+    report["villagers"]["status"] = "pass"
+    report["roundtrip"] = {
+        "status": "pass",
+        "cases": len(cases),
+        "reload_cycles": 4,
+        "write_path": "production villager service, codec, backup and pure-Python WAL batch",
+    }
+
+
+def run_village_checks(run_dir: Path, report: dict, config: dict, phase: Callable[[str], list[dict]]) -> None:
+    from .village_profile import PHASES, make_village_plan, validate_actor_snapshots, validate_village_events
+
+    plan = make_village_plan()
+    write_json(run_dir / "village-plan.json", plan)
+    report["village_plan_sha256"] = sha256(run_dir / "village-plan.json")
+    config["village_profile"] = plan
+    report["village"] = {
+        "status": "incomplete",
+        "required_connections": 3,
+        "completed_connections": 0,
+        "reload_cycles": 2,
+        "backed_up_saves": 0,
+        "trades": 0,
+        "pickups": 0,
+        "chunk_reloads": 0,
+    }
+    report["not_covered"] = [
+        "villager farming, breeding, food sharing, restocking and combat gameplay",
+        "trades and supplies outside the selected natural farmer scenario",
+        "other seeds, village biomes, legacy worlds and version migration",
+        "third-party add-ons, overrides and experimental features",
+        "online authentication and player inventory editing",
+    ]
+    for index, name in enumerate(PHASES):
+        evidence = validate_village_events(phase(name), plan, phase=name)
+        write_json(run_dir / f"{name}.village.json", evidence)
+        report["phases"][name] = "pass"
+        write_json(run_dir / "run.json", report)
+        action = "edit" if name == "seed" else "verify"
+        try:
+            result = nbt_worker(run_dir, action, module="scripts.engine_checks.village_worker")
+            if result.get("status") != "pass" or type(result.get("native_trades")) is not int or result["native_trades"] != 1:
+                raise ProbeError("Natural village worker did not verify the native trade")
+            validate_actor_snapshots(result.get("expected"), edited=True)
+            if name == "seed":
+                if type(result.get("backed_up_saves")) is not int or result["backed_up_saves"] != 2:
+                    raise ProbeError("Natural village worker did not complete both backed-up saves")
+                report["village"]["backed_up_saves"] = result["backed_up_saves"]
+                report["phases"]["edit"] = "pass"
+            elif type(result.get("verified_reloads")) is not int or result["verified_reloads"] != index:
+                raise ProbeError("Natural village worker omitted a saved reload")
+        except (ProbeError, OSError, ValueError, subprocess.SubprocessError):
+            report["phases"][name] = "fail"
+            raise
+        report.setdefault("village_results", {})[name] = result
+        config["village_expected"] = deepcopy(result["expected"])
+        for counter in ("completed_connections", "trades", "pickups", "chunk_reloads"):
+            report["village"][counter] += 1
+    report["village"]["status"] = "pass"
+    report["roundtrip"] = {
+        "status": "pass",
+        "reload_cycles": 2,
+        "write_path": "production villager service; natural villagers; real client trades and food pickup",
     }
 
 
@@ -520,9 +660,9 @@ def run_probe(
         raise ProbeError("An exact four-part Bedrock server version is required")
     if not 10 <= timeout <= 1800:
         raise ProbeError("Timeout must be between 10 and 1800 seconds per engine phase")
-    if suite not in {"catalog", "items", "extended", "special", "addons", "service", "client"}:
+    if suite not in {"catalog", "items", "extended", "special", "addons", "service", "villagers", "village", "client"}:
         raise ProbeError("Unknown engine check suite")
-    if suite == "client" and (type(client_port) is not int or not 1024 <= client_port <= 65535):
+    if suite in {"client", "village"} and (type(client_port) is not int or not 1024 <= client_port <= 65535):
         raise ProbeError("Client port must be an integer between 1024 and 65535")
     if type(client_reloads) is not int or client_reloads not in (1, 2) or (suite != "client" and client_reloads != 2):
         raise ProbeError("Client reloads must be 1 or 2 and may only be changed for the client suite")
@@ -589,7 +729,7 @@ def run_probe(
         ],
     }
     write_json(run_dir / "run.json", report)
-    if suite == "client":
+    if suite in {"client", "village"}:
         print(f"[Client] Preparing a fresh world and catalog. {reload_cycles + 1} joins will be needed; wait for each invitation.", flush=True)
     try:
         server = run_dir / "server"
@@ -603,7 +743,11 @@ def run_probe(
             report["phases"][name] = "running"
             prepare_pack(server, config)
             write_json(run_dir / "run.json", report)
-            options = {"client_port": client_port, "client_connections": reload_cycles + 1} if config.get("client_profile") else {}
+            options = (
+                {"client_port": client_port, "client_connections": reload_cycles + 1} if config.get("client_profile") or config.get("village_profile") else {}
+            )
+            if config.get("village_profile"):
+                options["client_profile"] = "village"
             events = run_phase(server, run_dir, name, run_id, version, image_id, timeout, **options)
             write_json(run_dir / f"{name}-events.json", events)
             report["phases"][name] = "observed"
@@ -614,7 +758,15 @@ def run_probe(
         report["phases"]["catalog"] = catalog["status"]
         if catalog["status"] == "fail":
             raise ProbeError("Engine disagrees with catalog limits; no NBT mutations were attempted")
-        if suite in {"items", "extended", "special", "addons", "service", "client"}:
+        if suite == "village":
+            configure_server(server, client_port=client_port)
+            report["engine"].update(
+                {"api_version": CLIENT_API_VERSION, "experiments": False, "network": "bridge; IPv4 loopback TCP+UDP only; NetherNet loopback candidate"}
+            )
+            run_village_checks(run_dir, report, config, phase)
+        elif suite == "villagers":
+            run_villager_checks(run_dir, report, config, phase, catalog["observations"], db["stack_limits"])
+        elif suite in {"items", "extended", "special", "addons", "service", "client"}:
             cases = make_cases(expected_ids, catalog["observations"], db["stack_limits"])
             if suite == "special":
                 cases = make_special_cases(catalog["observations"], db["stack_limits"])
@@ -757,13 +909,13 @@ def run_probe(
         report["finished_at"] = datetime.now(UTC).isoformat()
         write_json(run_dir / "run.json", report)
         write_json(run_dir / "summary.json", public_summary(report))
-        if suite == "client":
+        if suite in {"client", "village"}:
             write_json(
                 run_dir / "client-status.json",
                 {
                     "status": report["status"],
                     "required_connections": reload_cycles + 1,
-                    "completed_connections": report.get("client", {}).get("completed_connections", 0),
+                    "completed_connections": report.get("village" if suite == "village" else "client", {}).get("completed_connections", 0),
                 },
             )
     return run_dir, report

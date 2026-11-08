@@ -203,10 +203,12 @@ def test_native_player_service_preserves_other_fields_and_records(tmp_path, monk
 @pytest.mark.parametrize(
     "statuses,exit_code",
     [
-        (["pass", "pass", "pass", "pass"], 0),
-        (["pass", "partial", "pass", "pass"], 2),
-        (["fail", "partial", "pass", "pass"], 1),
-        (["pass", "fail", "pass", "pass"], 1),
+        (["pass", "pass", "pass", "pass", "pass"], 0),
+        (["pass", "partial", "pass", "pass", "pass"], 2),
+        (["fail", "partial", "pass", "pass", "pass"], 1),
+        (["pass", "fail", "pass", "pass", "pass"], 1),
+        (["pass", "pass", "pass", "pass", "fail"], 1),
+        (["pass", "pass", "pass", "pass", "partial"], 2),
     ],
 )
 def test_all_suites_keep_failures_and_partial_results(tmp_path, monkeypatch, statuses, exit_code):
@@ -222,7 +224,7 @@ def test_all_suites_keep_failures_and_partial_results(tmp_path, monkeypatch, sta
     monkeypatch.setattr(cli, "run_probe", run)
     monkeypatch.setattr(sys, "argv", ["engine-checks", "--archive", str(tmp_path / "server.zip"), "--sha256", "a" * 64, "--server-version", "1.26.51.1"])
     assert cli.main() == exit_code
-    assert observed == ["extended", "special", "service", "addons"]
+    assert observed == ["extended", "special", "service", "addons", "villagers"]
 
 
 @pytest.mark.parametrize("fault", ["extra-slot", "lost-move", "changed-metadata", "skipped-delete"])

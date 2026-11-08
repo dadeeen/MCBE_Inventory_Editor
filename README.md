@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12–3.14](https://img.shields.io/badge/Python-3.12%E2%80%933.14-blue.svg)](#local-windows-setup)
 
-A local web editor for selected Minecraft Bedrock player data: inventory, ender chest, effects, abilities, player values, and experimental mounts.
+A local web editor for Minecraft Bedrock: inventory, ender chest, effects, abilities, player values, villagers, and experimental mounts.
 
 The interface is available in English and German; use the language switcher in the header.
 
@@ -55,6 +55,7 @@ That origin explains the scope: a reviewed set of player fields, edited with the
 | Player transfer | Local ↔ multiplayer migration and complete `.mcbe-player.zip` import/export |
 | Icons | Shared Vanilla icons, active world packs, `.mcpack`, `.zip`, and custom icon folders |
 | Mounts | Experimental creation of horses, donkeys, mules, skeleton horses, and camels |
+| Villagers | World-wide scanning, Minecraft names, individual/bulk health editing, supplies inventory, regions, a map, and read-only trade/NBT details |
 | Diagnostics | World status, runtime checks, reports, and private raw-player export |
 
 ## Editing items and containers
@@ -250,7 +251,7 @@ Unsupported shortcuts:
 
 1. Stop Minecraft or the Bedrock server.
 2. Create an independent copy of the complete world.
-3. Select the world and player in the editor.
+3. Select the world and, for player changes, a player in the editor.
 4. Make and review the changes.
 5. Save. An actual write creates a backup first.
 6. Close the editor, open the world in Minecraft, and verify the result.
@@ -265,6 +266,22 @@ The editor does not stop or start Minecraft or a Bedrock server itself.
 A `.mcbe-player.zip` import replaces the complete player record with the exported data. Verify the resulting player in Minecraft.
 
 Player exports contain non-anonymized data. Keep them private and do not attach them to public issues or commit them to a repository.
+
+## Villagers
+
+The **Villagers** workspace requires only a loaded world. **Find villagers** starts a cancellable scan of saved villagers across all dimensions. Search, filters, page selection, details, and the X/Z map share the same records. Column headers sort by name, profession, trade tier, health, region, or dimension; clicking again reverses direction. On narrow screens, a compact sorting selector also offers the hidden columns. Legacy chunk entities are readable; ambiguous identities, damaged indexes, and unsupported fields remain read-only with an explanation.
+
+The map shows filtered villagers in the selected dimension. Use the mouse wheel or zoom buttons to zoom and drag to pan. Touch devices support two-finger pinch and pan. With the map focused, use `+`/`−`, the arrow keys, and `Home`; **Show all** fits the viewport. The grid indicates distances in blocks. Each viewport displays up to 1,000 villager markers; zoom or filter denser groups. Blue diamonds show the selected player, all players, or no players. They use the last saved positions from the same scan, without editor drafts or live tracking. A stale scan hides player markers until the next scan.
+
+**Name in Minecraft** edits a modern villager’s actual name. **Remove name** clears the name draft; **Review name** previews it before staging. The editor accepts up to 80 Unicode characters without line breaks or control characters.
+
+Edit current and maximum health individually or for up to **1,000 villagers** together. **Heal fully** sets current health to the selected or existing maximum. **Review changes** lists every changed, unchanged, or skipped villager. **Stage changes** adds the reviewed selection to the central **Save** tab without writing the world. Names, health and supplies, player edits and staged mounts are validated together, backed up once and written in one atomic batch. Villager records are checked again with a newly opened reader. This also works without a loaded player. A changed world requires another scan; expired previews must be staged again. Removing a staged preview does not change the world.
+
+The **Supplies** section edits the eight saved supply slots of one modern villager: choose food, seeds, and bone meal, change quantities, or clear slots. **Review supplies** shows each affected slot before and after the change; saving uses the same backup and revision safeguards as health. Missing, ambiguous, or unsupported inventory structures and unknown item data remain protected. Pending name, health, supply, and alias entries are preserved when another section is saved.
+
+**More settings** offers an optional **Editor alias**. The Minecraft name is the primary list label; a different alias appears alongside it and remains searchable. Unnamed villagers use their alias as the list label. Existing aliases are not converted into Minecraft names. Aliases and named regions are editor settings stored separately under `MCBE_DATA_ROOT`; their own save buttons apply only those settings. Village membership is shown only when saved resident IDs and dimensions provide an unambiguous match. Villagers without a saved chunk reference show **Chunk assignment missing**; their readable data remains visible and their name, health and supplies remain read-only. Equipment is grouped into **Armor** and **Main hand and offhand**, counting occupied slots. Empty slots, additional slots, and data that cannot be clearly read are distinguished. Professions, trade tiers, offers, armor, hand slots, and raw data remain read-only. Test name, health and supply changes on a world copy in Minecraft first; game versions and add-ons can change data when loading. [Engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-health-and-supply-suite) with BDS **1.26.61.1** verify selected name, health and supply edits through four save/reload cycles; trading, food sharing, breeding, farming, client interactions, legacy schemas, and arbitrary add-ons remain outside that persistence coverage.
+
+The separate [natural village profile](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#natural-village-and-real-client-gameplay-suite) generates a fresh village world and uses its naturally generated residents in controlled interaction booths. It is verified with BDS **1.26.61.1** in Docker and Windows Bedrock client **1.26.6301.0**: three real client joins with bread trades and carrot pickup, two server restarts and three chunk reloads preserve the offline health and supply edits. This interactive profile requires manual client actions; farming, breeding, food sharing and arbitrary add-ons remain outside its coverage.
 
 ## Experimental mounts
 

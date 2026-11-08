@@ -120,6 +120,8 @@
         getCurrentPlayerLabel,
         getCurrentPlayerRevision,
         getLoadedWorldFingerprint,
+        getWatchWorld = () => false,
+        onWorldStatus = () => {},
         getIsDirty,
         getIsBusy,
         reloadPlayer,
@@ -246,7 +248,7 @@
             const requestKey = playerWatch.key;
             const watchFields = getIsBusy?.() === true ? {} : view.playerWatchRequest(playerWatch);
             const request = ++sentRequests;
-            const flight = { worldPath, playerKey, controller: new AbortController(), promise: null };
+            const flight = { worldPath, playerKey, controller: new AbortController(), promise: null, startedAt: Date.now() };
             activeRead = flight;
             flight.promise = (async () => {
                 try {
@@ -259,6 +261,7 @@
                             player_key: playerKey,
                             player_label: getCurrentPlayerLabel?.() || t("Spieler"),
                             dirty: getIsDirty?.() === true,
+                            ...(getWatchWorld() ? { watch_world: true } : {}),
                             ...watchFields,
                         }),
                     }, { parseJsonResponse, timeoutMs: readTimeoutMs, signal: flight.controller.signal });
@@ -276,6 +279,7 @@
                             busy: getIsBusy?.() === true,
                         });
                         renderPlayerChanged();
+                        onWorldStatus(data, { worldPath, startedAt: flight.startedAt });
                         return data;
                     }
                     if (!silent) {
@@ -384,6 +388,8 @@
             getCurrentPlayerLabel: state.getCurrentPlayerLabel,
             getCurrentPlayerRevision: state.getCurrentPlayerRevision,
             getLoadedWorldFingerprint: state.getLoadedWorldFingerprint,
+            getWatchWorld: state.getWatchWorld,
+            onWorldStatus: helpers.onWorldStatus,
             getIsDirty: state.getIsDirty,
             getIsBusy: state.getIsBusy,
             reloadPlayer: helpers.reloadPlayer,

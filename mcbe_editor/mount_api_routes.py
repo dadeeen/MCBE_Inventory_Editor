@@ -13,6 +13,7 @@ from typing import Any
 
 from mcbe_editor import nbt
 
+from . import villager_api_routes, villager_service
 from .api_errors import (
     add_exception_cleanup_details,
     error_code_for_status,
@@ -415,10 +416,11 @@ class _StagedMountDbView:
         yield from self.writes.items()
 
 
-def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
+def save_workspace(data: dict, deps: MountRouteDeps, player_deps, villager_deps=None):
     blocked = deps.require_world_write_allowed()
     if blocked:
-        deps.audit_event(
+        villager_api_routes._audit(
+            deps,
             "workspace.save",
             "blocked",
             world_path=data.get("world_path"),
@@ -428,12 +430,23 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
         return blocked
     try:
         world_path = player_deps.json_string(data, "world_path")
-        player_key = player_deps.json_string(data, "player_key")
-        mounts = data.get("mounts")
+        player_key = player_deps.json_string(data, "player_key") if data.get("player_key") else None
+        mounts = data.get("mounts", [])
         if not isinstance(mounts, list):
             raise ValueError("mounts muss eine Liste sein.")
         if len(mounts) > 32:
             raise ValueError("Pro Speichervorgang sind höchstens 32 Mounts erlaubt.")
+        previews = []
+        if data.get("villager_previews") is not None:
+            if villager_deps is None:
+                raise ValueError("Dorfbewohner-Vorschauen sind nicht verfügbar.")
+            previews, blocked = villager_api_routes.load_workspace_previews(data, villager_deps, world_path)
+            if blocked is not None:
+                return blocked
+        if not player_key and (mounts or any(data.get(name) is not None for name in ("inventory", "stats", "ender_chest", "effects", "abilities"))):
+            raise ValueError(t("Spieleränderungen und Mounts benötigen einen geladenen Spieler."))
+        if not player_key and not previews:
+            raise ValueError(t("Es wurden keine Änderungen vorgemerkt."))
         stats = data.get("stats")
         if mounts and isinstance(stats, dict) and ("pos" in stats or "dimension_id" in stats):
             raise ValueError(
@@ -445,7 +458,8 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
 
         blocked = deps.require_server_guard_current(data)
         if blocked:
-            deps.audit_event(
+            villager_api_routes._audit(
+                deps,
                 "workspace.save",
                 "blocked",
                 world_path=world_path,
@@ -455,7 +469,8 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
             return blocked
         conflict = deps.presence_conflict_response(data, world_path=world_path, player_key=player_key, same_player_only=False)
         if conflict:
-            deps.audit_event(
+            villager_api_routes._audit(
+                deps,
                 "workspace.save",
                 "blocked",
                 world_path=world_path,
@@ -465,7 +480,8 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
             return conflict
         blocked = deps.require_world_write_allowed()
         if blocked:
-            deps.audit_event(
+            villager_api_routes._audit(
+                deps,
                 "workspace.save",
                 "blocked",
                 world_path=world_path,
@@ -473,6 +489,37 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
                 details={"reason": "write_gate_recheck"},
             )
             return blocked
+
+        villager_plan = villager_service.workspace_preview(deps.service, world_path, previews) if previews else None
+
+        def final_check():
+            deps.require_final_world_write_allowed("Workspace speichern")
+            if previews:
+                villager_service._assert_revision(world_path, previews[0]["world_revision"])
+
+        if not player_key:
+            result = villager_service.save(
+                deps.service,
+                world_path,
+                world_revision=previews[0]["world_revision"],
+                selection=None,
+                changes=None,
+                expected_plan_digest=villager_service.plan_digest(villager_plan),
+                pre_write_check=final_check,
+                previews=previews,
+            )
+            result.update(mounts=[], villagers={"changed_count": result.get("changed_count", 0)}, atomic_batch=True)
+            if result.get("success"):
+                result["reload_required"] = False
+                result["no_op"] = result.get("write_committed") is False
+            villager_api_routes._audit(
+                villager_deps,
+                "workspace.save",
+                "success" if result["success"] else "partial",
+                world_path=world_path,
+                details={"backup_file": result.get("backup_file"), "atomic_batch": True, "villager_change_count": result.get("changed_count", 0)},
+            )
+            return deps.jsonify(result), 200 if result["success"] else 500
 
         specs = []
         positions = set()
@@ -507,6 +554,10 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
 
         def build_extra_batch(db, decoded_player_key):
             staged = _StagedMountDbView(db)
+            fresh_villagers = villager_service.prepare_workspace_changes(db, previews) if previews else None
+            if fresh_villagers:
+                villager_service._assert_plan(fresh_villagers, villager_service.plan_digest(villager_plan))
+                staged.writes.update(fresh_villagers.writes)
             player_tag = load_player_nbt(deps.service._read_player(db, decoded_player_key)).tag
             owner_unique_id = mount_owner_unique_id_from_player(player_tag) if any(spec["tamed"] for spec in specs) else None
             records = []
@@ -539,9 +590,24 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
                         "placement_safety": placement_safety,
                     }
                 )
-            return {"writes": staged.writes, "records": records, "result": {"mounts": results}}
+            return {
+                "writes": staged.writes,
+                "records": records,
+                "villager_plan": fresh_villagers,
+                "result": {"mounts": results, "villagers": {"changed_count": fresh_villagers.summary["changed"]} if fresh_villagers else {}},
+            }
+
+        def validate_villagers(db, batch):
+            plan = batch.get("villager_plan")
+            if plan:
+                # Mounts can append to the same chunk index. Verify that final
+                # shared value as well as every untouched villager record.
+                expected = {**plan.before_records, **batch["writes"]}
+                if any(db.get(key) != value for key, value in expected.items()):
+                    raise ValueError(t("Die gemeinsame Nachprüfung der Dorfbewohner ist fehlgeschlagen."))
 
         def validate_extra_batch(db, batch):
+            validate_villagers(db, batch)
             for result, record in zip(batch["result"]["mounts"], batch["records"], strict=True):
                 try:
                     validation = validate_horse_mount_write(
@@ -580,13 +646,17 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
             allow_create_effects=player_deps.json_bool(data, "allow_create_effects", False),
             allow_create_abilities=player_deps.json_bool(data, "allow_create_abilities", False),
             root_equipment_editable=player_deps.json_bool(data, "root_equipment_editable", False),
-            pre_write_check=lambda: deps.require_final_world_write_allowed("Workspace speichern"),
-            extra_batch_builder=build_extra_batch if specs else None,
-            extra_batch_validator=validate_extra_batch if specs else None,
+            pre_write_check=final_check,
+            extra_batch_builder=build_extra_batch if specs or previews else None,
+            extra_batch_validator=validate_extra_batch if specs or previews else None,
+            **({"extra_batch_reopen_validator": validate_villagers} if previews else {}),
         )
         workspace = result.get("workspace") or {"mounts": []}
         result["mounts"] = workspace.get("mounts", [])
-        result["atomic_batch"] = bool(specs)
+        result["villagers"] = workspace.get("villagers", {})
+        result["atomic_batch"] = bool(specs or previews)
+        if result.get("success") and not result.get("no_op"):
+            result["write_committed"] = True
         failed_validations = []
         for mount in result["mounts"]:
             if not isinstance(mount, dict):
@@ -611,21 +681,28 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
                     **error_payload(message, code="workspace_post_write_validation_failed"),
                 }
             )
-        deps.audit_event(
+        villager_api_routes._audit(
+            deps,
             "workspace.save",
             "partial" if committed_failure else "success",
             world_path=world_path,
             player_key=player_key,
-            details={"mount_count": len(specs), "backup_file": result.get("backup_file"), "atomic_batch": bool(specs)},
+            details={
+                "mount_count": len(specs),
+                "backup_file": result.get("backup_file"),
+                "atomic_batch": bool(specs or previews),
+                "villager_change_count": villager_plan.summary["changed"] if villager_plan else 0,
+            },
         )
         response = deps.jsonify(result)
         return (response, 500) if committed_failure else response
     except WriteOutcomeUnknownError as exc:
         deps.log_api_exception("workspace.save", exc)
-        deps.audit_event("workspace.save", "uncertain", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
+        villager_api_routes._audit(deps, "workspace.save", "uncertain", world_path=data.get("world_path"), player_key=data.get("player_key"), error=str(exc))
         return deps.jsonify(uncertain_write_payload(exc)), 500
     except deps.final_write_gate_blocked_error as exc:
-        deps.audit_event(
+        villager_api_routes._audit(
+            deps,
             "workspace.save",
             "blocked",
             world_path=data.get("world_path"),
@@ -637,8 +714,12 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
         payload["write_gate"] = exc.write_gate
         add_exception_cleanup_details(payload, exc)
         return deps.jsonify(payload), 409
+    except (villager_service.VillagerSnapshotStaleError, villager_api_routes.VillagerPreviewStaleError) as exc:
+        code = "villager_preview_stale" if isinstance(exc, villager_api_routes.VillagerPreviewStaleError) else "villager_snapshot_stale"
+        return deps.jsonify(add_exception_cleanup_details(error_payload(exc, code=code), exc)), 409
     except ValueError as exc:
-        deps.audit_event(
+        villager_api_routes._audit(
+            deps,
             "workspace.save",
             "failure",
             world_path=data.get("world_path"),
@@ -649,7 +730,8 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps):
         return deps.jsonify(add_exception_cleanup_details(save_refusal_payload(exc, code=code), exc)), 400
     except Exception as exc:
         deps.log_api_exception("workspace.save", exc)
-        deps.audit_event(
+        villager_api_routes._audit(
+            deps,
             "workspace.save",
             "failure",
             world_path=data.get("world_path"),

@@ -44,6 +44,7 @@ from mcbe_editor import (
     status_snapshots,
     update_progress,
     update_script_runner,
+    villager_api_routes,
 )
 from mcbe_editor.audit import AuditLogger
 from mcbe_editor.browser_launch import browser_url, existing_editor_url, open_browser_url
@@ -58,6 +59,7 @@ from mcbe_editor.service_errors import WriteNotAttemptedError
 from mcbe_editor.setup_state import FirstRunSetup, is_supported_password_hash
 from mcbe_editor.world_locks import locked_operation
 from mcbe_editor.world_read_jobs import READ_ID_HEADER, ReadJobError, WorldReadJobs
+from mcbe_editor.villager_preferences import VillagerPreferences
 
 SETUP_STATE = FirstRunSetup(APP_CONFIG.setup_path)
 if APP_CONFIG.auth_password_hash and not is_supported_password_hash(APP_CONFIG.auth_password_hash):
@@ -66,6 +68,7 @@ ICON_SETTINGS_PATH = str(Path(APP_CONFIG.data_root or "data") / "icon_sources.js
 RUNTIME_BIND_HOST = APP_CONFIG.host
 RUNTIME_BIND_PORT = APP_CONFIG.port
 WORLD_READ_JOBS = WorldReadJobs(Path(APP_CONFIG.data_root or "data") / "cache" / "world_reads")
+VILLAGER_PREFERENCES = VillagerPreferences(Path(APP_CONFIG.data_root or "data") / "villagers")
 
 
 class RecentLogHandler(logging.Handler):
@@ -2016,6 +2019,27 @@ def mount_route_deps() -> mount_api_routes.MountRouteDeps:
     )
 
 
+def villager_route_deps() -> villager_api_routes.VillagerRouteDeps:
+    return villager_api_routes.VillagerRouteDeps(
+        service=editor_service,
+        preferences=VILLAGER_PREFERENCES,
+        secret_key=app.secret_key,
+        session_identity=get_csrf_token,
+        jsonify=jsonify,
+        api_error=api_error,
+        log_api_exception=log_api_exception,
+        json_string=json_string,
+        world_db_access_gate=world_db_access_gate,
+        db_access_block_response=db_access_block_response,
+        require_world_write_allowed=require_world_write_allowed,
+        require_server_guard_current=require_server_guard_current,
+        require_final_world_write_allowed=require_final_world_write_allowed,
+        presence_conflict_response=presence_conflict_response,
+        final_write_gate_blocked_error=FinalWriteGateBlockedError,
+        audit_event=audit_event,
+    )
+
+
 def player_route_deps() -> player_api_routes.PlayerRouteDeps:
     return player_api_routes.PlayerRouteDeps(
         app_config=APP_CONFIG,
@@ -2078,17 +2102,18 @@ def _world_read_response(payload, status):
     return response
 
 
-def _run_world_read(handler):
+def _run_world_read(handler, deps_factory=None):
     data = request_json_object()
+    deps_factory = deps_factory or player_route_deps
     identifier = request.headers.get(READ_ID_HEADER)
     if identifier is None:
-        return handler(data, player_route_deps())
+        return handler(data, deps_factory())
     request_id = _request_id()
 
     @copy_current_request_context
     def work():
         g.request_id = request_id
-        response = app.make_response(handler(data, player_route_deps()))
+        response = app.make_response(handler(data, deps_factory()))
         return response.get_json(), response.status_code
 
     try:
@@ -2156,6 +2181,45 @@ def player_state_transfer():
     return player_api_routes.transfer_player_state(request_json_object(), player_route_deps())
 
 
+@app.route("/api/villagers/scan", methods=["POST"])
+@rate_limit("read")
+@require_csrf
+def villagers_scan():
+    return _run_world_read(villager_api_routes.scan_villagers, villager_route_deps)
+
+
+@app.route("/api/villagers/detail", methods=["POST"])
+@rate_limit("read")
+@require_csrf
+def villagers_detail():
+    return _run_world_read(villager_api_routes.villager_detail, villager_route_deps)
+
+
+@app.route("/api/villagers/preview", methods=["POST"])
+@rate_limit("read")
+@require_csrf
+def villagers_preview():
+    return _run_world_read(villager_api_routes.preview_villagers, villager_route_deps)
+
+
+@app.route("/api/villagers/save", methods=["POST"])
+@rate_limit("mutate")
+@require_csrf
+@block_when_read_only("world_write")
+@save_in_progress
+@service_mutation_guard
+def villagers_save():
+    return villager_api_routes.save_villagers(request_json_object(), villager_route_deps())
+
+
+@app.route("/api/villagers/preferences", methods=["POST"])
+@rate_limit("mutate")
+@require_csrf
+@block_when_read_only("app_write")
+def villagers_preferences():
+    return villager_api_routes.save_preferences(request_json_object(), villager_route_deps())
+
+
 @app.route("/api/mount/preview", methods=["POST"])
 @rate_limit("read")
 @require_csrf
@@ -2190,7 +2254,7 @@ def save_player():
 @save_in_progress
 @service_mutation_guard
 def save_workspace():
-    return mount_api_routes.save_workspace(request_json_object(), mount_route_deps(), player_route_deps())
+    return mount_api_routes.save_workspace(request_json_object(), mount_route_deps(), player_route_deps(), villager_route_deps())
 
 
 @app.route("/api/player/export", methods=["POST"])

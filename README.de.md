@@ -6,7 +6,7 @@
 [![Lizenz: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12–3.14](https://img.shields.io/badge/Python-3.12%E2%80%933.14-blue.svg)](#lokaler-windows-start)
 
-Ein lokaler Webeditor für ausgewählte Minecraft-Bedrock-Spielerdaten: Inventar, Endertruhe, Effekte, Fähigkeiten, Spielerwerte und experimentelle Mounts.
+Ein lokaler Webeditor für Minecraft Bedrock: Inventar, Endertruhe, Effekte, Fähigkeiten, Spielerwerte, Dorfbewohner und experimentelle Mounts.
 
 Die Oberfläche gibt es auf Deutsch und Englisch; die Sprache lässt sich in der Kopfzeile wechseln.
 
@@ -55,6 +55,7 @@ Diese Herkunft erklärt den Zuschnitt: ein geprüfter Satz von Spielerfeldern, b
 | Spielertransfer | Migration lokal ↔ Multiplayer und vollständiger `.mcbe-player.zip`-Import/-Export |
 | Icons | Gemeinsame Vanilla-Icons, aktive Welt-Packs, `.mcpack`, `.zip` und eigene Icon-Ordner |
 | Mounts | Experimentelle Erzeugung von Pferden, Eseln, Maultieren, Skelettpferden und Kamelen |
+| Dorfbewohner | Weltweiter Scan, Minecraft-Namen, Einzel-/Sammelbearbeitung der Gesundheit, Vorratsinventar, Regionen, Karte und schreibgeschützte Handels-/NBT-Details |
 | Diagnose | Weltstatus, Runtime-Prüfungen, Berichte und privater Spieler-Rohdatenexport |
 
 ## Items und Behälter bearbeiten
@@ -250,7 +251,7 @@ Nicht unterstützte Abkürzungen:
 
 1. Beende Minecraft oder den Bedrock-Server.
 2. Erstelle eine unabhängige Kopie der vollständigen Welt.
-3. Wähle Welt und Spieler im Editor aus.
+3. Wähle die Welt und für Spieleränderungen einen Spieler im Editor aus.
 4. Nimm die Änderungen vor und prüfe sie.
 5. Speichere. Vor einem tatsächlichen Schreibvorgang wird ein Backup erstellt.
 6. Schließe den Editor, öffne die Welt in Minecraft und prüfe das Ergebnis.
@@ -265,6 +266,22 @@ Die **Migration lokal ↔ Multiplayer** überträgt ausgewählte Spielerdaten un
 Ein `.mcbe-player.zip`-Import ersetzt den vollständigen Spielerdatensatz durch den exportierten Stand. Prüfe den Zielspieler anschließend in Minecraft.
 
 Spielerexporte enthalten nicht anonymisierte Daten. Behandle sie als privat und hänge sie weder an öffentliche Issues noch an Commits.
+
+## Dorfbewohner
+
+Der Reiter **Dorfbewohner** benötigt nur eine geladene Welt. **Dorfbewohner suchen** startet einen abbrechbaren Scan gespeicherter Bewohner aller Dimensionen. Suche, Filter, Seitenauswahl, Detailansicht und X/Z-Karte verwenden dieselben Datensätze. Die Spaltenköpfe sortieren nach Name, Beruf, Handelsstufe, Gesundheit, Region oder Dimension; erneutes Anklicken kehrt die Richtung um. Auf schmalen Bildschirmen bietet eine kompakte Sortierauswahl auch die ausgeblendeten Spalten an. Alte Chunk-Entity-Formate werden gelesen; unklare Identitäten, beschädigte Indizes und nicht unterstützte Felder bleiben mit Begründung schreibgeschützt.
+
+Die Karte zeigt die gefilterten Bewohner der gewählten Dimension. Mausrad und Zoomtasten vergrößern den Ausschnitt; Ziehen verschiebt ihn. Auf Touchgeräten dienen zwei Finger zum Zoomen und Verschieben. Bei fokussierter Karte funktionieren `+`/`−`, Pfeiltasten und `Pos1`; **Alle anzeigen** passt den Ausschnitt ein. Das Raster gibt Blockabstände an. Pro Ausschnitt werden bis zu 1.000 Bewohnerpunkte dargestellt; bei dichteren Ansammlungen helfen Zoom oder Filter. Blaue Rauten zeigen wahlweise den ausgewählten Spieler, alle Spieler oder keine Spieler. Sie verwenden die zuletzt gespeicherten Positionen aus demselben Scan, keine Editorentwürfe oder Live-Positionen. Ein veralteter Scan blendet Spielermarker bis zum erneuten Scan aus.
+
+**Name in Minecraft** ändert den tatsächlichen Namen eines modernen Dorfbewohners. **Name entfernen** leert den Namensentwurf; **Namen prüfen** zeigt die Änderung vor dem Vormerken. Der Editor erlaubt bis zu 80 Unicode-Zeichen ohne Zeilenumbrüche oder Steuerzeichen.
+
+Aktuelle und maximale Lebenspunkte lassen sich einzeln oder für bis zu **1.000 Bewohner** gemeinsam ändern; **Vollständig heilen** setzt die aktuellen Punkte auf das gewählte oder vorhandene Maximum. **Änderungen prüfen** zeigt jeden betroffenen, unveränderten oder übersprungenen Bewohner. **Änderungen vormerken** übernimmt die geprüfte Auswahl in den zentralen Reiter **Speichern**, ohne die Welt zu verändern. Namen, Gesundheit, Vorräte, Spieleränderungen und vorgemerkte Mounts werden gemeinsam validiert, einmal gesichert und als atomarer Batch geschrieben. Dorfbewohner werden anschließend mit einem neu geöffneten Reader nachgeprüft. Das funktioniert auch ohne geladenen Spieler. Bei einem veränderten Weltstand ist ein neuer Scan nötig; abgelaufene Vorschauen müssen erneut vorgemerkt werden. Das Entfernen einer Vormerkung ändert die Welt nicht.
+
+Im Bereich **Vorräte** lassen sich die acht gespeicherten Vorratsplätze eines modernen Dorfbewohners einzeln bearbeiten: Nahrung, Saatgut und Knochenmehl auswählen, Mengen ändern oder Plätze leeren. **Vorräte prüfen** zeigt die betroffenen Plätze vor und nach der Änderung; gespeichert wird mit demselben Backup- und Revisionsschutz wie bei Gesundheit. Fehlende, mehrdeutige oder abweichende Inventarstrukturen sowie unbekannte Item-Daten bleiben geschützt. Offene Eingaben für Namen, Gesundheit, Vorräte und Aliase bleiben beim Speichern eines anderen Bereichs erhalten.
+
+Unter **Weitere Einstellungen** bleibt ein optionaler **Editor-Alias** verfügbar. Der Minecraft-Name steht in der Liste im Vordergrund; ein abweichender Alias wird zusätzlich angezeigt und bleibt durchsuchbar. Ohne Minecraft-Namen dient der Alias als Listenname. Bestehende Aliase werden nicht in Minecraft-Namen umgewandelt. Aliase und benannte Regionen sind separate Editor-Einstellungen unter `MCBE_DATA_ROOT`; ihre eigenen Speicherknöpfe übernehmen ausschließlich diese Einstellungen. Dorfzugehörigkeit wird nur bei eindeutigen gespeicherten Bewohner-IDs und passender Dimension angezeigt. Bewohner ohne gespeicherten Chunk-Verweis tragen den Hinweis **Chunk-Zuordnung fehlt**; ihre lesbaren Daten bleiben sichtbar und Name, Gesundheit und Vorräte schreibgeschützt. Die Ausrüstung ist nach **Rüstung (Armor)** sowie **Haupt- und Nebenhand** gruppiert und zählt belegte Plätze. Leere Plätze, zusätzliche Slots und nicht eindeutig lesbare Daten werden unterschieden. Berufe, Handelsstufen, Angebote, Rüstung, Handplätze und Rohdaten bleiben schreibgeschützt. Prüfe Namens-, Gesundheits- und Vorratsänderungen zuerst auf einer Weltkopie in Minecraft; Spielversionen und Add-ons können Daten beim Laden verändern. [Engine-Prüfungen](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-health-and-supply-suite) mit BDS **1.26.61.1** bestätigen ausgewählte Namens-, Gesundheits- und Vorratsänderungen über vier Speicher-/Ladezyklen; Handel, Nahrungsteilen, Zucht, Landwirtschaft, Clientinteraktionen, ältere Datenformate und beliebige Add-ons bleiben außerhalb dieses Persistenznachweises.
+
+Das separate [Profil für natürliche Dörfer](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#natural-village-and-real-client-gameplay-suite) erzeugt eine frische Dorfwelt und nutzt deren natürlich erzeugte Bewohner in kontrollierten Testkabinen. Es ist mit BDS **1.26.61.1** in Docker und dem Windows-Bedrock-Client **1.26.6301.0** geprüft: Drei echte Clientbeitritte mit Brotkäufen und Karottenaufnahme, zwei Serverneustarts und drei Chunk-Neuladungen erhalten die offline bearbeitete Gesundheit und Vorräte. Dieses interaktive Profil benötigt manuelle Clientaktionen; Landwirtschaft, Zucht, Nahrungsteilen und beliebige Add-ons bleiben außerhalb seines Prüfumfangs.
 
 ## Experimentelle Mounts
 

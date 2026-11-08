@@ -7,7 +7,7 @@ import pytest
 
 from mcbe_editor import leveldb_readonly as reader
 from tests.test_leveldb_readonly import _varint
-from tests.test_readonly_format_regressions import _key, _new_file, _snapshot, _table, _world_db
+from tests.test_readonly_format_regressions import _block, _key, _new_file, _snapshot, _table, _world_db
 
 
 def _stored_block(data, compression):
@@ -70,6 +70,28 @@ def test_varint_cannot_exceed_uint64(last):
 def test_uint64_varint_controls(value):
     raw = _varint(value)
     assert reader._decode_varint(raw, 0) == (value, len(raw))
+
+
+@pytest.mark.parametrize("prefix_length,value_length", [(0, 0), (3, 127), (3, 128), (3, 16384), (127, 1), (128, 128), (16384, 128)])
+def test_table_entries_preserve_long_prefixes_keys_and_values(prefix_length, value_length):
+    prefix = b"\x80" * prefix_length
+    entries = [(prefix + b"\x00", b"v" * value_length), (prefix + b"\x01", b"\xff" * value_length), (prefix + b"\xff", b"last")]
+    assert list(reader._iter_block_entries(_block(entries))) == entries
+
+
+@pytest.mark.parametrize("field", [0, 1, 2])
+def test_each_table_entry_length_rejects_uint64_overflow(field):
+    lengths = [_varint(0), _varint(1), _varint(1)]
+    lengths[field] = b"\xff" * 9 + b"\x02"
+    block = b"".join(lengths) + b"kv" + struct.pack("<II", 0, 1)
+    with pytest.raises(reader.CorruptDatabaseError, match="Varint"):
+        list(reader._iter_block_entries(block))
+
+
+@pytest.mark.parametrize("entry", [b"\x00", b"\x00\x00", b"\x00\x00\x80", b"\x01\x00\x00", b"\x00\x02\x00k", b"\x00\x01\x02kv"])
+def test_truncated_or_invalid_table_entries_are_controlled_errors(entry):
+    with pytest.raises(reader.CorruptDatabaseError):
+        list(reader._iter_block_entries(entry + struct.pack("<II", 0, 1)))
 
 
 @pytest.mark.parametrize("offset,size", [(0, 2**63), (2**63, 1), (1, 2**64 - 1)])

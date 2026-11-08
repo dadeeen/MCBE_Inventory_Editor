@@ -20,7 +20,8 @@ test("world/player are context prerequisites, not sequential edit steps", () => 
         assert.equal(navigation.viewAllowed(area, noWorld), false, `${area} is unavailable without a world`);
     }
     assert.equal(navigation.viewAllowed("player", worldOnly), true);
-    for (const area of ["inventory", "player-edit", "mounts", "save"]) {
+    assert.equal(navigation.viewAllowed("save", worldOnly), true);
+    for (const area of ["inventory", "player-edit", "mounts"]) {
         assert.equal(navigation.viewAllowed(area, worldOnly), false, `${area} needs a player`);
     }
 });
