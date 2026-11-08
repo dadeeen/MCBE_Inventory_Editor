@@ -29,16 +29,17 @@
         let camera = fitCamera([]), fitted = camera, state = null, rows = [], players = [];
         let resetKey = "", sourceRows = null, nodes = new Map(), suppressClickUntil = 0, renderVersion = 0, inspectedPlayerKey = "";
         const pointers = new Map();
-        let gesture = null;
+        let gesture = null, cameraAdjusted = false;
 
         function text(id, value) { const node = el(id); if (node && node.textContent !== value) node.textContent = value; }
         function anchor(clientX, clientY) {
             const rect = map.getBoundingClientRect();
             return { x: (clientX - rect.left) / rect.width, z: (clientY - rect.top) / rect.height };
         }
-        function fit() { camera = { ...fitted }; draw(); }
-        function zoom(factor, point) { camera = zoomCamera(camera, factor, point, Math.min(2 ** 39, fitted.span * 16)); draw(); }
+        function fit() { cameraAdjusted = false; camera = { ...fitted }; draw(); }
+        function zoom(factor, point) { cameraAdjusted = true; camera = zoomCamera(camera, factor, point, Math.min(2 ** 39, fitted.span * 16)); draw(); }
         function translate(dx, dz) {
+            cameraAdjusted = true;
             camera = { ...camera, x: Math.max(-(2 ** 36), Math.min(2 ** 36, camera.x + dx)),
                 z: Math.max(-(2 ** 36), Math.min(2 ** 36, camera.z + dz)) };
         }
@@ -118,11 +119,15 @@
                 : state.mapPlayerMode === "selected" && !selected ? t("Kein ausgewählter Spieler mit gespeicherter Position. Wähle einen Spieler oder „Alle Spieler“.")
                 : state.mapPlayerMode === "selected" && selected.dimension !== Number(state.mapDimension) ? t("Der ausgewählte Spieler ist in einer anderen Dimension.")
                 : !players.length ? t("Keine gespeicherten Spielerpositionen in dieser Dimension.") : t("Blaue Rauten: Spieler · zuletzt gespeicherte Position, keine Live-Anzeige."));
-            const key = JSON.stringify([state.worldPath, state.mapDimension, state.filters, state.mapPlayerMode, players]);
+            const key = JSON.stringify([state.worldPath, state.mapDimension, state.filters, state.mapPlayerMode,
+                state.mapPlayerMode === "selected" ? state.selectedPlayerKey : null]);
             fitted = fitCamera([...rows, ...players]);
             if (key !== resetKey || sourceRows !== state.rows) {
-                resetKey = key; sourceRows = state.rows; camera = { ...fitted }; pointers.clear(); gesture = null;
+                resetKey = key; sourceRows = state.rows; cameraAdjusted = false; pointers.clear(); gesture = null;
             }
+            // Late player markers join an untouched overview without replacing
+            // a view the user has already chosen while the request was pending.
+            if (!cameraAdjusted) camera = { ...fitted };
             showPlayerInfo();
             draw();
         }

@@ -1,7 +1,9 @@
 ## Unreleased
 
+- Speed up villager lists and details with a database-state cache, and load saved player positions only when the map opens.
+- Reduce allocation during entity scans while preserving NBT validation and global duplicate-ID checks.
 - Support compact villager health attributes without inventing missing defaults, and preserve unchanged records byte for byte.
-- Add a permanent Docker/BDS villager suite covering health and supplies through production saves and four engine reloads.
+- Add a Docker/BDS villager suite covering health and supplies through production saves and four engine reloads.
 - Add an opt-in natural village profile with real client trades and food pickup, offline health and supply edits, and required server and chunk reloads.
 - Stage villager health and supplies for the central Save tab, with one backup and atomic save alongside player and mount changes, including worlds without a loaded player. Cover this path in the permanent Bedrock engine checks.
 - Preserve staged world changes when refreshing or changing players, and clear them after a confirmed, successful world reload, including the same world path.

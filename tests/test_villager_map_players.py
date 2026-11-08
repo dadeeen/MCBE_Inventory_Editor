@@ -10,6 +10,7 @@ from mcbe_editor.leveldb_writer import LevelDbWriter
 from mcbe_editor.players import classify_player_record, encode_player_key
 from mcbe_editor.services import BedrockEditorService
 from tests.test_villager_workflow import villager_world as villager_world
+from tests.test_villager_workflow import villager_client as villager_client
 
 
 def _player(*, position=(24.0, 70.0, -40.0), dimension=0):
@@ -90,7 +91,9 @@ def test_villager_scan_reads_player_markers_without_writes_and_refreshes_old_dir
     service = BedrockEditorService({}, {})
     service.list_players(world)  # Prime the normal player discovery cache.
     before = {path.name: (path.stat().st_mtime_ns, path.read_bytes()) for path in (Path(world) / "db").iterdir()}
-    first = villager_service.scan(service, world)
+    snapshot = villager_service.scan(service, world)
+    assert "map_players" not in snapshot
+    first = villager_service.map_players(service, world, snapshot["world_revision"])
     after = {path.name: (path.stat().st_mtime_ns, path.read_bytes()) for path in (Path(world) / "db").iterdir()}
     assert before == after
     markers = {player["player_key"]: player for player in first["map_players"]}
@@ -100,8 +103,29 @@ def test_villager_scan_reads_player_markers_without_writes_and_refreshes_old_dir
     assert markers[encode_player_key(b"player_map_nether")]["dimension"] == 1
 
     _write(world, {b"player_map_main": _bytes(_player(position=(100, 80, -200), dimension=2))})
-    second = villager_service.scan(service, world)
+    with pytest.raises(villager_service.VillagerSnapshotStaleError):
+        villager_service.map_players(service, world, snapshot["world_revision"])
+    snapshot = villager_service.scan(service, world)
+    second = villager_service.map_players(service, world, snapshot["world_revision"])
     moved = next(player for player in second["map_players"] if player["player_key"] == encode_player_key(b"player_map_main"))
     assert moved["position"] == {"x": 100.0, "y": 80.0, "z": -200.0}
     assert moved["dimension"] == 2
     assert second["world_revision"] != first["world_revision"]
+
+
+def test_scan_never_discovers_players_and_map_route_checks_revision_and_csrf(villager_client, villager_world, monkeypatch):
+    import main
+    from unittest.mock import Mock
+
+    world, _ = villager_world
+    players = Mock(return_value=[])
+    monkeypatch.setattr(main.editor_service, "_scan_players", players)
+    scan = villager_client.post("/api/villagers/scan", json={"world_path": world}).get_json()
+    players.assert_not_called()
+    body = {"world_path": world, "world_revision": scan["world_revision"]}
+    response = villager_client.post("/api/villagers/map_players", json=body)
+    assert response.status_code == 200 and response.get_json()["map_players"] == []
+    assert players.call_count == 1
+    assert villager_client.post("/api/villagers/map_players", json={"world_path": world}).status_code == 400
+    assert villager_client.post("/api/villagers/map_players", json={**body, "world_revision": "stale"}).status_code == 409
+    assert villager_client.post("/api/villagers/map_players", json=body, headers={"X-CSRF-Token": "wrong"}).status_code == 403

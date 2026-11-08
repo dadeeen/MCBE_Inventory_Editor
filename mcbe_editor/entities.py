@@ -208,6 +208,8 @@ def scan_entities(db: Any, *, identifiers: frozenset[str] | None = None) -> Enti
     unique_ids: dict[str, list[str]] = defaultdict(list)
     seen_keys: set[bytes] = set()
     reference_count = 0
+    identifier_bytes = tuple(identifier.encode("utf-8") for identifier in identifiers or ())
+    identity_fields = frozenset((*_IDENTIFIER_FIELDS, "UniqueID"))
     checkpoint("entities", current=0)
 
     def add_root(key: bytes, value: bytes, root: nbt.NamedTag, storage: str, index: int | None = None, chunk=None) -> None:
@@ -237,7 +239,6 @@ def scan_entities(db: Any, *, identifiers: frozenset[str] | None = None) -> Enti
         result.records[record_id] = record
 
     for key, value in db.iter_items():
-        checkpoint()
         result.scanned_records += 1
         if result.scanned_records % 128 == 0:
             checkpoint(current=result.scanned_records)
@@ -246,7 +247,7 @@ def scan_entities(db: Any, *, identifiers: frozenset[str] | None = None) -> Enti
         is_actor = key.startswith(ACTOR_PREFIX)
         is_index = key.startswith(DIGP_PREFIX)
         is_village = key.startswith(b"VILLAGE_") and key.endswith((b"_DWELLERS", b"_INFO"))
-        legacy_chunk = _chunk_key(key, suffix=bytes([LEGACY_ENTITY_TAG])) if len(key) in (9, 13) else None
+        legacy_chunk = _chunk_key(key, suffix=b"\x32") if len(key) in (9, 13) and key[-1] == LEGACY_ENTITY_TAG else None
         if not is_actor and not is_index and legacy_chunk is None and not is_village:
             continue
         if key in seen_keys:
@@ -274,7 +275,17 @@ def scan_entities(db: Any, *, identifiers: frozenset[str] | None = None) -> Enti
         if is_actor:
             actor_suffixes.add(key[len(ACTOR_PREFIX) :])
             try:
-                add_root(key, value, nbt.load(value, **LOAD_KWARGS), "actor")
+                # The byte prefilter only chooses allocation cost. Membership
+                # and global duplicate IDs still come from fully validated NBT.
+                project = identifiers is not None and not any(marker in value for marker in identifier_bytes)
+                root = nbt.load(value, root_fields=identity_fields if project else None, **LOAD_KWARGS)
+                if (
+                    project
+                    and isinstance(root.tag, nbt.CompoundTag)
+                    and any(isinstance(root.tag.get(field), nbt.StringTag) and root.tag[field].py_data in identifiers for field in _IDENTIFIER_FIELDS)
+                ):
+                    root = nbt.load(value, **LOAD_KWARGS)
+                add_root(key, value, root, "actor")
             except (nbt.NBTError, TypeError, OverflowError):
                 result.diagnose(issue("unreadable_actor", "Ein gespeicherter Kreaturdatensatz konnte nicht gelesen werden.", record=key.hex()))
             continue

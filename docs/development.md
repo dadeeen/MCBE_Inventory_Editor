@@ -118,7 +118,7 @@ well as the application matrix and fresh runtime setup checks.
 Generate normal locks with Python 3.12 on Windows or Linux. To also regenerate or
 check the reference locks, use Windows Python 3.12 and add `--include-references`;
 no source build tools are needed. See [requirements](../requirements/README.md)
-and [the validation record](dependency-portability-assessment.md).
+and [the portability guide](dependency-portability-assessment.md).
 
 For codec changes, run the standard suite on every supported interpreter and,
 from an isolated Python 3.12 reference environment on Windows, where the pinned
@@ -249,7 +249,7 @@ The UI is bilingual (German/English). German is the source language: user-facing
 - Tests: the pytest suite pins the Flask test client to German via `tests/conftest.py` (`Accept-Language: de` in `environ_base`), because assertions use the German source strings. Translation itself is covered by `tests/test_backend_i18n.py`; tests that exercise English send their own `Accept-Language` header, which overrides the pin. `tests/test_i18n_catalog.py` checks unique keys, placeholders, referenced literals, and rejects raw translatable template text; `tests/test_frontend_i18n.py` prevents feature modules from reintroducing raw locale checks or a DOM-translation fallback.
 - Operator-facing console output, CLI help, batch scripts and internal logs are outside the request-locale translation contract. Their language varies by tool; do not assume that all console output is English.
 
-Documentation languages: `README.md` and `SECURITY.md` are English with maintained German counterparts (`README.de.md`, `SECURITY.de.md`). Developer documentation under `docs/` is English only and is deliberately not translated, to avoid drift in security-relevant contracts.
+`README.md` and `SECURITY.md` have maintained German counterparts (`README.de.md`, `SECURITY.de.md`). Developer documentation under `docs/` is English only.
 
 ## Bundled item database and enchantment max levels
 
@@ -334,11 +334,33 @@ documented in [Inventory icon resolution](icon-resolution.md).
 
 ## Curated item-availability labels
 
-`mcbe_editor/resources/item_availability.json` is the reviewed source for the availability badges shown by the item browser. It is deliberately separate from generated `item_db.json`: Mojang's registry establishes that an identifier exists, while availability in Survival, Creative, command tooling, Education features, generated world state, or legacy saves is a curated gameplay claim.
+`mcbe_editor/resources/item_availability.json` supplies reviewed availability
+badges for the item browser. It is separate from generated `item_db.json` because
+registry membership does not determine availability in Survival, Creative,
+commands, Education features, generated worlds or legacy saves.
 
-The file records its Bedrock sample release, review date, and references. Rules use explicit item identifiers; data-value-specific exceptions live under `variants`. `mcbe_editor/item_availability.py` validates the schema, the bundled-source release, category coverage, duplicate assignments, registry membership, and variant ranges before the server starts. The check intentionally targets the bundled snapshot rather than a newer persistent database created by the in-app updater, so an update cannot make the application unbootable before the next curated review. When the persistent database has a newer versioned Mojang source and an explicit positive item registry, that exact registry becomes the effective addable set; same-release, older, unversioned, and legacy copies without an explicit registry use the bundled reviewed set. IDs newly added since the bundled snapshot receive a derived, non-blocking `unreviewed` badge until the bundled data catches up. This derived category is added only to the client payload and does not change either persisted schema. If an official registry ID arrives before Mojang's public language catalogs contain its display name, the runtime catalog exposes a readable identifier-derived fallback in both locales; the fallback is not persisted and is replaced automatically once an official localization becomes available. Missing stack limits are explicitly unverified: new stacks use the safe creation bound of 1 while recorded original amounts remain preserved. Explicit 64s are stored per item, so registry additions cannot accidentally inherit a blanket 64. See [Item stack limits](item-stack-limits.md) for source precedence, validation, and the reviewed snapshot. Durability editing requires an explicit item limit; a runtime fallback is not evidence that an item is damageable.
+The file records its Bedrock sample release, review date and references. Rules
+use explicit item IDs, with data-value exceptions under `variants`.
+`mcbe_editor/item_availability.py` validates the schema, source release, category
+coverage, duplicate assignments, registry membership and variant ranges at
+startup. Validation uses the bundled snapshot, so a newer persistent catalog
+can load before its availability labels receive a review.
 
-The updater reports missing display names for valid official registry IDs as warnings, allowing that runtime fallback to take effect after an update. Malformed registry identifiers, invalid existing name entries, and invalid limits remain blocking audit errors. The integration test exercises the dry run, persisted update, and runtime catalog with a registry addition that neither public localization source names yet.
+A newer versioned Mojang source with an explicit item registry determines the
+addable set. Same-release, older, unversioned and legacy catalogs without that
+registry use the bundled set. New IDs receive a non-blocking `unreviewed` badge
+in the client payload; persisted schemas remain unchanged.
+
+Missing official names produce a readable identifier-derived fallback in both
+locales. This runtime fallback is not persisted and gives way to an official
+translation when available. The updater warns about missing names for valid
+registry IDs; malformed IDs, invalid existing names and invalid limits block
+the affected update.
+
+Missing stack limits remain unverified: new stacks use a bound of 1 while
+recorded original amounts are preserved. Confirmed limits, including 64, are
+stored per item. Durability editing also requires an explicit limit. Source
+precedence and validation are described in [Item stack limits](item-stack-limits.md).
 
 One shared technical-ID policy is applied while generating the database, loading an existing persistent copy, and selecting icon targets. These block-only patterns override temporary exposure in Mojang's positive item registry. In particular, double-slab block states remain recognizable for lossless handling of existing worlds but are excluded from new-item creation and icon targets. Missing icons remain non-fatal and use the normal fallback behavior.
 
@@ -485,4 +507,7 @@ the source; it establishes the exact contents of an unambiguous package.
 
 The desktop archive follows its own build allowlist: EXE, `_internal`, manifest, licenses and user documentation. It contains no BAT setup, Compose files or general Python CLI; developer instructions must not imply that it is a source checkout.
 
-The project root deliberately contains only tool-conventional configuration and direct entry points such as `pyproject.toml`, `Dockerfile`, Compose examples, `setup.bat`, and `start.bat`. Development, diagnostic, and release helpers live under `scripts/`; generated caches, runtime data, and build outputs remain ignored and are hard-excluded by release and Docker rules.
+The project root contains configuration and entry points such as
+`pyproject.toml`, `Dockerfile`, Compose examples, `setup.bat` and `start.bat`.
+Development, diagnostic and release helpers live under `scripts/`. Caches,
+runtime data and build outputs are ignored and excluded from releases and Docker.

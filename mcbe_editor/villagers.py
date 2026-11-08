@@ -465,6 +465,11 @@ def _scan(db: Any) -> tuple[EntityScan, dict[str, dict[str, Any]]]:
 
 def scan_villagers(db: Any) -> dict[str, Any]:
     scan, rows = _scan(db)
+    return scan_result(scan, rows)
+
+
+def scan_result(scan: EntityScan, rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Build the public list from one validated entity snapshot."""
     villagers = list(rows.values())
     return {
         "villagers": villagers,

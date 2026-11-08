@@ -3966,5 +3966,9 @@
   "Weitere Einstellungen": "More settings",
   "Optionaler Editor-Alias": "Optional editor alias",
   "Namen, Gesundheit und Vorräte werden mit allen anderen Änderungen in einem gemeinsamen Schreibvorgang gesichert, gespeichert und erneut gelesen.": "Names, health and supplies are backed up, saved and read back together with all other changes in one write operation.",
-  "Beim erneuten Scan werden alle Vormerkungen und offenen Eingaben in diesem Reiter verworfen. Jetzt neu scannen?": "Scanning again discards all staged changes and open inputs in this tab. Scan again?"
+  "Beim erneuten Scan werden alle Vormerkungen und offenen Eingaben in diesem Reiter verworfen. Jetzt neu scannen?": "Scanning again discards all staged changes and open inputs in this tab. Scan again?",
+  "Erneut laden": "Reload",
+  "Spielerpositionen werden geladen …": "Loading player positions …",
+  "Spielerpositionen konnten nicht geladen werden.": "Player positions could not be loaded.",
+  "Die Kartenantwort ist unvollständig. Bitte erneut laden.": "The map response is incomplete. Please reload."
 }

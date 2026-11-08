@@ -2188,6 +2188,13 @@ def villagers_scan():
     return _run_world_read(villager_api_routes.scan_villagers, villager_route_deps)
 
 
+@app.route("/api/villagers/map_players", methods=["POST"])
+@rate_limit("read")
+@require_csrf
+def villagers_map_players():
+    return _run_world_read(villager_api_routes.villager_map_players, villager_route_deps)
+
+
 @app.route("/api/villagers/detail", methods=["POST"])
 @rate_limit("read")
 @require_csrf

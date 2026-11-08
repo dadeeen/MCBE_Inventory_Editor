@@ -95,6 +95,7 @@ from .service_errors import (
     log_error_detail,
     step_failure_text,
 )
+from .villager_directory import VillagerDirectory
 from .world import LOCAL_PLAYER_KEY, detect_capabilities, ensure_valid_world_path, get_world_name, world_fingerprint
 from .world_locks import get_world_lock, lock_key, locked_world, world_lock_if_free
 from .write_results import (
@@ -144,6 +145,7 @@ class BedrockEditorService:
         self.db_factory = db_factory
         self.readonly_db_factory = readonly_db_factory
         self._player_directory = player_directory if player_directory is not None else PlayerDirectory()
+        self._villager_directory = VillagerDirectory()
 
     @staticmethod
     def _lock_key(world_path: str) -> str:

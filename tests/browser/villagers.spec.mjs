@@ -125,10 +125,13 @@ async function openVillagerFixture(page, { layout = "classic", readOnly = false,
     await page.route("**/api/world/presence", route => route.fulfill({ json: { success: true, other_sessions: [], world_fingerprint: worldRevision } }));
     await page.route("**/api/villagers/scan", route => {
         scans.push(route.request().postDataJSON());
-        return route.fulfill({ json: { success: true, villagers: rows, map_players: mapPlayers,
+        return route.fulfill({ json: { success: true, villagers: rows,
             world_revision: worldRevision, preferences, diagnostics: [], summary: { total: rows.length }, ...guard,
         } });
     });
+    await page.route("**/api/villagers/map_players", route => route.fulfill({ json: {
+        success: true, map_players: mapPlayers, world_revision: worldRevision,
+    } }));
     await page.route("**/api/villagers/detail", route => {
         const request = route.request().postDataJSON();
         details.push(request);
@@ -221,6 +224,99 @@ async function saveVillagers(page, { returnToVillagers = true } = {}) {
     await page.locator("#btnSaveWorkflowRun").click();
     await expect.poll(() => page.evaluate(() => getSaveAppController().isSaving())).toBe(false);
     if (returnToVillagers) await page.locator('.app-workflow-nav [data-workflow-view="villagers"]').click();
+}
+
+for (const width of [390, 1440]) {
+    test(`map loads player positions on demand and offers retry at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        let requests = 0, release;
+        const waiting = new Promise(resolve => { release = resolve; });
+        await openVillagerFixture(page);
+        await page.route("**/api/villagers/map_players", async route => {
+            requests += 1;
+            if (requests === 1) {
+                await waiting;
+                await route.fulfill({ json: { success: false, error: "Karten-Testfehler" } });
+            } else {
+                const request = route.request().postDataJSON();
+                await route.fulfill({ json: { success: true, map_players: [], world_revision: request.world_revision } });
+            }
+        });
+        expect(requests).toBe(0);
+        await page.locator("#villagerRows [data-action='detail'][data-id='actor:a']").click();
+        await expect(page.locator("#villagerDetailCurrent")).toHaveValue("12");
+        expect(requests).toBe(0);
+        await page.locator("#villagerMapToggle").click();
+        await expect(page.locator("#villagerMapPlayerStatus")).toHaveText("Spielerpositionen werden geladen …");
+        await expect(page.locator("#villagerMapPlayerHint")).toBeHidden();
+        release();
+        await expect(page.locator("#villagerMapPlayerStatus")).toContainText("Karten-Testfehler");
+        await expect(page.locator("#villagerMapPlayersRetry")).toBeVisible();
+        const directory = process.env.MCBE_MAP_QA_DIR;
+        if (directory) await fs.mkdir(directory, { recursive: true });
+        await page.screenshot({ path: directory ? path.join(directory, `map-retry-${width}.png`) : test.info().outputPath(`map-retry-${width}.png`), fullPage: true });
+        await page.locator("#villagerMapPlayersRetry").focus();
+        await page.keyboard.press("Enter");
+        await expect(page.locator("#villagerMapPlayerStatus")).toBeHidden();
+        await expect(page.locator("#villagerMapPlayersRetry")).toBeHidden();
+        await page.locator("#villagerMapToggle").click();
+        await page.locator("#villagerMapToggle").click();
+        expect(requests).toBe(2);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("lazy player positions add map dimensions without resident or region references", async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    await openVillagerFixture(page, { rows: mapVillagers(), mapPlayers: [
+        { player_key: "custom-dimension-player", label: "Dimensionsbesucher", position: { x: 40, y: 66, z: -30 }, dimension: 7 },
+    ] });
+    await expect(page.locator('#villagerMapDimension option[value="7"]')).toHaveCount(0);
+    await page.locator("#villagerMapToggle").click();
+    await page.locator("#villagerMapPlayers").selectOption("all");
+    await expect(page.locator('#villagerMapDimension option[value="7"]')).toHaveCount(1);
+    await expect(page.locator('#villagerRegionDimension option[value="7"]')).toHaveCount(1);
+    await page.locator("#villagerMapDimension").selectOption("7");
+    await expect(page.locator('.villager-map-player[data-player-key="custom-dimension-player"]')).toBeVisible();
+    expect(errors).toEqual([]);
+});
+
+for (const customView of [false, true]) {
+    test(`lazy player positions ${customView ? "preserve a manually chosen" : "fit an untouched"} map view`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1050 });
+        const errors = collectBrowserErrors(page);
+        let release;
+        const waiting = new Promise(resolve => { release = resolve; });
+        await openVillagerFixture(page, { rows: mapVillagers() });
+        await page.route("**/api/villagers/map_players", async route => {
+            await waiting;
+            const request = route.request().postDataJSON();
+            await route.fulfill({ json: { success: true, world_revision: request.world_revision, map_players: [
+                { player_key: "distant-player", label: "Entfernter Spieler", position: { x: 1000, y: 64, z: 0 }, dimension: 0 },
+            ] } });
+        });
+        await page.locator("#villagerMapToggle").click();
+        await page.locator("#villagerMapPlayers").selectOption("all");
+        await expect(page.locator("#villagerMapPlayerStatus")).toHaveText("Spielerpositionen werden geladen …");
+        const map = page.locator("#villagerMap");
+        if (customView) {
+            await map.focus();
+            await page.keyboard.press("+");
+            await page.keyboard.press("ArrowRight");
+        }
+        const coordinates = await page.locator("#villagerMapCoordinates").textContent();
+        release();
+        await expect(page.locator("#villagerMapPlayerStatus")).toBeHidden();
+        if (customView) {
+            await expect(page.locator("#villagerMapCoordinates")).toHaveText(coordinates);
+            await expect(page.locator('.villager-map-player[data-player-key="distant-player"]')).toHaveCount(0);
+            await page.locator("#villagerMapFit").click();
+        } else {
+            await expect(page.locator("#villagerMapCoordinates")).not.toHaveText(coordinates);
+        }
+        await expect(page.locator('.villager-map-player[data-player-key="distant-player"]')).toBeVisible();
+        expect(errors).toEqual([]);
+    });
 }
 
 test("world-only villagers: filter, select all, inspect skipped rows, save and reload", async ({ page }) => {

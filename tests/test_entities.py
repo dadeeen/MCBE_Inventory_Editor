@@ -87,6 +87,29 @@ def test_id_collision_with_a_different_mob_is_detected_even_with_a_villager_filt
     assert "duplicate_unique_id" in codes(only_record(db))
 
 
+@pytest.mark.parametrize("field", ["identifier", "Identifier", "EntityIdentifier", "id", "Id"])
+def test_projected_scan_matches_full_decode_with_collisions_and_false_positive_markers(monkeypatch, field):
+    from mcbe_editor.villagers import scan_villagers
+
+    db = EntityDb()
+    add_actor(db, entity_tag(42))
+    cow = entity_tag(42, identifier="minecraft:cow")
+    cow[field] = cow.pop("identifier")
+    add_actor(db, cow, suffix=b"abcdefgh")
+    pig = entity_tag(123, identifier="minecraft:pig")
+    pig["CustomName"] = nbt.StringTag("minecraft:villager_v2")
+    add_actor(db, pig, suffix=b"87654321")
+    optimized = scan_villagers(db)
+    real_load = nbt.load
+
+    def full_decode(value, **kwargs):
+        kwargs.pop("root_fields", None)
+        return real_load(value, **kwargs)
+
+    monkeypatch.setattr(nbt, "load", full_decode)
+    assert scan_villagers(db) == optimized
+
+
 @pytest.mark.parametrize("variant", ["same_index", "other_chunk", "other_dimension"])
 def test_duplicate_actor_reference_is_never_editable_evidence(variant):
     db = EntityDb()

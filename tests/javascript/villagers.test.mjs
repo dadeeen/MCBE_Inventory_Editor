@@ -287,6 +287,7 @@ function harness({ rows = [row("a"), row("b")], readOnly = false } = {}) {
     const response = () => ({ success: true, villagers: plain(rows), world_revision: world.revision, server_guard_epoch: 1, server_guard_token: "guard-1",
         preferences: { revision: "p1", aliases: {}, regions: [] }, diagnostics: [] });
     const api = {
+        mapPlayers: async payload => ({ success: true, map_players: [], world_revision: payload.world_revision }),
         scan: async (...args) => { calls.scans.push(args); return response(); },
         detail: async (payload, opts) => { calls.details.push([payload, opts]); return { success: true, villager: plain(rows.find(row => row.id === payload.id)) }; },
         preview: async (payload, opts) => { calls.previews.push([payload, opts]); return { success: true, rows: [], change_count: 1, preview_token: "token" }; },
@@ -338,6 +339,57 @@ async function commit(h) {
     h.controller.finalizePending(result);
     await h.controller.refreshAfterSave();
 }
+
+test("map players load only on opening, reuse the revision and retry errors", async () => {
+    const h = harness(), requests = [];
+    h.api.mapPlayers = async payload => { requests.push(payload); throw new Error("offline"); };
+    await h.controller.scan();
+    await h.controller.openDetail("a");
+    assert.equal(requests.length, 0);
+    h.node("villagerMapToggle").dispatch("click");
+    await new Promise(setImmediate);
+    assert.equal(requests.length, 1);
+    assert.equal(h.controller.getState().mapPlayersError, "offline");
+    h.api.mapPlayers = async payload => { requests.push(payload); return { success: true, world_revision: "v1", map_players: [{ player_key: "p" }] }; };
+    h.node("villagerMapPlayersRetry").dispatch("click");
+    await new Promise(setImmediate);
+    assert.equal(h.controller.getState().mapPlayersLoaded, true);
+    assert.deepEqual(plain(requests[1]), { world_path: "A", world_revision: "v1" });
+    h.node("villagerMapToggle").dispatch("click");
+    h.node("villagerMapToggle").dispatch("click");
+    assert.equal(requests.length, 2);
+    h.world.revision = "v2";
+    h.api.mapPlayers = async payload => { requests.push(payload); return { success: true, world_revision: payload.world_revision, map_players: [] }; };
+    await h.controller.scan();
+    await new Promise(setImmediate);
+    assert.equal(requests.at(-1).world_revision, "v2");
+});
+
+test("late map responses cannot cross worlds or repopulate a closed loading map", async () => {
+    const h = harness(), pending = deferred();
+    let signal;
+    h.api.mapPlayers = (_payload, options) => { signal = options.signal; return pending.promise; };
+    await h.controller.scan();
+    h.node("villagerMapToggle").dispatch("click");
+    assert.equal(h.controller.getState().mapPlayersLoading, true);
+    h.node("villagerMapToggle").dispatch("click");
+    assert.equal(signal.aborted, true);
+    h.world.path = "B"; h.controller.updateContext();
+    pending.resolve({ success: true, world_revision: "v1", map_players: [{ player_key: "old" }] });
+    await new Promise(setImmediate);
+    assert.equal(h.controller.getState().mapPlayers.length, 0);
+    assert.equal(h.controller.getState().mapPlayersLoaded, false);
+});
+
+test("map revision conflicts invalidate the villager snapshot", async () => {
+    const h = harness();
+    await h.controller.scan();
+    h.api.mapPlayers = async () => ({ success: false, code: "villager_snapshot_stale", error: "world changed" });
+    h.node("villagerMapToggle").dispatch("click");
+    await new Promise(setImmediate);
+    assert.equal(h.controller.getState().staleReason, "world changed");
+    assert.equal(h.controller.getState().mapPlayersLoading, false);
+});
 
 test("world switching cancels scans and a late previous-world response cannot populate the new world", async () => {
     const h = harness(), pending = deferred();

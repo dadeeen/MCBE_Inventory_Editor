@@ -368,6 +368,7 @@ ROUTE_READONLY_POLICY = {
     "/api/mount/create": "world_write",
     "/api/villagers/scan": "read",
     "/api/villagers/detail": "read",
+    "/api/villagers/map_players": "read",
     "/api/villagers/preview": "read",
     "/api/villagers/save": "world_write",
     "/api/villagers/preferences": "app_write",

@@ -1,34 +1,31 @@
-# NBT codec performance measurement
+# NBT codec performance
 
-Measured on Windows for v0.5.21. This compares the project codec, identified by
-the hash below, with Amulet-NBT 2.1.8 and NumPy 1.26.4; it does not measure
-overall editor response time. LevelDB, backups, HTTP and browser rendering are
-outside the timed region.
+The Windows benchmark for editor v0.5.21 compares the project codec below with
+Amulet-NBT 2.1.8 and NumPy 1.26.4. Timings cover parsing and serialization;
+LevelDB, backups, HTTP and browser rendering are excluded.
 
 Measured `mcbe_editor/nbt.py` SHA-256:
 `b7a79d3d298d1bb8f7fc10743928ba24af0edac5406ada9ced31d2968a2b5356`.
 
 ## Method
 
-- Both codecs used CPython 3.12.14 for the direct comparison, with identical
+- Both codecs use CPython 3.12.14 for the direct comparison, with identical
   uncompressed little-endian input and explicit Bedrock escape UTF-8 settings.
-- Real records came from disposable copies of private fixtures: 30 saved
+- Real records come from disposable copies of private fixtures: 30 saved
   animals and two complete player records containing an inventory. Large
   integer and byte arrays were synthetic stress cases, not observed player
   record sizes.
-- Before timing, both implementations had to read and write every input
-  byte-for-byte. Inputs were already in memory. Save-only timings used already
-  loaded objects; roundtrip timings included parsing and serialization together.
-- Seven warmed `timeit` samples per operation; median reported. Codec order
-  alternated using a seeded shuffle. GC was disabled during timed batches.
-  Timing batches target 60 ms unless otherwise noted. These are microbenchmarks
-  on a working desktop, not formal latency guarantees or application benchmarks.
-- Memory was measured separately in fresh subprocesses using Windows process
-  counters, after retaining a stated number of decoded records and collecting
-  garbage. Working-set increases include native allocations as well as Python
-  objects. They are approximate process measurements, not exact per-tag sizes.
-- Source worlds were copied before access; input records and local scripts/logs
-  stay under ignored private or temporary paths.
+- Both implementations must reproduce every input byte for byte before timing.
+  Inputs are in memory. Save timings use decoded objects; roundtrip timings
+  include parsing and serialization.
+- Each result is the median of seven warmed `timeit` samples. A seeded shuffle
+  alternates codec order; GC is disabled during batches, which target 60 ms
+  unless stated otherwise.
+- Memory measurements use fresh subprocesses and Windows process counters after
+  retaining decoded records and collecting garbage. Working-set increases
+  include Python and native allocations, so they are approximate process costs.
+- Source worlds remain unchanged; records, scripts and logs stay in ignored
+  private or temporary paths.
 
 ## Same-runtime timing results
 
@@ -75,28 +72,32 @@ target (32.4–59.8 ms sample range), and 27.2 ms with a 150 ms target and at le
 five iterations per sample. This sensitivity to sampling settings limits
 precise comparisons between Python 3.12 and 3.14.
 
-The project codec is therefore not performance-neutral. Individual measured
-player roundtrips are in the low-millisecond range, but repeated parsing and
-large arrays can make the difference significant. Actual UI impact requires
-timing the relevant application operation; multiplying these ratios by total
-save time would be incorrect because database and backup work do not depend on
-the codec.
-
-Codec optimizations should target bulk arrays and measured hot paths with
-standard-library facilities and keep the preservation tests unchanged.
+Repeated parsing and large arrays can dominate codec costs. Measure complete
+application operations separately to include database and backup work; these
+codec ratios do not predict total load or save times.
 
 ## Player load path
 
-Loading a player parses its stored record once. Classification returns the
-parsed NBT, and the inventory and ender chest views and the compatibility
-analysis share it. The analysis runs before the views receive item origins and
-root equipment fallbacks, so it describes the record as stored; a regression
-test compares it with an analysis of a fresh parse and counts the parses of a
-load. Saving does not reuse a loaded parse: it reads and parses the record under
-the write lock and parses the serialized result again before writing.
+Loading a player parses its stored record once for classification, inventory,
+ender chest and compatibility analysis. The analysis runs before item origins
+and equipment fallbacks are added. Saving parses a fresh record under the write
+lock and validates the serialized result before writing.
 
 String decoding tries strict UTF-8 first. Only strings with bytes that are not
 valid UTF-8 take the escape path, which yields the same text for every input.
+
+## Villager discovery projection
+
+Entity discovery validates every actor's NBT. A byte prefilter selects likely
+villagers for full decoding. Other actors retain only the five identifier fields
+and `UniqueID`; discarded fields still undergo structural and resource-limit
+validation. Decoded identifiers determine membership, and any projected match
+is decoded in full. Legacy roots always use full decoding.
+
+The scan traverses the whole database to detect duplicate IDs across entity
+types and validate chunk indexes. Repeated reads use the
+[villager snapshot cache](architecture.md#villager-read-snapshots); write planning
+performs a fresh scan.
 
 ## Equine-template prefilter
 
@@ -107,29 +108,20 @@ and malformed records cannot become templates through the prefilter. Regression
 tests cover false positives and all five supported identifier field names for
 horses, donkeys and mules.
 
-The following measurements for v0.5.21 compare the project codec with and
-without this prefilter, on standard CPython 3.14.4. They do not compare against
-Amulet-NBT. Both paths used the same disposable copy of the approximately
-247 MB private server world. Each timing includes adapter creation, complete database
-iteration, template selection and close. Three samples per mode were taken in
-alternating order; the table reports medians. Build/test processes were not
-running during these measurements. The native adapter used a locally built
-Amulet-LevelDB wheel; in v0.5.21 it was the application's write adapter. The
-application reads and writes with the project's own
-[Python implementation](leveldb-writer.md), whose reader is the second row.
+The v0.5.21 benchmark uses CPython 3.14.4 and a disposable copy of a 247 MB
+private world. Each timing includes adapter creation, full database iteration,
+template selection and close. The table reports medians of three samples per
+mode in alternating order. Both paths use the project codec; only the prefilter
+differs. The native adapter is v0.5.21's Amulet-LevelDB write adapter, built
+locally. The second row uses the reader from the project's
+[Python storage implementation](leveldb-writer.md).
 
 | Template-scan adapter | Without prefilter, seconds | With prefilter, seconds | Speedup |
 | --- | ---: | ---: | ---: |
 | Native adapter (v0.5.21 `LevelDbAdapter`) | 9.753 | 5.790 | 1.68× |
 | `ReadonlyLevelDbAdapter` | 6.446 | 2.857 | 2.26× |
 
-Both adapters decoded **6,821 records without the prefilter and 78 with it**.
-Every run selected the exact same identifier and raw template bytes. The native
-timings ranged from 9.383–9.779 seconds without and 5.780–5.926 seconds with
-the prefilter; timings depend
-on the world and the machine. Native LevelDB opens can change database
-bookkeeping, so these runs accessed only the disposable copy.
-
-This reduces unnecessary parsing in the horse `auto`/template path. It does
-not change codec array performance, cover the complete HTTP/save/backup
-operation, or imply that every editor operation becomes 1.68× faster.
+Both adapters decode **6,821 records without the prefilter and 78 with it** and
+select identical template bytes and identifiers. Native sample ranges are
+9.383–9.779 seconds without and 5.780–5.926 seconds with the prefilter. These
+results apply to the horse `auto`/template scan, excluding HTTP, saves and backups.

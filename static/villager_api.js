@@ -12,6 +12,7 @@
         return {
             scan: (worldPath, scanOptions) => reads.readWorld("/api/villagers/scan", { world_path: worldPath }, scanOptions),
             detail: (payload, readOptions) => reads.readWorld("/api/villagers/detail", payload, readOptions),
+            mapPlayers: (payload, readOptions) => reads.readWorld("/api/villagers/map_players", payload, readOptions),
             preview: (payload, readOptions) => reads.readWorld("/api/villagers/preview", payload, readOptions),
             save: payload => post("/api/villagers/save", payload),
             savePreferences: payload => post("/api/villagers/preferences", payload),

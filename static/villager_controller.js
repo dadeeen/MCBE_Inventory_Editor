@@ -13,6 +13,7 @@
             filters: { query: "", profession: "", tier: "", dimension: "", region: "", injured: false, editable: false },
             sort: "name", direction: "asc", page: 1, pageSize: 50, mapDimension: "0", mapOpen: false, regionsOpen: false,
             mapPlayers: [], mapPlayerMode: "selected", selectedPlayerKey: "",
+            mapPlayersLoaded: false, mapPlayersLoading: false, mapPlayersError: "",
             pending: [], preview: null, previewSource: "", previewNotice: "", previewNoticeKind: "",
             detailDirty: false, nameDirty: false, inventoryDirty: false, batchDirty: false, aliasDirty: false, regionDirty: false };
     }
@@ -26,7 +27,7 @@
         onReviewRequested = () => {}, onPendingChanged = () => {}, onBusyChanged = () => {}, onDraftChanged = () => {}, onWorldWritten = () => {}, onWriteGate = () => {},
     } = {}) {
         let state = initialState();
-        let scanRequest = null, detailRequest = null, previewRequest = null;
+        let scanRequest = null, detailRequest = null, previewRequest = null, mapPlayersRequest = null;
         let generation = 0;
         let wired = false;
         let rowIndexSource = null, rowIndex = new Map();
@@ -288,12 +289,14 @@
             state.staleReason = reason;
             state.pending.forEach(entry => { entry.staleReason = reason; });
             detailRequest?.controller.abort(); detailRequest = null;
+            cancelMapPlayers(); state.mapPlayers = []; state.mapPlayersLoaded = false;
             invalidatePreview();
             state.busy = false;
             render();
         }
 
         function resetWorld(worldPath) {
+            cancelMapPlayers();
             scanRequest?.controller.abort(); scanRequest = null;
             detailRequest?.controller.abort(); detailRequest = null;
             previewRequest?.controller.abort(); previewRequest = null;
@@ -362,6 +365,7 @@
                 if (!confirmed || worldPath !== getWorldPath()) return false;
             }
             invalidatePreview();
+            cancelMapPlayers(); state.mapPlayers = []; state.mapPlayersLoaded = false; state.mapPlayersError = "";
             detailRequest?.controller.abort(); detailRequest = null;
             if (!keepEdits) {
                 state.pending = []; onPendingChanged();
@@ -390,7 +394,6 @@
                 requireSuccess(data, t("Dorfbewohner konnten nicht geladen werden."));
                 if (!Array.isArray(data.villagers) || typeof data.world_revision !== "string" || !data.world_revision) throw new Error(t("Die Scan-Antwort ist unvollständig. Bitte erneut scannen."));
                 state.rows = data.villagers;
-                state.mapPlayers = Array.isArray(data.map_players) ? data.map_players : [];
                 state.worldRevision = data.world_revision;
                 state.guardEpoch = data.server_guard_epoch ?? 0;
                 state.guardToken = data.server_guard_token || "";
@@ -446,7 +449,35 @@
                 if (current(request, scanRequest)) {
                     scanRequest = null; state.scanning = false;
                     updateContext(); onDraftChanged();
+                    if (state.mapOpen && state.loaded && !state.staleReason) void loadMapPlayers();
                 }
+            }
+        }
+
+        function cancelMapPlayers() {
+            mapPlayersRequest?.controller.abort(); mapPlayersRequest = null;
+            state.mapPlayersLoading = false;
+        }
+
+        async function loadMapPlayers() {
+            if (!state.mapOpen || !state.loaded || state.scanning || state.staleReason || state.mapPlayerMode === "none"
+                || state.mapPlayersLoaded || mapPlayersRequest) return;
+            const request = { worldPath: state.worldPath, generation, worldRevision: state.worldRevision, controller: new AbortController() };
+            mapPlayersRequest = request;
+            state.mapPlayersLoading = true; state.mapPlayersError = ""; render();
+            try {
+                const data = await api.mapPlayers({ world_path: request.worldPath, world_revision: request.worldRevision }, { signal: request.controller.signal });
+                if (!current(request, mapPlayersRequest) || request.worldRevision !== state.worldRevision || request.controller.signal.aborted) return;
+                requireSuccess(data, t("Spielerpositionen konnten nicht geladen werden."));
+                if (!Array.isArray(data.map_players) || data.world_revision !== request.worldRevision) throw new Error(t("Die Kartenantwort ist unvollständig. Bitte erneut laden."));
+                state.mapPlayers = data.map_players; state.mapPlayersLoaded = true;
+            } catch (error) {
+                if (current(request, mapPlayersRequest) && error.name !== "AbortError") {
+                    state.mapPlayersError = error.message || t("Spielerpositionen konnten nicht geladen werden.");
+                    if (STALE_CODES.has(error.data?.code)) reportError(error);
+                }
+            } finally {
+                if (current(request, mapPlayersRequest)) { mapPlayersRequest = null; state.mapPlayersLoading = false; render(); }
             }
         }
 
@@ -883,8 +914,9 @@
             on("villagerSelectFiltered", "click", () => changeSelection(filteredRows().map(row => row.id), true));
             on("villagerClearSelection", "click", () => changeSelection([...state.selected], false));
             on("villagerMapDimension", "change", () => { state.mapDimension = value("villagerMapDimension"); render(); });
-            on("villagerMapPlayers", "change", () => { state.mapPlayerMode = value("villagerMapPlayers"); render(); });
-            on("villagerMapToggle", "click", () => { state.mapOpen = !state.mapOpen; render(); });
+            on("villagerMapPlayers", "change", () => { state.mapPlayerMode = value("villagerMapPlayers"); if (state.mapPlayerMode === "none") cancelMapPlayers(); render(); void loadMapPlayers(); });
+            on("villagerMapToggle", "click", () => { state.mapOpen = !state.mapOpen; if (!state.mapOpen) cancelMapPlayers(); render(); void loadMapPlayers(); });
+            on("villagerMapPlayersRetry", "click", () => { void loadMapPlayers(); });
             on("villagerRegionsToggle", "click", () => { state.regionsOpen = !state.regionsOpen; render(); });
             on("villagerRegionForm", "submit", event => { event.preventDefault(); saveRegion(); });
             on("villagerRegionReset", "click", resetRegion);

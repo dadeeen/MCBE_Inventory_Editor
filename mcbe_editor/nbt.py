@@ -319,7 +319,7 @@ class _Reader:
         raw = self.take(self.number("H"))
         return self.decoder(raw), raw
 
-    def tag(self, tag_id, depth=0):
+    def tag(self, tag_id, depth=0, *, materialize=True, fields=None):
         self.nodes += 1
         if self.nodes > MAX_NODES or depth > MAX_DEPTH:
             raise NBTError("NBT exceeds complexity limit")
@@ -329,23 +329,32 @@ class _Reader:
         if tag_id <= 6:
             fmt = _FORMATS[tag_id]
             raw = self.take(struct.calcsize(fmt))
+            if not materialize:
+                return None
             tag = cls(struct.unpack(self.endian + fmt, raw)[0])
             if tag_id in (5, 6):
                 tag._raw = raw if self.endian == "<" else raw[::-1]
             return tag
         if tag_id == 8:
             value, raw = self.string()
+            if not materialize:
+                return None
             tag = StringTag(value)
             tag._raw = raw
             return tag
         if tag_id == 10:
-            tag = CompoundTag()
+            tag = CompoundTag() if materialize else None
+            names = set()
             while child_id := self.number("B"):
                 name, raw = self.string()
-                if name in tag:
+                if name in names:
                     raise NBTError("Duplicate or ambiguously decoded NBT name")
-                tag[name] = self.tag(child_id, depth + 1)
-                tag._raw_names[name] = raw
+                names.add(name)
+                retain = materialize and (fields is None or name in fields)
+                child = self.tag(child_id, depth + 1, materialize=retain)
+                if retain:
+                    tag[name] = child
+                    tag._raw_names[name] = raw
             return tag
         child_id = self.number("B") if tag_id == 9 else None
         length = self.number("i")
@@ -358,14 +367,18 @@ class _Reader:
                 raise NBTError("Invalid NBT list element type")
             if length > MAX_NODES - self.nodes or length > len(self.data) - self.pos:
                 raise NBTError("NBT list exceeds available data or complexity limit")
-            return ListTag([self.tag(child_id, depth + 1) for _ in range(length)], child_id)
+            if materialize:
+                return ListTag([self.tag(child_id, depth + 1) for _ in range(length)], child_id)
+            for _ in range(length):
+                self.tag(child_id, depth + 1, materialize=False)
+            return None
         fmt = _FORMATS[tag_id]
         size = struct.calcsize(fmt)
         if length > MAX_NODES - self.nodes:
             raise NBTError("NBT exceeds complexity limit")
         self.nodes += length
         raw = self.take(length * size)
-        return cls(v[0] for v in struct.iter_unpack(self.endian + fmt, raw))
+        return cls(v[0] for v in struct.iter_unpack(self.endian + fmt, raw)) if materialize else None
 
 
 class _Writer:
@@ -454,7 +467,13 @@ def load(
     compressed: bool = False,
     little_endian: bool = True,
     string_decoder: Callable[[bytes], str] = utf8_escape_decoder,
+    root_fields: frozenset[str] | None = None,
 ) -> NamedTag:
+    """Validate the whole stream, optionally retaining only named root fields.
+
+    Unretained fields undergo the same type, length, depth, node-budget, string
+    and duplicate-name checks. Projection is for discovery, not writing.
+    """
     if compressed:
         raise NBTError("Compressed/Java NBT is not supported by the Bedrock codec")
     if not isinstance(data, bytes | bytearray | memoryview):
@@ -462,7 +481,7 @@ def load(
     reader = _Reader(data, little_endian, string_decoder)
     tag_id = reader.number("B")
     name, raw_name = reader.string()
-    result = NamedTag(reader.tag(tag_id), name)
+    result = NamedTag(reader.tag(tag_id, fields=root_fields), name)
     result._raw_name = raw_name
     if reader.pos != len(reader.data):
         raise NBTError("Trailing bytes after NBT root")

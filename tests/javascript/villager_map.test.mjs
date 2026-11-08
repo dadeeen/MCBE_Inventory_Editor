@@ -80,25 +80,33 @@ test("centered zoom reverses without drift and repeated zoom respects both limit
 
 function controllerHarness() {
     const world = { path: "world-A", selected: "player-A", markers: [{ player_key: "player-A", label: "A", ...position(10, 20) }] };
-    const response = () => ({ success: true, villagers: [], world_revision: "revision-A", map_players: plain(world.markers) });
-    const api = { scan: async () => response() };
+    const response = () => ({ success: true, villagers: [], world_revision: "revision-A" });
+    const api = { scan: async () => response(), mapPlayers: async payload => ({ success: true, world_revision: payload.world_revision, map_players: plain(world.markers) }) };
+    const toggle = { addEventListener(_type, handler) { this.click = handler; } };
     const controller = context.window.MCBEVillagerController.createVillagerController({
         doc: {}, api,
-        view: { element: () => null, render: () => ({ page: 1 }), renderDetail() {} },
+        view: { element: id => id === "villagerMapToggle" ? toggle : null, render: () => ({ page: 1 }), renderDetail() {} },
         getWorldPath: () => world.path, getSelectedPlayerKey: () => world.selected,
     });
-    return { world, api, response, controller };
+    controller.wire();
+    return { world, api, response, controller, toggle };
 }
 
 test("each successful scan replaces map positions and absent marker data never reuses older positions", async () => {
     const h = controllerHarness();
     assert.equal(await h.controller.scan(), true);
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), []);
+    h.toggle.click();
+    await new Promise(setImmediate);
     assert.deepEqual(plain(h.controller.getState().mapPlayers), h.world.markers);
     h.world.markers = [{ player_key: "player-A", label: "A", ...position(100, 200) }];
     assert.equal(await h.controller.scan(), true);
+    await new Promise(setImmediate);
     assert.deepEqual(plain(h.controller.getState().mapPlayers), h.world.markers);
     h.api.scan = async () => ({ success: true, villagers: [], world_revision: "revision-B" });
+    h.api.mapPlayers = async () => ({ success: true, world_revision: "revision-B" });
     assert.equal(await h.controller.scan(), true);
+    await new Promise(setImmediate);
     assert.deepEqual(plain(h.controller.getState().mapPlayers), []);
 });
 
@@ -126,6 +134,8 @@ test("world changes clear saved map markers and ignore a late response from the 
 test("player selection changes only the selected key and retains saved snapshot positions", async () => {
     const h = controllerHarness();
     await h.controller.scan();
+    h.toggle.click();
+    await new Promise(setImmediate);
     assert.equal(h.controller.getState().selectedPlayerKey, "player-A");
     h.world.selected = "player-B";
     h.controller.updateContext();

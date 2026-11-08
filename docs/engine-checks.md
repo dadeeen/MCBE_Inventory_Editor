@@ -1,11 +1,10 @@
 # Checks against the Bedrock engine
 
-The reusable tools under `scripts/engine_checks/` belong in the public source
-repository. They are developer tools, excluded from the runtime release ZIP and
-application Docker image. Mojang's binaries, generated playable worlds, local
-reports, backups and logs belong in the ignored `.engine-tests/` directory.
-Nothing under that directory should be committed. No real world is required or
-accepted by the runner. The local tool does not download or redistribute BDS.
+The tools under `scripts/engine_checks/` validate editor output against Bedrock
+Dedicated Server (BDS). They use disposable worlds and are excluded from runtime
+ZIPs and the application Docker image. Supply an official BDS archive locally;
+the runner does not download it or accept existing worlds. Keep binaries, worlds,
+reports, backups and logs in the ignored `.engine-tests/` directory.
 
 ## Execution and provenance
 
@@ -115,14 +114,13 @@ version migration and arbitrary add-ons remain outside its coverage.
 - Compare every bundled addable ID with the runtime registry and try every ID in
   their union. Record `ItemStack.maxAmount`, exposed components and durability.
 - Compare every recorded stack limit with the engine measurement. Contradictions
-  fail. Missing catalog limits produce review candidates and a partial result,
-  never automatic catalog changes or a passing result. Values above the editor's
-  Count range also fail.
+  fail. Missing catalog limits produce review candidates and a partial result.
+  Values above the editor's Count range also fail.
 - Compare recorded durability with `ItemDurabilityComponent.maxDurability`,
   including disappeared components. New durable items require review and produce
   a partial result; conflicting known values fail before any offline edits.
-- Failed item construction remains unverified. No implicit 1 or 64 is invented.
-  Partial coverage returns exit code 2, not a green result.
+- Failed item construction leaves the limit unverified; it receives no default
+  of 1 or 64. Partial coverage returns exit code 2. Catalog changes require review.
 
 ## Item suite
 
@@ -197,12 +195,10 @@ coverage. It tests:
   immediately after spawning: uncontrolled initial motion otherwise lets items
   miss the hopper, producing intermittent fixture failures.
 
-This is a finite domain, **not every possible combination**. In particular,
-arbitrary combinations outside the explicit pairs and equipment profiles, every enchantment-level product,
-all metadata combinations, combat, equipping, consumption, brewing and crafting
-are not covered. The editor intentionally permits some NBT enchantment pairs
-that normal Vanilla application rules reject; measured rejection is not a new
-restriction on preserved/editable NBT.
+Coverage is limited to the listed pairs, profiles and metadata cases. Combat,
+equipping, consumption, brewing and crafting are outside this suite. The editor
+permits some NBT enchantment pairs that Vanilla application rules reject;
+measured rejection does not restrict preserved or editable NBT.
 
 The allowlisted summary includes added/removed enchantment identifiers and changed
 maximum levels in `enchantment_registry`, and rule mismatches and negative-check
@@ -309,41 +305,31 @@ landmarks are measured in **BDS 1.26.61.1**. The complete profile is verified wi
 that BDS version in Docker and Windows Bedrock client **1.26.6301.0**: three
 client connections, three bread trades and food pickups, two server reloads,
 three demonstrated chunk unload/reload cycles and two backed-up production saves.
-The final saved native state preserves the edited health and supplies and the
-original resident and player identities. This evidence covers the bounded
-scenario described here, not arbitrary village gameplay.
+The final saved state preserves edited health and supplies and the original
+resident and player identities.
 
-Additional functional health evidence with **BDS 1.26.61.1** uses a disposable
-copy of the saved village: `Entity.applyDamage(25)` kills the unchanged resident
-with 20 health, while the resident edited to 40 health survives with 15/40.
-Native hurt/death events and the saved health NBT corroborate the result. This
-controlled damage check establishes usable health capacity; weapon-specific
-damage, armor, effects and combat AI are outside that evidence. It is separate
-from the three-join profile and requires no connected client.
+A separate damage check with **BDS 1.26.61.1** uses a disposable village copy:
+`Entity.applyDamage(25)` kills the unchanged resident with 20 health, while the
+resident edited to 40 survives with 15/40. Native hurt/death events and saved
+NBT confirm the health values. This check needs no client and covers health
+capacity, excluding weapon-specific damage, armor, effects and combat AI.
 
-Before inviting the client, the script loads the village and selects three
-naturally generated adults that can acquire a profession. It captures their
-original identities, names and positions and moves those same actors into
-separate glass interaction booths above the village, each with a composter.
-The entire booth footprint must be empty before fixture blocks are placed.
-Native job assignment requires a nearby connected player in this scenario;
-after the first join, the script waits for those jobs to settle and selects
-a farmer, an injured resident and an untouched comparison resident from these
-three actors. This first job selection can take up to two minutes; the player
-receives a waiting message. A missing farmer or unsettled control fails before gameplay.
-The script names the selected roles, establishes the initial injury and supplies
-the real player's emeralds and carrots during the first connection. It does not
-spawn villagers, set profession data or manufacture trade results. These booths
-prevent harvesting, planting and food sharing from changing supplies between
-the offline edit and the next connection. Reload phases never rebuild them or
-move the villagers back. The observer moves the player to the village and the
-selected farmer; the real client performs the actions.
-Player placement uses integer block checks and the known booth floor, including
-when the native actor stands slightly below an integer height or on a composter.
-Only clear interior positions above the fixture's stone floor are accepted.
-The stable observer uses block types, not the experimental `Block.isSolid` property.
-A missing safe
-position fails the phase instead of using an unchecked position outside the booth.
+The script records three natural adults' identities, names and positions, then
+moves them into separate glass booths with composters. The booth footprint must
+be empty. The enclosures prevent farming and food sharing from changing supplies
+between edits and observations; reloads retain the booths and the same actors.
+
+After the first client joins, native job assignment can take up to two minutes.
+The script selects a farmer, an injured resident and an untouched control, names
+their roles, sets the initial injury and supplies the player's emeralds and
+carrots. A missing farmer or unsettled control fails preparation. Villagers,
+professions and trade results come from the engine.
+
+The observer places the player beside the selected farmer; the client performs
+the actions. Placement requires clear interior blocks above the booth's stone
+floor. Integer block checks handle actors standing at fractional heights or on
+composters without the experimental `Block.isSolid` property. A missing safe
+position fails the phase.
 
 Wait for each numbered join invitation in the console or `client-status.json`.
 The initial invitation requires the natural residents and their booths to be ready.
@@ -365,37 +351,30 @@ the player's resources or repair the villagers' saved health or supplies.
 Both server reloads and all three chunk unload/reload observations are required;
 `--client-reloads` does not shorten this profile.
 
-A passing trade requires a real interaction event with the selected farmer,
-the player's one-emerald decrease and one recipe's six bread after the trade
-GUI returns its input items to the inventory, and
-independently read native `TradeExperience` increasing by exactly that recipe's
-positive `traderExp` value after saving. The recipe's output and experience must
-remain unchanged. `Offers` usage cannot exceed its previous value plus one;
-Vanilla restocking may reset that counter between observations. Food pickup requires
-a freshly spawned carrot item near the real player, the farmer's native
-before-pickup event for that exact item entity, and matching inventory changes.
-BDS 1.26.61.1 emits the before-pickup event for villager supplies but does not
-emit the corresponding after-pickup event; the event alone is not evidence of
-completion. The observer also requires the transferred supplies in saved NBT.
-The offline observer checks saved health, original actor
-identities, the same real player record, edited supplies and backup preservation.
-The comparison residents' saved inventories must match the last live observation.
-Untraded comparison residents can change professions through native AI; this
-profile permits those job changes while requiring exact identity, health and
-supplies. The offline editor must preserve profession data byte for byte.
-The farmer's tested carrot total, health, identity and profession remain exact;
-unrelated food processing is outside this gameplay profile. All eight edited slots
-are checked before the engine resumes. The separate `villagers` suite isolates
-complete slot persistence from farming. The observer reads `world.seed`
-and requires `Dimension.isChunkLoaded()` to report loaded, unloaded and loaded
-again for the residents and natural landmarks. Entity queries alone do not
-establish chunk unloading. A temporary script ticking area loads the complete
-village for observation. It is removed before moving the player away, and every
-observed chunk must report unloaded before the area is recreated on return.
-An invitation, connection, screenshot or script checkpoint alone cannot pass the
-suite. Missing actions, unavailable observations, timeouts and incomplete disk
-checks fail it. Regression tests in `tests/test_engine_village.py` and
-`tests/test_engine_village_orchestration.py` deliberately corrupt this evidence.
+The observers require all of the following:
+
+- A trade must trigger interaction with the selected farmer, consume one emerald
+  and yield six bread after the trading screen returns its input items. Saved
+  `TradeExperience` must increase by the recipe's positive `traderExp`, with the
+  recipe unchanged. `Offers` usage may increase by at most one; native restocking
+  may reset it.
+- Carrot pickup must match the freshly dropped item entity, its native
+  before-pickup event and the inventory changes in saved NBT. BDS 1.26.61.1
+  supplies no corresponding after-pickup event.
+- Saved actor and player identities, health, supplies and backups must match the
+  expected state. All eight edited slots are checked before restart. Comparison
+  residents may change professions through native AI, but their saved inventories
+  must match the last live observation. The farmer's carrot total, health,
+  identity and profession remain exact. Offline edits preserve profession data
+  byte for byte.
+- The world seed must match, and `Dimension.isChunkLoaded()` must report a
+  loaded, unloaded and reloaded state for residents and landmarks. The temporary
+  ticking area is removed before moving away; every observed chunk must unload
+  before it is recreated on return.
+
+Missing actions, observations or disk checks and timeouts fail the suite.
+`tests/test_engine_village.py` and `tests/test_engine_village_orchestration.py`
+check these failure paths with corrupted observations.
 
 This interactive profile uses stable `@minecraft/server` **2.11.0**, without
 experiments, and the same loopback-only NetherNet configuration and private
@@ -406,9 +385,7 @@ summary exposes status and counts. The runner does not automate client menus.
 
 The profile covers the selected bread trade, dropped-food pickup and health and
 supply edits. Farming, breeding, food sharing, restocking, combat, other village
-biomes, legacy worlds and arbitrary add-ons remain outside its scope. A natural
-restock can reset offer usage; the exact cumulative trade experience and client
-resource checks remain mandatory. This does not certify restocking behavior.
+biomes, legacy worlds and arbitrary add-ons remain outside its scope.
 
 ## Controlled add-on suite
 
@@ -417,8 +394,8 @@ a stackable item with maximum 32 and a durable item with maximum 9000. No Vanill
 definition is overridden. With the editor catalog kept Vanilla, the test preserves
 and decorates engine-created custom items, including damage beyond ordinary
 Vanilla limits, through two engine reloads. New custom items without originals
-must still be rejected. This is **not certification of arbitrary third-party
-packs**, pack combinations, overrides or migrations.
+must still be rejected. Third-party packs, pack combinations, overrides and
+migrations are outside this suite.
 
 ## Real-client Inventory, Ender Chest and equipment suite
 
@@ -479,8 +456,7 @@ HTTP/TCP signaling on the selected port plus UDP gameplay on that same port.
 The generated `server-udp-ports` explicitly advertises the loopback mapping;
 Docker publishes both protocols **only on IPv4 loopback**. See the official BDS
 archive's `bedrock_server_how_to.html`, Transport and UDP port configuration.
-No LAN
-binding, public tunnel, firewall change or online-mode server is created. The
+No LAN binding, public tunnel, firewall change or online-mode server is created. The
 bridge profile does not provide the automated profiles' outbound network isolation.
 
 Player record keys, account names/XUIDs in BDS logs, backups and the generated
@@ -548,12 +524,9 @@ preservation, bounds and nested edits with synthetic data. The frontend and
 browser tests check isolated drafts, direct container-search entry, cancel,
 Undo/Redo and editing gates. These checks can run without Minecraft; they cannot
 prove that a client opens or uses the resulting items correctly.
-`tests/test_engine_special.py` also injects corrupted results to verify that
-the harness detects failures. Each corruption test first verifies the complete
-unchanged fixture, so an unrelated pre-existing error cannot make the negative
-assertion pass. Signed-book doubles explicitly include the engine-owned signing
-metadata; the editor is not expected to synthesize it. These synthetic unit
-checks are not BDS evidence.
+`tests/test_engine_special.py` checks failure detection with corrupted results.
+Signed-book fixtures include the engine-owned signing metadata, which the editor
+preserves.
 
 Use a **separate disposable world** for the following manual checks. Do not
 modify an automated or real-client profile's world during its run: those
@@ -594,17 +567,10 @@ page count, text and order, including blank pages.
 
 ## Validation scope
 
-The 48-case player-service and 53-case equipment/special-content client profiles
-have synthetic regression coverage for their offline workers, observers and
-orchestration. Validation against the game requires a successful BDS/client run
-tied to the current editor revision and source hashes. Synthetic regressions do
-not replace that engine validation.
-
-Each local report identifies the tested editor revision and source hashes.
-Coverage is limited to that exact profile and run; reports, screenshots and logs
-remain local.
-The provenance of reviewed catalog values is documented in
-[item-stack-limits.md](item-stack-limits.md).
+Synthetic regressions check the offline workers, observers and orchestration.
+Engine validation requires a successful BDS/client run identified by editor
+revision, source hashes and profile. Reports, screenshots and logs remain local.
+Reviewed catalog values have separate [source records](item-stack-limits.md).
 
 ## Local use
 
@@ -673,6 +639,5 @@ Also run the real-client inventory profile when testing actual player persistenc
 and the natural village profile for its selected villager gameplay actions. Mount
 gameplay, singleplayer persistence and version migrations are not covered by these
 suites.
-Regression tests deliberately inject lost metadata, wrong counts/variants,
+Regression tests inject lost metadata, wrong counts/variants,
 duplicate/missing slots and observations to verify that observers reject them.
-Finite passing tests provide scoped evidence, not universal proof.

@@ -117,11 +117,15 @@
                     professions: labels(new Map(state.rows.map(row => [String(row.profession?.id ?? "unknown"), t(row.profession?.label || "Unbekannt")]))),
                     tiers: [...new Map(state.rows.map(row => [String(row.trade_tier ?? "unknown"), t(row.trade_tier_label || "Unbekannt")]))].sort((a, b) => Number(a[0]) - Number(b[0])),
                     dimensions: labels(new Map(state.rows.map(row => [String(row.dimension ?? "unknown"), model.dimensionLabel(row.dimension)]))),
-                    knownDimensions: [...new Set([0, 1, 2, ...state.rows.map(row => row.dimension).filter(Number.isInteger),
-                        ...state.preferences.regions.map(region => region.dimension).filter(Number.isInteger),
-                        ...(state.mapPlayers || []).map(player => player.dimension).filter(Number.isInteger)])].sort((a, b) => a - b),
+                    mapPlayers: null, knownDimensions: null,
                     filterKey: "", filtered: [], filteredIds: new Set(), regionCounts: null,
                 };
+            }
+            if (!data.knownDimensions || data.mapPlayers !== state.mapPlayers) {
+                data.mapPlayers = state.mapPlayers;
+                data.knownDimensions = [...new Set([0, 1, 2, ...state.rows.map(row => row.dimension).filter(Number.isInteger),
+                    ...state.preferences.regions.map(region => region.dimension).filter(Number.isInteger),
+                    ...(state.mapPlayers || []).map(player => player.dimension).filter(Number.isInteger)])].sort((a, b) => a - b);
             }
             const key = JSON.stringify([state.filters, state.sort, state.direction]);
             if (data.filterKey !== key) {
@@ -232,6 +236,11 @@
             if (!el("villagerMap")) return;
             mapView ||= window.MCBEVillagerMap.createVillagerMap({ doc });
             mapView.render(state, info);
+            const playerStatus = state.mapPlayersLoading ? t("Spielerpositionen werden geladen …") : state.mapPlayersError;
+            show("villagerMapPlayerHint", !playerStatus || state.mapPlayerMode === "none");
+            text("villagerMapPlayerStatus", playerStatus || "");
+            show("villagerMapPlayerStatus", !!playerStatus && state.mapPlayerMode !== "none");
+            show("villagerMapPlayersRetry", !!state.mapPlayersError && !state.mapPlayersLoading && !state.staleReason && state.mapPlayerMode !== "none");
         }
         function renderRegions(state, info) {
             for (const node of el("villagerRegionForm")?.querySelectorAll("input, select, button") || []) node.disabled = state.readOnly || state.preferencesBusy || state.busy || state.scanning;

@@ -92,8 +92,7 @@ saves. They do not remove initial discovery, WAL replay or backups. The
 [writer design](leveldb-writer.md#architectural-boundary) describes the size
 limits, maintenance tradeoffs and criteria for considering a native backend.
 
-A separate [Minecraft acceptance experiment](mount-game-validation.md) checks
-sampled game behavior. Byte agreement between codecs alone cannot establish all
-Minecraft semantics. Finite tests do not prove every future world format,
-multiplayer state, equipment combination or hardware failure scenario. Backups
-and exclusive access remain necessary when editing worlds.
+Game behavior is checked separately in the
+[Minecraft acceptance tests](mount-game-validation.md) and
+[Bedrock engine suites](engine-checks.md), each with its own version and scope.
+Editing requires exclusive access and backups.

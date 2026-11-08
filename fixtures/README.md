@@ -1,7 +1,5 @@
 # Fixture worlds
 
-This folder is only a local safety marker, not a second user manual.
-
 Place local example worlds containing real players, XUIDs, inventories, or other personal Minecraft data exclusively under `fixtures/private/`. That folder is ignored by Git, excluded from Docker builds, and rejected by release checks.
 
 Public, non-playable scanner fixtures belong in `tests/fixtures/` and are created like this:

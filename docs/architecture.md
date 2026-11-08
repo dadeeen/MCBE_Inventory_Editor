@@ -1,8 +1,7 @@
 # Architecture
 
-MCBE Inventory Editor is a modular monolith. The application deliberately keeps
-one shared Python application and web frontend without a frontend build step.
-The goal is explicit ownership and testable boundaries.
+MCBE Inventory Editor is a modular monolith with one Python application and a
+shared web frontend that requires no build step.
 
 The optional [Windows desktop host](desktop.md) wraps the same application in a
 WebView2 window. Its isolated PyInstaller build bundles Python; browser and
@@ -45,9 +44,9 @@ document-origin policy and external-link adapter. They do not add a second editi
 
 ## Write boundary
 
-Player and workspace writes are intentionally conservative. The durable rules
-live in [save_contract.md](save_contract.md); the experimental mount guarantees
-live in [experimental_mount_creation_status.md](experimental_mount_creation_status.md).
+Player and workspace writes follow [save_contract.md](save_contract.md).
+Mount-specific rules are in
+[experimental_mount_creation_status.md](experimental_mount_creation_status.md).
 
 The important ordering is:
 
@@ -69,10 +68,31 @@ used by player saves, workspace batches, direct mount creation, imports, and
 migration. Backup path results retain their runtime string compatibility through
 `BackupPath`; listing and restore-token shapes are explicit `TypedDict`s.
 
-Run `python -m mypy` for this enforced scope. This does not claim strict coverage
-of all orchestration in `services.py`, `mount_write.py`, `main.py`, or the dynamic
-NBT transformations in `_inventory_core.py`. Expand those boundaries gradually;
-do not weaken strict checking of the existing entry points to include them.
+Run `python -m mypy` for this scope. The remaining orchestration in
+`services.py`, `mount_write.py`, `main.py` and dynamic NBT transformations in
+`_inventory_core.py` are outside strict coverage. Keep existing entry points
+strict when extending it.
+
+## Villager read snapshots
+
+`VillagerDirectory` caches raw resident bytes and serialized list data by
+database `content_token()` and locale. Its process-local LRU holds at most eight
+entries, 32 MiB of accounted payload and 10,000 residents per entry. Oversized
+snapshots and readers without a token bypass the cache.
+
+Cache hits return list data or decode one resident, including its exact legacy
+root; misses run full discovery. The token covers metadata, WAL content and
+immutable table identities. The service also checks the world revision before
+and after each read. Preview and save planning always run fresh discovery with
+global duplicate-ID and chunk-index checks.
+
+`/api/villagers/map_players` loads saved positions when the map opens, bound to
+the list's world revision. Results are reused for that revision. Closing the
+map, changing worlds or rescanning cancels pending requests; late responses
+cannot replace another snapshot. Loading and retry states leave the list usable.
+Arriving markers update dimension choices and fit an untouched map. Manual zoom
+and pan remain until an explicit fit or a change of world, rows, filters or map
+selection.
 
 ## Frontend composition
 
@@ -82,8 +102,7 @@ controller factory. `static/app.js` is the frontend composition root: it owns
 the current editor session and wires controllers through getter, setter, and
 callback dependencies.
 
-The frontend deliberately has no bundler or application framework. Keep these
-rules:
+The frontend uses no bundler or application framework. Keep these rules:
 
 - feature logic stays in its feature module instead of growing `app.js`;
 - controllers receive state access and side effects through their dependency
@@ -102,7 +121,7 @@ away. Editing code therefore distinguishes between:
 
 - a field the editor owns and may create;
 - a supported existing field that may be changed;
-- an unchanged legacy value that may be outside today's UI limits;
+- an unchanged legacy value that may be outside the UI's supported range;
 - opaque data that must be carried through untouched;
 - a requested edit that cannot be represented safely and must be rejected.
 

@@ -15,7 +15,7 @@ from .bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
 from .db import close_db_preserving_active_exception
 from .i18n import t
 from .service_errors import WriteOutcomeUnknownError, log_error_detail
-from .villagers import HealthChangePlan, load_villager_detail, prepare_villager_changes, scan_villagers
+from .villagers import HealthChangePlan, prepare_villager_changes
 from .world import ensure_valid_world_path, world_fingerprint
 from .write_transaction import WritePlan, WriteState
 
@@ -48,23 +48,24 @@ def _read(service: Any, world_path: str, work: Callable[[Any], Any], *, expected
 
 
 def scan(service: Any, world_path: str) -> dict[str, Any]:
-    def read_map(db: Any) -> dict[str, Any]:
-        result = scan_villagers(db)
-        # Use the same reader and revision guard as the villagers. Player
-        # metadata from an earlier UI load can belong to an older world state.
-        result["map_players"] = [
+    result, revision = _read(service, world_path, service._villager_directory.scan)
+    return {**result, "world_revision": revision}
+
+
+def map_players(service: Any, world_path: str, world_revision: str) -> dict[str, Any]:
+    def read_map(db: Any) -> list[dict[str, Any]]:
+        return [
             {field: player[field] for field in ("player_key", "label", "position", "dimension")}
             for player in service._scan_players(db)
             if player.get("position") is not None and player.get("dimension") is not None
         ]
-        return result
 
-    result, revision = _read(service, world_path, read_map)
-    return {**result, "world_revision": revision}
+    result, revision = _read(service, world_path, read_map, expected_revision=world_revision)
+    return {"map_players": result, "world_revision": revision}
 
 
 def detail(service: Any, world_path: str, identifier: str, revision: str, world_revision: str) -> dict[str, Any]:
-    result, _ = _read(service, world_path, lambda db: load_villager_detail(db, identifier, revision), expected_revision=world_revision)
+    result, _ = _read(service, world_path, lambda db: service._villager_directory.detail(db, identifier, revision), expected_revision=world_revision)
     return result
 
 

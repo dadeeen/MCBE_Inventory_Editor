@@ -53,6 +53,8 @@
                     <details class="villager-map-help"><summary>{{ t("Kartenbedienung") }}</summary><p class="hint-text">{{ t("Die Karte zeigt die gefilterte Liste. Ein Punkt öffnet den zugehörigen Bewohner.") }}</p><p id="villagerMapHelp" class="hint-text">{{ t("Mausrad: zoomen · Ziehen: verschieben · Touch: mit zwei Fingern zoomen und verschieben. Tastatur: + / −, Pfeiltasten, Pos1.") }}</p></details>
                     <p class="hint-text">{{ t("Grün: Dorfbewohner · Orange: verletzt · Umrandung: ausgewählt") }}</p>
                     <p id="villagerMapPlayerHint" class="hint-text"></p>
+                    <p id="villagerMapPlayerStatus" class="hint-text" role="status" aria-live="polite" hidden></p>
+                    <button type="button" id="villagerMapPlayersRetry" class="btn-text" hidden>{{ t("Erneut laden") }}</button>
                     <p id="villagerMapCaption" class="hint-text"></p>
                 </div>
                 <div class="villager-map-canvas">

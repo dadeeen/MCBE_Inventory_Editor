@@ -206,8 +206,7 @@ it requires an explicit repair policy and a backup boundary.
 
 Changes to the log format, locking or recovery assumptions need the native
 reference tests, the BDS engine checks and a Minecraft client load, save and
-reload on a disposable world copy. Tests reduce risk but cannot certify every
-future Bedrock format.
+reload on a disposable world copy.
 
 ## Validation
 
@@ -224,8 +223,7 @@ future Bedrock format.
   POSIX `fcntl` lock, on macOS.
   The writer's positive recovery comparisons reject a native `lost/` repair
   archive: [Amulet 1.0.6 automatically calls `RepairDB` on corruption](https://github.com/Amulet-Team/Amulet-LevelDB/blob/1.0.6/src/leveldb/_leveldb.pyx).
-  Merely opening successfully is not sufficient evidence. A deliberately
-  damaged control proves that this test guard detects automatic repair.
+  A damaged control checks that automatic repair is detected.
 - The regular suite (service saves, imports, mount creation, backups and
   rollbacks) runs against the pure-Python writer.
 - Private worlds (manual, temporary copies): each world is written by the
@@ -273,7 +271,7 @@ mount types with v0.5.21 and the native backend.
 
 ## Villager health and supply records
 
-The v0.8.8 villager editor treats names, health and supplies as independent
+The villager editor treats names, health and supplies as independent
 patches. Actual names use `CustomName` (String); an explicit empty name removes
 the tag. A missing or empty tag is already unnamed and a no-op preserves its
 original bytes. The editor accepts up to 80 Unicode code points, trims outer
@@ -301,7 +299,7 @@ Reviewed `villager_v2` records with `InventoryVersion` values from 1.21.30 to
 with an empty name and zero count/damage; `WasPickedUp` can be either zero or
 one and is preserved. Other shapes and unknown item metadata are protected.
 
-The allowed supplies follow the vanilla inventory shareables in
+The allowed supplies follow the Vanilla inventory shareables in
 [bedrock-samples v1.26.60.5](https://github.com/Mojang/bedrock-samples/blob/v1.26.60.5/behavior_pack/entities/villager_v2.json).
 Single-villager slot patches use signed previews, exact record and world
 revisions, backups, atomic writes, and read-back validation. The central
@@ -311,18 +309,15 @@ without a player. Every preview is checked before backup creation and again
 under the writer lock. Names, health and supplies on the same actor are merged through
 their disjoint `CustomName`, `Attributes` and `ChestItems` fields; overlapping edits to the same
 field are rejected. Shared chunk indexes include all staged mount additions.
-Both the live writer and a fresh read-only reader verify the final records. Unchanged health, trades,
-professions, equipment, `InventoryVersion`, and unchanged slots are preserved.
-Synthetic tests cover compact and explicit health attributes, native slot
-replacement/clearing, preservation and the write lifecycle. The
-[villager engine suite](engine-checks.md#villager-health-and-supply-suite)
-passes with editor 0.8.8 and BDS 1.26.61.1: 24 residents, 23 backed-up saves,
-44 no-op checks, 23 stale-revision rejections and four post-edit save/reload
-cycles. Live Script API observations and saved typed NBT agree for names, health and
-supplies; the exact [reference input hashes](engine-checks.md#villager-reference)
-identify this evidence. Client interactions, trading, food sharing, breeding,
-farming, legacy schemas and arbitrary add-ons remain outside that persistence
-coverage.
+Both the live writer and a fresh read-only reader verify the final records.
+Unchanged health, trades, professions, equipment, `InventoryVersion` and
+unchanged slots are preserved.
+
+Synthetic tests cover compact and explicit health attributes, supply-slot edits,
+preservation and the write lifecycle. The [villager engine
+suite](engine-checks.md#villager-health-and-supply-suite) checks persistence after
+game reloads; its [reference inputs](engine-checks.md#villager-reference) identify
+the tested versions, source hashes and coverage.
 
 ## Dependency separation
 

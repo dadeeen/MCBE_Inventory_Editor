@@ -154,6 +154,20 @@ def scan_villagers(data: dict, deps: VillagerRouteDeps) -> Any:
     return _run("villagers.scan", data, deps, work)
 
 
+def villager_map_players(data: dict, deps: VillagerRouteDeps) -> Any:
+    def work():
+        _, blocked = _read_gate(deps)
+        if blocked is not None:
+            return blocked
+        world_path = deps.json_string(data, "world_path")
+        revision = deps.json_string(data, "world_revision")
+        if not revision:
+            raise ValueError(t("Bitte die Dorfbewohner vor dem Öffnen der Details scannen."))
+        return deps.jsonify({"success": True, **villager_service.map_players(deps.service, world_path, revision)})
+
+    return _run("villagers.map_players", data, deps, work)
+
+
 def villager_detail(data: dict, deps: VillagerRouteDeps) -> Any:
     def work():
         _, blocked = _read_gate(deps)
