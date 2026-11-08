@@ -1705,11 +1705,12 @@ for (const waitForDetail of [true, false]) {
     });
 }
 
-for (const width of [1440, 768, 390]) {
-    test(`staged health and supplies share one world-only save at ${width}px`, async ({ page }, testInfo) => {
+for (const [width, enlargedText] of [[1440, false], [768, false], [390, false], [768, true]]) {
+    test(`staged health and supplies share one world-only save at ${width}px${enlargedText ? " with enlarged text" : ""}`, async ({ page }, testInfo) => {
         await page.setViewportSize({width, height: 1000});
         const errors = collectBrowserErrors(page);
         const h = await openVillagerFixture(page);
+        if (enlargedText) await page.addStyleTag({content: ":root { font-size: 20px; }"});
         await openVillagerStock(page);
         await page.locator("#villagerDetailCurrent").fill("18");
         await page.locator("#villagerDetailPreview").click();
@@ -1724,8 +1725,29 @@ for (const width of [1440, 768, 390]) {
         await expect(page.locator("#saveWorkflowSummary")).toContainText("12 / 20 → 18 / 20");
         await expect(page.locator("#saveWorkflowSummary")).toContainText("9 × Brot");
         await expect(page.locator("#btnSaveWorkflowRun")).toBeEnabled();
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-        await page.screenshot({path: testInfo.outputPath(`central-save-${width}.png`), fullPage: true});
+        if (enlargedText) {
+            const navigation = page.locator(".app-workflow-nav");
+            for (const name of ["Hilfe", "Welt"]) {
+                const button = navigation.getByRole("button", {name, exact: true});
+                await button.focus();
+                await expect(button).toBeInViewport({ratio: 1});
+            }
+        }
+        const pageWidth = await page.evaluate(() => ({
+            viewport: innerWidth,
+            document: document.documentElement.scrollWidth,
+            overflow: [...document.querySelectorAll("body *")].flatMap(element => {
+                const rect = element.getBoundingClientRect();
+                return rect.width && rect.right > innerWidth + 1
+                    ? [{element: element.id || element.className || element.tagName, right: rect.right, width: rect.width}]
+                    : [];
+            }),
+        }));
+        expect(pageWidth.document, JSON.stringify(pageWidth)).toBeLessThanOrEqual(pageWidth.viewport + 1);
+        const screenshotName = `central-save-${width}${enlargedText ? "-enlarged" : ""}.png`;
+        const directory = process.env.MCBE_MAP_QA_DIR;
+        if (directory) await fs.mkdir(directory, {recursive: true});
+        await page.screenshot({path: directory ? path.join(directory, screenshotName) : testInfo.outputPath(screenshotName), fullPage: true});
         await page.locator("#btnSaveWorkflowRun").click();
         await expect.poll(() => h.writes.length).toBe(1);
         await expect.poll(() => page.evaluate(() => isDirty)).toBe(false);

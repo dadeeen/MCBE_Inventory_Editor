@@ -7334,7 +7334,11 @@ body.app-player-loaded .safe-edit-banner span {
 /* Focused single-page workflow steps without an endlessly stacked console. */
 .app-workflow-nav {
     align-items: center;
+    justify-content: flex-start;
     gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
 }
 
 .app-workflow-nav .nav-separator {
