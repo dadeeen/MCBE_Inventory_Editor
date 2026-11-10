@@ -267,21 +267,21 @@ Spielerexporte enthalten nicht anonymisierte Daten. Behandle sie als privat und 
 
 ## Dorfbewohner
 
-Der Reiter **Dorfbewohner** benötigt eine geladene Welt, aber keinen ausgewählten Spieler. **Dorfbewohner suchen** startet einen abbrechbaren Scan über alle Dimensionen. Suche, Filter und Sortierung helfen bei der Auswahl; ein Klick auf einen Bewohner öffnet seine Details.
+Der Reiter **Dorfbewohner** benötigt eine geladene Welt, aber keinen ausgewählten Spieler. **Dorfbewohner suchen** startet einen abbrechbaren Scan über alle Dimensionen. Suche, Filter und Sortierung helfen bei der Auswahl; ein Klick auf einen Bewohner öffnet seine Details. Bei laufendem Server oder veränderter Welt bleibt der letzte zwischengespeicherte Scanstand schreibgeschützt lesbar.
 
 - **Name in Minecraft** ändert den tatsächlichen Namen eines modernen Dorfbewohners. Erlaubt sind bis zu 80 Unicode-Zeichen ohne Zeilenumbrüche oder Steuerzeichen; **Name entfernen** leert den Entwurf.
 - Ändere aktuelle und maximale Lebenspunkte für einen Bewohner oder bis zu **1.000 Bewohner** gemeinsam. **Vollständig heilen** verwendet das gewählte oder vorhandene Maximum.
 - Unter **Vorräte** bearbeitest du die acht gespeicherten Inventarplätze eines modernen Dorfbewohners. Wähle Nahrung, Saatgut oder Knochenmehl, ändere Mengen oder leere Plätze.
 
-Prüfe die Änderungen und übernimm sie mit **Änderungen vormerken** in den zentralen Reiter **Speichern**. Beim Speichern werden vorgemerkte Dorfbewohner-, Spieler- und Mount-Änderungen gemeinsam mit einem Backup übernommen. Das Entfernen einer Vormerkung lässt die Welt unverändert. Hat sich die Welt verändert, ist ein neuer Scan nötig; abgelaufene Vorschauen müssen erneut vorgemerkt werden.
+Prüfe die Änderungen und übernimm sie mit **Änderungen vormerken** in den zentralen Reiter **Speichern**. Beim Speichern werden vorgemerkte Dorfbewohner-, Spieler- und Mount-Änderungen gemeinsam mit einem Backup übernommen. Das Entfernen einer Vormerkung lässt die Welt unverändert. Vor Änderungen an einem veralteten Scanstand muss der Server gestoppt und erneut gescannt werden; abgelaufene Vorschauen müssen erneut vorgemerkt werden.
 
 Die Karte zeigt gefilterte Bewohner in der gewählten Dimension mit bis zu 1.000 Punkten pro Ausschnitt. Mausrad und Tasten zoomen, Ziehen verschiebt den Ausschnitt; auf Touchgeräten funktionieren Zoomen und Verschieben mit zwei Fingern. Bei fokussierter Karte stehen `+`/`−`, Pfeiltasten und `Pos1` zur Verfügung. **Alle anzeigen** passt den Ausschnitt ein, das Raster zeigt Blockabstände.
 
-Blaue Rauten zeigen wahlweise den ausgewählten Spieler oder alle Spieler und lassen sich ausblenden. Die gespeicherten Positionen werden beim Öffnen der Karte geladen; sie zeigen weder Live-Positionen noch ungespeicherte Editoränderungen. Ladefehler bieten einen erneuten Versuch an. Hat sich die Welt verändert, bleiben die Marker bis zum nächsten Scan ausgeblendet.
+Blaue Rauten zeigen wahlweise den ausgewählten Spieler oder alle Spieler und lassen sich ausblenden. Die gespeicherten Positionen werden beim Öffnen der Karte geladen und bleiben bei laufendem Server oder veränderter Welt sichtbar; sie zeigen weder Live-Positionen noch ungespeicherte Editoränderungen. **Zum Spieler** zentriert den ausgewählten Spieler und wechselt in dessen Dimension. Ladefehler bieten einen erneuten Versuch an; ein neuer Scan aktualisiert die Positionen.
 
 Unter **Weitere Einstellungen** findest du einen optionalen **Editor-Alias**. Ein Alias ergänzt den Minecraft-Namen oder dient bei unbenannten Bewohnern als Listenname. Benannte Regionen legst du über den Knopf **Regionen** oberhalb der Liste an. Aliase und Regionen haben eigene Speicherknöpfe und werden als Editor-Einstellungen gespeichert, ohne die Welt zu ändern.
 
-Berufe, Handelsstufen, Angebote, Ausrüstung und NBT-Rohdaten sind schreibgeschützt. Alte Datensätze, unklare Identitäten, fehlende Chunk-Zuordnungen und nicht unterstützte Daten bleiben sichtbar, soweit sie lesbar sind; gesperrte Änderungen werden begründet. Eine Dorfzugehörigkeit setzt eine eindeutige gespeicherte Zuordnung voraus.
+Berufe, Handelsstufen, Angebote, Ausrüstung und NBT-Rohdaten sind schreibgeschützt. Alte Datensätze, unklare Identitäten, fehlende Chunk-Zuordnungen und nicht unterstützte Daten bleiben sichtbar, soweit sie lesbar sind; gesperrte Änderungen werden begründet. Die Scan-Diagnose bündelt gleiche Befunde und verlinkt die betroffenen Bewohner. Eine Dorfzugehörigkeit setzt eine eindeutige gespeicherte Zuordnung voraus.
 
 Prüfe Änderungen auf einer Weltkopie in Minecraft; Spielversionen und Add-ons können gespeicherte Daten beeinflussen. Getestete Versionen und Prüfumfang stehen in den [Engine-Prüfungen](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-reference).
 

@@ -3,13 +3,13 @@
 
     const t = window.t || ((text, params) => String(text).replace(/\{(\w+)\}/g, (m, k) => (params && k in params ? String(params[k]) : m)));
     const model = window.MCBEVillagerModel;
-    const STALE_CODES = new Set(["villager_snapshot_stale", "villager_preview_stale", "world_changed_while_reading", "server_guard_stale"]);
+    const STALE_CODES = new Set(["villager_snapshot_stale", "villager_snapshot_unavailable", "villager_preview_stale", "world_changed_while_reading", "server_guard_stale"]);
 
     function initialState() {
         return { worldPath: "", worldLabel: "", worldRevision: "", guardEpoch: 0, guardToken: "", loadedAt: 0,
             rows: [], selected: new Set(), activeId: "", detail: null, loaded: false, scanning: false,
-            busy: false, saving: false, preferencesBusy: false, readOnly: false, blockedReason: "", staleReason: "",
-            message: "", messageKind: "", progress: "", diagnostics: [], preferences: { revision: "", aliases: {}, regions: [] },
+            busy: false, saving: false, preferencesBusy: false, readOnly: false, serverOnline: false, blockedReason: "", staleReason: "", regionError: "",
+            message: "", messageKind: "", progress: "", diagnostics: [], diagnosticCount: 0, diagnosticsTruncated: false, preferences: { revision: "", aliases: {}, regions: [] },
             filters: { query: "", profession: "", tier: "", dimension: "", region: "", injured: false, editable: false },
             sort: "name", direction: "asc", page: 1, pageSize: 50, mapDimension: "0", mapOpen: false, regionsOpen: false,
             mapPlayers: [], mapPlayerMode: "selected", selectedPlayerKey: "",
@@ -55,6 +55,7 @@
         function readContext() {
             const gate = getWriteGate() || {};
             state.readOnly = getReadOnly() === true;
+            state.serverOnline = gate.server_status?.status === "online";
             state.blockedReason = state.readOnly ? t("Read-Only-Modus: Namen, Gesundheit, Vorräte, Regionen und Aliase können nicht gespeichert werden.")
                 : getIsBusy() ? t("Eine andere Lade- oder Speicheraktion läuft. Warte, bis sie abgeschlossen ist.")
                 : gate.allowed === false && gate.requires_unknown_server_confirmation !== true
@@ -168,10 +169,14 @@
             const rowButton = [...(el("villagerRows")?.querySelectorAll?.('[data-action="detail"]') || [])].find(node => node.dataset.id === id);
             const mapButton = detailOpener?.fromMap && state.mapOpen
                 ? [...(el("villagerMap")?.querySelectorAll?.('[data-action="map-detail"]') || [])].find(node => node.dataset.id === id) : null;
-            const original = detailOpener?.element;
+            const diagnosticKey = detailOpener?.element?.closest?.("[data-diagnostic-key]")?.dataset.diagnosticKey;
+            const diagnosticButton = detailOpener?.fromDiagnostics
+                ? [...(el("villagerDiagnosticList")?.querySelectorAll?.('[data-action="diagnostic-detail"]') || [])].find(node =>
+                    node.dataset.id === id && node.closest?.("[data-diagnostic-key]")?.dataset.diagnosticKey === diagnosticKey) : null;
+            const original = diagnosticButton || detailOpener?.element;
             const stillVisible = original?.isConnected !== false && !original?.closest?.("[hidden], [inert]")
                 && (!original?.getClientRects || original.getClientRects().length > 0);
-            (mapButton || rowButton || (stillVisible ? original : null) || el("villagerSearch") || el("villagersTitle"))?.focus?.();
+            ((detailOpener?.fromDiagnostics && stillVisible ? original : null) || mapButton || rowButton || (stillVisible ? original : null) || el("villagerSearch") || el("villagersTitle"))?.focus?.();
             detailOpener = null;
         }
 
@@ -263,6 +268,7 @@
             restoreDetailDraft(draft);
             render();
             restoreDetailFocus(focus);
+            return data.snapshot_stale === true;
         }
 
         function invalidatePreview() {
@@ -288,8 +294,6 @@
             if (!state.loaded || state.staleReason) return;
             state.staleReason = reason;
             state.pending.forEach(entry => { entry.staleReason = reason; });
-            detailRequest?.controller.abort(); detailRequest = null;
-            cancelMapPlayers(); state.mapPlayers = []; state.mapPlayersLoaded = false;
             invalidatePreview();
             state.busy = false;
             render();
@@ -320,7 +324,7 @@
             const gate = getWriteGate() || {};
             if (!state.saving && model.snapshotIsStale(state, { worldPath, guardToken: guard.token, guardEpoch: guard.epoch,
                 serverOnline: gate.server_status?.status === "online" })) {
-                invalidate(t("Der Serverzustand hat sich geändert. Die Dorfbewohnerliste ist veraltet. Stoppe den Server und scanne erneut."));
+                invalidate(t("Der Serverzustand hat sich seit dem Scan geändert."));
             }
             render();
         }
@@ -331,7 +335,7 @@
             if (!state.loaded || state.scanning || state.saving || worldPath !== state.worldPath
                 || !Number.isFinite(startedAt) || startedAt < state.loadedAt) return;
             if (model.snapshotIsStale(state, { worldPath, worldRevision: data?.world_fingerprint })) {
-                invalidate(t("Die Welt wurde seit dem Scan verändert. Scanne die Dorfbewohner erneut, bevor du Details lädst oder Änderungen speicherst."));
+                invalidate(t("Die Welt wurde seit dem Scan verändert."));
             }
         }
 
@@ -344,7 +348,10 @@
             const data = error?.data;
             const text = data ? buildErrorMessage(data, fallback) : error?.message || fallback;
             if (data?.write_gate) onWriteGate(data.write_gate);
-            if (STALE_CODES.has(data?.code)) invalidate(text);
+            if (STALE_CODES.has(data?.code)) {
+                invalidate(text);
+                if (state.staleReason) { message(""); return; }
+            }
             message(text, "error");
             showToast(text, "error", 6500);
         }
@@ -411,6 +418,8 @@
                     if (region) fillRegionForm(region); else resetRegionForm();
                 }
                 state.diagnostics = data.diagnostics || [];
+                state.diagnosticCount = data.summary?.diagnostic_count || state.diagnostics.length;
+                state.diagnosticsTruncated = data.summary?.diagnostics_truncated === true;
                 state.loaded = true; if (!keepEdits) state.staleReason = "";
                 state.page = keepEdits ? state.page : 1; state.loadedAt = Date.now();
                 if (state.filters.region && state.filters.region !== "none" && !state.preferences.regions.some(region => region.id === state.filters.region)) state.filters.region = "";
@@ -434,9 +443,9 @@
                     // Health and settings drafts belong to independent forms.
                     // Only a fresh detail snapshot can safely supply untouched
                     // values after another form has committed its change.
-                    await refreshOpenDetail(request, retainedDraft, refreshedRow(previousDetail));
+                    const detailStale = await refreshOpenDetail(request, retainedDraft, refreshedRow(previousDetail));
                     if (!current(request, scanRequest) || request.controller.signal.aborted) return false;
-                    state.staleReason = "";
+                    state.staleReason = detailStale ? t("Die Welt wurde seit dem Scan verändert.") : "";
                 }
                 return true;
             } catch (error) {
@@ -449,7 +458,7 @@
                 if (current(request, scanRequest)) {
                     scanRequest = null; state.scanning = false;
                     updateContext(); onDraftChanged();
-                    if (state.mapOpen && state.loaded && !state.staleReason) void loadMapPlayers();
+                    if (state.mapOpen && state.loaded) void loadMapPlayers();
                 }
             }
         }
@@ -460,7 +469,7 @@
         }
 
         async function loadMapPlayers() {
-            if (!state.mapOpen || !state.loaded || state.scanning || state.staleReason || state.mapPlayerMode === "none"
+            if (!state.mapOpen || !state.loaded || state.scanning || state.mapPlayerMode === "none"
                 || state.mapPlayersLoaded || mapPlayersRequest) return;
             const request = { worldPath: state.worldPath, generation, worldRevision: state.worldRevision, controller: new AbortController() };
             mapPlayersRequest = request;
@@ -469,8 +478,10 @@
                 const data = await api.mapPlayers({ world_path: request.worldPath, world_revision: request.worldRevision }, { signal: request.controller.signal });
                 if (!current(request, mapPlayersRequest) || request.worldRevision !== state.worldRevision || request.controller.signal.aborted) return;
                 requireSuccess(data, t("Spielerpositionen konnten nicht geladen werden."));
-                if (!Array.isArray(data.map_players) || data.world_revision !== request.worldRevision) throw new Error(t("Die Kartenantwort ist unvollständig. Bitte erneut laden."));
+                if (!Array.isArray(data.map_players) || typeof data.world_revision !== "string" || !data.world_revision
+                    || (data.world_revision !== request.worldRevision && data.snapshot_stale !== true)) throw new Error(t("Die Kartenantwort ist unvollständig. Bitte erneut laden."));
                 state.mapPlayers = data.map_players; state.mapPlayersLoaded = true;
+                if (data.snapshot_stale) invalidate(t("Die Welt wurde seit dem Scan verändert."));
             } catch (error) {
                 if (current(request, mapPlayersRequest) && error.name !== "AbortError") {
                     state.mapPlayersError = error.message || t("Spielerpositionen konnten nicht geladen werden.");
@@ -488,9 +499,9 @@
             render();
         }
 
-        async function openDetail(id, { fromMap = false, trigger = null } = {}) {
+        async function openDetail(id, { fromMap = false, fromDiagnostics = false, trigger = null } = {}) {
             updateContext();
-            if (state.saving || state.scanning || state.busy || state.staleReason) return;
+            if (state.saving || state.scanning || state.busy) return;
             const row = rowById(id);
             if (!row) return;
             const worldPath = state.worldPath, previousId = state.activeId, requestGeneration = generation;
@@ -498,9 +509,9 @@
                 const confirmed = await showConfirmDialog(t("Die offenen Eingaben dieses Dorfbewohners verwerfen und einen anderen öffnen?"));
                 if (!confirmed || worldPath !== getWorldPath() || requestGeneration !== generation || state.activeId !== previousId) return;
             }
+            detailOpener = { id, element: trigger || doc.activeElement, fromMap, fromDiagnostics };
             if (state.activeId === id && state.detail) { el("villagerDetailTitle")?.focus(); return; }
             if (state.activeId === id && detailRequest) return;
-            detailOpener = { id, element: trigger || doc.activeElement, fromMap };
             invalidatePreview();
             detailRequest?.controller.abort();
             state.activeId = id; state.detail = null; state.detailDirty = false; state.nameDirty = false; state.inventoryDirty = false; state.aliasDirty = false;
@@ -514,13 +525,14 @@
             view.renderDetail(row, state, { loading: true }); render();
             if (getActiveView() === "villagers" && !modalOpen()) {
                 el("villagerDetailTitle")?.focus({ preventScroll: true });
-                if (doc.defaultView?.innerWidth <= 1100) el("villagerDetail")?.scrollIntoView({ behavior: "auto", block: "start" });
+                if (fromDiagnostics || doc.defaultView?.innerWidth <= 1100) el("villagerDetail")?.scrollIntoView({ behavior: "auto", block: "start" });
             }
             try {
                 const data = await api.detail({ world_path: worldPath, id, revision: row.revision, world_revision: state.worldRevision }, { signal: request.controller.signal });
                 if (!current(request, detailRequest) || state.activeId !== id || request.controller.signal.aborted) return;
                 requireSuccess(data, t("Dorfbewohnerdetails konnten nicht geladen werden."));
                 if (data.villager?.id !== id || data.villager?.revision !== row.revision) throw new Error(t("Die Detailantwort gehört nicht zum geladenen Dorfbewohner."));
+                if (data.snapshot_stale) invalidate(t("Die Welt wurde seit dem Scan verändert."));
                 const focus = focusBookmark();
                 state.detail = data.villager;
                 view.renderDetail(data.villager, state); render();
@@ -762,6 +774,7 @@
             if (el("villagerRegionId")) el("villagerRegionId").value = "";
             regionBaseline = regionSignature();
             state.regionDirty = false;
+            state.regionError = "";
         }
 
         function fillRegionForm(region) {
@@ -770,6 +783,7 @@
             }
             regionBaseline = regionSignature();
             state.regionDirty = false;
+            state.regionError = "";
         }
 
         async function confirmRegionDiscard() {
@@ -835,9 +849,10 @@
 
         function regionFromSelection() {
             const rows = state.rows.filter(row => state.selected.has(row.id));
-            if (!rows.length || rows.some(row => !model.hasPosition(row) || !Number.isInteger(row.dimension)) || new Set(rows.map(row => row.dimension)).size !== 1) {
-                message(t("Markiere Bewohner mit bekannten Koordinaten in derselben Dimension."), "warning"); render(); return;
-            }
+            state.regionError = !rows.length ? t("Markiere zuerst Dorfbewohner.")
+                : rows.some(row => !model.hasPosition(row) || !Number.isInteger(row.dimension)) ? t("In der Auswahl fehlen Koordinaten oder Dimensionsangaben.")
+                : new Set(rows.map(row => row.dimension)).size !== 1 ? t("Die Auswahl enthält Bewohner aus mehreren Dimensionen.") : "";
+            if (state.regionError) { render(); return; }
             for (const axis of ["x", "z"]) {
                 const coords = rows.map(row => row.position[axis]);
                 el(`villagerRegionMin${axis.toUpperCase()}`).value = Math.floor(Math.min(...coords));
@@ -857,6 +872,7 @@
                 message(t("Pro Bearbeitung sind höchstens 1000 Dorfbewohner möglich. Grenze die Liste mit Filtern ein."), "warning"); render(); return;
             }
             state.selected = next;
+            state.regionError = "";
             invalidatePreview(); render();
         }
 
@@ -917,6 +933,12 @@
             on("villagerMapPlayers", "change", () => { state.mapPlayerMode = value("villagerMapPlayers"); if (state.mapPlayerMode === "none") cancelMapPlayers(); render(); void loadMapPlayers(); });
             on("villagerMapToggle", "click", () => { state.mapOpen = !state.mapOpen; if (!state.mapOpen) cancelMapPlayers(); render(); void loadMapPlayers(); });
             on("villagerMapPlayersRetry", "click", () => { void loadMapPlayers(); });
+            on("villagerMapFocusPlayer", "click", () => {
+                const player = state.mapPlayers.find(row => row.player_key === state.selectedPlayerKey);
+                if (!player || !model.hasPosition(player) || !Number.isInteger(player.dimension) || state.mapPlayerMode === "none") return;
+                state.mapDimension = String(player.dimension);
+                render(); view.focusMapPlayer?.();
+            });
             on("villagerRegionsToggle", "click", () => { state.regionsOpen = !state.regionsOpen; render(); });
             on("villagerRegionForm", "submit", event => { event.preventDefault(); saveRegion(); });
             on("villagerRegionReset", "click", resetRegion);
@@ -951,7 +973,7 @@
                 else if (["villagerBatchMax", "villagerBatchCurrent", "villagerBatchHeal"].includes(id)) updateHealthDirty(false);
                 else if (id === "villagerName") updateNameDirty();
                 else if (id === "villagerAlias") updateAliasDirty();
-                else if (event.target.closest?.("#villagerRegionForm")) updateRegionDirty();
+                else if (event.target.closest?.("#villagerRegionForm")) { state.regionError = ""; updateRegionDirty(); }
                 else return;
                 invalidatePreview(); render(); onDraftChanged();
             });
@@ -973,6 +995,7 @@
                     if (button.id === "villagerInventoryReset") resetInventory();
                     if (button.id === "villagerDetailHealAction") healDetail();
                     if (action === "detail" || action === "map-detail") openDetail(id, { fromMap: action === "map-detail", trigger: button });
+                    if (action === "diagnostic-detail") openDetail(id, { fromDiagnostics: true, trigger: button });
                     if (action === "close-detail") closeDetail();
                     if (action === "copy-position" && model.hasPosition(state.detail || {})) copyTextToClipboard(`${model.dimensionLabel(state.detail.dimension)}: ${["x", "y", "z"].map(axis => state.detail.position[axis]).join(" ")}`);
                     if (action === "edit-region") editRegion(id);

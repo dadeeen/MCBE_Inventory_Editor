@@ -1,4 +1,4 @@
-"""Map markers use validated saved player positions from the villager snapshot."""
+"""Map markers use saved player positions from independently validated reads."""
 
 from pathlib import Path
 
@@ -75,7 +75,7 @@ def test_unknown_player_dimension_is_not_assumed_to_be_overworld(dimension):
     assert player["dimension"] is None
 
 
-def test_villager_scan_reads_player_markers_without_writes_and_refreshes_old_directory(villager_world):
+def test_map_reads_current_player_markers_without_writes_or_requiring_a_villager_rescan(villager_world):
     world, _ = villager_world
     missing_dimension = _player()
     del missing_dimension["DimensionId"]
@@ -103,17 +103,22 @@ def test_villager_scan_reads_player_markers_without_writes_and_refreshes_old_dir
     assert markers[encode_player_key(b"player_map_nether")]["dimension"] == 1
 
     _write(world, {b"player_map_main": _bytes(_player(position=(100, 80, -200), dimension=2))})
-    with pytest.raises(villager_service.VillagerSnapshotStaleError):
-        villager_service.map_players(service, world, snapshot["world_revision"])
+    changed = villager_service.map_players(service, world, snapshot["world_revision"])
+    assert changed["snapshot_stale"] is True
+    assert changed["world_revision"] != snapshot["world_revision"]
+    moved = next(player for player in changed["map_players"] if player["player_key"] == encode_player_key(b"player_map_main"))
+    assert moved["position"] == {"x": 100.0, "y": 80.0, "z": -200.0}
+    assert moved["dimension"] == 2
     snapshot = villager_service.scan(service, world)
     second = villager_service.map_players(service, world, snapshot["world_revision"])
+    assert second["snapshot_stale"] is False
     moved = next(player for player in second["map_players"] if player["player_key"] == encode_player_key(b"player_map_main"))
     assert moved["position"] == {"x": 100.0, "y": 80.0, "z": -200.0}
     assert moved["dimension"] == 2
     assert second["world_revision"] != first["world_revision"]
 
 
-def test_scan_never_discovers_players_and_map_route_checks_revision_and_csrf(villager_client, villager_world, monkeypatch):
+def test_scan_never_discovers_players_and_map_route_keeps_scan_context_and_csrf(villager_client, villager_world, monkeypatch):
     import main
     from unittest.mock import Mock
 
@@ -127,5 +132,71 @@ def test_scan_never_discovers_players_and_map_route_checks_revision_and_csrf(vil
     assert response.status_code == 200 and response.get_json()["map_players"] == []
     assert players.call_count == 1
     assert villager_client.post("/api/villagers/map_players", json={"world_path": world}).status_code == 400
-    assert villager_client.post("/api/villagers/map_players", json={**body, "world_revision": "stale"}).status_code == 409
+    stale = villager_client.post("/api/villagers/map_players", json={**body, "world_revision": "stale"})
+    assert stale.status_code == 200
+    assert stale.get_json()["snapshot_stale"] is True
     assert villager_client.post("/api/villagers/map_players", json=body, headers={"X-CSRF-Token": "wrong"}).status_code == 403
+
+
+@pytest.mark.parametrize("online", [False, True])
+def test_map_loads_after_a_world_change_and_preserves_write_guards(villager_client, villager_world, monkeypatch, online):
+    from dataclasses import replace
+    from unittest.mock import Mock
+
+    import main
+
+    world, _ = villager_world
+    scan = villager_client.post("/api/villagers/scan", json={"world_path": world}).get_json()
+    _write(world, {b"player_map_main": _bytes(_player(position=(100, 80, -200), dimension=2))})
+    if online:
+        monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, require_server_offline=True))
+        monkeypatch.setattr(
+            main,
+            "write_gate",
+            lambda *_args, **_kwargs: {
+                "allowed": False,
+                "read_allowed": True,
+                "reason": "Server online",
+                "server_status": {"status": "online"},
+                "config": {"require_server_offline": True},
+            },
+        )
+    before = {path.name: path.read_bytes() for path in (Path(world) / "db").iterdir()}
+    entity_scan = Mock(side_effect=AssertionError("Loading player markers must not scan villagers"))
+    monkeypatch.setattr(main.editor_service._villager_directory, "snapshot", entity_scan)
+    response = villager_client.post("/api/villagers/map_players", json={"world_path": world, "world_revision": scan["world_revision"]})
+    assert response.status_code == 200, response.get_json()
+    result = response.get_json()
+    assert result["snapshot_stale"] is True
+    assert result["map_players"][0]["position"] == {"x": 100.0, "y": 80.0, "z": -200.0}
+    row = scan["villagers"][0]
+    preview = villager_client.post(
+        "/api/villagers/preview",
+        json={
+            "world_path": world,
+            "world_revision": scan["world_revision"],
+            "server_guard_token": scan["server_guard_token"],
+            "server_guard_epoch": scan["server_guard_epoch"],
+            "selection": [{"id": row["id"], "revision": row["revision"]}],
+            "changes": {"heal": True},
+        },
+    )
+    assert preview.status_code == 409, preview.get_json()
+    entity_scan.assert_not_called()
+    assert {path.name: path.read_bytes() for path in (Path(world) / "db").iterdir()} == before
+
+
+def test_player_positions_reject_a_world_change_during_the_read(villager_world, monkeypatch):
+    world, _ = villager_world
+    service = BedrockEditorService({}, {})
+    scan = villager_service.scan(service, world)
+    original = service._scan_players
+
+    def changed_during_read(db):
+        players = original(db)
+        (Path(world) / "level.dat").write_bytes(b"changed during player read")
+        return players
+
+    monkeypatch.setattr(service, "_scan_players", changed_during_read)
+    with pytest.raises(villager_service.VillagerSnapshotStaleError):
+        villager_service.map_players(service, world, scan["world_revision"])

@@ -267,21 +267,21 @@ Player exports contain non-anonymized data. Keep them private and do not attach 
 
 ## Villagers
 
-The **Villagers** workspace requires only a loaded world. **Find villagers** starts a cancellable scan across all dimensions. Search, filter and sort the list to select residents or open their details.
+The **Villagers** workspace requires only a loaded world. **Find villagers** starts a cancellable scan across all dimensions. Search, filter and sort the list to select residents or open their details. The last cached scan remains available read-only when the server runs or the world changes.
 
 - **Name in Minecraft** changes a modern villager's actual name. Names allow up to 80 Unicode characters without line breaks or control characters; **Remove name** clears the draft.
 - Change current and maximum health for one villager or up to **1,000 villagers** together. **Heal fully** uses the selected or existing maximum.
 - **Supplies** edits a modern villager's eight saved inventory slots. Choose food, seeds or bone meal, change quantities, or clear slots.
 
-Review each edit, then use **Stage changes** to add it to the central **Save** tab. Saving applies staged villager edits together with player changes and mounts, with one backup. Removing a staged edit leaves the world unchanged. If the world changes, scan again; expired previews must be staged again.
+Review each edit, then use **Stage changes** to add it to the central **Save** tab. Saving applies staged villager edits together with player changes and mounts, with one backup. Removing a staged edit leaves the world unchanged. Before editing an outdated scan, stop the server and scan again; expired previews must be staged again.
 
 The map shows filtered residents in the selected dimension, with up to 1,000 markers per viewport. Zoom with the mouse wheel or buttons and drag to pan; touch devices support two-finger pinch and pan. With the map focused, use `+`/`−`, arrow keys and `Home`. **Show all** fits the viewport, and the grid shows block distances.
 
-Blue diamonds show the selected player or all players and can be hidden. Their saved positions load when the map opens; they are not live positions or unsaved editor changes. Loading errors offer a retry. A changed world hides the markers until another scan.
+Blue diamonds show the selected player or all players and can be hidden. Their saved positions load when the map opens and remain visible while the server runs or the world changes; they are not live positions or unsaved editor changes. **Find player** centers the selected player and switches to their dimension. Loading errors offer a retry; rescanning refreshes the positions.
 
 **More settings** provides an optional **Editor alias**. An alias supplements the Minecraft name, or labels an unnamed resident. Use the **Regions** button above the list to create named regions. Aliases and regions have their own save buttons and are stored as editor settings without changing the world.
 
-Professions, trade tiers, offers, equipment and raw NBT are read-only. Legacy records, ambiguous identities, missing chunk assignments and unsupported data remain visible where readable, with an explanation when editing is blocked. Village membership requires an unambiguous saved assignment.
+Professions, trade tiers, offers, equipment and raw NBT are read-only. Legacy records, ambiguous identities, missing chunk assignments and unsupported data remain visible where readable, with an explanation when editing is blocked. Scan diagnostics group matching findings and link to the affected villagers. Village membership requires an unambiguous saved assignment.
 
 Test edits on a world copy in Minecraft; game versions and add-ons can affect saved data. Tested versions and coverage are documented in the [engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-reference).
 

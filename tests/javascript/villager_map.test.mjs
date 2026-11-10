@@ -79,14 +79,14 @@ test("centered zoom reverses without drift and repeated zoom respects both limit
 });
 
 function controllerHarness() {
-    const world = { path: "world-A", selected: "player-A", markers: [{ player_key: "player-A", label: "A", ...position(10, 20) }] };
+    const world = { path: "world-A", selected: "player-A", gate: { allowed: true }, markers: [{ player_key: "player-A", label: "A", ...position(10, 20) }] };
     const response = () => ({ success: true, villagers: [], world_revision: "revision-A" });
     const api = { scan: async () => response(), mapPlayers: async payload => ({ success: true, world_revision: payload.world_revision, map_players: plain(world.markers) }) };
     const toggle = { addEventListener(_type, handler) { this.click = handler; } };
     const controller = context.window.MCBEVillagerController.createVillagerController({
         doc: {}, api,
         view: { element: id => id === "villagerMapToggle" ? toggle : null, render: () => ({ page: 1 }), renderDetail() {} },
-        getWorldPath: () => world.path, getSelectedPlayerKey: () => world.selected,
+        getWorldPath: () => world.path, getSelectedPlayerKey: () => world.selected, getWriteGate: () => world.gate,
     });
     controller.wire();
     return { world, api, response, controller, toggle };
@@ -141,4 +141,49 @@ test("player selection changes only the selected key and retains saved snapshot 
     h.controller.updateContext();
     assert.equal(h.controller.getState().selectedPlayerKey, "player-B");
     assert.deepEqual(plain(h.controller.getState().mapPlayers), h.world.markers);
+});
+
+for (const timing of ["before", "during", "after"]) {
+    test(`a server start ${timing} the map read preserves saved player markers`, async () => {
+        const h = controllerHarness();
+        await h.controller.scan();
+        let finish, signal, requests = 0;
+        h.api.mapPlayers = (_payload, options) => {
+            requests += 1; signal = options.signal;
+            return new Promise(resolve => { finish = resolve; });
+        };
+        const online = () => {
+            h.world.gate = { allowed: false, read_allowed: true, server_status: { status: "online" } };
+            h.controller.updateContext();
+        };
+        if (timing === "before") online();
+        h.toggle.click();
+        assert.equal(requests, 1);
+        if (timing === "during") online();
+        assert.equal(signal.aborted, false);
+        finish({ success: true, world_revision: "revision-A", map_players: h.world.markers });
+        await new Promise(setImmediate);
+        if (timing === "after") online();
+        assert.ok(h.controller.getState().staleReason);
+        assert.deepEqual(plain(h.controller.getState().mapPlayers), h.world.markers);
+        h.toggle.click(); h.toggle.click();
+        assert.equal(requests, 1);
+    });
+}
+
+test("changing worlds cancels a pending player read and never leaks its positions", async () => {
+    const h = controllerHarness();
+    await h.controller.scan();
+    let finish, signal;
+    h.api.mapPlayers = (_payload, options) => {
+        signal = options.signal;
+        return new Promise(resolve => { finish = resolve; });
+    };
+    h.toggle.click();
+    h.world.path = "world-B";
+    h.controller.updateContext();
+    assert.equal(signal.aborted, true);
+    finish({ success: true, world_revision: "revision-A", map_players: h.world.markers });
+    await new Promise(setImmediate);
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), []);
 });

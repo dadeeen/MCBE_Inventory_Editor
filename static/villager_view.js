@@ -85,7 +85,7 @@
         const option = (value, label) => `<option value="${esc(value)}">${esc(label)}</option>`;
         const optionKeys = new Map(), htmlKeys = new Map();
         let data = null, generation = 0, renderedPageKey = "", rowNodes = new Map(), mapView = null;
-        let diagnosticRows = null;
+        let diagnosticState = null;
         function html(id, value) {
             const node = el(id);
             if (node && htmlKeys.get(id) !== value) { node.innerHTML = value; htmlKeys.set(id, value); }
@@ -216,7 +216,7 @@
                 const checkbox = node.querySelector('input[data-action="select"]');
                 if (checkbox) { checkbox.checked = selected; checkbox.disabled = state.busy || state.scanning; }
                 const button = node.querySelector(".villager-name");
-                if (button) { button.setAttribute("aria-expanded", String(active)); button.disabled = state.busy || state.scanning || !!state.staleReason; }
+                if (button) { button.setAttribute("aria-expanded", String(active)); button.disabled = state.busy || state.scanning; }
             }
             const all = el("villagerSelectPage");
             if (all) {
@@ -237,13 +237,15 @@
             mapView ||= window.MCBEVillagerMap.createVillagerMap({ doc });
             mapView.render(state, info);
             const playerStatus = state.mapPlayersLoading ? t("Spielerpositionen werden geladen …") : state.mapPlayersError;
-            show("villagerMapPlayerHint", !playerStatus || state.mapPlayerMode === "none");
+            show("villagerMapPlayerHint", !playerStatus && !!el("villagerMapPlayerHint")?.textContent);
             text("villagerMapPlayerStatus", playerStatus || "");
             show("villagerMapPlayerStatus", !!playerStatus && state.mapPlayerMode !== "none");
-            show("villagerMapPlayersRetry", !!state.mapPlayersError && !state.mapPlayersLoading && !state.staleReason && state.mapPlayerMode !== "none");
+            show("villagerMapPlayersRetry", !!state.mapPlayersError && !state.mapPlayersLoading && state.mapPlayerMode !== "none");
         }
         function renderRegions(state, info) {
             for (const node of el("villagerRegionForm")?.querySelectorAll("input, select, button") || []) node.disabled = state.readOnly || state.preferencesBusy || state.busy || state.scanning;
+            text("villagerRegionError", state.regionError || "");
+            show("villagerRegionError", !!state.regionError);
             if (!state.regionsOpen) return;
             if (!info.regionCounts) {
                 info.regionCounts = new Map(state.preferences.regions.map(region => [region.id, 0]));
@@ -253,8 +255,43 @@
             for (const node of el("villagerRegionList")?.querySelectorAll("button") || []) node.disabled = state.preferencesBusy || state.busy || state.scanning || state.readOnly;
         }
         function renderDiagnostics() {
-            if (!el("villagerDiagnostics")?.open) return;
-            html("villagerDiagnosticList", (diagnosticRows || []).map(item => `<li>${esc(item.message || item.code || String(item))}</li>`).join(""));
+            if (!el("villagerDiagnostics")?.open || !diagnosticState) return;
+            const state = diagnosticState, byId = collection(state).byId, groups = new Map();
+            for (const item of state.diagnostics || []) {
+                const key = JSON.stringify([item.code, item.message]);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(item);
+            }
+            const content = [...groups].map(([key, items]) => {
+                const first = items[0];
+                const title = first.code === "orphan_actor" ? t("Chunk-Zuordnung fehlt")
+                    : first.code === "missing_actor" ? t("Fehlender Kreaturdatensatz") : first.message || first.code || String(first);
+                const explanation = first.code === "orphan_actor" ? t("Die Bewohnerdaten sind lesbar, aber keinem gespeicherten Chunk zugeordnet. Name, Gesundheit und Vorräte bleiben schreibgeschützt.")
+                    : first.code === "missing_actor" ? t("Ein gespeicherter Verweis hat keine zugehörigen Kreaturdaten. Ob es ein Dorfbewohner war, ist nicht feststellbar.") : "";
+                const references = items.map(item => {
+                    const row = byId.get(item.id);
+                    if (row) {
+                        const location = model.hasPosition(row) ? model.positionText(row) : "";
+                        const identity = row.unique_id ? `ID ${row.unique_id}` : row.id;
+                        const context = [location, Number.isInteger(row.dimension) ? model.dimensionLabel(row.dimension) : "", identity].filter(Boolean).join(" · ");
+                        return `<li><button type="button" class="btn-text villager-diagnostic-link" data-action="diagnostic-detail" data-id="${esc(row.id)}"><span>${esc(model.displayName(row, state.preferences.aliases))}</span><small>${esc(context)}</small></button></li>`;
+                    }
+                    const reference = item.actor ? t("Actor-Referenz: {id}", { id: item.actor })
+                        : item.record ? t("Datenbankschlüssel: {id}", { id: item.record })
+                        : item.id ? t("Datensatz: {id}", { id: item.id }) : "";
+                    return reference ? `<li><code>${esc(reference)}</code></li>` : "";
+                }).filter(Boolean).join("");
+                const heading = `${esc(title)} <span class="villager-diagnostic-count">(${items.length})</span>`;
+                return explanation || references ? `<li><details class="villager-diagnostic-group" data-diagnostic-key="${esc(key)}" data-diagnostic-code="${esc(first.code || "")}"><summary>${heading}</summary>${explanation ? `<p class="hint-text">${esc(explanation)}</p>` : ""}${references ? `<ul class="villager-diagnostic-records">${references}</ul>` : ""}</details></li>`
+                    : `<li>${heading}</li>`;
+            }).join("");
+            const list = el("villagerDiagnosticList");
+            if (htmlKeys.get("villagerDiagnosticList") !== content) {
+                const opened = new Set([...(list?.querySelectorAll("details[open]") || [])].map(node => node.dataset.diagnosticKey));
+                html("villagerDiagnosticList", content);
+                for (const group of list?.querySelectorAll("details") || []) group.open = opened.has(group.dataset.diagnosticKey);
+            }
+            for (const button of list?.querySelectorAll("button") || []) button.disabled = state.busy || state.scanning || state.saving;
         }
         el("villagerDiagnostics")?.addEventListener("toggle", renderDiagnostics);
         function render(state) {
@@ -269,7 +306,9 @@
             text("villagerScan", state.loaded ? t("Neu scannen") : t("Dorfbewohner suchen"));
             text("villagerProgressText", state.progress || t("Gespeicherte Kreaturen werden gelesen …"));
             notice("villagerStatus", state.message, state.messageKind);
-            notice("villagerStale", state.staleReason, "warning");
+            notice("villagerStale", state.staleReason ? state.serverOnline
+                ? t("Letzter Scanstand · schreibgeschützt. Zum Bearbeiten Server stoppen und neu scannen.")
+                : t("Veralteter Scanstand · schreibgeschützt. Zum Bearbeiten neu scannen.") : "", "warning");
             notice("villagerWriteGate", state.staleReason ? "" : state.blockedReason, "warning");
             const info = collection(state), page = model.pageRows(info.filtered, state.page, state.pageSize);
             text("villagerInjured", `(${info.injured})`);
@@ -335,9 +374,11 @@
             renderRegions(state, info);
             // The previous call disables all form controls; the save button also needs a real draft.
             disable("villagerRegionSave", state.preferencesBusy || state.readOnly || state.busy || state.scanning || !state.regionDirty);
-            diagnosticRows = state.diagnostics || [];
+            diagnosticState = state;
+            const diagnosticRows = state.diagnostics || [];
             show("villagerDiagnostics", diagnosticRows.length > 0);
-            text("villagerDiagnosticsSummary", t("Scan-Diagnose ({count})", { count: diagnosticRows.length }));
+            text("villagerDiagnosticsSummary", t("Scan-Diagnose ({count})", { count: state.diagnosticCount || diagnosticRows.length }));
+            show("villagerDiagnosticsTruncated", state.diagnosticsTruncated);
             renderDiagnostics();
             if (state.preview) {
                 disable("villagerSave", state.busy || !state.preview.change_count || !!state.staleReason || !!state.blockedReason);
@@ -432,7 +473,7 @@
             }).join(""));
             notice("villagerPreviewNotice", state.previewNotice || "");
         }
-        return { render, renderDetail, renderPreview, notice, element: el };
+        return { render, renderDetail, renderPreview, notice, element: el, focusMapPlayer: () => mapView?.focusPlayer() };
     }
 
     window.MCBEVillagerView = { createVillagerView, nbtTree, itemText };

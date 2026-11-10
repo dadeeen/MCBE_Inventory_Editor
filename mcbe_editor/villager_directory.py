@@ -15,6 +15,7 @@ from .entities import EntityRecord, _legacy_roots
 from .i18n import request_locale, t
 from .leveldb_readonly import WorldChangedWhileReadingError
 from .read_operation import checkpoint
+from .world_locks import lock_key
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ class _Snapshot:
     residents: dict[str, _Resident]
     size: int
 
+    def result(self) -> dict:
+        return {**json.loads(self.metadata), "villagers": [json.loads(resident.row) for resident in self.residents.values()]}
+
 
 class VillagerDirectory:
     """Keep raw resident bytes and JSON, never readers or mutable NBT trees.
@@ -51,25 +55,24 @@ class VillagerDirectory:
         self._max_bytes = max_bytes
         self._max_residents = max_residents
         self._entries = OrderedDict()
+        self._scans = OrderedDict()
         self._bytes = 0
         self._guard = threading.Lock()
 
-    def _snapshot(self, db) -> _Snapshot:
+    def snapshot(self, db) -> _Snapshot:
         token_of = getattr(db, "content_token", None)
         try:
             token = token_of() if callable(token_of) else None
         except OSError:
             LOGGER.warning("Villager cache token unavailable; reading without cache.", exc_info=True)
             token = None
-        key = (token[0], request_locale()) if token is not None else None
+        key = (token, request_locale()) if token is not None else None
         with self._guard:
             cached = self._entries.get(key)
             if cached is not None:
-                if cached[0] == token:
-                    self._entries.move_to_end(key)
-                    checkpoint("cached")
-                    return cached[1]
-                self._bytes -= self._entries.pop(key)[1].size
+                self._entries.move_to_end(key)
+                checkpoint("cached")
+                return cached
 
         scan, rows = villagers._scan(db)
         result = villagers.scan_result(scan, rows)
@@ -90,19 +93,49 @@ class VillagerDirectory:
             with self._guard:
                 previous = self._entries.pop(key, None)
                 if previous is not None:
-                    self._bytes -= previous[1].size
-                self._entries[key] = (token, snapshot)
+                    self._bytes -= previous.size
+                self._entries[key] = snapshot
                 self._bytes += size
                 while len(self._entries) > self._max_entries or self._bytes > self._max_bytes:
-                    self._bytes -= self._entries.popitem(last=False)[1][1].size
+                    evicted, old = self._entries.popitem(last=False)
+                    self._bytes -= old.size
+                    for scan_key in [scan_key for scan_key, entry_key in self._scans.items() if entry_key == evicted]:
+                        del self._scans[scan_key]
         return snapshot
 
     def scan(self, db) -> dict:
-        snapshot = self._snapshot(db)
-        return {**json.loads(snapshot.metadata), "villagers": [json.loads(resident.row) for resident in snapshot.residents.values()]}
+        return self.snapshot(db).result()
+
+    def remember_scan(self, world_path: str, revision: str, snapshot: _Snapshot) -> None:
+        """Expose a retained snapshot only after the world read has been validated."""
+        scan_key = (lock_key(world_path), revision, request_locale())
+        with self._guard:
+            key = next((key for key, entry in self._entries.items() if entry is snapshot), None)
+            if key is None:
+                return
+            self._scans[scan_key] = key
+            self._scans.move_to_end(scan_key)
+            while len(self._scans) > self._max_entries:
+                self._scans.popitem(last=False)
+
+    def scanned_detail(self, world_path: str, world_revision: str, identifier: str, revision: str) -> dict | None:
+        scan_key = (lock_key(world_path), world_revision, request_locale())
+        with self._guard:
+            key = self._scans.get(scan_key)
+            snapshot = self._entries.get(key)
+            if snapshot is None:
+                return None
+            self._entries.move_to_end(key)
+            self._scans.move_to_end(scan_key)
+        checkpoint("cached")
+        return self._detail(snapshot, identifier, revision)
 
     def detail(self, db, identifier: str, revision: str) -> dict:
-        resident = self._snapshot(db).residents.get(identifier)
+        return self._detail(self.snapshot(db), identifier, revision)
+
+    @staticmethod
+    def _detail(snapshot: _Snapshot, identifier: str, revision: str) -> dict:
+        resident = snapshot.residents.get(identifier)
         if resident is None:
             raise ValueError(t("Der ausgewählte Dorfbewohner ist nicht mehr vorhanden. Bitte neu scannen."))
         row = json.loads(resident.row)

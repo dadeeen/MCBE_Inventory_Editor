@@ -110,15 +110,16 @@
             renderVersion += 1;
             rows = info.filtered.filter(row => valid(row) && row.dimension === Number(state.mapDimension));
             const allPlayers = (state.mapPlayers || []).filter(valid);
-            players = state.staleReason || state.mapPlayerMode === "none" ? [] : allPlayers.filter(row => row.dimension === Number(state.mapDimension)
+            players = state.mapPlayerMode === "none" ? [] : allPlayers.filter(row => row.dimension === Number(state.mapDimension)
                 && (state.mapPlayerMode === "all" || row.player_key === state.selectedPlayerKey));
             el("villagerMapPlayers").value = state.mapPlayerMode;
             const selected = allPlayers.find(row => row.player_key === state.selectedPlayerKey);
-            text("villagerMapPlayerHint", state.staleReason ? t("Spielerpositionen sind veraltet. Bitte neu scannen.")
-                : state.mapPlayerMode === "none" ? ""
-                : state.mapPlayerMode === "selected" && !selected ? t("Kein ausgewählter Spieler mit gespeicherter Position. Wähle einen Spieler oder „Alle Spieler“.")
+            el("villagerMapFocusPlayer").hidden = !selected || state.mapPlayerMode === "none";
+            text("villagerMapPlayerHint", state.mapPlayerMode === "none" ? ""
+                : state.mapPlayerMode === "selected" && !state.selectedPlayerKey ? t("Kein Spieler ausgewählt. Wähle einen Spieler oder „Alle Spieler“.")
+                : state.mapPlayerMode === "selected" && !selected ? t("Für den ausgewählten Spieler ist keine gespeicherte Position verfügbar.")
                 : state.mapPlayerMode === "selected" && selected.dimension !== Number(state.mapDimension) ? t("Der ausgewählte Spieler ist in einer anderen Dimension.")
-                : !players.length ? t("Keine gespeicherten Spielerpositionen in dieser Dimension.") : t("Blaue Rauten: Spieler · zuletzt gespeicherte Position, keine Live-Anzeige."));
+                : !players.length ? t("Keine gespeicherten Spielerpositionen in dieser Dimension.") : "");
             const key = JSON.stringify([state.worldPath, state.mapDimension, state.filters, state.mapPlayerMode,
                 state.mapPlayerMode === "selected" ? state.selectedPlayerKey : null]);
             fitted = fitCamera([...rows, ...players]);
@@ -137,6 +138,15 @@
                 || players.find(row => row.player_key === state.selectedPlayerKey);
             text("villagerMapPlayerInfo", player ? `${player.label || t("Spieler")} · ${model.positionText(player)} · ${t("Zuletzt gespeicherte Position")}` : "");
             el("villagerMapPlayerInfo").hidden = !player;
+        }
+        function focusPlayer() {
+            const player = players.find(row => row.player_key === state.selectedPlayerKey);
+            if (!player) return;
+            cameraAdjusted = true;
+            camera = { x: player.position.x, z: player.position.z, span: Math.min(camera.span, 128) };
+            inspectedPlayerKey = player.player_key;
+            draw(); showPlayerInfo();
+            nodes.get(`player:${player.player_key}`)?.focus({ preventScroll: true });
         }
         function inspectPlayer(event) {
             const button = event.target.closest?.(".villager-map-player");
@@ -215,7 +225,7 @@
         el("villagerMapFit").addEventListener("click", fit);
         // Resize changes only screen geometry, not the user's chosen camera.
         if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => draw()).observe(map);
-        return { render };
+        return { render, focusPlayer };
     }
 
     window.MCBEVillagerMap = { createVillagerMap, fitCamera, zoomCamera };

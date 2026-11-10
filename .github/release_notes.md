@@ -1,3 +1,10 @@
+## Unreleased
+
+- Keep retained villager details readable while the server runs or the world changes, with one notice for the read-only scan.
+- Show invalid region selections directly at the region form.
+- Keep saved player markers available while the server runs and add a map action to find the selected player across dimensions.
+- Group matching scan diagnostics and identify the affected villagers or stored references.
+
 ## What's changed in v0.9.0
 
 - Add a Villagers workspace with search, filters, regions and a map across all dimensions, plus read-only trade and NBT details.

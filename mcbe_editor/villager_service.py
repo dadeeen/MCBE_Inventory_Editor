@@ -24,6 +24,10 @@ class VillagerSnapshotStaleError(ValueError):
     pass
 
 
+class VillagerSnapshotUnavailableError(VillagerSnapshotStaleError):
+    pass
+
+
 def _assert_revision(world_path: str, expected: Any) -> str:
     actual = world_fingerprint(world_path)
     if not isinstance(expected, str) or not expected or actual != expected:
@@ -48,8 +52,10 @@ def _read(service: Any, world_path: str, work: Callable[[Any], Any], *, expected
 
 
 def scan(service: Any, world_path: str) -> dict[str, Any]:
-    result, revision = _read(service, world_path, service._villager_directory.scan)
-    return {**result, "world_revision": revision}
+    directory = service._villager_directory
+    snapshot, revision = _read(service, world_path, directory.snapshot)
+    directory.remember_scan(world_path, revision, snapshot)
+    return {**snapshot.result(), "world_revision": revision}
 
 
 def map_players(service: Any, world_path: str, world_revision: str) -> dict[str, Any]:
@@ -60,13 +66,31 @@ def map_players(service: Any, world_path: str, world_revision: str) -> dict[str,
             if player.get("position") is not None and player.get("dimension") is not None
         ]
 
-    result, revision = _read(service, world_path, read_map, expected_revision=world_revision)
-    return {"map_players": result, "world_revision": revision}
+    # Player markers describe the saved positions at map-open time. They do not
+    # authorize edits or need to share the older villager scan's revision.
+    result, revision = _read(service, world_path, read_map)
+    return {"map_players": result, "world_revision": revision, "snapshot_stale": revision != world_revision}
 
 
 def detail(service: Any, world_path: str, identifier: str, revision: str, world_revision: str) -> dict[str, Any]:
-    result, _ = _read(service, world_path, lambda db: service._villager_directory.detail(db, identifier, revision), expected_revision=world_revision)
+    ensure_valid_world_path(world_path)
+    cached = service._villager_directory.scanned_detail(world_path, world_revision, identifier, revision)
+    if cached is not None:
+        return cached
+    # An evicted or oversized scan can still be read from disk if the exact
+    # original world revision remains available. Never substitute newer data.
+    try:
+        result, _ = _read(service, world_path, lambda db: service._villager_directory.detail(db, identifier, revision), expected_revision=world_revision)
+    except VillagerSnapshotStaleError as exc:
+        raise VillagerSnapshotUnavailableError(t("Die Details dieses Scanstands sind nicht mehr verfügbar. Bitte erneut scannen.")) from exc
     return result
+
+
+def snapshot_is_current(world_path: str, revision: str) -> bool:
+    try:
+        return world_fingerprint(world_path) == revision
+    except OSError:
+        return False
 
 
 def preview(service: Any, world_path: str, world_revision: str, selection: Any, changes: Any) -> HealthChangePlan:

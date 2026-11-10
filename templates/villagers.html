@@ -17,7 +17,7 @@
     <div id="villagerResults" hidden>
         <div class="villager-filters">
             <div class="villager-main-filters">
-                <label class="villager-search">{{ t("Suchen") }}<input id="villagerSearch" type="search" autocomplete="off" placeholder="{{ t('Name, Beruf oder Koordinaten …') }}" aria-description="{{ t('Auch eindeutige IDs, Handelsstufen und Regionen werden durchsucht.') }}"></label>
+                <label class="villager-search">{{ t("Suchen") }}<input id="villagerSearch" type="search" autocomplete="off" placeholder="{{ t('Name, Beruf oder Region …') }}" aria-description="{{ t('Auch eindeutige IDs und Handelsstufen werden durchsucht.') }}"></label>
                 <label>{{ t("Beruf") }}<select id="villagerProfession"><option value="">{{ t("Alle Berufe") }}</option></select></label>
                 <label>{{ t("Region") }}<select id="villagerRegion"><option value="">{{ t("Alle Regionen") }}</option></select></label>
                 <label class="villager-check villager-injured-filter"><input id="villagerOnlyInjured" type="checkbox"><span>{{ t("Nur Verletzte") }} <span id="villagerInjured" class="villager-count"></span></span></label>
@@ -51,7 +51,7 @@
                         <label>{{ t("Spieler auf der Karte") }}<select id="villagerMapPlayers"><option value="selected">{{ t("Ausgewählter Spieler") }}</option><option value="all">{{ t("Alle Spieler") }}</option><option value="none">{{ t("Keine Spieler") }}</option></select></label>
                     </div>
                     <details class="villager-map-help"><summary>{{ t("Kartenbedienung") }}</summary><p class="hint-text">{{ t("Die Karte zeigt die gefilterte Liste. Ein Punkt öffnet den zugehörigen Bewohner.") }}</p><p id="villagerMapHelp" class="hint-text">{{ t("Mausrad: zoomen · Ziehen: verschieben · Touch: mit zwei Fingern zoomen und verschieben. Tastatur: + / −, Pfeiltasten, Pos1.") }}</p></details>
-                    <p class="hint-text">{{ t("Grün: Dorfbewohner · Orange: verletzt · Umrandung: ausgewählt") }}</p>
+                    <p class="hint-text">{{ t("Grün: Dorfbewohner · Orange: verletzt · Blaue Rauten: Spieler") }}</p>
                     <p id="villagerMapPlayerHint" class="hint-text"></p>
                     <p id="villagerMapPlayerStatus" class="hint-text" role="status" aria-live="polite" hidden></p>
                     <button type="button" id="villagerMapPlayersRetry" class="btn-text" hidden>{{ t("Erneut laden") }}</button>
@@ -62,7 +62,7 @@
                         <button type="button" id="villagerMapZoomIn" class="btn btn-secondary btn-sm" aria-label="{{ t('Vergrößern') }}">+</button>
                         <button type="button" id="villagerMapZoomOut" class="btn btn-secondary btn-sm" aria-label="{{ t('Verkleinern') }}">−</button>
                         <output id="villagerMapZoom" aria-label="{{ t('Kartenzoom') }}">100 %</output>
-                        <button type="button" id="villagerMapFit" class="btn btn-secondary btn-sm">{{ t("Alle anzeigen") }}</button>
+                        <div class="villager-map-jumps"><button type="button" id="villagerMapFocusPlayer" class="btn btn-secondary btn-sm" hidden>{{ t("Zum Spieler") }}</button><button type="button" id="villagerMapFit" class="btn btn-secondary btn-sm">{{ t("Alle anzeigen") }}</button></div>
                     </div>
                     <div id="villagerMap" class="villager-map" role="group" tabindex="0" aria-label="{{ t('Dorfbewohner auf der X/Z-Ebene') }}" aria-describedby="villagerMapHelp">
                         <div id="villagerMapMarkers" class="villager-map-markers"></div>
@@ -85,7 +85,8 @@
                 <label>{{ t("X von") }}<input id="villagerRegionMinX" type="number" step="any" required></label><label>{{ t("X bis") }}<input id="villagerRegionMaxX" type="number" step="any" required></label>
                 <label>{{ t("Z von") }}<input id="villagerRegionMinZ" type="number" step="any" required></label><label>{{ t("Z bis") }}<input id="villagerRegionMaxZ" type="number" step="any" required></label>
                 <label>{{ t("Y von (optional)") }}<input id="villagerRegionMinY" type="number" step="any"></label><label>{{ t("Y bis (optional)") }}<input id="villagerRegionMaxY" type="number" step="any"></label>
-                <div class="villager-actions"><span id="villagerRegionDirty" class="villager-draft-status" hidden>{{ t("Ungespeichert") }}</span><button type="submit" id="villagerRegionSave" class="btn btn-secondary btn-sm">{{ t("Region speichern") }}</button><button type="button" id="villagerRegionReset" class="btn-text">{{ t("Neue Region") }}</button><button type="button" id="villagerRegionUseSelection" class="btn-text">{{ t("Bereich aus Auswahl") }}</button></div>
+                <div class="villager-actions"><span id="villagerRegionDirty" class="villager-draft-status" hidden>{{ t("Ungespeichert") }}</span><button type="submit" id="villagerRegionSave" class="btn btn-secondary btn-sm">{{ t("Region speichern") }}</button><button type="button" id="villagerRegionReset" class="btn-text">{{ t("Neue Region") }}</button><button type="button" id="villagerRegionUseSelection" class="btn-text" aria-describedby="villagerRegionError">{{ t("Bereich aus Auswahl") }}</button></div>
+                <p id="villagerRegionError" class="villager-region-error" role="alert" hidden></p>
             </form>
         </section>
         <div id="villagerWorkspace" class="villager-workspace">
@@ -113,7 +114,7 @@
             </div>
             <aside id="villagerDetail" class="villager-detail" aria-labelledby="villagerDetailTitle" hidden></aside>
         </div>
-        <details id="villagerDiagnostics" class="villager-disclosure villager-scan-diagnostics" hidden><summary id="villagerDiagnosticsSummary">{{ t("Scan-Diagnose") }}</summary><ul id="villagerDiagnosticList" class="villager-diagnostics"></ul></details>
+        <details id="villagerDiagnostics" class="villager-disclosure villager-scan-diagnostics" hidden><summary id="villagerDiagnosticsSummary">{{ t("Scan-Diagnose") }}</summary><p id="villagerDiagnosticsTruncated" class="hint-text" hidden>{{ t("Die Diagnoseanzeige ist begrenzt; weitere Befunde sind nicht aufgeführt.") }}</p><ul id="villagerDiagnosticList" class="villager-diagnostics"></ul></details>
     </div>
     <dialog id="villagerPreviewDialog" class="villager-preview-dialog" aria-labelledby="villagerPreviewTitle" aria-describedby="villagerPreviewSummary">
         <header class="villager-heading"><div><h2 id="villagerPreviewTitle">{{ t("Änderungen prüfen") }}</h2><p id="villagerPreviewWorld" class="hint-text"></p></div><button type="button" id="villagerPreviewClose" class="btn-text" aria-label="{{ t('Schließen') }}">✕</button></header>

@@ -148,6 +148,50 @@ function viewHarness() {
     return { node, view: ctx.window.MCBEVillagerView.createVillagerView({ doc: { activeElement: null, getElementById: node } }) };
 }
 
+test("scan diagnostics group repeated findings and identify exact resident records safely", () => {
+    const { node, view } = viewHarness(), state = harness().controller.getState();
+    state.rows = Array.from({ length: 4 }, (_, index) => row(`actor:${index}`, {
+        name: index ? `Bewohner ${index}` : '<img src=x onerror="attack()">',
+        unique_id: String(-9007199254740993n - BigInt(index)),
+    }));
+    state.diagnostics = [{ code: "missing_actor", message: "Missing actor", actor: "<script>attack()</script>" },
+        ...state.rows.map(row => ({ code: "orphan_actor", message: "Missing assignment", id: row.id }))];
+    node("villagerDiagnostics").open = true;
+    view.render(state);
+    const html = node("villagerDiagnosticList").innerHTML;
+    assert.equal((html.match(/class="villager-diagnostic-group"/g) || []).length, 2);
+    assert.equal((html.match(/data-action="diagnostic-detail"/g) || []).length, 4);
+    assert.equal((html.match(/Die Bewohnerdaten sind lesbar/g) || []).length, 1);
+    for (const row of state.rows) assert.ok(html.includes(`data-id="${row.id}"`) && html.includes(row.unique_id));
+    assert.match(html, /1 \/ 64 \/ 1/);
+    assert.match(html, /Ob es ein Dorfbewohner war, ist nicht feststellbar/);
+    assert.match(html, /&lt;img/);
+    assert.match(html, /&lt;script/);
+    assert.doesNotMatch(html, /<img|<script/);
+    assert.equal(node("villagerDiagnosticsSummary").textContent, "Scan-Diagnose (5)");
+});
+
+test("diagnostics preserve distinct messages and display unresolved references without inventing residents", () => {
+    const { node, view } = viewHarness(), state = harness().controller.getState();
+    state.diagnostics = [
+        { code: "index", message: "Damaged index", record: "digp-key" },
+        { code: "index", message: "Ambiguous index", id: 'unknown" onmouseover="attack()' },
+        { code: "unsupported", message: "Unsupported village record" },
+    ];
+    state.diagnosticCount = 205; state.diagnosticsTruncated = true;
+    node("villagerDiagnosticsTruncated").hidden = true;
+    node("villagerDiagnostics").open = true;
+    view.render(state);
+    const html = node("villagerDiagnosticList").innerHTML;
+    assert.match(html, /Damaged index/); assert.match(html, /Ambiguous index/);
+    assert.match(html, /Datenbankschlüssel: digp-key/);
+    assert.match(html, /Datensatz: unknown&quot;/);
+    assert.match(html, /Unsupported village record/);
+    assert.doesNotMatch(html, /<button/);
+    assert.equal(node("villagerDiagnosticsSummary").textContent, "Scan-Diagnose (205)");
+    assert.equal(node("villagerDiagnosticsTruncated").hidden, false);
+});
+
 test("equipment shows seven empty saved slots in armor and hand groups with zero occupied", () => {
     const { node, view } = viewHarness(), state = harness().controller.getState();
     const slots = ["Armor", "Mainhand", "Offhand"].flatMap(container => Array.from({ length: container === "Armor" ? 5 : 1 }, (_, index) => ({
@@ -283,7 +327,7 @@ function harness({ rows = [row("a"), row("b")], readOnly = false } = {}) {
     doc.querySelector = selector => selector.includes("dialog") && node("villagerPreviewDialog").open ? node("villagerPreviewDialog") : null;
     for (const row of rows) node(`row:${row.id}`).dataset = { id: row.id, action: "detail" };
     const world = { path: "A", view: "villagers", guard: { token: "guard-1", epoch: 1 }, gate: { allowed: true }, revision: "v1" };
-    const calls = { scans: [], details: [], previews: [], saves: [], preferences: [], confirmations: [], toasts: [], busy: [], detailRenders: [], previewRenders: [] };
+    const calls = { scans: [], details: [], previews: [], saves: [], preferences: [], confirmations: [], toasts: [], busy: [], detailRenders: [], detailErrors: [], previewRenders: [] };
     const response = () => ({ success: true, villagers: plain(rows), world_revision: world.revision, server_guard_epoch: 1, server_guard_token: "guard-1",
         preferences: { revision: "p1", aliases: {}, regions: [] }, diagnostics: [] });
     const api = {
@@ -307,6 +351,7 @@ function harness({ rows = [row("a"), row("b")], readOnly = false } = {}) {
     const view = { element: node, render: state => model.pageRows(model.filterRows(state.rows, state.filters, state.preferences), state.page, state.pageSize),
         renderDetail: (row, state, options = {}) => {
             calls.detailRenders.push(row);
+            if (options.error) calls.detailErrors.push(options.error);
             if (options.loading || options.error) return;
             node("villagerDetailMax").value = String(row?.health?.max ?? "");
             node("villagerDetailCurrent").value = String(row?.health?.current ?? "");
@@ -391,6 +436,32 @@ test("map revision conflicts invalidate the villager snapshot", async () => {
     assert.equal(h.controller.getState().mapPlayersLoading, false);
 });
 
+test("newer player positions remain separate from the old villager revision and block editing", async () => {
+    const h = harness();
+    await h.controller.scan();
+    h.api.mapPlayers = async () => ({ success: true, world_revision: "v2", snapshot_stale: true, map_players: [{ player_key: "p" }] });
+    h.node("villagerMapToggle").dispatch("click");
+    await new Promise(setImmediate);
+    assert.equal(h.controller.getState().worldRevision, "v1");
+    assert.equal(h.controller.getState().mapPlayers.length, 1);
+    assert.ok(h.controller.getState().staleReason);
+    h.controller.getState().selected.add("a");
+    h.node("villagerBatchHeal").checked = true;
+    await h.controller.preview();
+    assert.equal(h.calls.previews.length, 0);
+});
+
+test("a different map revision without a stale flag is rejected instead of silently replacing markers", async () => {
+    const h = harness();
+    await h.controller.scan();
+    h.api.mapPlayers = async () => ({ success: true, world_revision: "v2", map_players: [{ player_key: "p" }] });
+    h.node("villagerMapToggle").dispatch("click");
+    await new Promise(setImmediate);
+    assert.equal(h.controller.getState().mapPlayers.length, 0);
+    assert.equal(h.controller.getState().mapPlayersLoaded, false);
+    assert.match(h.controller.getState().mapPlayersError, /unvollständig/);
+});
+
 test("world switching cancels scans and a late previous-world response cannot populate the new world", async () => {
     const h = harness(), pending = deferred();
     h.api.scan = async (...args) => { h.calls.scans.push(args); return pending.promise; };
@@ -416,7 +487,7 @@ test("selecting a different villager aborts the old detail and ignores reversed 
     assert.equal(h.calls.detailRenders.at(-1).id, "b");
 });
 
-test("old presence polls do not stale a new scan, while new fingerprints block details and writes", async () => {
+test("old presence polls do not stale a new scan, while new fingerprints retain detail access and block writes", async () => {
     const h = harness();
     await h.prepare();
     h.controller.observeWorldStatus({ world_fingerprint: "old" }, { worldPath: "A", startedAt: 99 });
@@ -425,8 +496,109 @@ test("old presence polls do not stale a new scan, while new fingerprints block d
     assert.ok(h.controller.getState().staleReason);
     assert.equal(h.controller.getState().preview, null);
     await h.controller.openDetail("a"); await commit(h);
-    assert.equal(h.calls.details.length, 0);
+    assert.equal(h.calls.details.length, 1);
+    assert.equal(h.controller.getState().detail.id, "a");
     assert.equal(h.calls.saves.length, 0);
+});
+
+test("a server start preserves an in-flight snapshot detail and blocks previews", async () => {
+    const h = harness(), pending = deferred();
+    await h.controller.scan();
+    h.api.detail = async (...args) => { h.calls.details.push(args); return pending.promise; };
+    const opening = h.controller.openDetail("a");
+    h.world.gate = { allowed: false, read_allowed: true, server_status: { status: "online" } };
+    h.controller.updateContext();
+    assert.equal(h.calls.details[0][1].signal.aborted, false);
+    pending.resolve({ success: true, villager: h.rows[0], snapshot_stale: true });
+    await opening;
+    assert.equal(h.controller.getState().detail.id, "a");
+    assert.ok(h.controller.getState().staleReason);
+    h.node("villagerDetailCurrent").value = "18";
+    await h.controller.preview(true);
+    assert.equal(h.calls.previews.length, 0);
+    assert.equal(h.calls.saves.length, 0);
+});
+
+test("detail freshness catches external changes before the next world poll", async () => {
+    const h = harness();
+    await h.controller.scan();
+    h.api.detail = async () => ({ success: true, villager: h.rows[0], snapshot_stale: true });
+    await h.controller.openDetail("a");
+    assert.ok(h.controller.getState().staleReason);
+    assert.equal(h.controller.getState().detail.id, "a");
+    assert.equal(h.controller.getState().message, "");
+    assert.equal(h.calls.toasts.length, 0);
+    await h.controller.preview(true);
+    assert.equal(h.calls.previews.length, 0);
+});
+
+test("unavailable snapshot details preserve the list and avoid repeated global error messages", async () => {
+    const h = harness();
+    await h.controller.scan();
+    h.api.detail = async () => ({ success: false, code: "villager_snapshot_unavailable", error: "Scan expired" });
+    await h.controller.openDetail("a");
+    assert.equal(h.controller.getState().rows.length, 2);
+    assert.equal(h.controller.getState().detail, null);
+    assert.equal(h.controller.getState().staleReason, "Scan expired");
+    assert.equal(h.controller.getState().message, "");
+    assert.equal(h.calls.toasts.length, 0);
+    assert.equal(h.calls.detailErrors.at(-1), "Scan expired");
+});
+
+test("a world change during the first scan still explains why loading failed", async () => {
+    const h = harness(), scan = h.api.scan;
+    h.api.scan = async () => ({ success: false, code: "world_changed_while_reading", error: "World changed during scan" });
+    assert.equal(await h.controller.scan(), false);
+    assert.equal(h.controller.getState().loaded, false);
+    assert.equal(h.controller.getState().message, "World changed during scan");
+    h.api.scan = scan;
+    assert.equal(await h.controller.scan(), true);
+    assert.equal(h.controller.getState().message, "");
+});
+
+test("refreshing open drafts cannot clear a stale detail response", async () => {
+    const h = harness();
+    await h.controller.scan(); await h.controller.openDetail("a");
+    input(h, "villagerDetailCurrent", "17");
+    h.api.detail = async () => ({ success: true, villager: h.rows[0], snapshot_stale: true });
+    await h.controller.scan({ discard: true, keepEdits: true });
+    assert.ok(h.controller.getState().staleReason);
+    assert.equal(h.node("villagerDetailCurrent").value, "17");
+    await h.controller.preview(true);
+    assert.equal(h.calls.previews.length, 0);
+});
+
+for (const [label, rows, selected, expected] of [
+    ["empty", [row("a")], [], /zuerst/],
+    ["unknown position", [row("a", { position: null })], ["a"], /Koordinaten/],
+    ["unknown dimension", [row("a", { dimension: null })], ["a"], /Dimensionsangaben/],
+    ["hidden other dimension", [row("a"), row("b", { dimension: 1 })], ["a", "b"], /mehreren Dimensionen/],
+]) test(`area from ${label} selection reports only a local form error and preserves inputs`, async () => {
+    const h = harness({ rows });
+    await h.controller.scan();
+    for (const id of selected) h.controller.getState().selected.add(id);
+    h.controller.getState().mapDimension = "0";
+    h.node("villagerRegionMinX").value = "-20";
+    h.node("villagerRegionUseSelection").dispatch("click");
+    assert.match(h.controller.getState().regionError, expected);
+    assert.equal(h.node("villagerRegionMinX").value, "-20");
+    assert.equal(h.controller.getState().message, "");
+    assert.equal(h.calls.toasts.length, 0);
+    h.node("villagerClearSelection").dispatch("click");
+    assert.equal(h.controller.getState().regionError, "");
+});
+
+test("area from valid selection remains available online and clears its form error", async () => {
+    const h = harness();
+    h.world.gate = { allowed: false, read_allowed: true, server_status: { status: "online" } };
+    await h.controller.scan();
+    h.node("villagerRegionUseSelection").dispatch("click");
+    assert.ok(h.controller.getState().regionError);
+    h.controller.getState().selected.add("a");
+    h.node("villagerRegionUseSelection").dispatch("click");
+    assert.equal(h.controller.getState().regionError, "");
+    assert.equal(Number(h.node("villagerRegionMinX").value), 1);
+    assert.ok(h.controller.getState().staleReason);
 });
 
 test("preview includes exact selected record revisions and never submits current health with heal", async () => {

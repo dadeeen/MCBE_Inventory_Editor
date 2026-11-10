@@ -82,17 +82,27 @@ snapshots and readers without a token bypass the cache.
 
 Cache hits return list data or decode one resident, including its exact legacy
 root; misses run full discovery. The token covers metadata, WAL content and
-immutable table identities. The service also checks the world revision before
-and after each read. Preview and save planning always run fresh discovery with
-global duplicate-ID and chunk-index checks.
+immutable table identities. A scan is exposed for later browsing only after
+the service validates its world revision before and after reading. Its binding
+includes the world path, revision and locale, within the same LRU limits.
 
-`/api/villagers/map_players` loads saved positions when the map opens, bound to
-the list's world revision. Results are reused for that revision. Closing the
-map, changing worlds or rescanning cancels pending requests; late responses
-cannot replace another snapshot. Loading and retry states leave the list usable.
+Details use the retained scan bytes without reopening the live database. Older
+scans remain available until eviction, with a shared read-only notice when the
+server runs or the world changes. After eviction, a disk read must still match
+the original world revision; a newer state cannot replace it. Preview and save
+planning always run fresh discovery with global duplicate-ID and chunk-index
+checks.
+
+`/api/villagers/map_players` reads saved positions when the map opens, validating
+the current world revision before and after reading. Positions may come from a
+newer revision than the villager list; `snapshot_stale` marks the list read-only
+in that case or while the server runs. Loaded positions remain visible until a
+rescan or a switch to another world. Closing the map, changing worlds or
+rescanning cancels pending requests; late responses cannot replace another
+snapshot. Loading and retry states leave the list usable.
 Arriving markers update dimension choices and fit an untouched map. Manual zoom
 and pan remain until an explicit fit or a change of world, rows, filters or map
-selection.
+selection. **Find player** centers the selected player in their saved dimension.
 
 ## Frontend composition
 

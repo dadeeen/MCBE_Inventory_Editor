@@ -64,7 +64,7 @@ function orphanVillagerFixture(index) {
     };
 }
 
-async function openVillagerFixture(page, { layout = "classic", readOnly = false, rows: suppliedRows, locale = "de", preferences: suppliedPreferences, withPlayer = false, mapPlayers: suppliedMapPlayers = [], equipment: suppliedEquipment } = {}) {
+async function openVillagerFixture(page, { layout = "classic", readOnly = false, rows: suppliedRows, locale = "de", preferences: suppliedPreferences, withPlayer = false, mapPlayers: suppliedMapPlayers = [], equipment: suppliedEquipment, diagnostics = [], diagnosticSummary = {} } = {}) {
     const rows = structuredClone(suppliedRows || [
         { id: "actor:a", unique_id: "-9007199254740993", revision: "a".repeat(64), identifier: "minecraft:villager_v2", name: "Bücherwart",
             profession: { id: "librarian", label: "Bibliothekar" }, trade_tier: 4, trade_tier_label: "Meister", trade_experience: 250,
@@ -126,7 +126,7 @@ async function openVillagerFixture(page, { layout = "classic", readOnly = false,
     await page.route("**/api/villagers/scan", route => {
         scans.push(route.request().postDataJSON());
         return route.fulfill({ json: { success: true, villagers: rows,
-            world_revision: worldRevision, preferences, diagnostics: [], summary: { total: rows.length }, ...guard,
+            world_revision: worldRevision, preferences, diagnostics, summary: { total: rows.length, ...diagnosticSummary }, ...guard,
         } });
     });
     await page.route("**/api/villagers/map_players", route => route.fulfill({ json: {
@@ -226,12 +226,91 @@ async function saveVillagers(page, { returnToVillagers = true } = {}) {
     if (returnToVillagers) await page.locator('.app-workflow-nav [data-workflow-view="villagers"]').click();
 }
 
+async function setVillagerServerOnline(page) {
+    const status = { success: true, server_status: { status: "online" },
+        write_gate: { allowed: false, read_allowed: true, server_status: { status: "online" },
+            server_guard_token: "online-guard", server_guard_epoch: 2 },
+        server_guard_token: "online-guard", server_guard_epoch: 2 };
+    await page.route("**/api/server_status", route => route.fulfill({ json: status }));
+    await page.evaluate(status => renderServerStatus(status), status);
+}
+
+for (const [width, locale] of [[1440, "de"], [390, "de"], [1440, "en"], [390, "en"]]) {
+    test(`last scan details remain read-only online with one notice at ${width}px in ${locale}`, async ({ page }) => {
+        const errors = collectBrowserErrors(page);
+        await page.setViewportSize({ width, height: 1000 });
+        const h = await openVillagerFixture(page, { locale, withPlayer: true });
+        await setVillagerServerOnline(page);
+        const button = page.locator('.villager-name[data-id="actor:a"]');
+        await expect(button).toBeEnabled();
+        await button.click();
+        await expect(page.locator("#villagerDetailTitle")).toHaveText("Bücherwart");
+        await expect(page.locator("#villagerDetailCurrent")).toHaveValue("12");
+        for (const id of ["villagerDetailCurrent", "villagerDetailMax", "villagerDetailPreview", "villagerName", "villagerNamePreview", "villagerStockCount0", "villagerInventoryPreview"]) {
+            await expect(page.locator(`#${id}`)).toBeDisabled();
+        }
+        await expect(page.locator("#villagerStale")).toContainText(locale === "de" ? "Letzter Scanstand" : "Last scan");
+        await expect(page.locator("#villagerWriteGate")).toBeHidden();
+        await expect(page.locator("#villagerStatus")).toBeHidden();
+        await expect(page.locator("#villagersPanel .villager-notice.warning:visible")).toHaveCount(1);
+        await page.locator("#villagerMapToggle").click();
+        await expect(page.locator("#villagerMapPlayerHint")).toBeHidden();
+        await expect(page.locator("#villagerMapPlayerStatus")).toBeHidden();
+        await page.locator("#villagerMapToggle").click();
+        await page.locator('.villager-name[data-id="actor:b"]').click();
+        await expect(page.locator("#villagerDetailTitle")).toHaveText("Rüdiger");
+        await expect(page.locator("#villagerDetailCurrent")).toBeDisabled();
+        expect(h.details).toHaveLength(2);
+        expect(h.previews).toHaveLength(0);
+        expect(h.writes).toHaveLength(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        await fs.mkdir(path.resolve(".tmp/output/playwright"), { recursive: true });
+        await page.locator("#villagersPanel").screenshot({ path: path.resolve(`.tmp/output/playwright/scan-details-${width}-${locale}.png`) });
+        expect(errors).toEqual([]);
+    });
+
+    test(`area selection errors stay at the form and clear after correction at ${width}px in ${locale}`, async ({ page }) => {
+        const errors = collectBrowserErrors(page);
+        await page.setViewportSize({ width, height: 1000 });
+        const h = await openVillagerFixture(page, { locale });
+        await setVillagerServerOnline(page);
+        await page.locator("#villagerRegionsToggle").click();
+        const action = page.locator("#villagerRegionUseSelection"), error = page.locator("#villagerRegionError");
+        await action.focus();
+        await action.press("Enter");
+        await expect(action).toBeFocused();
+        await expect(error).toHaveText(locale === "de" ? "Markiere zuerst Dorfbewohner." : "Select villagers first.");
+        await page.locator("#villagerRegionName").fill("Dorf 1");
+        await page.locator("#villagerRegionMinX").fill("-20");
+        await page.locator("#villagerSelectFiltered").click();
+        await action.click();
+        await expect(error).toHaveText(locale === "de" ? "Die Auswahl enthält Bewohner aus mehreren Dimensionen." : "The selection contains villagers from different dimensions.");
+        await expect(page.locator("#villagerRegionMinX")).toHaveValue("-20");
+        await expect(page.locator("#villagerStatus")).toBeHidden();
+        await expect(error).toBeInViewport();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        await fs.mkdir(path.resolve(".tmp/output/playwright"), { recursive: true });
+        await page.locator("#villagerRegionsPanel").screenshot({ path: path.resolve(`.tmp/output/playwright/region-error-${width}-${locale}.png`) });
+        await page.locator('#villagerRows input[data-action="select"][data-id="legacy:c"]').uncheck();
+        await expect(error).toBeHidden();
+        await action.click();
+        await expect(page.locator("#villagerRegionMinX")).toHaveValue("10");
+        await expect(page.locator("#villagerRegionMaxX")).toHaveValue("50");
+        await page.locator("#villagerRegionSave").click();
+        await expect.poll(() => h.preferencesWrites.length).toBe(1);
+        await expect(error).toBeHidden();
+        expect(h.writes).toHaveLength(0);
+        expect(errors).toEqual([]);
+    });
+}
+
 for (const width of [390, 1440]) {
     test(`map loads player positions on demand and offers retry at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         let requests = 0, release;
         const waiting = new Promise(resolve => { release = resolve; });
         await openVillagerFixture(page);
+        await setVillagerServerOnline(page);
         await page.route("**/api/villagers/map_players", async route => {
             requests += 1;
             if (requests === 1) {
@@ -265,6 +344,75 @@ for (const width of [390, 1440]) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
 }
+
+for (const [width, locale] of [[1440, "de"], [390, "de"], [1440, "en"], [390, "en"]]) {
+    test(`selected player stays visible online and can be found across dimensions at ${width}px in ${locale}`, async ({ page }) => {
+        const errors = collectBrowserErrors(page);
+        await page.setViewportSize({ width, height: 1000 });
+        const h = await openVillagerFixture(page, { locale, withPlayer: true });
+        h.mapPlayers[0].position = { ...h.rows[0].position };
+        let requests = 0;
+        await page.route("**/api/villagers/map_players", route => {
+            requests += 1;
+            return route.fulfill({ json: { success: true, world_revision: "world-after-scan", snapshot_stale: true, map_players: h.mapPlayers } });
+        });
+        await setVillagerServerOnline(page);
+        await page.locator("#villagerMapToggle").click();
+        const marker = page.locator('.villager-map-player[data-player-key="villager-test-player"]');
+        const findPlayer = page.locator("#villagerMapFocusPlayer"), map = page.locator("#villagerMap");
+        await expect(marker).toBeVisible();
+        await expect(marker).toHaveCSS("background-color", "rgb(75, 159, 255)");
+        await marker.click();
+        expect(h.details).toHaveLength(0);
+        await expect(page.locator("#villagerMapPlayerInfo")).toContainText("Testspieler · 10 / 64 / -10");
+        await expect(page.locator("#villagerMapPlayerHint")).toBeHidden();
+        await expect(page.locator("#villagersPanel .villager-notice.warning:visible")).toHaveCount(1);
+        await page.locator("#villagerMapDimension").selectOption("1");
+        await expect(marker).toHaveCount(0);
+        await expect(page.locator("#villagerMapPlayerHint")).toContainText(locale === "de" ? "anderen Dimension" : "another dimension");
+        await expect(findPlayer).toHaveText(locale === "de" ? "Zum Spieler" : "Find player");
+        await findPlayer.focus(); await findPlayer.press("Enter");
+        await expect(page.locator("#villagerMapDimension")).toHaveValue("0");
+        await expect(marker).toBeFocused();
+        await map.focus();
+        for (let step = 0; step < 12; step += 1) await map.press("ArrowRight");
+        await expect(marker).toHaveCount(0);
+        await findPlayer.click();
+        await expect(marker).toBeFocused();
+        const mapBox = await map.boundingBox(), markerBox = await marker.boundingBox();
+        expect(Math.abs(markerBox.x + markerBox.width / 2 - mapBox.x - mapBox.width / 2)).toBeLessThan(2);
+        expect(Math.abs(markerBox.y + markerBox.height / 2 - mapBox.y - mapBox.height / 2)).toBeLessThan(2);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        await fs.mkdir(path.resolve(".tmp/output/playwright"), { recursive: true });
+        await page.locator("#villagerMapPanel").screenshot({ path: path.resolve(`.tmp/output/playwright/map-player-${width}-${locale}.png`) });
+        await page.locator("#villagerMapToggle").click();
+        await page.locator("#villagerMapToggle").click();
+        await expect(marker).toBeVisible();
+        expect(requests).toBe(1);
+        expect(h.scans).toHaveLength(1);
+        expect(h.writes).toHaveLength(0);
+        expect(h.playerWrites).toHaveLength(0);
+        expect(errors).toEqual([]);
+    });
+}
+
+test("missing saved coordinates never substitute another player and remain explained online", async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    const h = await openVillagerFixture(page, { withPlayer: true, mapPlayers: [
+        { player_key: "neighbor", label: "Nachbarin", position: { x: 40, y: 66, z: -30 }, dimension: 0 },
+    ] });
+    h.mapPlayers.shift();
+    await setVillagerServerOnline(page);
+    await page.locator("#villagerMapToggle").click();
+    await expect(page.locator("#villagerMapPlayerHint")).toHaveText("Für den ausgewählten Spieler ist keine gespeicherte Position verfügbar.");
+    await expect(page.locator(".villager-map-player")).toHaveCount(0);
+    await expect(page.locator("#villagerMapFocusPlayer")).toBeHidden();
+    await page.locator("#villagerMapPlayers").selectOption("all");
+    await expect(page.locator('.villager-map-player[data-player-key="neighbor"]')).toBeVisible();
+    await expect(page.locator("#villagerMapFocusPlayer")).toBeHidden();
+    expect(h.playerWrites).toHaveLength(0);
+    expect(errors).toEqual([]);
+});
 
 test("lazy player positions add map dimensions without resident or region references", async ({ page }) => {
     const errors = collectBrowserErrors(page);
@@ -422,6 +570,94 @@ test("villager equipment counts the occupied hand and preserves an unknown extra
     await expect(equipment.locator("form, input, select, textarea, [contenteditable='true']")).toHaveCount(0);
     expect(h.equipment.get("actor:a").slots).toHaveLength(8);
     expect(h.writes).toHaveLength(0);
+});
+
+for (const [width, locale] of [[1440, "de"], [390, "de"], [1440, "en"], [390, "en"]]) {
+    test(`scan diagnostics identify grouped findings and open affected residents at ${width}px in ${locale}`, async ({ page }) => {
+        const errors = collectBrowserErrors(page);
+        await page.setViewportSize({ width, height: 1000 });
+        const rows = Array.from({ length: 4 }, (_, index) => orphanVillagerFixture(index));
+        const diagnostics = [{ code: "missing_actor", message: "Missing creature", actor: "0102030405060708" },
+            ...rows.map(row => ({ code: "orphan_actor", message: row.issues[0].message, id: row.id }))];
+        const h = await openVillagerFixture(page, { rows, locale, diagnostics });
+        await setVillagerServerOnline(page);
+        const panel = page.locator("#villagerDiagnostics"), summary = page.locator("#villagerDiagnosticsSummary");
+        await expect(summary).toContainText("(5)");
+        await expect(page.locator("#villagerDiagnosticList")).toBeEmpty();
+        await summary.focus(); await summary.press("Enter");
+        await expect(panel.locator(".villager-diagnostic-group")).toHaveCount(2);
+        const orphans = panel.locator('[data-diagnostic-code="orphan_actor"]');
+        await expect(orphans.locator("summary")).toHaveText(locale === "de" ? "Chunk-Zuordnung fehlt (4)" : "Chunk assignment missing (4)");
+        await expect(orphans).toHaveJSProperty("open", false);
+        await orphans.locator("summary").focus(); await orphans.locator("summary").press("Enter");
+        await expect(orphans.locator(".villager-diagnostic-link")).toHaveCount(4);
+        const target = orphans.locator('[data-id="actor:orphan-3"]');
+        await expect(target).toContainText("Ohne Chunk 3");
+        await expect(target).toContainText(rows[2].unique_id);
+        await expect(target).toContainText("8 / 64 / -4");
+        const missing = panel.locator('[data-diagnostic-code="missing_actor"]');
+        await missing.locator("summary").click();
+        await expect(missing).toContainText(locale === "de" ? "Ob es ein Dorfbewohner war" : "whether it was a villager");
+        await expect(missing.locator("code")).toContainText("0102030405060708");
+        await expect(missing.locator("button")).toHaveCount(0);
+        await fs.mkdir(path.resolve(".tmp/output/playwright"), { recursive: true });
+        await panel.screenshot({ path: path.resolve(`.tmp/output/playwright/scan-diagnostics-${width}-${locale}.png`) });
+        await page.locator("#villagerSearch").fill("does not match a resident");
+        await expect(orphans).toHaveJSProperty("open", true);
+        await target.focus(); await target.press("Enter");
+        await expect(page.locator("#villagerDetailTitle")).toHaveText("Ohne Chunk 3");
+        await expect(page.locator("#villagerDetailTitle")).toBeInViewport();
+        await expect(page.locator("#villagerDetailCurrent")).toBeDisabled();
+        expect(h.details.at(-1).id).toBe("actor:orphan-3");
+        await page.locator('[data-action="close-detail"]').click();
+        await expect(target).toBeFocused();
+        await expect(page.locator("#villagerSearch")).toHaveValue("does not match a resident");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        expect(h.previews).toHaveLength(0);
+        expect(h.writes).toHaveLength(0);
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const filtered of [false, true]) {
+    test(`scan diagnostics restore focus to the original group before and after an alias edit with filtered=${filtered}`, async ({ page }) => {
+        const resident = { ...orphanVillagerFixture(0), name: "" };
+        resident.issues.unshift({ code: "invalid_actor_index", message: "Der Chunk-Index enthält eine ungültige Referenz." });
+        const diagnostics = resident.issues.map(issue => ({ ...issue, id: resident.id }));
+        const h = await openVillagerFixture(page, { rows: [resident], diagnostics });
+        await setVillagerServerOnline(page);
+        await page.locator("#villagerDiagnosticsSummary").click();
+        await expect(page.locator('[data-diagnostic-code="invalid_actor_index"]')).toHaveJSProperty("open", false);
+        await page.locator('[data-diagnostic-code="orphan_actor"] > summary').click();
+        if (filtered) await page.locator("#villagerSearch").fill("does not match a resident");
+        const target = page.locator('[data-diagnostic-code="orphan_actor"] [data-action="diagnostic-detail"][data-id="actor:orphan-1"]');
+        await target.click();
+        await page.locator('[data-action="close-detail"]').click();
+        await expect(target).toBeFocused();
+        await target.click();
+        await page.locator("#villagerAliasDetails > summary").click();
+        await page.locator("#villagerAlias").fill("Leseecke");
+        await page.locator("#villagerAliasSave").click();
+        await expect(target).toContainText("Leseecke");
+        await page.locator('[data-action="close-detail"]').click();
+        await expect(target).toBeFocused();
+        expect(h.preferencesWrites).toHaveLength(1);
+        expect(h.previews).toHaveLength(0);
+        expect(h.writes).toHaveLength(0);
+    });
+}
+
+test("truncated scan diagnostics disclose the total and reset after a clean rescan", async ({ page }) => {
+    const diagnostics = [{ code: "missing_actor", message: "Missing creature", actor: "0102030405060708" }];
+    const diagnosticSummary = { diagnostic_count: 205, diagnostics_truncated: true };
+    await openVillagerFixture(page, { locale: "en", diagnostics, diagnosticSummary });
+    await expect(page.locator("#villagerDiagnosticsSummary")).toContainText("(205)");
+    await page.locator("#villagerDiagnosticsSummary").click();
+    await expect(page.locator("#villagerDiagnosticsTruncated")).toHaveText("The diagnostic display is limited; additional findings are not listed.");
+    diagnostics.length = 0;
+    Object.assign(diagnosticSummary, { diagnostic_count: 0, diagnostics_truncated: false });
+    await page.locator("#villagerScan").click();
+    await expect(page.locator("#villagerDiagnostics")).toBeHidden();
 });
 
 test("villager equipment and orphan notices explain all four missing chunk assignments without weakening write protection", async ({ page }) => {
@@ -910,8 +1146,8 @@ test("villager map player modes use saved scan positions and separate dimensions
     await page.evaluate(() => renderServerStatus({ write_gate: { allowed: false, server_status: { status: "online" },
         server_guard_token: "map-new-server-state", server_guard_epoch: 2 }, server_guard_token: "map-new-server-state", server_guard_epoch: 2 }));
     await expect(page.locator("#villagerStale")).toBeVisible();
-    await expect(markers).toHaveCount(0);
-    await expect(playerInfo).toBeHidden();
+    await expect(markers).toHaveCount(2);
+    await expect(playerInfo).toBeVisible();
     expect(h.playerWrites).toHaveLength(0);
     expect(h.writes).toHaveLength(0);
     expect(errors).toEqual([]);
@@ -1546,7 +1782,7 @@ test("a rejected stale save closes the modal so the user can rescan without Esca
     await expect(page.locator("#villagerPreviewDialog")).toBeVisible();
     await saveVillagers(page);
     await expect(page.locator("#villagerPreviewDialog")).not.toBeVisible();
-    await expect(page.locator("#villagerStale")).toContainText("Die Änderungsvorschau ist veraltet.");
+    await expect(page.locator("#villagerStale")).toContainText("Veralteter Scanstand · schreibgeschützt.");
     await expect(page.locator("#villagerScan")).toBeEnabled();
     await expect(page.locator("#villagerPending")).toBeVisible();
     expect(writes).toBe(1);

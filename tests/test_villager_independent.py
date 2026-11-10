@@ -206,7 +206,7 @@ def test_cancelled_villager_read_closes_reader_and_releases_world_lock(villager_
     world, original = villager_world
     monkeypatch.setattr(main, "WORLD_READ_JOBS", WorldReadJobs(tmp_path / "read-jobs"))
     started, release, closed = Event(), Event(), Event()
-    original_scan = main.editor_service._villager_directory.scan
+    original_scan = main.editor_service._villager_directory.snapshot
     original_open = main.editor_service._open_db_readonly
 
     def open_reader(path):
@@ -229,7 +229,7 @@ def test_cancelled_villager_read_closes_reader_and_releases_world_lock(villager_
         return original_scan(db)
 
     monkeypatch.setattr(main.editor_service, "_open_db_readonly", open_reader)
-    monkeypatch.setattr(main.editor_service._villager_directory, "scan", paused_scan)
+    monkeypatch.setattr(main.editor_service._villager_directory, "snapshot", paused_scan)
     identifier = "d" * 32
     try:
         response = villager_client.post("/api/villagers/scan", json={"world_path": world}, headers={READ_ID_HEADER: identifier})

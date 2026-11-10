@@ -115,7 +115,9 @@ def _run(action: str, data: dict, deps: VillagerRouteDeps, work: Callable[[], An
         return deps.jsonify(payload), 409
     except (villager_service.VillagerSnapshotStaleError, VillagerPreviewStaleError, VillagerPreferencesStaleError, WorldChangedWhileReadingError) as exc:
         code = "villager_snapshot_stale"
-        if isinstance(exc, VillagerPreviewStaleError):
+        if isinstance(exc, villager_service.VillagerSnapshotUnavailableError):
+            code = "villager_snapshot_unavailable"
+        elif isinstance(exc, VillagerPreviewStaleError):
             code = "villager_preview_stale"
         elif isinstance(exc, VillagerPreferencesStaleError):
             code = "villager_preferences_stale"
@@ -156,21 +158,23 @@ def scan_villagers(data: dict, deps: VillagerRouteDeps) -> Any:
 
 def villager_map_players(data: dict, deps: VillagerRouteDeps) -> Any:
     def work():
-        _, blocked = _read_gate(deps)
+        gate, blocked = _read_gate(deps)
         if blocked is not None:
             return blocked
         world_path = deps.json_string(data, "world_path")
         revision = deps.json_string(data, "world_revision")
         if not revision:
             raise ValueError(t("Bitte die Dorfbewohner vor dem Öffnen der Details scannen."))
-        return deps.jsonify({"success": True, **villager_service.map_players(deps.service, world_path, revision)})
+        result = villager_service.map_players(deps.service, world_path, revision)
+        result["snapshot_stale"] = result["snapshot_stale"] or (gate.get("server_status") or {}).get("status") == "online"
+        return deps.jsonify({"success": True, **result})
 
     return _run("villagers.map_players", data, deps, work)
 
 
 def villager_detail(data: dict, deps: VillagerRouteDeps) -> Any:
     def work():
-        _, blocked = _read_gate(deps)
+        gate, blocked = _read_gate(deps)
         if blocked is not None:
             return blocked
         world_path = deps.json_string(data, "world_path")
@@ -180,7 +184,8 @@ def villager_detail(data: dict, deps: VillagerRouteDeps) -> Any:
         if not revision or not world_revision:
             raise ValueError(t("Bitte die Dorfbewohner vor dem Öffnen der Details scannen."))
         result = villager_service.detail(deps.service, world_path, identifier, revision, world_revision)
-        return deps.jsonify({"success": True, "villager": result})
+        stale = (gate.get("server_status") or {}).get("status") == "online" or not villager_service.snapshot_is_current(world_path, world_revision)
+        return deps.jsonify({"success": True, "villager": result, "snapshot_stale": stale})
 
     return _run("villagers.detail", data, deps, work)
 

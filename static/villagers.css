@@ -72,6 +72,7 @@
 .villager-map-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .villager-map-controls .btn { min-width: 40px; min-height: 40px; }
 .villager-map-controls output { flex: 1; min-width: 56px; font-size: .75rem; text-align: center; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.villager-map-jumps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .villager-map-coordinates { margin-top: 8px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .villager-map-player-info { margin-top: 6px; overflow-wrap: anywhere; }
 .villager-map-help > summary { color: var(--text-secondary); font-size: .78rem; cursor: pointer; padding: 6px 0; }
@@ -95,6 +96,7 @@
 .villager-region-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .villager-region-form > label:first-of-type { grid-column: span 3; }
 .villager-region-form > .villager-actions { grid-column: 1 / -1; }
+.villager-region-error { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: .82rem; line-height: 1.5; }
 .villager-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
 .villager-workspace.has-detail { grid-template-columns: minmax(0, 1fr) minmax(310px, 355px); }
 .villager-table-area { min-width: 0; }
@@ -188,6 +190,15 @@
 .villager-nbt .villager-nbt-type { color: var(--text-secondary); }
 .villager-diagnostics { margin: 4px 0 0 18px; font-size: .75rem; line-height: 1.7; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
 .villager-scan-diagnostics { margin-top: 18px; }
+.villager-scan-diagnostics > .villager-diagnostics { list-style: none; margin-left: 0; padding-left: 0; max-height: none; overflow: visible; }
+.villager-diagnostic-group { margin-block: 6px; }
+.villager-diagnostic-group > summary { cursor: pointer; }
+.villager-diagnostic-count, .villager-diagnostic-link small { color: var(--text-secondary); }
+.villager-diagnostic-records { list-style: none; margin: 6px 0 8px; padding-left: 16px; max-height: 240px; overflow: auto; }
+.villager-diagnostic-records li + li { margin-top: 6px; }
+.villager-diagnostic-link { display: flex; flex-direction: column; align-items: flex-start; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.villager-diagnostic-link > span { text-decoration: underline; text-underline-offset: 3px; }
+.villager-diagnostic-link small { font-size: inherit; }
 .villager-preview-dialog { background: var(--modal-card-bg, #17232c); color: var(--text-primary); border: 1px solid var(--modal-card-border, var(--card-border)); border-radius: 12px; padding: 24px; margin: auto; width: min(900px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; overscroll-behavior: contain; box-shadow: var(--shadow-main); }
 .villager-preview-dialog::backdrop { background: rgba(0, 0, 0, .65); }
 .villager-preview-dialog .villager-heading { flex-wrap: nowrap; align-items: flex-start; }
