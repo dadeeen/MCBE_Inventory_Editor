@@ -213,7 +213,7 @@
 
             if (scroll) {
                 const target = getScrollTarget(activeView) || doc.body;
-                setTimeout(() => target?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
+                target?.scrollIntoView?.({ behavior: "instant", block: "start" });
             }
         }
 

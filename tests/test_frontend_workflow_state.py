@@ -175,7 +175,8 @@ def test_main_workflow_navigation_does_not_change_scroll_position() -> None:
             const fs = require("fs");
             const vm = require("vm");
             const code = fs.readFileSync("static/workflow_state.js", "utf8");
-            const context = { window: {}, setTimeout: callback => callback() };
+            const pendingScrolls = [];
+            const context = { window: {}, setTimeout: callback => pendingScrolls.push(callback) };
             vm.runInNewContext(code, context, { filename: "static/workflow_state.js" });
 
             let activeView = "world";
@@ -204,6 +205,9 @@ def test_main_workflow_navigation_does_not_change_scroll_position() -> None:
             assert.strictEqual(scrollCalls, 0);
 
             controller.setWorkflowView("world");
+            assert.strictEqual(scrollCalls, 1);
+            clickHandler();
+            pendingScrolls.forEach(callback => callback());
             assert.strictEqual(scrollCalls, 1);
             """
         )
