@@ -161,6 +161,7 @@
 .villager-detail .villager-health-fields > .villager-check { grid-column: 1 / -1; }
 .villager-detail-form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .villager-detail-form-actions .btn-primary { flex: 1; min-height: 40px; }
+:root .villager-detail .btn:hover:not(:disabled) { transform: none; }
 .villager-detail #villagerCareerForm > .hint-text { margin-top: 10px; overflow-wrap: anywhere; }
 .villager-detail .villager-field-note { font-size: .75rem; color: var(--text-secondary); line-height: 1.6; margin: 0 0 12px; }
 .villager-detail .villager-alias-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: flex-end; padding: 4px 0 8px; }

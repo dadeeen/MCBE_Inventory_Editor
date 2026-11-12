@@ -1011,6 +1011,31 @@ for (const [layout, width, locale] of [["classic", 1440, "de"], ["studio", 768, 
     });
 }
 
+test("villager detail actions stay stable when the pointer rests at their bottom edge", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    await openVillagerFixture(page, { layout: "focus" });
+    await page.setViewportSize({ width: 320, height: 1024 });
+    await openVillagerStock(page);
+    await page.locator("#villagerStockCount0").fill("4");
+    const preview = page.locator("#villagerInventoryPreview");
+    await preview.scrollIntoViewIfNeeded();
+    const bounds = await preview.boundingBox();
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height - 0.25);
+    const tops = await preview.evaluate(element => new Promise(resolve => {
+        const samples = [];
+        const sample = () => {
+            samples.push(element.getBoundingClientRect().top);
+            if (samples.length < 30) requestAnimationFrame(sample);
+            else resolve(samples);
+        };
+        requestAnimationFrame(sample);
+    }));
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(0.1);
+    await preview.click();
+    await expect(page.locator("#villagerPreviewDialog")).toBeVisible();
+    await expect(page.locator("#villagerPreviewRows")).toContainText("4 × Brot");
+});
+
 for (const layout of ["classic", "studio", "focus"]) {
     test(`villager details, aliases, regions and map are usable in ${layout}`, async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1050 });
