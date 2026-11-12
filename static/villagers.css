@@ -64,6 +64,8 @@
 .villager-map-toolbar select { max-width: 220px; }
 .villager-map { position: relative; aspect-ratio: 1; width: 100%; margin: 0 auto; border: 1px solid var(--card-border); border-radius: 8px; background-color: var(--bg-main); background-image: linear-gradient(var(--card-border) 1px, transparent 1px), linear-gradient(90deg, var(--card-border) 1px, transparent 1px); background-size: 10% 10%; overflow: hidden; touch-action: none; user-select: none; cursor: grab; }
 .villager-map.panning, .villager-map.panning button { cursor: grabbing; }
+.villager-map.selecting, .villager-map.selecting button { cursor: crosshair; }
+.villager-map-selection { position: absolute; border: 2px solid var(--primary); background: color-mix(in srgb, var(--primary) 15%, transparent); pointer-events: none; z-index: 6; }
 .villager-map-options { display: flex; flex-wrap: wrap; gap: 12px; }
 .villager-map-options label { flex: 1 1 170px; }
 .villager-map-options select { max-width: 100%; }
@@ -71,10 +73,14 @@
 .villager-map-markers { position: absolute; inset: 0; }
 .villager-map-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .villager-map-controls .btn { min-width: 40px; min-height: 40px; }
+.villager-map-select { display: inline-flex; align-items: center; justify-content: center; padding-inline: 10px; }
+.villager-map-select[aria-pressed="true"] { color: var(--primary); border-color: var(--primary); background: var(--bg-main); }
 .villager-map-controls output { flex: 1; min-width: 56px; font-size: .75rem; text-align: center; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .villager-map-jumps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .villager-map-coordinates { margin-top: 8px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.villager-map-player-info { margin-top: 6px; overflow-wrap: anywhere; }
+.villager-map-feedback { min-height: 2.4rem; }
+.villager-map-feedback p { margin: 0; }
+.villager-map-player-tooltip { position: absolute; z-index: 7; max-width: min(280px, calc(100% - 16px)); padding: 8px 10px; border: 1px solid var(--card-border); border-radius: 6px; background: var(--floating-card-bg, #0f1b24); color: var(--text-primary); font-size: .75rem; line-height: 1.5; overflow-wrap: anywhere; pointer-events: none; }
 .villager-map-help > summary { color: var(--text-secondary); font-size: .78rem; cursor: pointer; padding: 6px 0; }
 .villager-map-help p { margin-top: 6px; }
 .villager-map-scale { position: absolute; bottom: 10px; right: 10px; background: var(--bg-main); padding: 3px 6px; border-bottom: 2px solid var(--text-secondary); font-size: .7rem; color: var(--text-secondary); pointer-events: none; }
@@ -93,9 +99,12 @@
 .villager-region-list li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--card-border); font-size: .82rem; min-width: 0; }
 .villager-region-list li > div { min-width: 0; overflow-wrap: anywhere; }
 .villager-region-list small { display: block; margin-top: 3px; color: var(--text-secondary); font-size: .72rem; line-height: 1.5; }
-.villager-region-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.villager-region-form > label:first-of-type { grid-column: span 3; }
-.villager-region-form > .villager-actions { grid-column: 1 / -1; }
+.villager-region-form { display: grid; gap: 12px; }
+.villager-region-form > label { max-width: 480px; }
+.villager-region-coordinates > summary { padding: 6px 0; font-size: .8rem; cursor: pointer; }
+.villager-region-coordinates > summary span { margin-left: 12px; }
+.villager-region-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 10px 0; }
+.villager-region-fields > label:first-child { grid-column: 1 / -1; max-width: 220px; }
 .villager-region-error { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: .82rem; line-height: 1.5; }
 .villager-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
 .villager-workspace.has-detail { grid-template-columns: minmax(0, 1fr) minmax(310px, 355px); }
@@ -152,6 +161,7 @@
 .villager-detail .villager-health-fields > .villager-check { grid-column: 1 / -1; }
 .villager-detail-form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .villager-detail-form-actions .btn-primary { flex: 1; min-height: 40px; }
+.villager-detail #villagerCareerForm > .hint-text { margin-top: 10px; overflow-wrap: anywhere; }
 .villager-detail .villager-field-note { font-size: .75rem; color: var(--text-secondary); line-height: 1.6; margin: 0 0 12px; }
 .villager-detail .villager-alias-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: flex-end; padding: 4px 0 8px; }
 .villager-alias-form > .villager-draft-status { grid-column: 1 / -1; }
@@ -237,8 +247,8 @@ html:has(.villager-preview-dialog:modal), body:has(.villager-preview-dialog:moda
     .villager-sort-controls select { width: 135px; max-width: calc(100% - 40px); min-height: 40px; }
     .villager-sort-controls button { min-height: 40px; width: 35px; }
     .villager-map-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-    .villager-region-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .villager-region-form > label:first-of-type, .villager-region-form > label:nth-of-type(2) { grid-column: 1 / -1; }
+    .villager-region-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .villager-region-coordinates > summary span { display: block; margin: 4px 0 0; }
     .villager-selection-tools .hint-text { display: none; }
     .villager-batch { padding: 10px; }
     .villager-batch .villager-health-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -262,6 +272,9 @@ html:has(.villager-preview-dialog:modal), body:has(.villager-preview-dialog:moda
     .villager-detail { padding: 16px; }
     .villager-preview-dialog { padding: 16px; }
     .villager-preview-dialog .villager-table { min-width: 530px; table-layout: auto; }
+    .villager-preview-career .villager-table { min-width: 0; table-layout: fixed; }
+    .villager-preview-career .villager-table :is(th, td) { overflow-wrap: anywhere; padding: 10px 6px; }
+    .villager-preview-career .villager-table :is(th, td):first-child { padding: 10px 6px; }
     .villager-preview-dialog .villager-table :is(th, td):nth-child(3) { display: table-cell; }
     .villager-preview-dialog .villager-table :is(th, td):nth-child(4) { width: auto; text-align: left; }
 }

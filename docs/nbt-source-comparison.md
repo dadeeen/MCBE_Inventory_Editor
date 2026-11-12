@@ -55,6 +55,10 @@ lengths and signed 32-bit container lengths follow the reference binary format.
   codecs using generated trees, every empty-list type and the reviewed entity
   records. It requires the separate reference environment and skips when
   Amulet-NBT is unavailable.
+- Raw string bytes, original field-name bytes and ordered field selection use
+  public project helpers. The workflow reference adapter implements their
+  shared subset using Amulet's public API; exact byte distinctions outside
+  that subset are covered by fixed binary fixtures in the codec tests.
 
 Run these checks when changing the codec:
 

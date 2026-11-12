@@ -80,3 +80,21 @@ def test_corrupt_preferences_cannot_be_overwritten_as_empty(tmp_path):
     with pytest.raises(ValueError, match="beschädigt"):
         store.save("world", revision=revision, aliases={}, regions=[])
     assert json.loads(path.read_text())["version"] == 999
+
+
+@pytest.mark.parametrize("operation", ["read", "save"])
+def test_excessively_nested_preferences_report_corruption_and_preserve_file(tmp_path, operation):
+    store = VillagerPreferences(tmp_path / "app")
+    revision = store.read("world")["revision"]
+    store.save("world", revision=revision, aliases={}, regions=[])
+    path = next((tmp_path / "app").glob("*.json"))
+    original = b'{"version":1,"aliases":{},"regions":' + b"[" * 10000 + b"]" * 10000 + b"}"
+    path.write_bytes(original)
+
+    with pytest.raises(ValueError, match="beschädigt"):
+        if operation == "read":
+            store.read("world")
+        else:
+            store.save("world", revision=revision, aliases={}, regions=[])
+
+    assert path.read_bytes() == original

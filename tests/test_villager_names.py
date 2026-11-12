@@ -9,7 +9,7 @@ from tests.test_entities import EntityDb, add_actor, entity_tag
 from tests.test_villagers import populated_db, selection
 
 
-@pytest.mark.parametrize("name", ["Egon (Braune Wolle)", "Jörg <&> 🐑", "Ä" * 79 + "🌾", "", "  Egon  "])
+@pytest.mark.parametrize("name", ["Egon (Braune Wolle)", "Jörg <&> 🐑", "Ä" * 79 + "🌾", "", "  Egon  ", "Egon ␛x41", "␛x00", "␛xff"])
 @pytest.mark.parametrize("original", [None, "", "Alter Name"])
 def test_name_set_rename_remove_is_lossless_and_repeat_is_noop(name, original):
     db, key = populated_db()
@@ -92,3 +92,33 @@ def test_name_patch_rejects_stale_actor_and_multiple_selection():
     add_actor(db, entity_tag(99), suffix=b"abcdefgh")
     with pytest.raises(ValueError):
         prepare_villager_changes(db, selection(scan_villagers(db)), {"name": "Egon"})
+
+
+def test_name_only_editable_villagers_are_included_in_scan_summary():
+    db = EntityDb()
+    tag = entity_tag()
+    del tag["Attributes"]
+    add_actor(db, tag)
+    scan = scan_villagers(db)
+    row = scan["villagers"][0]
+    assert not row["editable"] and not row["inventory_editable"]
+    assert row["name_editable"]
+    assert scan["summary"]["editable"] == 1
+    assert prepare_villager_changes(db, selection(scan), {"name": "Egon"}).summary["changed"] == 1
+
+
+@pytest.mark.parametrize("raw_name", [b"\xff", "␛xff".encode()])
+def test_unchanged_escaped_name_preserves_original_bytes(raw_name):
+    import struct
+
+    db, key = populated_db()
+    root = nbt.load(db.records[key], **LOAD_KWARGS)
+    root.tag["CustomName"] = nbt.load(b"\x08\x00\x00" + struct.pack("<H", len(raw_name)) + raw_name, **LOAD_KWARGS).tag
+    db.records[key] = root.save_to(**SAVE_KWARGS)
+    before = dict(db.records)
+
+    plan = prepare_villager_changes(db, selection(scan_villagers(db)), {"name": "␛xff"})
+
+    assert not plan.writes and plan.summary["unchanged"] == 1
+    assert plan.before_records == before
+    assert db.records == before

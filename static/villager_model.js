@@ -29,6 +29,41 @@
         return { name };
     }
 
+    function careerTierEditable(career, profession = career?.profession) {
+        if (!career || ["unemployed", "nitwit"].includes(profession)) return false;
+        return profession !== career.profession ? career.profession_editable === true && career.can_set_tier_on_profession_change === true
+            : career.tier_editable === true;
+    }
+
+    function careerChanges(career, { profession, trade_tier: tier } = {}) {
+        if (!career) throw new Error(t("Beruf und Handelsstufe können für diesen Datensatz nicht sicher geändert werden."));
+        const changes = {}, professionChanged = profession !== career.profession;
+        if (professionChanged) {
+            if (!career.profession_editable || !career.professions?.some(option => option.id === profession)) {
+                throw new Error(career.profession_reason || t("Wähle einen verfügbaren Beruf."));
+            }
+            changes.profession = profession;
+        }
+        if (careerTierEditable(career, profession) && (professionChanged || String(tier) !== String(career.trade_tier))) {
+            const value = Number(tier);
+            if (String(tier).trim() === "" || !Number.isInteger(value) || !career.tiers?.some(option => option.value === value)) {
+                throw new Error(t("Wähle eine verfügbare Handelsstufe."));
+            }
+            changes.trade_tier = value;
+        } else if (!professionChanged && String(tier) !== String(career.trade_tier) && String(tier).trim() !== "") {
+            throw new Error(career.tier_reason || t("Die Handelsstufe dieses Datensatzes bleibt geschützt."));
+        }
+        if (!Object.keys(changes).length) throw new Error(t("Wähle einen anderen Beruf oder eine andere Handelsstufe."));
+        return { career: changes };
+    }
+
+    function careerText(career) {
+        if (!career) return "—";
+        const tier = career.trade_tier_label ? t(career.trade_tier_label)
+            : Number.isInteger(career.trade_tier) ? t("Stufe {tier}", { tier: career.trade_tier + 1 }) : "—";
+        return [t(career.profession_label || career.profession || "Unbekannt"), tier].join(" · ");
+    }
+
     function dimensionLabel(value) {
         if (value === 0) return t("Oberwelt");
         if (value === 1) return t("Nether");
@@ -84,10 +119,11 @@
             if (filters.region === "none" && regions.length) return false;
             if (filters.region && filters.region !== "none" && !regions.some(region => region.id === filters.region)) return false;
             if (filters.injured && !isInjured(row)) return false;
-            if (filters.editable && !row.editable && !row.inventory_editable && !row.name_editable) return false;
+            if (filters.editable && !row.editable && !row.inventory_editable && !row.name_editable && !row.career_editable) return false;
             if (!query) return true;
             return [displayName(row, preferences.aliases), preferences.aliases?.[aliasKey(row)], row.name, row.unique_id, row.id,
-                row.profession?.label, row.trade_tier_label, regionText(row, preferences.regions),
+                row.profession?.label, row.profession?.label ? t(row.profession.label) : "",
+                row.trade_tier_label, row.trade_tier_label ? t(row.trade_tier_label) : "", regionText(row, preferences.regions),
                 row.village?.label, row.village?.name, row.village?.id, dimensionLabel(row.dimension), positionText(row)]
                 .filter(value => value !== null && value !== undefined).join(" ").toLocaleLowerCase().includes(query);
         });
@@ -188,6 +224,6 @@
         return Boolean(context.worldRevision && context.worldRevision !== snapshot.worldRevision);
     }
 
-    window.MCBEVillagerModel = { nameChanges, shortId, aliasKey, displayName, dimensionLabel, healthNumber, healthText, isInjured, hasPosition,
+    window.MCBEVillagerModel = { nameChanges, careerTierEditable, careerChanges, careerText, shortId, aliasKey, displayName, dimensionLabel, healthNumber, healthText, isInjured, hasPosition,
         positionText, matchingRegions, regionText, filterRows, sortedRows, pageRows, mapPoints, healthChanges, normalizeRegion, snapshotIsStale, compareText };
 }());

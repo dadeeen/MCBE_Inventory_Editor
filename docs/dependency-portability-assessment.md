@@ -69,10 +69,12 @@ Reference comparisons cover:
   independently.
 
 The workflow worker selects the codec before importing application services.
-It compares the current service layer under both codecs, not an entire historical
-application revision. Both sides must successfully perform the intended write;
-equal failures cannot pass. Unselected database values are checked against the
-original, and mutation controls prove that shared data loss is detected.
+A test-only adapter maps the shared raw-string and compound-field operations
+to Amulet's public parser and serializer; application code has no Amulet branch.
+Both codecs must successfully perform the intended write. Unselected database
+values are checked against the original, and mutation controls detect shared
+data loss. Project-specific distinctions between literal escape-looking text
+and invalid bytes use fixed wire fixtures independently of Amulet.
 
 Private-world tests are explicit opt-ins, read only from ignored
 `fixtures/private/`, and work exclusively on temporary copies. No playable worlds,

@@ -264,6 +264,8 @@ def test_stats_form_pending_drafts_preserve_values_and_ignore_reverted_or_stale_
         assert.equal(controller.hasPendingChanges(), true, "position precision preserves a change across zero");
         elements.posX.value = "0.004";
         assert.equal(controller.hasPendingChanges(), false, "unchanged stored coordinate precision is not a draft");
+        elements.posX.value = "0.003";
+        assert.equal(controller.hasPendingChanges(), true, "a fine edit must not be rounded away by draft detection");
         elements.posX.value = "0.02";
         assert.equal(controller.hasPendingChanges(), true, "a coordinate change visible at stored display precision is a draft");
         stats.pos[0] = -0.004;
@@ -830,3 +832,96 @@ def test_effects_controller_couples_walk_speed_and_resets_only_editable_speeds()
             """
         )
     )
+
+
+def test_fine_live_speed_edits_survive_other_fields_and_rounded_rerenders() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        for (const file of ["ability_state", "ability_view", "effects_logic"]) {
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, "utf8"), context);
+        }
+        const ids = ["abMovementSpeed", "abWalkSpeed", "abFlySpeed", "abVerticalFlySpeed"];
+        const inputs = Object.fromEntries(ids.map(id => [id, {
+            id, value: "", disabled: false, min: "0", max: "20", listeners: {},
+            addEventListener(type, listener) { this.listeners[type] = listener; },
+        }]));
+        const resetButton = { listeners: {}, addEventListener(type, listener) { this.listeners[type] = listener; } };
+        const original = { movement_speed: 0.1, walk_speed: 0.1, fly_speed: 0.05, vertical_fly_speed: 1 };
+        let abilities = { ...original };
+        const controller = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+            doc: { getElementById: id => id === "btnResetAbilitySpeeds" ? resetButton : inputs[id] || null,
+                querySelectorAll: selector => selector === "#dashEffects .abilities-section input" ? Object.values(inputs) : [] },
+            getPlayerAbilities: () => abilities, setPlayerAbilities: value => { abilities = value; },
+            getCleanSnapshot: () => ({ abilities: original }),
+        });
+        controller.wire(); controller.loadAbilitiesUI();
+        inputs.abMovementSpeed.value = "0.10001";
+        inputs.abMovementSpeed.listeners.input();
+        inputs.abMovementSpeed.listeners.blur();
+        assert.equal(abilities.movement_speed, 0.10001);
+        assert.equal(abilities.walk_speed, 0.10001);
+        controller.loadAbilitiesUI();
+        assert.equal(inputs.abMovementSpeed.value, "0.1");
+        assert.equal(controller.collectAbilitiesFromUI().movement_speed, 0.10001,
+            "save collection must retain the accepted fine edit after its display rounds");
+        inputs.abFlySpeed.value = "0.05001";
+        inputs.abFlySpeed.listeners.input();
+        assert.equal(abilities.fly_speed, 0.05001);
+        assert.equal(abilities.movement_speed, 0.10001);
+        assert.equal(abilities.walk_speed, 0.10001);
+        inputs.abFlySpeed.value = "0.05";
+        inputs.abFlySpeed.listeners.input();
+        assert.equal(abilities.fly_speed, original.fly_speed, "an explicit revert in the same edit still works");
+        inputs.abFlySpeed.listeners.blur(); controller.loadAbilitiesUI();
+        resetButton.listeners.click();
+        assert.deepEqual(JSON.parse(JSON.stringify(abilities)), original,
+            "explicit reset must replace fine edits even if all visible fields already round to defaults");
+    """)
+
+
+def test_speed_reset_restores_absent_defaults_after_accepted_fine_edits() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        for (const file of ["ability_state", "ability_view", "effects_logic"]) {
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, "utf8"), context);
+        }
+        const ids = ["abMovementSpeed", "abWalkSpeed", "abFlySpeed", "abVerticalFlySpeed"];
+        const inputs = Object.fromEntries(ids.map(id => [id, {
+            id, value: "", disabled: false, min: "0", max: "20", listeners: {},
+            addEventListener(type, listener) { this.listeners[type] = listener; },
+        }]));
+        const resetButton = { listeners: {}, addEventListener(type, listener) { this.listeners[type] = listener; } };
+        // A movement attribute may exist without an abilities compound.
+        const original = { movement_speed: 0.1 };
+        let abilities = { ...original };
+        const controller = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+            doc: { getElementById: id => id === "btnResetAbilitySpeeds" ? resetButton : inputs[id] || null,
+                querySelectorAll: selector => selector === "#dashEffects .abilities-section input" ? Object.values(inputs) : [] },
+            getPlayerAbilities: () => abilities, setPlayerAbilities: value => { abilities = value; },
+            getCleanSnapshot: () => ({ abilities: original }),
+        });
+        controller.wire();
+        for (const [id, value] of [
+            ["abMovementSpeed", "0.10001"], ["abWalkSpeed", "0.10001"],
+            ["abFlySpeed", "0.05001"], ["abVerticalFlySpeed", "1.00001"],
+            ["abFlySpeed", "0.2"],
+        ]) {
+            controller.loadAbilitiesUI();
+            inputs[id].value = value;
+            inputs[id].listeners.input();
+            inputs[id].listeners.blur();
+            assert.notDeepEqual(JSON.parse(JSON.stringify(abilities)), original, "the edit is accepted");
+            controller.loadAbilitiesUI();
+            resetButton.listeners.click();
+            assert.deepEqual(JSON.parse(JSON.stringify(abilities)), original,
+                `${id}: reset preserves originally absent vanilla defaults`);
+            assert.deepEqual(JSON.parse(JSON.stringify(controller.collectAbilitiesFromUI())), original,
+                `${id}: saving does not recreate the absent abilities compound`);
+        }
+    """)

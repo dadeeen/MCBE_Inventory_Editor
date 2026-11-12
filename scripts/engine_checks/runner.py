@@ -449,6 +449,9 @@ def public_summary(report: dict) -> dict:
         "editor": report["editor"],
         "catalog_sha256": report["catalog_sha256"],
         "cases_sha256": report.get("cases_sha256"),
+        "trade_reference": {key: value for key, value in report.get("trade_reference", {}).items() if key in {"version", "sha256"}},
+        "trade_tables_sha256": report.get("trade_tables_sha256"),
+        "trade_enchantments_sha256": report.get("trade_enchantments_sha256"),
         "catalog_source": report.get("catalog_source", "bundled"),
         "phases": report["phases"],
         "not_covered": report["not_covered"],
@@ -522,6 +525,24 @@ def public_summary(report: dict) -> dict:
             for key, value in report.get("villagers", {"status": "not_selected"}).items()
             if key in {"status", "cases", "warmup_cycles", "reload_cycles", "backed_up_saves", "no_op_checks", "stale_revision_rejections"}
         },
+        "villager_trades": {
+            key: value
+            for key, value in report.get("villager_trades", {"status": "not_selected"}).items()
+            if key
+            in {
+                "status",
+                "cases",
+                "professions",
+                "warmup_cycles",
+                "reload_cycles",
+                "backed_up_saves",
+                "no_op_checks",
+                "stale_revision_rejections",
+                "limitations",
+                "recipe_structure",
+                "metadata",
+            }
+        },
         "village": {
             key: value
             for key, value in report.get("village", {"status": "not_selected"}).items()
@@ -583,6 +604,88 @@ def run_villager_checks(run_dir: Path, report: dict, config: dict, phase: Callab
         "cases": len(cases),
         "reload_cycles": 4,
         "write_path": "production villager service, codec, backup and pure-Python WAL batch",
+    }
+
+
+def run_villager_trade_checks(run_dir: Path, report: dict, config: dict, phase: Callable[[str], list[dict]]) -> None:
+    from .extended import ENCHANTMENT_NAMES
+    from .villager_trade_profile import PROFESSIONS, make_trade_cases, validate_trade_events
+    from .villager_trade_tables import load_run_trade_tables, trade_enchantment_items
+
+    cases = make_trade_cases()
+    tables = load_run_trade_tables(run_dir, report)
+    enchantment_items = trade_enchantment_items(tables)
+    write_json(run_dir / "cases.json", cases)
+    report["cases_sha256"] = sha256(run_dir / "cases.json")
+    report["trade_tables_sha256"] = hashlib.sha256(json.dumps(tables, sort_keys=True).encode()).hexdigest()
+    report["villager_trades"] = {"status": "incomplete", "cases": len(cases), "professions": len(PROFESSIONS), "warmup_cycles": 0, "reload_cycles": 0}
+    report["not_covered"] = [
+        "real-client trade UI, tier unlock visibility and successful purchases",
+        "restocking, workstations, job binding through real trades and natural job changes",
+        "random-offer distribution or all possible generated enchantment combinations",
+        "legacy villager schemas, version migration, add-ons and experimental trade rebalance",
+    ]
+    config.update(villager_profile=True, villager_trade_profile=True, cases=cases, trade_enchantment_items=enchantment_items)
+
+    def worker(action):
+        write_json(run_dir / "run.json", report)
+        result = nbt_worker(run_dir, action, module="scripts.engine_checks.villager_trade_worker")
+        report.setdefault("villager_trade_results", {})[action] = result
+        report["villager_trades"]["limitations"] = sorted(set(report["villager_trades"].get("limitations", [])) | set(result.get("limitations", [])))
+        return result
+
+    events = phase("seed")
+    validate_trade_events(events, cases, stage="seed")
+    registries = [event for event in events if event.get("kind") == "matrix_registry"]
+    registry = registries[0].get("enchantments") if len(registries) == 1 else None
+    if (
+        not isinstance(registry, dict)
+        or set(registry) != set(ENCHANTMENT_NAMES)
+        or any(type(value) is not int or not 1 <= value <= 255 for value in registry.values())
+    ):
+        raise ProbeError("Native trade seed omitted or changed its complete enchantment registry")
+    compatibility = registries[0].get("enchantability")
+    if (
+        not isinstance(compatibility, dict)
+        or set(compatibility) != set(enchantment_items)
+        or any(
+            not isinstance(allowed, list)
+            or not allowed
+            or any(not isinstance(name, str) or name not in registry for name in allowed)
+            or len(set(allowed)) != len(allowed)
+            for allowed in compatibility.values()
+        )
+    ):
+        raise ProbeError("Native trade seed omitted or changed item enchantability")
+    write_json(run_dir / "trade-enchantments.json", {"limits": registry, "compatibility": compatibility})
+    report["trade_enchantments_sha256"] = sha256(run_dir / "trade-enchantments.json")
+    report["phases"]["seed"] = "pass"
+    worker("seed")
+    for name in ("warmup1", "warmup2"):
+        validate_trade_events(phase(name), cases, stage="seed")
+        worker(name)
+        report["phases"][name] = "pass"
+        report["villager_trades"]["warmup_cycles"] += 1
+    for action, stage, reloads in (("edit", "edited", ("reload1", "reload2")), ("revise", "revised", ("reload3", "reload4"))):
+        report["phases"][action] = "running"
+        result = worker(action)
+        expected = sum(case[action] is not None for case in cases)
+        for field in ("backed_up_saves", "no_op_checks", "stale_revision_rejections"):
+            if type(result.get(field)) is not int or result[field] != expected:
+                raise ProbeError("Native trade worker omitted production save checks: " + field)
+            report["villager_trades"][field] = report["villager_trades"].get(field, 0) + result[field]
+        report["phases"][action] = "pass"
+        for name in reloads:
+            validate_trade_events(phase(name), cases, stage=stage)
+            worker(name)
+            report["phases"][name] = "pass"
+            report["villager_trades"]["reload_cycles"] += 1
+    report["villager_trades"].update(status="partial", recipe_structure="pass", metadata="partial")
+    report["roundtrip"] = {
+        "status": "pass",
+        "cases": len(cases),
+        "reload_cycles": 4,
+        "write_path": "production career service; independently checked native Vanilla tables and persisted offers",
     }
 
 
@@ -655,13 +758,19 @@ def run_probe(
     *,
     client_port: int = 19134,
     client_reloads: int = 2,
+    samples_archive: Path | None = None,
+    samples_sha256: str | None = None,
+    samples_version: str | None = None,
 ) -> tuple[Path, dict]:
     if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version):
         raise ProbeError("An exact four-part Bedrock server version is required")
     if not 10 <= timeout <= 1800:
         raise ProbeError("Timeout must be between 10 and 1800 seconds per engine phase")
-    if suite not in {"catalog", "items", "extended", "special", "addons", "service", "villagers", "village", "client"}:
+    if suite not in {"catalog", "items", "extended", "special", "addons", "service", "villagers", "villager_trades", "village", "client"}:
         raise ProbeError("Unknown engine check suite")
+    samples_options = (samples_archive, samples_sha256, samples_version)
+    if any(value is not None for value in samples_options) and (suite != "villager_trades" or not all(samples_options)):
+        raise ProbeError("Samples archive, SHA-256 and release version must be supplied together for villager_trades")
     if suite in {"client", "village"} and (type(client_port) is not int or not 1024 <= client_port <= 65535):
         raise ProbeError("Client port must be an integer between 1024 and 65535")
     if type(client_reloads) is not int or client_reloads not in (1, 2) or (suite != "client" and client_reloads != 2):
@@ -734,6 +843,13 @@ def run_probe(
     try:
         server = run_dir / "server"
         extract_server(archive, server, expected_hash)
+        if suite == "villager_trades":
+            from .villager_trade_tables import load_run_trade_tables, stage_samples
+
+            if samples_archive is not None:
+                report["trade_reference"] = stage_samples(run_dir, samples_archive, samples_sha256, samples_version)
+            # Fail before starting BDS if the independent reference cannot load.
+            load_run_trade_tables(run_dir, report)
         report["engine"]["executable_sha256"] = sha256(server / "bedrock_server")
         configure_server(server)
         config = {"run_id": run_id, "phase": "catalog", "expected_ids": expected_ids, "cases": []}
@@ -766,6 +882,8 @@ def run_probe(
             run_village_checks(run_dir, report, config, phase)
         elif suite == "villagers":
             run_villager_checks(run_dir, report, config, phase, catalog["observations"], db["stack_limits"])
+        elif suite == "villager_trades":
+            run_villager_trade_checks(run_dir, report, config, phase)
         elif suite in {"items", "extended", "special", "addons", "service", "client"}:
             cases = make_cases(expected_ids, catalog["observations"], db["stack_limits"])
             if suite == "special":
@@ -898,7 +1016,7 @@ def run_probe(
         # attribute a mixed-source run to the snapshot recorded at startup.
         if any(report["editor"][key] != digest for key, digest in source_hashes().items()):
             raise ProbeError("Probe or editor sources changed during the run; rerun with stable sources")
-        report["status"] = catalog["status"]
+        report["status"] = report["villager_trades"]["status"] if suite == "villager_trades" else catalog["status"]
     except (ProbeError, OSError, ValueError, subprocess.SubprocessError) as exc:
         report["status"] = "fail"
         report["failure"] = str(exc)

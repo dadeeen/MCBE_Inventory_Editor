@@ -3,6 +3,42 @@ import textwrap
 from tests.node_runner import run_node
 
 
+def test_villager_career_save_summary_includes_before_after_and_trade_reset_impact() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        for (const file of ["villager_model", "save_logic"]) {
+            vm.runInNewContext(fs.readFileSync(`static/${file}.js`, "utf8"), context);
+        }
+        const snapshot = { inv: {}, ec: {}, stats: {}, effects: [], abilities: {} };
+        const row = {
+            kind: "career", label: "Händler <&>",
+            before: { profession: "librarian", profession_label: "Bibliothekar", trade_tier: 4, trade_tier_label: "Meister" },
+            after: { profession: "farmer", profession_label: "Farmer", trade_tier: 0, trade_tier_label: "Neuling" },
+            warnings: ["Bisherige Handelsangebote werden zurückgesetzt."],
+        };
+        const logic = context.window.MCBESaveLogic.createSaveLogic({
+            getCleanSnapshot: () => snapshot,
+            takeSnapshot: () => snapshot,
+            sectionChanged: () => false,
+            getHasEditablePlayer: () => false,
+            getPendingVillagers: () => [{ rows: [row] }],
+        });
+        const summary = logic.buildChangeSummary();
+        assert.equal(summary.total, 1);
+        const label = summary.shown[0].label;
+        assert.match(label, /Händler <&>.*Beruf und Handelsstufe/);
+        assert.match(label, /Bibliothekar.*Meister.*→.*Farmer.*Neuling/);
+        assert.ok(label.includes(row.warnings[0]));
+        row.after = { profession: "librarian", profession_label: "Bibliothekar", trade_tier: 2, trade_tier_label: "Geselle" };
+        delete row.warnings;
+        assert.match(logic.buildChangeSummary().shown[0].label, /Bibliothekar.*Geselle/);
+        assert.ok(!logic.buildChangeSummary().shown[0].label.includes("zurückgesetzt"));
+    """)
+
+
 def test_save_validation_rejects_enchantment_levels_above_backend_maximum() -> None:
     run_node(
         textwrap.dedent(

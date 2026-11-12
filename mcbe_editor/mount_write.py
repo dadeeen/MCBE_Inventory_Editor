@@ -21,6 +21,7 @@ from mcbe_editor import nbt
 from .backup import create_backup, get_backups_dir, prune_backups, remove_backup_after_aborted_write
 from .bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
 from .db import close_db_preserving_active_exception
+from .entities import entity_identifier
 from .i18n import t
 from .mount_profile import (
     HORSE_TEMPER_MAX,
@@ -232,13 +233,9 @@ def _tag_data(value: Any) -> Any:
 def _entity_identifier(root: Any) -> str | None:
     if not isinstance(root, nbt.CompoundTag):
         return None
-    for key in ("identifier", "Identifier", "id", "Id", "EntityIdentifier"):
-        if key not in root:
-            continue
-        value = _tag_data(root[key])
-        if isinstance(value, str) and value:
-            return value
-    return None
+    if any(key in root and not isinstance(root[key], nbt.StringTag) for key in ("identifier", "Identifier", "id", "Id", "EntityIdentifier")):
+        return None
+    return entity_identifier(root)
 
 
 def _load_entity_tag(raw: bytes) -> nbt.CompoundTag | None:
@@ -745,6 +742,7 @@ def _storage_key_component(actor_suffix: bytes | None) -> nbt.CompoundTag:
         return nbt.CompoundTag({})
     if len(actor_suffix) != 8:
         raise ValueError("Actor-Suffix muss 8 Bytes lang sein.")
+    storage_key = nbt.string_from_bytes(actor_suffix)
     return nbt.CompoundTag(
         {
             "EntityStorageKeyComponent": nbt.CompoundTag(
@@ -753,9 +751,9 @@ def _storage_key_component(actor_suffix: bytes | None) -> nbt.CompoundTag:
                     # including invalid UTF-8 bytes.  latin-1 would turn bytes
                     # >= 0x80 into valid multi-byte UTF-8 on serialization and
                     # Minecraft would then treat the expanded bytes as a new
-                    # StorageKey.  Use the same reversible escape codec as all
-                    # other Bedrock NBT I/O in this project.
-                    "StorageKey": nbt.StringTag(nbt.utf8_escape_decoder(actor_suffix)),
+                    # StorageKey. Preserve the original bytes as the codec does
+                    # for loaded strings.
+                    "StorageKey": storage_key,
                 }
             )
         }
@@ -767,6 +765,8 @@ def _storage_key_bytes(tag: nbt.CompoundTag) -> bytes | None:
         value = tag["internalComponents"]["EntityStorageKeyComponent"]["StorageKey"]
     except Exception:
         return None
+    if isinstance(value, nbt.StringTag):
+        return nbt.string_bytes(value)
     data = _tag_data(value)
     if isinstance(data, str):
         try:
@@ -827,6 +827,11 @@ def _apply_horse_identity(
 ) -> nbt.CompoundTag:
     pos = normalize_mount_position(position)
     tag["identifier"] = nbt.StringTag("minecraft:horse")
+    # Accepted donkey/mule templates may use these identifier aliases. Keep
+    # their existing string fields consistent with the horse being created.
+    for key in ("Identifier", "id", "Id", "EntityIdentifier"):
+        if isinstance(tag.get(key), nbt.StringTag):
+            tag[key] = nbt.StringTag("minecraft:horse")
     tag["definitions"] = _horse_definitions(horse_profile)
     tag["UniqueID"] = nbt.LongTag(int(unique_id))
     tag["Pos"] = nbt.ListTag([nbt.FloatTag(pos["x"]), nbt.FloatTag(pos["y"]), nbt.FloatTag(pos["z"])])

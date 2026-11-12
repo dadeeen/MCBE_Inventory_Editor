@@ -330,3 +330,19 @@ python -m pytest \
 Also relevant are the structural script-order tests in `tests/test_dirty_world_indicator.py`, the unknown-server-gate tests, and the mount write tests.
 
 Cross-player copy coverage must include a source change injected during `create_backup()`: the save is rejected before `put`/`putBatch`, the target remains unchanged, and the unused backup is removed.
+
+## Villager profession and trade tier
+
+Career changes use the existing signed villager preview and central save transaction. They require an unambiguous modern adult actor, a lossless NBT round trip, matching actor/index revisions, and supported Vanilla profession, definition and trade-table data. Active behavior packs, an enabled `experiments.villager_trades_rebalance`, or unreadable world rules disable only career editing. These conditions are checked again before the write, including a combined player/villager transaction.
+
+The final world revision and career-rule checks run after the adapter's own write gate and immediately before its storage call. This catches metadata or pack changes during that gate. The condition is bound to one write operation; a rejection preserves its original error, removes the unused backup and consumes that operation without attempting a database write.
+
+A tier-only change owns `TradeTier` and `TradeExperience` and preserves the complete `Offers` compound. Vanilla thresholds are 0, 10, 70, 150 and 250 villager XP. A previously experienced trader demoted to Novice retains at least 1 XP so the editor does not inadvertently remove its experience-backed profession preference.
+
+Existing recipes must have readable tier values, valid nonempty `buyA` and `sell` stack envelopes, and a supported optional `buyB`. A missing secondary input, an empty compound or an explicit zero-count air stack is accepted as empty. Item variants, enchantments and other original metadata are preserved without normalization. These checks do not certify that previously edited recipes match a Vanilla trade table; a tier change does not repair their contents.
+
+An actual profession change also owns `Variant`, `PreferredProfession`, `TradeTablePath`, `definitions` and `Offers`. It reconciles the known Vanilla profession/behavior/scheduler groups and removes the old offers for Minecraft to regenerate. The preview describes the reset and the required workstation. It does not invent trade recipes or alter village assignments, world blocks, actor identities, chunk indexes, biome/skin data, discounts or `Riches`.
+
+The composer copies this complete field set when combining career, health, name and supply previews for one actor; it never replaces a previously composed actor with an older full-record blob. A second career preview for that actor is rejected. Existing backup, writer lock, final gate and independent reopen validation apply unchanged.
+
+References: [Mojang villager definitions, v1.26.60.5](https://github.com/Mojang/bedrock-samples/blob/v1.26.60.5/behavior_pack/entities/villager_v2.json), [trade-tier thresholds](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/tradetablereference/examples/tradetablecomponents/tradetier), and [experience-dependent preferred profession](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitycomponents/minecraftcomponent_dweller). [Engine coverage](engine-checks.md#villager-career-and-trade-offer-suite) distinguishes persisted data checks from gameplay validation.

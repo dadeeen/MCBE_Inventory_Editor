@@ -29,15 +29,57 @@
         let camera = fitCamera([]), fitted = camera, state = null, rows = [], players = [];
         let resetKey = "", sourceRows = null, nodes = new Map(), suppressClickUntil = 0, renderVersion = 0, inspectedPlayerKey = "";
         const pointers = new Map();
-        let gesture = null, cameraAdjusted = false;
+        let gesture = null, cameraAdjusted = false, selecting = false, selectionStart = null, selectionEnd = null;
 
         function text(id, value) { const node = el(id); if (node && node.textContent !== value) node.textContent = value; }
         function anchor(clientX, clientY) {
             const rect = map.getBoundingClientRect();
             return { x: (clientX - rect.left) / rect.width, z: (clientY - rect.top) / rect.height };
         }
-        function fit() { cameraAdjusted = false; camera = { ...fitted }; draw(); }
-        function zoom(factor, point) { cameraAdjusted = true; camera = zoomCamera(camera, factor, point, Math.min(2 ** 39, fitted.span * 16)); draw(); }
+        function clearArea() {
+            selectionStart = selectionEnd = null;
+            el("villagerMapSelection").hidden = true;
+            for (const point of pointers.values()) point.area = false;
+        }
+        function cancelGesture() {
+            clearArea(); gesture = null;
+            // Consume held pointers through release without panning or opening a marker.
+            for (const point of pointers.values()) { point.cancelled = true; point.moved = true; }
+            map.classList.remove("panning");
+        }
+        function setSelecting(value) {
+            selecting = value; cancelGesture(); hidePlayerInfo();
+            if (selecting) cameraAdjusted = true;
+            map.classList.toggle("selecting", selecting);
+            el("villagerMapSelectArea").setAttribute("aria-pressed", String(selecting));
+        }
+        function deactivate() {
+            setSelecting(false); pointers.clear();
+        }
+        function worldPoint(clientX, clientY) {
+            const p = anchor(clientX, clientY);
+            return { x: camera.x + (Math.max(0, Math.min(1, p.x)) - .5) * camera.span,
+                z: camera.z + (Math.max(0, Math.min(1, p.z)) - .5) * camera.span };
+        }
+        function drawArea() {
+            if (!selectionStart || !selectionEnd) return;
+            const box = el("villagerMapSelection");
+            box.hidden = false;
+            box.style.left = `${(.5 + (Math.min(selectionStart.x, selectionEnd.x) - camera.x) / camera.span) * 100}%`;
+            box.style.top = `${(.5 + (Math.min(selectionStart.z, selectionEnd.z) - camera.z) / camera.span) * 100}%`;
+            box.style.width = `${Math.abs(selectionEnd.x - selectionStart.x) / camera.span * 100}%`;
+            box.style.height = `${Math.abs(selectionEnd.z - selectionStart.z) / camera.span * 100}%`;
+        }
+        function finishArea() {
+            const minX = Math.min(selectionStart.x, selectionEnd.x), maxX = Math.max(selectionStart.x, selectionEnd.x);
+            const minZ = Math.min(selectionStart.z, selectionEnd.z), maxZ = Math.max(selectionStart.z, selectionEnd.z);
+            // Select from every filtered record, including markers omitted by the rendering limit.
+            const ids = rows.filter(({ position: p }) => p.x >= minX && p.x <= maxX && p.z >= minZ && p.z <= maxZ).map(row => row.id);
+            setSelecting(false);
+            map.dispatchEvent(new CustomEvent("villager-map-select", { detail: { ids } }));
+        }
+        function fit() { cancelGesture(); hidePlayerInfo(); cameraAdjusted = false; camera = { ...fitted }; draw(); }
+        function zoom(factor, point) { cancelGesture(); hidePlayerInfo(); cameraAdjusted = true; camera = zoomCamera(camera, factor, point, Math.min(2 ** 39, fitted.span * 16)); draw(); }
         function translate(dx, dz) {
             cameraAdjusted = true;
             camera = { ...camera, x: Math.max(-(2 ** 36), Math.min(2 ** 36, camera.x + dx)),
@@ -103,6 +145,7 @@
             text("villagerMapZoom", `${model.healthNumber(fitted.span / camera.span * 100)} %`);
             el("villagerMapZoomIn").disabled = camera.span <= 4;
             el("villagerMapZoomOut").disabled = camera.span >= Math.min(2 ** 39, fitted.span * 16);
+            showPlayerInfo();
         }
 
         function render(nextState, info) {
@@ -124,37 +167,49 @@
                 state.mapPlayerMode === "selected" ? state.selectedPlayerKey : null]);
             fitted = fitCamera([...rows, ...players]);
             if (key !== resetKey || sourceRows !== state.rows) {
-                resetKey = key; sourceRows = state.rows; cameraAdjusted = false; pointers.clear(); gesture = null;
+                resetKey = key; sourceRows = state.rows; cameraAdjusted = false; deactivate();
             }
+            el("villagerMapSelectArea").disabled = state.busy || state.scanning || !rows.length;
+            if (state.busy || state.scanning) deactivate();
             // Late player markers join an untouched overview without replacing
             // a view the user has already chosen while the request was pending.
             if (!cameraAdjusted) camera = { ...fitted };
-            showPlayerInfo();
             draw();
         }
 
+        function hidePlayerInfo() {
+            inspectedPlayerKey = "";
+            el("villagerMapPlayerTooltip").hidden = true;
+        }
         function showPlayerInfo() {
-            const player = players.find(row => row.player_key === inspectedPlayerKey)
-                || players.find(row => row.player_key === state.selectedPlayerKey);
-            text("villagerMapPlayerInfo", player ? `${player.label || t("Spieler")} · ${model.positionText(player)} · ${t("Zuletzt gespeicherte Position")}` : "");
-            el("villagerMapPlayerInfo").hidden = !player;
+            const player = players.find(row => row.player_key === inspectedPlayerKey);
+            const node = nodes.get(`player:${inspectedPlayerKey}`), tooltip = el("villagerMapPlayerTooltip");
+            if (!player || !node || selecting) { hidePlayerInfo(); return; }
+            text("villagerMapPlayerTooltip", `${player.label || t("Spieler")} · ${model.positionText(player)} · ${t("Zuletzt gespeicherte Position")}`);
+            tooltip.hidden = false;
+            const x = parseFloat(node.style.left) / 100 * map.clientWidth, y = parseFloat(node.style.top) / 100 * map.clientHeight;
+            tooltip.style.left = `${Math.max(8, Math.min(map.clientWidth - tooltip.offsetWidth - 8, x - tooltip.offsetWidth / 2))}px`;
+            tooltip.style.top = `${Math.max(8, y > tooltip.offsetHeight + 24 ? y - tooltip.offsetHeight - 18
+                : Math.min(map.clientHeight - tooltip.offsetHeight - 8, y + 18))}px`;
         }
         function focusPlayer() {
             const player = players.find(row => row.player_key === state.selectedPlayerKey);
             if (!player) return;
+            cancelGesture();
             cameraAdjusted = true;
             camera = { x: player.position.x, z: player.position.z, span: Math.min(camera.span, 128) };
             inspectedPlayerKey = player.player_key;
-            draw(); showPlayerInfo();
+            draw();
             nodes.get(`player:${player.player_key}`)?.focus({ preventScroll: true });
         }
         function inspectPlayer(event) {
             const button = event.target.closest?.(".villager-map-player");
-            if (!button) return;
+            if (!button || selecting || pointers.size) { hidePlayerInfo(); return; }
             inspectedPlayerKey = button.dataset.playerKey; showPlayerInfo();
         }
         map.addEventListener("focusin", inspectPlayer);
         map.addEventListener("click", inspectPlayer);
+        map.addEventListener("focusout", hidePlayerInfo);
 
         map.addEventListener("wheel", event => {
             event.preventDefault();
@@ -164,10 +219,11 @@
         map.addEventListener("keydown", event => {
             if (event.ctrlKey || event.metaKey || event.altKey) return;
             const steps = { ArrowLeft: [-.1, 0], ArrowRight: [.1, 0], ArrowUp: [0, -.1], ArrowDown: [0, .1] };
-            if (event.key === "+" || event.key === "=") zoom(1.5);
+            if (event.key === "Escape") { deactivate(); }
+            else if (event.key === "+" || event.key === "=") zoom(1.5);
             else if (event.key === "-") zoom(1 / 1.5);
             else if (event.key === "Home") fit();
-            else if (steps[event.key]) { translate(steps[event.key][0] * camera.span, steps[event.key][1] * camera.span); draw(); }
+            else if (steps[event.key]) { cancelGesture(); hidePlayerInfo(); translate(steps[event.key][0] * camera.span, steps[event.key][1] * camera.span); draw(); }
             else return;
             event.preventDefault(); event.stopPropagation();
         });
@@ -181,18 +237,33 @@
         map.addEventListener("pointerdown", event => {
             if (event.button !== 0 || pointers.size >= 2) return;
             if (!pointers.size) suppressClickUntil = 0;
-            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, type: event.pointerType, moved: false });
-            event.target.setPointerCapture(event.pointerId);
+            const cancelled = [...pointers.values()].some(point => point.cancelled);
+            pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, type: event.pointerType, moved: cancelled, cancelled });
+            if (cancelled) { map.setPointerCapture(event.pointerId); return; }
+            if (selecting && pointers.size === 1) {
+                cameraAdjusted = true;
+                const point = pointers.get(event.pointerId);
+                point.area = true; point.finishesArea = !!selectionStart;
+                selectionEnd = worldPoint(event.clientX, event.clientY);
+                selectionStart ||= selectionEnd;
+                drawArea(); map.focus({ preventScroll: true }); event.preventDefault();
+            }
+            (selecting ? map : event.target).setPointerCapture(event.pointerId);
             gesture = currentGesture();
-            if (pointers.size === 2) { for (const point of pointers.values()) point.moved = true; suppressClickUntil = Date.now() + 500; }
+            if (pointers.size === 2) { clearArea(); hidePlayerInfo(); for (const point of pointers.values()) point.moved = true; suppressClickUntil = Date.now() + 500; }
         });
         map.addEventListener("pointermove", event => {
             const point = pointers.get(event.pointerId);
+            if (point?.cancelled) return;
+            if (selecting && selectionStart && (!point || point.area)) {
+                selectionEnd = worldPoint(event.clientX, event.clientY); drawArea();
+            }
             if (!point) return;
             point.x = event.clientX; point.y = event.clientY;
             const next = currentGesture();
             const moved = Math.hypot(point.x - point.startX, point.y - point.startY) > 5;
             if (moved) point.moved = true;
+            if (point.area) { gesture = next; event.preventDefault(); return; }
             if (gesture && (pointers.size === 2 || point.type !== "touch") && (point.moved || pointers.size === 2)) {
                 // Keep capture on the stable viewport once markers can leave
                 // its bounds and be removed by viewport culling.
@@ -204,6 +275,7 @@
                 translate(-(next.x - gesture.x) / rect.width * camera.span, -(next.y - gesture.y) / rect.height * camera.span);
                 // Avoid page gestures and accidental opens after dragging a point.
                 event.preventDefault(); suppressClickUntil = Date.now() + 500;
+                hidePlayerInfo();
                 map.classList.add("panning");
                 if (previousSpan !== camera.span || next.x !== gesture.x || next.y !== gesture.y) draw();
             }
@@ -212,9 +284,15 @@
         function endPointer(event) {
             if (event.type === "lostpointercapture" && map.hasPointerCapture(event.pointerId)) return;
             const point = pointers.get(event.pointerId);
-            if (point?.moved) suppressClickUntil = Date.now() + 500;
+            if (point?.moved || point?.area) suppressClickUntil = Date.now() + 500;
             pointers.delete(event.pointerId); gesture = currentGesture();
             if (!pointers.size) map.classList.remove("panning");
+            if (point?.area) {
+                if (event.type !== "pointerup") clearArea();
+                else if (point.moved || point.finishesArea) {
+                    selectionEnd = worldPoint(event.clientX, event.clientY); finishArea();
+                }
+            }
         }
         for (const event of ["pointerup", "pointercancel", "lostpointercapture"]) map.addEventListener(event, endPointer);
         map.addEventListener("click", event => {
@@ -223,9 +301,13 @@
         el("villagerMapZoomIn").addEventListener("click", () => zoom(1.5));
         el("villagerMapZoomOut").addEventListener("click", () => zoom(1 / 1.5));
         el("villagerMapFit").addEventListener("click", fit);
+        el("villagerMapSelectArea").addEventListener("click", () => {
+            setSelecting(!selecting);
+            if (selecting) map.focus({ preventScroll: true });
+        });
         // Resize changes only screen geometry, not the user's chosen camera.
         if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => draw()).observe(map);
-        return { render, focusPlayer };
+        return { render, focusPlayer, deactivate };
     }
 
     window.MCBEVillagerMap = { createVillagerMap, fitCamera, zoomCamera };

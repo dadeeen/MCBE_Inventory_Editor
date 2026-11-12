@@ -70,7 +70,8 @@ def read_contents(item, kind, parse_child, *, depth, budget):
 def _stack_key(item):
     # Compare complete typed values, including opaque data and raw strings.
     # Only position and quantity differ between otherwise identical stacks.
-    data = nbt.CompoundTag({key: item[key] for key in sorted(item) if key not in {"Slot", "Count"}}).save_to(**SAVE_KWARGS)
+    comparable = nbt.select_compound_fields(item, (key for key in sorted(item) if key not in {"Slot", "Count"}))
+    data = comparable.save_to(**SAVE_KWARGS)
     count_type = type(item.get("Count")).__name__.encode("ascii")
     return hashlib.sha256(count_type + data).hexdigest()
 

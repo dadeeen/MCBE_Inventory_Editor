@@ -295,6 +295,71 @@ or arbitrary add-on behavior. Regression tests in
 `tests/test_engine_villagers.py` check the observers with deliberately corrupted
 observations and NBT; those synthetic tests are not evidence of a BDS run.
 
+## Villager career and trade offer suite
+
+`--suite villager_trades` is an explicit opt-in for career edits and persisted
+offers. The 24-resident reference above and the default `--suite all` cover
+different operations. Editor 0.9.0 with **BDS 1.26.61.1** verifies 19 cases,
+36 backed-up saves and four post-edit reloads. All 36 no-op checks and
+36 stale-revision rejections pass. Synthetic oracle tests cover failure detection;
+they do not substitute for engine runs or player trades.
+
+The profile creates 19 adult residents: thirteen profession switches covering
+all working professions and five tiers, four tier promotions, one change to
+unemployed followed by re-employment, and an untouched control. A second edit
+round changes tiers without rerolling offers, including demotions that retain
+one experience point. Two warmup reloads precede edits; two engine save/reload
+cycles follow each round. Production previews, backups, stale-revision rejection,
+no-op handling and preservation of unrelated records are required throughout.
+
+The independent oracle reads loose BDS Vanilla files, including numbered
+overlays, or an explicitly supplied [Mojang bedrock-samples min ZIP](https://github.com/Mojang/bedrock-samples/releases).
+BDS 1.26.61.1 packs these files in `.brarchive` containers and requires the
+samples option. The samples release and SHA-256 are recorded separately from
+the BDS version and hash; samples are not represented as extracted BDS data.
+Every worker verifies the staged archive and selected file hashes.
+
+The oracle checks recipe sides, items, quantities, tiers, group selection,
+biome filters and supported item-data functions. Unknown formats fail.
+Enchantment limits and applicability come from a stable Script API observation.
+It neither generates offers nor compares random selections between villagers.
+A regenerated recipe baseline is accepted only after table validation; the
+next reload must preserve its critical recipe signature. The signature treats
+observed native default-field normalization as equivalent; editor writes and
+tier-only edits retain byte-for-byte preservation checks.
+
+Each offline edit verifies that the sole registered pack is the probe's exact,
+unchanged script instrumentation with no Vanilla overrides. While BDS is
+stopped, its registration is removed and restored byte for byte in a
+`finally` block. Additional packs block the operation. The application's
+behavior-pack guard remains active.
+
+The automated profile covers **persisted recipes and tier/experience state**.
+Gameplay requires separate client checks; exploration-map destinations and the
+complete random enchantment/cost algorithm remain outside its oracle.
+A structurally successful profile therefore
+reports **`partial` (exit code 2)**, with `recipe_structure: pass` and
+`metadata: partial` in the public summary.
+
+Separate checks with a manually operated Windows Bedrock **1.26.6301.0** client,
+BDS **1.26.61.1** and editor **0.9.0** cover three residents across two edit/reload
+cycles: a farmer promoted to Master and demoted to Novice, a traded farmer changed
+to a Journeyman librarian, and an unemployed resident who naturally becomes a
+fletcher. All 22 purchases match the saved inventory. Higher offers unlock and
+relock with the farmer's tier; traded residents retain their professions without
+workstations. The farmer's depleted bread offer restocks after a night/work
+transition, and the librarian's used glass offer refills at the lectern. Actor
+identities and trade article signatures persist across the final reload. These
+checks cover representative gameplay, not every profession, biome or legacy world.
+
+For BDS 1.26.61.1, the official `bedrock-samples-v1.26.60.5-min.zip` release has
+SHA-256 `bdc08469a284052b513784e49191a0590cc4c1aea019c40ea4159a4f51c021e5`.
+Supply it alongside the local BDS archive; the harness downloads neither:
+
+```powershell
+.venv/Scripts/python.exe -m scripts.engine_checks --archive $archive --sha256 $digest --server-version 1.26.61.1 --suite villager_trades --vanilla-samples $samples --samples-version v1.26.60.5 --samples-sha256 bdc08469a284052b513784e49191a0590cc4c1aea019c40ea4159a4f51c021e5
+```
+
 ## Natural village and real-client gameplay suite
 
 `--suite village --client-port 19134 --timeout 1800` uses the existing real-client

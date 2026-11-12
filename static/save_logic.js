@@ -139,9 +139,13 @@
             getPendingVillagers().forEach(entry => entry.rows.forEach(row => {
                 const describe = value => row.kind === "inventory"
                     ? (value?.slots || []).map(slot => `${t("Slot")} ${slot.slot + 1}: ${slot.item ? `${slot.item.count} × ${entry.itemLabels?.[slot.item.name] || itemDisplayName(slot.item)}` : t("Leer")}`).join(", ")
-                    : row.kind === "name" ? value?.name || t("Ohne Namen") : window.MCBEVillagerModel.healthText(value);
+                    : row.kind === "name" ? value?.name || t("Ohne Namen")
+                        : row.kind === "career" ? window.MCBEVillagerModel.careerText(value) : window.MCBEVillagerModel.healthText(value);
+                const section = row.kind === "inventory" ? t("Vorräte") : row.kind === "name" ? t("Name in Minecraft")
+                    : row.kind === "career" ? t("Beruf und Handelsstufe") : t("Gesundheit");
+                const impact = row.kind === "career" && row.warnings?.length ? ` · ${row.warnings[0]}` : "";
                 changes.push({ type: "villager", kind: "changed",
-                    label: `${row.label || row.name || row.id} · ${row.kind === "inventory" ? t("Vorräte") : row.kind === "name" ? t("Name in Minecraft") : t("Gesundheit")}: ${describe(row.before)} → ${describe(row.after)}` });
+                    label: `${row.label || row.name || row.id} · ${section}: ${describe(row.before)} → ${describe(row.after)}${impact}` });
             }));
             return {
                 total: changes.length,

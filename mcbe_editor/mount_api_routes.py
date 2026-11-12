@@ -492,10 +492,14 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps, villager_deps=
 
         villager_plan = villager_service.workspace_preview(deps.service, world_path, previews) if previews else None
 
-        def final_check():
-            deps.require_final_world_write_allowed("Workspace speichern")
+        def write_precondition() -> None:
             if previews:
                 villager_service._assert_revision(world_path, previews[0]["world_revision"])
+                villager_service.assert_career_world_allowed(world_path, previews=previews)
+
+        def final_check() -> None:
+            deps.require_final_world_write_allowed("Workspace speichern")
+            write_precondition()
 
         if not player_key:
             result = villager_service.save(
@@ -554,6 +558,7 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps, villager_deps=
 
         def build_extra_batch(db, decoded_player_key):
             staged = _StagedMountDbView(db)
+            villager_service.assert_career_world_allowed(world_path, previews=previews)
             fresh_villagers = villager_service.prepare_workspace_changes(db, previews) if previews else None
             if fresh_villagers:
                 villager_service._assert_plan(fresh_villagers, villager_service.plan_digest(villager_plan))
@@ -649,7 +654,7 @@ def save_workspace(data: dict, deps: MountRouteDeps, player_deps, villager_deps=
             pre_write_check=final_check,
             extra_batch_builder=build_extra_batch if specs or previews else None,
             extra_batch_validator=validate_extra_batch if specs or previews else None,
-            **({"extra_batch_reopen_validator": validate_villagers} if previews else {}),
+            **({"extra_batch_reopen_validator": validate_villagers, "write_precondition": write_precondition} if previews else {}),
         )
         workspace = result.get("workspace") or {"mounts": []}
         result["mounts"] = workspace.get("mounts", [])

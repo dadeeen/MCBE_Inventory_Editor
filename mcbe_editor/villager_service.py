@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import os
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from . import nbt, read_operation
@@ -14,8 +16,10 @@ from .backup_consistency import source_snapshot
 from .bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
 from .db import close_db_preserving_active_exception
 from .i18n import t
+from .path_safety import is_linklike
 from .service_errors import WriteOutcomeUnknownError, log_error_detail
-from .villagers import HealthChangePlan, prepare_villager_changes
+from .villager_career import CAREER_FIELDS
+from .villagers import HealthChangePlan, _scan, prepare_villager_changes
 from .world import ensure_valid_world_path, world_fingerprint
 from .write_transaction import WritePlan, WriteState
 
@@ -26,6 +30,64 @@ class VillagerSnapshotStaleError(ValueError):
 
 class VillagerSnapshotUnavailableError(VillagerSnapshotStaleError):
     pass
+
+
+def _career_world_reason(world_path: str) -> str | None:
+    """Only the career editor assumes vanilla behavior and trading rules."""
+
+    def read_file(name: str, limit: int) -> bytes:
+        path = Path(world_path) / name
+        if is_linklike(path):
+            raise ValueError("Linked world rules")
+        with path.open("rb") as source:
+            raw = source.read(limit + 1)
+        if len(raw) > limit:
+            raise ValueError("World rules exceed supported size")
+        return raw
+
+    try:
+        try:
+            packs = json.loads(read_file("world_behavior_packs.json", 1024 * 1024).decode("utf-8-sig"))
+        except FileNotFoundError:
+            packs = []
+        if not isinstance(packs, list):
+            raise ValueError("Unknown behavior pack list")
+        if packs:
+            return t("Beruf und Handelsstufe bleiben bei aktiven Behavior-Packs geschützt, da diese das Dorfbewohnerverhalten ändern können.")
+        raw = read_file("level.dat", 8 * 1024 * 1024)
+        if len(raw) < 8 or int.from_bytes(raw[4:8], "little") != len(raw) - 8:
+            raise ValueError("Unknown level.dat header")
+        root = nbt.load(raw[8:], **LOAD_KWARGS).tag
+        if not isinstance(root, nbt.CompoundTag):
+            raise ValueError("Unknown level.dat root")
+        experiments = root.get("experiments", nbt.CompoundTag())
+        if not isinstance(experiments, nbt.CompoundTag):
+            raise ValueError("Unknown experiments")
+        rebalance = experiments.get("villager_trades_rebalance", nbt.ByteTag(0))
+        if not isinstance(rebalance, nbt.ByteTag) or rebalance.py_data not in (0, 1):
+            raise ValueError("Unknown trade rebalance setting")
+        if rebalance.py_data:
+            return t("Der experimentelle Dorfbewohner-Handelsausgleich wird für Berufs- und Stufenänderungen noch nicht unterstützt.")
+    except (OSError, ValueError, TypeError, RecursionError):
+        return t("Die Weltregeln für Dorfbewohner konnten nicht eindeutig gelesen werden. Beruf und Handelsstufe bleiben geschützt.")
+    return None
+
+
+def _career_world_projection(row: dict[str, Any], reason: str | None) -> dict[str, Any]:
+    if not reason:
+        return row
+    career = {**row.get("career", {}), "editable": False, "reason": reason, "can_set_tier_on_profession_change": False}
+    for field in ("profession", "tier"):
+        career.update({f"{field}_editable": False, f"{field}_reason": reason})
+    return {**row, "career": career, "career_editable": False}
+
+
+def assert_career_world_allowed(world_path: str, *, changes: Any = None, previews: list[dict] | None = None) -> None:
+    requests = [changes] if previews is None else [preview.get("changes") for preview in previews]
+    if any(isinstance(change, dict) and "career" in change for change in requests):
+        reason = _career_world_reason(world_path)
+        if reason:
+            raise ValueError(reason)
 
 
 def _assert_revision(world_path: str, expected: Any) -> str:
@@ -53,9 +115,13 @@ def _read(service: Any, world_path: str, work: Callable[[Any], Any], *, expected
 
 def scan(service: Any, world_path: str) -> dict[str, Any]:
     directory = service._villager_directory
-    snapshot, revision = _read(service, world_path, directory.snapshot)
+    (snapshot, career_reason), revision = _read(service, world_path, lambda db: (directory.snapshot(db), _career_world_reason(world_path)))
     directory.remember_scan(world_path, revision, snapshot)
-    return {**snapshot.result(), "world_revision": revision}
+    result = snapshot.result()
+    if career_reason:
+        result["villagers"] = [_career_world_projection(row, career_reason) for row in result["villagers"]]
+        result["summary"]["editable"] = sum(row["editable"] or row["inventory_editable"] or row["name_editable"] for row in result["villagers"])
+    return {**result, "world_revision": revision}
 
 
 def map_players(service: Any, world_path: str, world_revision: str) -> dict[str, Any]:
@@ -76,14 +142,14 @@ def detail(service: Any, world_path: str, identifier: str, revision: str, world_
     ensure_valid_world_path(world_path)
     cached = service._villager_directory.scanned_detail(world_path, world_revision, identifier, revision)
     if cached is not None:
-        return cached
+        return _career_world_projection(cached, _career_world_reason(world_path))
     # An evicted or oversized scan can still be read from disk if the exact
     # original world revision remains available. Never substitute newer data.
     try:
         result, _ = _read(service, world_path, lambda db: service._villager_directory.detail(db, identifier, revision), expected_revision=world_revision)
     except VillagerSnapshotStaleError as exc:
         raise VillagerSnapshotUnavailableError(t("Die Details dieses Scanstands sind nicht mehr verfügbar. Bitte erneut scannen.")) from exc
-    return result
+    return _career_world_projection(result, _career_world_reason(world_path))
 
 
 def snapshot_is_current(world_path: str, revision: str) -> bool:
@@ -94,7 +160,11 @@ def snapshot_is_current(world_path: str, revision: str) -> bool:
 
 
 def preview(service: Any, world_path: str, world_revision: str, selection: Any, changes: Any) -> HealthChangePlan:
-    result, _ = _read(service, world_path, lambda db: prepare_villager_changes(db, selection, changes), expected_revision=world_revision)
+    def prepare(db):
+        assert_career_world_allowed(world_path, changes=changes)
+        return prepare_villager_changes(db, selection, changes)
+
+    result, _ = _read(service, world_path, prepare, expected_revision=world_revision)
     return result
 
 
@@ -119,31 +189,41 @@ def _assert_plan(plan: HealthChangePlan, expected: str) -> None:
 def prepare_workspace_changes(db: Any, previews: list[dict]) -> HealthChangePlan:
     """Revalidate signed previews against the original snapshot, then compose them.
 
-    Health, names and supplies touch disjoint top-level fields. Never apply a second
+    Health, names, supplies and careers touch disjoint top-level fields. Never apply a second
     stale actor blob over the first change, and never silently pick a winner
     when two previews edit the same field of the same actor.
     """
     writes, before, rows, fields = {}, {}, [], set()
     summary = {name: 0 for name in ("selected", "changed", "skipped", "unchanged")}
+    # All previews describe this same open database view. Discover identities,
+    # indexes and villagers once per validation phase, not once per preview.
+    # The save path calls us again after acquiring the writer lock, with a new
+    # scan; no discovery state is reused across that boundary.
+    snapshot = _scan(db) if previews else None
     for preview in previews:
-        plan = prepare_villager_changes(db, preview["selection"], preview["changes"])
+        plan = prepare_villager_changes(db, preview["selection"], preview["changes"], _snapshot=snapshot)
         _assert_plan(plan, preview["plan_digest"])
-        field = "ChestItems" if "inventory" in plan.changes else "CustomName" if "name" in plan.changes else "Attributes"
+        patch_fields = (
+            CAREER_FIELDS
+            if "career" in plan.changes
+            else {"ChestItems" if "inventory" in plan.changes else "CustomName" if "name" in plan.changes else "Attributes"}
+        )
         for key, value in plan.before_records.items():
             if key in before and before[key] != value:
                 raise VillagerSnapshotStaleError(t("Die Dorfbewohner-Vorschauen verwenden unterschiedliche Weltstände."))
             before[key] = value
         for key, value in plan.writes.items():
-            if (key, field) in fields:
+            if any((key, field) in fields for field in patch_fields):
                 raise ValueError(t("Mehrere Vormerkungen ändern denselben Dorfbewohner-Bereich. Entferne zuerst die ältere Vormerkung."))
-            fields.add((key, field))
+            fields.update((key, field) for field in patch_fields)
             if key in writes:
                 combined = nbt.load(writes[key], **LOAD_KWARGS)
                 patch = nbt.load(value, **LOAD_KWARGS)
-                if field in patch.tag:
-                    combined.tag[field] = patch.tag[field]
-                elif field in combined.tag:
-                    del combined.tag[field]
+                for field in sorted(patch_fields):
+                    if field in patch.tag:
+                        combined.tag[field] = patch.tag[field]
+                    elif field in combined.tag:
+                        del combined.tag[field]
                 writes[key] = combined.save_to(**SAVE_KWARGS)
             else:
                 writes[key] = value
@@ -157,7 +237,12 @@ def workspace_preview(service: Any, world_path: str, previews: list[dict]) -> He
     revision = previews[0]["world_revision"]
     if any(preview["world_revision"] != revision for preview in previews):
         raise VillagerSnapshotStaleError(t("Die Dorfbewohner-Vorschauen verwenden unterschiedliche Weltstände."))
-    plan, _ = _read(service, world_path, lambda db: prepare_workspace_changes(db, previews), expected_revision=revision)
+
+    def prepare(db):
+        assert_career_world_allowed(world_path, previews=previews)
+        return prepare_workspace_changes(db, previews)
+
+    plan, _ = _read(service, world_path, prepare, expected_revision=revision)
     return plan
 
 
@@ -242,7 +327,14 @@ def save(
     previews: list[dict] | None = None,
 ) -> dict[str, Any]:
     def prepare(db):
+        assert_career_world_allowed(world_path, changes=changes, previews=previews)
         return prepare_workspace_changes(db, previews) if previews is not None else prepare_villager_changes(db, selection, changes)
+
+    def write_precondition() -> None:
+        # Metadata and pack rules are outside LevelDB's lock. The adapter may
+        # run a slow final server gate, so validate again after that gate.
+        _assert_revision(world_path, world_revision)
+        assert_career_world_allowed(world_path, changes=changes, previews=previews)
 
     ensure_valid_world_path(world_path)
     with service._locked_world(world_path):
@@ -277,10 +369,7 @@ def save(
             fresh_plan = prepare(db)
             _assert_plan(fresh_plan, expected_plan_digest)
             pre_write_check()
-            # The DB lock does not cover level.dat. Recheck after the last
-            # potentially slow scan/gate and immediately before our own write.
-            _assert_revision(world_path, world_revision)
-            state.execute(db, WritePlan(fresh_plan.writes))
+            state.execute(db, WritePlan(fresh_plan.writes, precondition=write_precondition))
             try:
                 result = _post_write_result(service, world_path, db, fresh_plan, backup_file)
                 db = None

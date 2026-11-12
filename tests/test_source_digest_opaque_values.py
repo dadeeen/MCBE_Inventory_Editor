@@ -69,6 +69,31 @@ def test_opaque_wire_changes_reject_stale_cross_player_copy(difference) -> None:
     _assert_stale_copy_rejected(*items)
 
 
+@pytest.mark.parametrize("location", ["root", "tag", "display", "enchantment"])
+def test_preserved_field_name_bytes_reject_stale_cross_player_copy(location) -> None:
+    import struct
+    from mcbe_editor import nbt
+
+    items = []
+    for raw_name in (b"\xff", "\u241bxff".encode("utf-8")):
+        opaque = nbt.load(b"\x0a\x00\x00\x01" + struct.pack("<H", len(raw_name)) + raw_name + b"\x01\x00").tag
+        if location == "root":
+            value = opaque
+            value.update(_base_item(nbt))
+        else:
+            value = nbt.CompoundTag(_base_item(nbt))
+            if location == "tag":
+                value["tag"] = opaque
+            elif location == "display":
+                value["tag"] = nbt.CompoundTag({"display": opaque})
+            else:
+                opaque.update({"id": nbt.ShortTag(17), "lvl": nbt.ShortTag(1)})
+                value["tag"] = nbt.CompoundTag({"ench": nbt.ListTag([opaque], 10)})
+        items.append(value)
+
+    _assert_stale_copy_rejected(*items)
+
+
 def _base_item(nbt):
     return {
         "Slot": nbt.ByteTag(5),

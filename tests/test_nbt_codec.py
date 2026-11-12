@@ -8,6 +8,58 @@ import pytest
 from mcbe_editor import nbt
 
 
+@pytest.mark.parametrize("raw", [b"", b"abc\x00\xff", "␛xff".encode(), "Grüße 世界".encode()])
+def test_raw_string_helpers_preserve_exact_wire_bytes(raw):
+    expected = b"\x08\x00\x00" + struct.pack("<H", len(raw)) + raw
+    tag = nbt.string_from_bytes(raw)
+    assert tag.save_to() == expected
+    assert nbt.string_bytes(tag) == raw
+    assert nbt.string_bytes(nbt.load(expected).tag) == raw
+    assert nbt.string_bytes(copy.deepcopy(tag)) == raw
+
+
+def test_raw_string_helpers_validate_input_and_encode_new_strings():
+    assert nbt.string_bytes(nbt.StringTag("␛xff")) == b"\xff"
+    with pytest.raises(TypeError):
+        nbt.string_from_bytes("text")
+    with pytest.raises(TypeError):
+        nbt.string_bytes(nbt.IntTag(1))
+    with pytest.raises(nbt.NBTError):
+        nbt.string_from_bytes(b"x" * 65536)
+
+
+def test_concatenated_roots_keep_names_and_share_limits(monkeypatch):
+    names = [b"\xff", "␛xff".encode()]
+    roots = [b"\x0a" + struct.pack("<H", len(name)) + name + b"\x00" for name in names]
+    assert [root.save_to() for root in nbt.iter_bedrock_roots(b"".join(roots))] == roots
+    with pytest.raises(nbt.NBTError, match="Trailing"):
+        nbt.load(b"".join(roots))
+    with pytest.raises(nbt.NBTError):
+        list(nbt.iter_bedrock_roots(roots[0] + roots[1][:-1]))
+    monkeypatch.setattr(nbt, "MAX_NODES", 1)
+    with pytest.raises(nbt.NBTError, match="complexity"):
+        list(nbt.iter_bedrock_roots(b"".join(roots)))
+
+
+@pytest.mark.parametrize("raw_name", [b"\xff", "␛xff".encode()])
+def test_field_selection_preserves_name_bytes_and_requested_order(raw_name):
+    field = b"\x01" + struct.pack("<H", len(raw_name)) + raw_name + b"\x07"
+    original = b"\x0a\x00\x00" + field + b"\x01\x01\x00z\x08\x00"
+    source = nbt.load(original).tag
+    key = nbt.utf8_escape_decoder(raw_name)
+    assert nbt.name_bytes(source, key) == raw_name
+    selected = nbt.select_compound_fields(source, iter(["z", key]))
+    assert selected.save_to() == b"\x0a\x00\x00\x01\x01\x00z\x08" + field + b"\x00"
+    del selected["z"]
+    assert selected.save_to() == b"\x0a\x00\x00" + field + b"\x00"
+    assert source.save_to() == original
+    assert nbt.name_bytes(source, "z") == b"z"
+    with pytest.raises(KeyError):
+        nbt.name_bytes(source, "missing")
+    with pytest.raises(KeyError):
+        nbt.select_compound_fields(source, ["missing"])
+
+
 @pytest.mark.parametrize("little_endian", [True, False])
 def test_all_tag_types_roundtrip(little_endian):
     root = nbt.CompoundTag(

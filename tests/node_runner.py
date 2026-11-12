@@ -18,6 +18,7 @@ def run_node(source: str, *, timeout: float = DEFAULT_TIMEOUT) -> subprocess.Com
         ["node", "-e", source],
         cwd=ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
         timeout=timeout,

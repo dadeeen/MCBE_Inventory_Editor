@@ -191,6 +191,38 @@ class CompoundTag(BaseTag, MutableMapping):
         return self.copy()
 
 
+def string_from_bytes(raw: bytes) -> StringTag:
+    """Construct a Bedrock string without interpreting escape-looking text."""
+    if not isinstance(raw, bytes):
+        raise TypeError("NBT string bytes must be bytes")
+    if len(raw) > 65535:
+        raise NBTError("NBT string exceeds 65535 bytes")
+    tag = StringTag(utf8_escape_decoder(raw))
+    tag._raw = raw
+    return tag
+
+
+def string_bytes(tag: StringTag) -> bytes:
+    """Return the exact bytes emitted with the Bedrock escape encoding."""
+    if not isinstance(tag, StringTag):
+        raise TypeError("Expected an NBT StringTag")
+    return tag._raw if tag._raw is not None else utf8_escape_encoder(tag.py_data)
+
+
+def name_bytes(compound: CompoundTag, key: str) -> bytes:
+    """Return a field's original name bytes, or its encoding for a new field."""
+    if key not in compound:
+        raise KeyError(key)
+    return compound._raw_names.get(key, utf8_escape_encoder(key))
+
+
+def select_compound_fields(compound: CompoundTag, keys) -> CompoundTag:
+    """Shallow-copy fields in the requested order, retaining their name bytes."""
+    result = CompoundTag({key: compound[key] for key in keys})
+    result._raw_names = {key: raw for key, raw in compound._raw_names.items() if key in result}
+    return result
+
+
 class ListTag(BaseTag, MutableSequence):
     tag_id = 9
 
@@ -486,3 +518,16 @@ def load(
     if reader.pos != len(reader.data):
         raise NBTError("Trailing bytes after NBT root")
     return result
+
+
+def iter_bedrock_roots(data: bytes | bytearray | memoryview):
+    """Read concatenated Bedrock roots under one shared byte/node budget."""
+    if not isinstance(data, bytes | bytearray | memoryview):
+        raise TypeError("NBT input must be bytes")
+    reader = _Reader(data, True, utf8_escape_decoder)
+    while reader.pos < len(reader.data):
+        tag_id = reader.number("B")
+        name, raw_name = reader.string()
+        result = NamedTag(reader.tag(tag_id), name)
+        result._raw_name = raw_name
+        yield result

@@ -179,9 +179,9 @@
     } = {}) {
         const statsFields = [
             [elements.dimensionId, "dimension_id"],
-            [elements.posX, "pos"],
-            [elements.posY, "pos"],
-            [elements.posZ, "pos"],
+            [elements.posX, "pos", 0],
+            [elements.posY, "pos", 1],
+            [elements.posZ, "pos", 2],
             [elements.health, "health"],
             [elements.xpLevel, "xp_level"],
             [elements.xpProgress, "xp_progress"],
@@ -198,14 +198,17 @@
         }
 
         function formSnapshot() {
-            return JSON.stringify(statsFields.map(([input, field]) => {
+            const position = abilityState?.positionFromFormValues?.(
+                abilityView.readStatsFormValues(formElements()), getPlayerStats?.()?.pos,
+            );
+            return JSON.stringify(statsFields.map(([input, field, axis]) => {
                 const raw = String(input?.value ?? "");
                 const value = Number(raw);
                 if (!raw.trim() || !Number.isFinite(value)) return raw;
-                // Match the existing position editor's precision without applying the draft.
-                return field === "pos" && abilityState?.formatPositionForDisplay
-                    ? abilityState.formatPositionForDisplay(value)
-                    : value;
+                // Use the same exact value as Apply, including an untouched
+                // rounded display, without rounding away a finer user draft.
+                const normalized = field === "pos" && position ? position[axis] : value;
+                return Object.is(normalized, -0) ? "-0" : normalized;
             }));
         }
 
@@ -582,10 +585,11 @@
 
         function collectAbilitiesFromUI(baseline = playerAbilities()) {
             if (invalidAbilityInputs()) return null;
+            const speeds = abilityView.readAbilitySpeedValues(doc);
             const collected = abilityState.collectAbilitiesFromValues(
                 baseline,
                 protectedNbt(),
-                abilityView.readAbilitySpeedValues(doc),
+                speeds,
             );
             if (collected === null) return null;
             // Reverts preserve exact values and absent defaults, including after
@@ -594,7 +598,12 @@
                 if (!original) continue;
                 for (const [key, fallback] of Object.entries(abilityState.ABILITY_SPEED_DEFAULTS)) {
                     if (!Object.prototype.hasOwnProperty.call(collected, key)
-                        || formatAbilitySpeed(collected[key], fallback) !== formatAbilitySpeed(original[key], fallback)) continue;
+                        || Number(speeds[key]) !== Number(formatAbilitySpeed(original[key], fallback))) continue;
+                    // A finer accepted edit may share the clean value's rounded
+                    // display after re-rendering. Keep that current value; the
+                    // display alone cannot establish an explicit undo.
+                    if (original !== baseline && baseline[key] !== original[key]
+                        && formatAbilitySpeed(baseline[key], fallback) === formatAbilitySpeed(original[key], fallback)) continue;
                     if (Object.prototype.hasOwnProperty.call(original, key)) collected[key] = original[key];
                     else delete collected[key];
                 }
@@ -858,10 +867,11 @@
                 if (isEditingBlocked()) return;
                 const defaults = abilityState.ABILITY_SPEED_DEFAULTS;
                 const inputs = Object.entries(ABILITY_SPEED_INPUT_IDS)
-                    .map(([fieldName, id]) => [doc.getElementById(id), defaults[fieldName]])
+                    .map(([fieldName, id]) => [doc.getElementById(id), defaults[fieldName], fieldName])
                     .filter(([input]) => input && !input.disabled);
                 if (!inputs.length) return;
-                if (inputs.every(([input, value]) => Number(input.value) === value)) {
+                if (inputs.every(([input, value, key]) => Number(input.value) === value
+                    && Number(playerAbilities()[key] ?? value) === value)) {
                     showToast?.(t("Die Geschwindigkeiten entsprechen bereits den Vanilla-Standardwerten."), "info", 2200);
                     return;
                 }
@@ -869,6 +879,15 @@
                 inputs.forEach(([input, value]) => { input.value = String(value); });
                 const collected = collectAbilitiesFromUI();
                 if (collected === null) return;
+                // Reset is an explicit value change, even when the old exact
+                // speed happens to round to the same displayed default.
+                const original = getCleanSnapshot()?.abilities;
+                inputs.forEach(([, value, key]) => {
+                    // Missing vanilla defaults remain absent after a reset,
+                    // including when a fine edit rounded to the same display.
+                    if (original && !Object.hasOwn(original, key)) delete collected[key];
+                    else if (Object.hasOwn(collected, key)) collected[key] = value;
+                });
                 if (JSON.stringify(collected) === JSON.stringify(playerAbilities())) return;
                 pushUndo?.(actionMessage);
                 setPlayerAbilities?.(collected);

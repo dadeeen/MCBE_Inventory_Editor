@@ -110,7 +110,7 @@ class VillagerPreferences:
             if not isinstance(data, dict) or data.get("version") != 1:
                 raise ValueError()
             return _public(normalize_preferences(data.get("aliases"), data.get("regions")))
-        except (ValueError, TypeError, UnicodeError) as exc:
+        except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
             raise ValueError(t("Die gespeicherten Dorfbewohner-Einstellungen sind beschädigt und wurden nicht überschrieben.")) from exc
 
     def read(self, world_path: str) -> dict[str, Any]:

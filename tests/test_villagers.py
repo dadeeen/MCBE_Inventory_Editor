@@ -109,6 +109,34 @@ def test_detail_preserves_source_and_exposes_trades_equipment_and_safe_typed_nbt
     assert db.records == original
 
 
+@pytest.mark.parametrize("name", [None, "", "air", "minecraft:air"])
+def test_trade_details_do_not_display_an_empty_secondary_cost(name):
+    db, key = populated_db()
+    tag = nbt.load(db.records[key], **LOAD_KWARGS).tag
+    empty = nbt.CompoundTag()
+    if name is not None:
+        empty.update({"Name": nbt.StringTag(name), "Count": nbt.ByteTag(0), "Damage": nbt.ShortTag(0)})
+    tag["Offers"]["Recipes"][0]["buyB"] = empty
+    db.records[key] = tag.save_to(**SAVE_KWARGS)
+    original = dict(db.records)
+    row = scan_villagers(db)["villagers"][0]
+    detail = load_villager_detail(db, row["id"], row["revision"])
+    assert detail["trades"]["offers"][0]["buy_b"] is None
+    assert detail["trades"]["offers"][0]["buy_a"]["count"] == 12
+    assert db.records == original
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_trade_details_keep_named_secondary_costs_visible_even_when_malformed(count):
+    db, key = populated_db()
+    tag = nbt.load(db.records[key], **LOAD_KWARGS).tag
+    tag["Offers"]["Recipes"][0]["buyB"] = nbt.CompoundTag({"Name": nbt.StringTag("minecraft:book"), "Count": nbt.ByteTag(count)})
+    db.records[key] = tag.save_to(**SAVE_KWARGS)
+    row = scan_villagers(db)["villagers"][0]
+    detail = load_villager_detail(db, row["id"], row["revision"])
+    assert detail["trades"]["offers"][0]["buy_b"] == {"name": "minecraft:book", "count": count, "damage": None}
+
+
 def test_health_plan_changes_only_explicit_health_float_fields_and_preserves_all_other_bytes():
     db, key = populated_db()
     original = dict(db.records)

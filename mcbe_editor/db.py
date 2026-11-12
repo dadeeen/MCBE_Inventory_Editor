@@ -1,6 +1,8 @@
 import logging
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Protocol
 
 from .leveldb_readonly import ReadonlyLevelDbAdapter
@@ -69,6 +71,7 @@ class LevelDbAdapter:
 
     def __init__(self, db_path: str, *, write_guard: Callable[[str], None] | None = None):
         self._write_guard = write_guard
+        self._write_precondition: ContextVar[Callable[[], None] | None] = ContextVar("db_write_precondition", default=None)
         self._check_write_allowed("LevelDB-Öffnen")
         self._db_path = str(db_path)
         try:
@@ -81,6 +84,20 @@ class LevelDbAdapter:
         if self._write_guard is not None:
             self._write_guard(action_label)
 
+    @contextmanager
+    def write_precondition(self, check: Callable[[], None]) -> Iterator[None]:
+        """Bind one operation's condition after the adapter's own final gate."""
+        token = self._write_precondition.set(check)
+        try:
+            yield
+        finally:
+            self._write_precondition.reset(token)
+
+    def _check_write_precondition(self) -> None:
+        check = self._write_precondition.get()
+        if check is not None:
+            check()
+
     def get(self, key: bytes) -> bytes:
         try:
             return self._db.get(key)
@@ -90,6 +107,7 @@ class LevelDbAdapter:
 
     def put(self, key: bytes, value: bytes) -> None:
         self._check_write_allowed("LevelDB-Schreiben")
+        self._check_write_precondition()
         try:
             self._db.put(key, value)
         except Exception as exc:
@@ -98,6 +116,7 @@ class LevelDbAdapter:
 
     def put_batch(self, data: dict[bytes, bytes | None]) -> None:
         self._check_write_allowed("LevelDB-Batch-Schreiben")
+        self._check_write_precondition()
         try:
             self._db.put_batch(data)
         except Exception as exc:

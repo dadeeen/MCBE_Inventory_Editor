@@ -743,6 +743,26 @@ def test_build_horse_actor_nbt_preserves_high_byte_storage_key_suffix() -> None:
     assert nbt.NamedTag(tag).save_to(**SAVE_KWARGS) == raw
 
 
+def test_mount_creation_and_validation_preserve_literal_escape_bytes_in_storage_key() -> None:
+    suffix = b"\x01\xe2\x90\x9bx41x"
+    group = int.from_bytes(suffix[:4], "big")
+    local_id = int.from_bytes(suffix[4:], "big")
+    db = FakeDb({_actor_key(group, local_id - 1): b"existing actor"})
+
+    record = build_horse_mount_record(db, {"x": 0.5, "y": 64.0, "z": 0.5}, create_mode="synthetic_full")
+    assert actor_key_suffix(record.actor_key) == suffix
+    tag = nbt.load(record.actor_value, **LOAD_KWARGS).tag
+    storage_key = tag["internalComponents"]["EntityStorageKeyComponent"]["StorageKey"]
+    assert storage_key.save_to(**SAVE_KWARGS) == b"\x08\x00\x00" + struct.pack("<H", len(suffix)) + suffix
+
+    db.put(record.actor_key, record.actor_value)
+    db.put(record.digp_key, record.digp_value)
+    validation = validate_horse_mount_write(db, record)
+    assert validation["ok"] is True
+    assert validation["checks"]["storage_key_matches_actor_suffix"] is True
+    assert validation["details"]["storage_key_hex"] == suffix.hex()
+
+
 def test_build_horse_actor_nbt_definitions_follow_profile_color_and_markings() -> None:
     actor = _actor_key(2, 9)
     suffix = actor_key_suffix(actor)

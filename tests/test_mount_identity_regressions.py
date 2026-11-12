@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from mcbe_editor import mount_placement, mount_write, mounts, nbt
+from mcbe_editor import entities, mount_placement, mount_write, mounts, nbt
 from mcbe_editor.bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
 from tests.test_mount_write import FakeDb, _actor_key
 
@@ -107,6 +107,55 @@ def test_idle_template_preserves_unknown_data():
     record = mount_write.build_horse_mount_record(FakeDb({key: raw}), {"x": 4.5, "y": 64, "z": 0.5}, create_mode="template_clone")
     assert nbt.load(record.actor_value, **LOAD_KWARGS).tag["FutureCosmetic"] == future
     assert mount_write.validate_horse_mount_write(_saved_db(record), record)["ok"]
+
+
+@pytest.mark.parametrize("alias", ["Identifier", "id", "Id", "EntityIdentifier"])
+@pytest.mark.parametrize("identifier", ["minecraft:donkey", "minecraft:mule"])
+def test_template_clone_updates_existing_identifier_aliases(alias, identifier):
+    key, raw = _template()
+    tag = nbt.load(raw, **LOAD_KWARGS).tag
+    del tag["identifier"]
+    tag[alias] = nbt.StringTag(identifier)
+    tag["FutureCosmetic"] = nbt.CompoundTag({"unknown": nbt.IntTag(7)})
+    raw = tag.save_to(**SAVE_KWARGS)
+    db = FakeDb({key: raw})
+
+    record = mount_write.build_horse_mount_record(db, {"x": 4.5, "y": 64, "z": 0.5}, create_mode="template_clone")
+
+    clone = nbt.load(record.actor_value, **LOAD_KWARGS).tag
+    assert clone[alias].py_data == "minecraft:horse"
+    assert clone["FutureCosmetic"].save_to() == tag["FutureCosmetic"].save_to()
+    saved = _saved_db(record)
+    assert mount_write.validate_horse_mount_write(saved, record)["ok"]
+    scanned = next(iter(entities.scan_entities(saved).records.values()))
+    assert scanned.identifier == "minecraft:horse"
+    assert not scanned.issues
+    assert db.get(key) == raw
+
+
+@pytest.mark.parametrize("alias_value", [nbt.StringTag("minecraft:donkey"), nbt.IntTag(23), nbt.CompoundTag({"future": nbt.IntTag(1)})])
+def test_conflicting_or_opaque_template_identifiers_use_fallback_or_reject_clone(alias_value):
+    key, raw = _template(Identifier=alias_value)
+    db = FakeDb({key: raw})
+    position = {"x": 4.5, "y": 64, "z": 0.5}
+
+    assert mount_write.build_horse_mount_record(db, position).create_mode == "synthetic_full"
+    with pytest.raises(ValueError):
+        mount_write.build_horse_mount_record(db, position, create_mode="template_clone")
+    with pytest.raises(ValueError):
+        mount_write.build_horse_actor_nbt_from_template(raw, position, -999)
+
+
+@pytest.mark.parametrize("alias_value", [nbt.StringTag("minecraft:donkey"), nbt.IntTag(23)])
+def test_validator_rejects_conflicting_or_opaque_identifier_aliases(alias_value):
+    record = mount_write.build_horse_mount_record(FakeDb({}), {"x": 0.5, "y": 64, "z": 0.5}, create_mode="synthetic_full")
+    tag = nbt.load(record.actor_value, **LOAD_KWARGS).tag
+    tag["Identifier"] = alias_value
+    record = replace(record, actor_value=tag.save_to(**SAVE_KWARGS))
+
+    validation = mount_write.validate_horse_mount_write(_saved_db(record), record)
+    assert not validation["checks"]["identifier_matches_mount_type"]
+    assert not validation["ok"]
 
 
 @pytest.mark.parametrize(

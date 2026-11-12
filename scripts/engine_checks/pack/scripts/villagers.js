@@ -1,4 +1,4 @@
-import { ItemStack, world } from "@minecraft/server";
+import { EnchantmentTypes, ItemStack, world } from "@minecraft/server";
 
 function snapshot(entity) {
     const health = entity.getComponent("minecraft:health");
@@ -16,6 +16,15 @@ function snapshot(entity) {
 export function* villagerRoundtrip(config, emit) {
     const dimension = world.getDimension("overworld");
     if (config.phase === "seed") {
+        if (config.villager_trade_profile) {
+            const types = EnchantmentTypes.getAll(), enchantability = {};
+            for (const id of config.trade_enchantment_items) {
+                const component = new ItemStack(id, 1).getComponent("minecraft:enchantable");
+                if (!component) throw new Error("Missing native trade enchantability: " + id);
+                enchantability[id] = types.filter(type => component.canAddEnchantment({type, level: 1})).map(type => type.id).sort();
+            }
+            emit("matrix_registry", {enchantments: Object.fromEntries(types.map(type => [type.id, type.maxLevel])), enchantability});
+        }
         dimension.runCommand("gamerule mobgriefing false");
         dimension.runCommand("gamerule domobspawning false");
         dimension.runCommand("gamerule dodaylightcycle false");
@@ -31,7 +40,12 @@ export function* villagerRoundtrip(config, emit) {
                 }
             }
             const location = {x: x + 2.5, y: 81, z: z + 2.5};
-            dimension.spawnEntity("minecraft:villager", location);
+            if (config.villager_trade_profile) {
+                // The summonable villager identifier resolves to the modern
+                // actor in this world. villager_v2 is not summonable directly.
+                const profession = test.seed.profession === "shepherd" ? "sheperd" : test.seed.profession;
+                dimension.runCommand(`summon minecraft:villager ${location.x} ${location.y} ${location.z} 0 0 minecraft:become_${profession}`);
+            } else dimension.spawnEntity("minecraft:villager", location);
             yield {wait: 5};
             // Native conversion can discard tags. Only during seeding, locate
             // the sole villager in this isolated cell and tag the final actor.

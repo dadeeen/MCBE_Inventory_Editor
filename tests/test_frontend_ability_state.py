@@ -433,6 +433,34 @@ def test_frontend_ability_state_speed_change_keeps_the_other_exact_speeds() -> N
     )
 
 
+def test_fine_position_and_speed_edits_are_not_mistaken_for_rounded_originals() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/ability_state.js", "utf8"), context);
+        const state = context.window.MCBEAbilityState;
+        const original = [1.234, 64.001, -0.004];
+        const unchanged = { posX: "1.23", posY: "64", posZ: "-0.00" };
+        assert.deepEqual(Array.from(state.positionFromFormValues(unchanged, original)), original);
+        const edited = state.applyStatsUpdate({
+            stats: { pos: original, dimension_id: 0 },
+            values: { ...unchanged, posX: "1.231", posZ: "-0.003" }, touchedFields: ["pos"],
+        });
+        assert.equal(edited.changed, true);
+        assert.deepEqual(Array.from(edited.nextStats.pos), [1.231, 64.001, -0.003]);
+        const abilities = { movement_speed: 0.1, walk_speed: 0.10000000149, fly_speed: 0.05, vertical_fly_speed: 1 };
+        const speeds = state.collectAbilitiesFromValues(abilities, {}, {
+            movement_speed: "0.10001", walk_speed: "0.1", fly_speed: "0.05001", vertical_fly_speed: "1",
+        });
+        assert.equal(speeds.movement_speed, 0.10001);
+        assert.equal(speeds.walk_speed, abilities.walk_speed);
+        assert.equal(speeds.fly_speed, 0.05001);
+        assert.deepEqual(original, [1.234, 64.001, -0.004]);
+    """)
+
+
 def test_frontend_ability_state_omits_locked_speeds_and_legacy_flags() -> None:
     run_node(
         textwrap.dedent(

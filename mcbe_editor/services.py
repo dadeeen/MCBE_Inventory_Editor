@@ -564,6 +564,7 @@ class BedrockEditorService:
         extra_batch_builder: ExtraBatchBuilder | None = None,
         extra_batch_validator: ExtraBatchValidator | None = None,
         extra_batch_reopen_validator: ExtraBatchValidator | None = None,
+        write_precondition: WriteCheck | None = None,
     ) -> SaveResult:
         with self._locked_world(world_path):
             ensure_valid_world_path(world_path)
@@ -756,9 +757,9 @@ class BedrockEditorService:
                     if extra_batch_builder:
                         if not extra_writes:
                             raise ValueError("Speichern abgelehnt: Der gemeinsame Schreibplan ist leer.")
-                        write_state.execute(db, WritePlan(extra_writes))
+                        write_state.execute(db, WritePlan(extra_writes, precondition=write_precondition))
                     else:
-                        write_state.execute(db, WritePlan.single(player_key, serialized_bytes))
+                        write_state.execute(db, WritePlan.single(player_key, serialized_bytes, precondition=write_precondition))
                 except PermissionError as exc:
                     raise ValueError(
                         t(

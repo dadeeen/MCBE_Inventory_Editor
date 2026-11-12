@@ -39,6 +39,11 @@ def scalar_integer(tag: Any) -> int | None:
 
 
 def entity_identifier(tag: nbt.CompoundTag) -> str | None:
+    # A readable alias cannot overrule another saved alias with an unknown
+    # representation. Keep such actors visible, but never infer a write-safe
+    # identity by silently dropping the conflicting evidence.
+    if any(key in tag and not isinstance(tag[key], nbt.StringTag) for key in _IDENTIFIER_FIELDS):
+        return None
     values = {str(tag[key].py_data) for key in _IDENTIFIER_FIELDS if isinstance(tag.get(key), nbt.StringTag)}
     return next(iter(values)) if len(values) == 1 else None
 
@@ -120,16 +125,8 @@ class EntityScan:
 
 
 def _legacy_roots(value: bytes):
-    # The project codec deliberately rejects trailing bytes in load(). Its
-    # bounded reader also supports this old concatenated-root representation;
-    # sharing it avoids a second, less strict binary parser.
-    reader = nbt._Reader(value, True, nbt.utf8_escape_decoder)
-    while reader.pos < len(reader.data):
+    for root in nbt.iter_bedrock_roots(value):
         checkpoint()
-        tag_id = reader.number("B")
-        name, raw_name = reader.string()
-        root = nbt.NamedTag(reader.tag(tag_id), name)
-        root._raw_name = raw_name
         if not isinstance(root.tag, nbt.CompoundTag):
             raise nbt.NBTError("Entity root must be a compound")
         yield root
@@ -147,10 +144,7 @@ def _storage_key_issue(tag: nbt.CompoundTag, suffix: bytes) -> dict[str, Any] | 
     storage_key = component.get("StorageKey") if isinstance(component, nbt.CompoundTag) else None
     if not isinstance(storage_key, nbt.StringTag):
         return issue("invalid_storage_key", "Der gespeicherte Actor-Speicherschlüssel ist nicht eindeutig lesbar.")
-    raw = storage_key._raw
-    if raw is None:
-        raw = nbt.utf8_escape_encoder(storage_key.py_data)
-    if raw != suffix:
+    if nbt.string_bytes(storage_key) != suffix:
         return issue("storage_key_mismatch", "Actor-Datensatz und gespeicherter Speicherschlüssel passen nicht zusammen.")
     return None
 

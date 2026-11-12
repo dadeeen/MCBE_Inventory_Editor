@@ -32,7 +32,7 @@
         const parsed = parseFloat(inputValue);
         const value = Number.isFinite(parsed) ? parsed : fallback;
         const exact = Number(currentValue);
-        if (Number.isFinite(exact) && formatAbilitySpeed(exact, fallback) === formatAbilitySpeed(value, fallback)) {
+        if (Number.isFinite(exact) && value === Number(formatAbilitySpeed(exact, fallback))) {
             return exact;
         }
         return value;
@@ -116,7 +116,9 @@
         // die Position mit und würde den Spieler sonst um bis zu 5 mm versetzen.
         return position.map((value, index) => {
             const exact = strictFiniteNumber(currentPosition[index]);
-            return exact !== null && formatPositionForDisplay(exact) === formatPositionForDisplay(value) ? exact : value;
+            // Only the unchanged displayed value represents the original.
+            // Rounding the new input too would discard intentional fine edits.
+            return exact !== null && Object.is(value, Number(formatPositionForDisplay(exact))) ? exact : value;
         });
     }
 

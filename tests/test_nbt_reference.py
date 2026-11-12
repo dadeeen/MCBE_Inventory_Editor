@@ -14,6 +14,15 @@ from mcbe_editor import nbt
 reference = pytest.importorskip("amulet_nbt", reason="Independent NBT oracle runs on Python 3.12")
 
 
+def test_reference_bridge_rejects_project_only_raw_string_distinctions():
+    from tests import nbt_reference_adapter as bridge
+
+    for raw in (b"ordinary", b"invalid\xff", b"\x00\x80\xff"):
+        assert bridge.string_bytes(bridge.string_from_bytes(raw)) == raw
+    with pytest.raises(ValueError, match="shared Amulet reference contract"):
+        bridge.string_from_bytes("␛xff".encode())
+
+
 def _random_tag(rng, depth=0):
     ids = list(range(1, 13)) if depth < 4 else [1, 2, 3, 4, 5, 6, 7, 8, 11, 12]
     tag_id = rng.choice(ids)
@@ -52,7 +61,8 @@ def test_every_empty_list_type_matches_reference():
         assert nbt.load(raw).tag.list_data_type == tag_id
 
 
-def test_bundle_stack_keys_match_reference_and_preserve_hidden_typed_distinctions(monkeypatch):
+def test_bundle_stack_keys_match_reference_and_preserve_hidden_typed_distinctions():
+    import hashlib
     from copy import deepcopy
 
     from mcbe_editor import item_containers
@@ -77,15 +87,16 @@ def test_bundle_stack_keys_match_reference_and_preserve_hidden_typed_distinction
     wider_count["Count"] = nbt.ShortTag(1)
     originals = [base, moved, typed, changed, wider_count]
     encoded = [nbt.NamedTag(item).save_to(**SAVE_KWARGS) for item in originals]
-    keys = []
-    for codec in (nbt, reference):
-        monkeypatch.setattr(item_containers, "nbt", codec)
-        loaded = [codec.load(raw, **LOAD_KWARGS).tag for raw in encoded]
-        keys.append([item_containers._stack_key(item) for item in loaded])
-        assert [codec.NamedTag(item).save_to(**SAVE_KWARGS) for item in loaded] == encoded
+    keys = [item_containers._stack_key(item) for item in originals]
+    expected = []
+    for raw in encoded:
+        item = reference.load(raw, **LOAD_KWARGS).tag
+        assert reference.NamedTag(item).save_to(**SAVE_KWARGS) == raw
+        comparable = reference.CompoundTag({key: item[key] for key in sorted(item) if key not in {"Slot", "Count"}})
+        expected.append(hashlib.sha256(type(item["Count"]).__name__.encode("ascii") + comparable.save_to(**SAVE_KWARGS)).hexdigest())
+    assert keys == expected
     assert keys[0] == keys[1]
-    assert keys[0][0] == keys[0][1]
-    assert len(set(keys[0])) == 4
+    assert len(set(keys)) == 4
 
 
 def test_reviewed_entity_records_match_reference():

@@ -98,6 +98,16 @@
             const next = String(current ?? "");
             if (node.value !== next) node.value = next;
         }
+        function filterOptions(id, values, current) {
+            if (current && !values.some(([value]) => value === current)) {
+                // A refreshed scan can remove every match for an active
+                // filter. Keep its selected label until the user clears it.
+                const previous = JSON.parse(optionKeys.get(id) || "[]").find(([value]) => value === current);
+                values = [...values, [current, previous?.[1] || current]];
+            }
+            options(id, values, current);
+            return values;
+        }
         function notice(id, message, kind = "") {
             const node = el(id);
             if (!node) return;
@@ -136,11 +146,11 @@
             return data;
         }
         function renderFilters(state, info) {
-            options("villagerProfession", [["", t("Alle Berufe")], ...info.professions], state.filters.profession);
-            options("villagerTier", [["", t("Alle Handelsstufen")], ...info.tiers], state.filters.tier);
-            options("villagerDimension", [["", t("Alle Dimensionen")], ...info.dimensions], state.filters.dimension);
-            options("villagerRegion", [["", t("Alle Regionen")], ["none", t("Ohne Region")], ...state.preferences.regions.map(region => [region.id, region.name])], state.filters.region);
-            options("villagerMapDimension", info.knownDimensions.map(d => [String(d), model.dimensionLabel(d)]), state.mapDimension);
+            const professions = filterOptions("villagerProfession", [["", t("Alle Berufe")], ...info.professions], state.filters.profession);
+            const tiers = filterOptions("villagerTier", [["", t("Alle Handelsstufen")], ...info.tiers], state.filters.tier);
+            const dimensions = filterOptions("villagerDimension", [["", t("Alle Dimensionen")], ...info.dimensions], state.filters.dimension);
+            const regions = filterOptions("villagerRegion", [["", t("Alle Regionen")], ["none", t("Ohne Region")], ...state.preferences.regions.map(region => [region.id, region.name])], state.filters.region);
+            filterOptions("villagerMapDimension", info.knownDimensions.map(d => [String(d), model.dimensionLabel(d)]), state.mapDimension);
             const regionDimension = el("villagerRegionDimension")?.value || "0";
             // Deleting another region must not remove the selected dimension
             // from a still-open draft when it was the last saved reference.
@@ -165,10 +175,10 @@
             const chips = [];
             const selectedLabel = (values, value) => values.find(entry => entry[0] === value)?.[1] || value;
             if (state.filters.query.trim()) chips.push(["query", t("Suche: {query}", { query: state.filters.query.trim() })]);
-            if (state.filters.profession) chips.push(["profession", selectedLabel(info.professions, state.filters.profession)]);
-            if (state.filters.region) chips.push(["region", state.filters.region === "none" ? t("Ohne Region") : state.preferences.regions.find(r => r.id === state.filters.region)?.name || state.filters.region]);
-            if (state.filters.tier) chips.push(["tier", selectedLabel(info.tiers, state.filters.tier)]);
-            if (state.filters.dimension) chips.push(["dimension", selectedLabel(info.dimensions, state.filters.dimension)]);
+            if (state.filters.profession) chips.push(["profession", selectedLabel(professions, state.filters.profession)]);
+            if (state.filters.region) chips.push(["region", selectedLabel(regions, state.filters.region)]);
+            if (state.filters.tier) chips.push(["tier", selectedLabel(tiers, state.filters.tier)]);
+            if (state.filters.dimension) chips.push(["dimension", selectedLabel(dimensions, state.filters.dimension)]);
             if (state.filters.injured) chips.push(["injured", t("Nur Verletzte")]);
             if (state.filters.editable) chips.push(["editable", t("Nur bearbeitbare")]);
             html("villagerActiveFilters", chips.map(([key, label]) => `<button type="button" class="villager-filter-chip" data-action="remove-filter" data-filter="${key}" aria-label="${esc(t("Filter entfernen: {filter}", { filter: label }))}">${esc(label)}<span aria-hidden="true">×</span></button>`).join(""));
@@ -191,7 +201,7 @@
                     const alias = state.preferences.aliases[model.aliasKey(row)];
                     const regions = model.matchingRegions(row, state.preferences.regions).map(region => region.name).join(", ");
                     const profession = `${t(row.profession?.label || "Unbekannt")} · ${t(row.trade_tier_label || "—")}`;
-                    const notes = [!row.editable && !row.inventory_editable && !row.name_editable ? t("Nur lesen") : "", row.is_baby === true ? t("Kind") : ""].filter(Boolean).join(" · ");
+                    const notes = [!row.editable && !row.inventory_editable && !row.name_editable && !row.career_editable ? t("Nur lesen") : "", row.is_baby === true ? t("Kind") : ""].filter(Boolean).join(" · ");
                     return `<tr data-villager-id="${esc(row.id)}">
                         <td><label class="villager-row-check"><input type="checkbox" data-action="select" data-id="${esc(row.id)}" aria-label="${esc(t("{name} markieren", { name }))}"></label></td>
                         <td><button type="button" class="villager-name" data-action="detail" data-id="${esc(row.id)}" aria-controls="villagerDetail" aria-expanded="false">${esc(name)}</button>
@@ -232,7 +242,7 @@
             el("villagerSortDirection")?.setAttribute("aria-label", state.direction === "desc" ? t("Aufsteigend sortieren") : t("Absteigend sortieren"));
         }
         function renderMap(state, info) {
-            if (!state.mapOpen) return;
+            if (!state.mapOpen) { mapView?.deactivate(); return; }
             if (!el("villagerMap")) return;
             mapView ||= window.MCBEVillagerMap.createVillagerMap({ doc });
             mapView.render(state, info);
@@ -247,11 +257,18 @@
             text("villagerRegionError", state.regionError || "");
             show("villagerRegionError", !!state.regionError);
             if (!state.regionsOpen) return;
+            const bounds = ["MinX", "MaxX", "MinZ", "MaxZ"].map(field => el(`villagerRegion${field}`)?.value ?? "");
+            const dimension = el("villagerRegionDimension")?.value;
+            const hasBounds = bounds.every(value => value !== "" && Number.isFinite(Number(value)));
+            const height = ["MinY", "MaxY"].map(field => el(`villagerRegion${field}`)?.value ?? "");
+            const heightText = height.some(value => value !== "") ? ` · Y ${height.map(value => value !== "" && Number.isFinite(Number(value)) ? model.healthNumber(Number(value)) : "—").join(" … ")}` : "";
+            text("villagerRegionBounds", hasBounds ? `${model.dimensionLabel(Number(dimension))} · X ${model.healthNumber(Number(bounds[0]))} … ${model.healthNumber(Number(bounds[1]))} · Z ${model.healthNumber(Number(bounds[2]))} … ${model.healthNumber(Number(bounds[3]))}${heightText}` : "");
             if (!info.regionCounts) {
                 info.regionCounts = new Map(state.preferences.regions.map(region => [region.id, 0]));
                 for (const row of state.rows) for (const region of model.matchingRegions(row, state.preferences.regions)) info.regionCounts.set(region.id, info.regionCounts.get(region.id) + 1);
             }
-            html("villagerRegionList", state.preferences.regions.map(region => `<li><div><strong>${esc(region.name)}</strong><small>${esc(model.dimensionLabel(region.dimension))} · X ${esc(region.min_x)} … ${esc(region.max_x)} · Z ${esc(region.min_z)} … ${esc(region.max_z)}${region.min_y !== undefined ? ` · Y ${esc(region.min_y)} … ${esc(region.max_y)}` : ""} · ${esc(t("{count} Bewohner", { count: info.regionCounts.get(region.id) }))}</small></div><div class="villager-actions"><button type="button" class="btn-text" data-action="edit-region" data-id="${esc(region.id)}">${esc(t("Bearbeiten"))}</button><button type="button" class="btn-text" data-action="delete-region" data-id="${esc(region.id)}">${esc(t("Löschen"))}</button></div></li>`).join("") || `<li>${esc(t("Noch keine Regionen angelegt."))}</li>`);
+            html("villagerRegionList", state.preferences.regions.map(region => `<li><div><strong>${esc(region.name)}</strong><small>${esc(model.dimensionLabel(region.dimension))} · X ${esc(region.min_x)} … ${esc(region.max_x)} · Z ${esc(region.min_z)} … ${esc(region.max_z)}${region.min_y !== undefined ? ` · Y ${esc(region.min_y)} … ${esc(region.max_y)}` : ""} · ${esc(t("{count} Bewohner", { count: info.regionCounts.get(region.id) }))}</small></div><div class="villager-actions"><button type="button" class="btn-text" data-action="edit-region" data-id="${esc(region.id)}">${esc(t("Bearbeiten"))}</button><button type="button" class="btn-text" data-action="delete-region" data-id="${esc(region.id)}">${esc(t("Löschen"))}</button></div></li>`).join(""));
+            show("villagerRegionList", state.preferences.regions.length > 0);
             for (const node of el("villagerRegionList")?.querySelectorAll("button") || []) node.disabled = state.preferencesBusy || state.busy || state.scanning || state.readOnly;
         }
         function renderDiagnostics() {
@@ -294,6 +311,41 @@
             for (const button of list?.querySelectorAll("button") || []) button.disabled = state.busy || state.scanning || state.saving;
         }
         el("villagerDiagnostics")?.addEventListener("toggle", renderDiagnostics);
+        function renderCareer(state, blocked) {
+            const career = state.detail?.career;
+            const profession = el("villagerCareerProfession")?.value ?? career?.profession;
+            const changedProfession = !!career && profession !== career.profession;
+            const tierEditable = model.careerTierEditable(career, profession);
+            if (career) {
+                const noTrades = ["unemployed", "nitwit"].includes(profession);
+                // Keep numeric options while disabled, so resetting a former
+                // worker can restore its saved tier before the next render.
+                const tiers = (career.tiers || []).map(option => [option.value, noTrades && option.value === 0 ? t("Keine Handelsstufe") : t(option.label)]);
+                const current = el("villagerCareerTier")?.value ?? career.trade_tier ?? "";
+                if (!tiers.some(([value]) => String(value) === String(current))) {
+                    const savedTier = !changedProfession && String(current) === String(career.trade_tier ?? "");
+                    tiers.unshift([current, savedTier ? t(state.detail.trade_tier_label || "—") : "—"]);
+                }
+                options("villagerCareerTier", tiers, current);
+            }
+            disable("villagerCareerProfession", blocked || !career?.profession_editable);
+            disable("villagerCareerTier", blocked || !tierEditable);
+            disable("villagerCareerPreview", blocked || !state.careerDirty);
+            disable("villagerCareerReset", state.saving || state.scanning);
+            for (const id of ["villagerCareerDirty", "villagerCareerDraftMark", "villagerCareerReset"]) show(id, state.careerDirty);
+            const reasons = [...new Set([
+                !career?.profession_editable ? career?.profession_reason || career?.reason : "",
+                !tierEditable && !changedProfession ? career?.tier_reason || career?.reason : "",
+            ].filter(Boolean))];
+            const reason = reasons.join(" ") || (!career ? t("Beruf und Handelsstufe können für diesen Datensatz nicht sicher geändert werden.") : "");
+            text("villagerCareerReason", reason); show("villagerCareerReason", !!reason);
+            const impact = changedProfession ? t("Die bisherigen Handelsangebote werden zurückgesetzt.")
+                : state.careerDirty ? t("Die vorhandenen Handelsangebote bleiben erhalten.") : "";
+            text("villagerCareerImpact", impact); show("villagerCareerImpact", !!impact);
+            const jobSite = ["unemployed", "nitwit"].includes(profession) ? "" : career?.professions?.find(option => option.id === profession)?.job_site;
+            text("villagerCareerJobSite", jobSite ? t("Passender Arbeitsplatz: {block}", { block: t(jobSite) }) : "");
+            show("villagerCareerJobSite", !!jobSite);
+        }
         function render(state) {
             show("villagerPending", !!state.pending?.length);
             html("villagerPendingRows", (state.pending || []).map((entry, index) => `<div class="villager-pending-row"><span>${esc(t("{count} Änderungen vorgemerkt", { count: entry.rows.length }))}: ${esc(entry.rows.map(row => row.label || row.name || row.id).join(", "))}</span><button type="button" class="btn btn-secondary btn-sm" data-remove-pending="${index}">${esc(t("Vormerkung entfernen"))}</button></div>`).join(""));
@@ -340,6 +392,7 @@
             disable("villagerNameRemove", nameBlocked || !el("villagerName")?.value);
             disable("villagerNameReset", nameBlocked);
             for (const id of ["villagerNameDirty", "villagerNameReset"]) show(id, state.nameDirty);
+            renderCareer(state, healthBlocked || state.preferencesBusy);
             const inventoryBlocked = state.readOnly || !!state.blockedReason || !!state.staleReason || state.busy || state.scanning || state.preferencesBusy || !state.detail?.inventory?.editable;
             disable("villagerInventoryFields", inventoryBlocked);
             disable("villagerInventoryPreview", inventoryBlocked || !state.inventoryDirty);
@@ -355,7 +408,7 @@
             disable("villagerDetailReset", state.saving || state.scanning);
             disable("villagerBatchReset", state.saving || state.scanning);
             for (const id of ["villagerInventoryDirty", "villagerInventoryDraftMark", "villagerInventoryReset"]) show(id, state.inventoryDirty);
-            const draft = state.detailDirty || state.nameDirty || state.inventoryDirty || state.batchDirty || state.aliasDirty || state.regionDirty || state.preview?.change_count > 0;
+            const draft = state.detailDirty || state.nameDirty || state.careerDirty || state.inventoryDirty || state.batchDirty || state.aliasDirty || state.regionDirty || state.preview?.change_count > 0;
             show("villagerDraftStatus", draft);
             text("villagerDraftStatus", t("Ungespeicherte Eingaben"));
             el("villagerWorkspace")?.classList.toggle("has-detail", !!state.activeId);
@@ -428,7 +481,19 @@
                 </fieldset>
                 <div class="villager-detail-form-actions"><button type="submit" id="villagerDetailPreview" class="btn btn-primary btn-sm">${esc(t("Änderung prüfen"))}</button><button type="button" id="villagerDetailReset" class="btn-text" hidden>${esc(t("Verwerfen"))}</button></div>
                 </form>
-                <button type="button" id="villagerDetailHealAction" class="btn-text"${!row.editable || !model.isInjured(row) ? " disabled" : ""}>${esc(t("Heilen und prüfen"))}</button>
+                <button type="button" id="villagerDetailHealAction" class="btn-text"${!row.editable || !model.isInjured(row) ? " disabled" : ""}>${esc(t("Heilen und prüfen"))}</button>`;
+            const career = row.career || {}, professions = [...career.professions || []];
+            const tiers = (career.tiers || []).map(option => ({ ...option,
+                label: ["unemployed", "nitwit"].includes(career.profession) && option.value === 0 ? t("Keine Handelsstufe") : option.label }));
+            if (!professions.some(option => option.id === career.profession)) professions.unshift({ id: career.profession || "", label: row.profession?.label || t("Unbekannt") });
+            if (!tiers.some(option => option.value === career.trade_tier)) tiers.unshift({ value: career.trade_tier ?? "", label: row.trade_tier_label || "—" });
+            content += `<details id="villagerCareerDetails" class="villager-disclosure"><summary>${esc(t("Beruf und Handelsstufe"))}<span id="villagerCareerDraftMark" class="villager-draft-dot" hidden>•</span></summary>
+                <form id="villagerCareerForm"><fieldset class="villager-health-fields">
+                <legend class="visually-hidden">${esc(t("Beruf und Handelsstufe bearbeiten"))}</legend>
+                <label>${esc(t("Beruf"))}<select id="villagerCareerProfession" aria-describedby="villagerCareerReason villagerCareerImpact villagerCareerJobSite"${!career.profession_editable ? " disabled" : ""}>${professions.map(option => `<option value="${esc(option.id)}"${option.id === (career.profession || "") ? " selected" : ""}>${esc(t(option.label))}</option>`).join("")}</select></label>
+                <label>${esc(t("Handelsstufe"))}<select id="villagerCareerTier" aria-describedby="villagerCareerReason villagerCareerImpact"${!career.tier_editable ? " disabled" : ""}>${tiers.map(option => `<option value="${esc(option.value)}"${option.value === (career.trade_tier ?? "") ? " selected" : ""}>${esc(t(option.label))}</option>`).join("")}</select></label>
+                </fieldset><p id="villagerCareerReason" class="hint-text" hidden></p><p id="villagerCareerImpact" class="hint-text" role="status" aria-live="polite" hidden></p><p id="villagerCareerJobSite" class="hint-text" hidden></p>
+                <div class="villager-detail-form-actions"><button type="submit" id="villagerCareerPreview" class="btn btn-primary btn-sm" disabled>${esc(t("Änderung prüfen"))}</button><button type="button" id="villagerCareerReset" class="btn-text" hidden>${esc(t("Verwerfen"))}</button><span id="villagerCareerDirty" class="villager-draft-status" hidden>${esc(t("Ungespeichert"))}</span></div></form></details>
                 <details id="villagerAliasDetails" class="villager-disclosure"><summary><span id="villagerDetailAliasSummary">${esc(t("Weitere Einstellungen"))}</span><span id="villagerAliasDraftMark" class="villager-draft-dot" hidden>•</span></summary>
                 <p class="hint-text">${esc(t("Nur im Editor sichtbar. Der Minecraft-Name bleibt erhalten."))}</p>
                 ${aliasKey ? "" : `<p class="villager-field-note">${esc(t("Für diesen Dorfbewohner ist keine eindeutige, dauerhafte Kennung verfügbar. Ein Editor-Alias kann deshalb nicht sicher gespeichert werden."))}</p>`}
@@ -465,15 +530,26 @@
             text("villagerPreviewSummary", t("{changed} Änderungen · {unchanged} unverändert · {skipped} übersprungen", { changed: preview.change_count || 0, unchanged: preview.unchanged_count || 0, skipped: preview.skipped_count || 0 }));
             const labels = { changed: t("Wird geändert"), unchanged: t("Unverändert"), skipped: t("Übersprungen") };
             const rows = collection(state).byId;
+            const careerRows = (preview.rows || []).filter(row => row.kind === "career");
+            el("villagerPreviewDialog")?.classList.toggle("villager-preview-career", careerRows.length > 0 && careerRows.length === preview.rows.length);
+            html("villagerPreviewCareerNotes", careerRows.filter(row => row.warnings?.length).map(row => {
+                const name = rows.has(row.id) ? model.displayName(rows.get(row.id), state.preferences.aliases) : row.label || row.name || row.id;
+                return `<p>${careerRows.length > 1 ? `<strong>${esc(name)}:</strong> ` : ""}${row.warnings.map(esc).join(" ")}</p>`;
+            }).join(""));
+            show("villagerPreviewCareerNotes", careerRows.some(row => row.warnings?.length));
             html("villagerPreviewRows", (preview.rows || []).map(row => {
                 const inventory = row.kind === "inventory";
-                const before = row.kind === "name" ? esc(row.before?.name || t("Ohne Namen")) : inventory ? window.MCBEVillagerInventory.snapshotHtml(row.before, state.detail?.inventory) : esc(model.healthText(row.before));
-                const after = row.kind === "name" ? esc(row.after?.name || t("Ohne Namen")) : inventory ? window.MCBEVillagerInventory.snapshotHtml(row.after, state.detail?.inventory) : esc(model.healthText(row.after));
-                return `<tr><td>${esc(rows.has(row.id) ? model.displayName(rows.get(row.id), state.preferences.aliases) : row.label || row.name || row.id)}${row.kind === "name" ? `<small>${esc(t("Name in Minecraft"))}</small>` : inventory ? `<small>${esc(t("Vorräte"))}</small>` : ""}</td><td${inventory || row.kind === "name" ? "" : ' class="villager-health"'}>${before}</td><td${inventory || row.kind === "name" ? "" : ' class="villager-health"'}>${after}</td><td class="villager-outcome-${esc(row.status)}">${esc(labels[row.status] || row.status)}${row.reason ? `<small>${esc(row.reason)}</small>` : ""}</td></tr>`;
+                const career = row.kind === "career";
+                const describe = value => row.kind === "name" ? esc(value?.name || t("Ohne Namen"))
+                    : inventory ? window.MCBEVillagerInventory.snapshotHtml(value, state.detail?.inventory)
+                        : career ? esc(model.careerText(value)) + (Number.isInteger(value?.trade_experience) ? `<small>${esc(t("Handelserfahrung: {value}", { value: value.trade_experience }))}</small>` : "")
+                            : esc(model.healthText(value));
+                const section = row.kind === "name" ? t("Name in Minecraft") : inventory ? t("Vorräte") : career ? t("Beruf und Handelsstufe") : "";
+                return `<tr><td>${esc(rows.has(row.id) ? model.displayName(rows.get(row.id), state.preferences.aliases) : row.label || row.name || row.id)}${section ? `<small>${esc(section)}</small>` : ""}</td><td${inventory || career || row.kind === "name" ? "" : ' class="villager-health"'}>${describe(row.before)}</td><td${inventory || career || row.kind === "name" ? "" : ' class="villager-health"'}>${describe(row.after)}</td><td class="villager-outcome-${esc(row.status)}">${esc(labels[row.status] || row.status)}${row.reason ? `<small>${esc(row.reason)}</small>` : ""}</td></tr>`;
             }).join(""));
             notice("villagerPreviewNotice", state.previewNotice || "");
         }
-        return { render, renderDetail, renderPreview, notice, element: el, focusMapPlayer: () => mapView?.focusPlayer() };
+        return { render, renderDetail, renderPreview, notice, element: el, focusMapPlayer: () => mapView?.focusPlayer(), deactivateMap: () => mapView?.deactivate() };
     }
 
     window.MCBEVillagerView = { createVillagerView, nbtTree, itemText };

@@ -50,41 +50,50 @@
                         <label>{{ t("Kartendimension") }}<select id="villagerMapDimension"><option value="0">{{ t("Oberwelt") }}</option><option value="1">{{ t("Nether") }}</option><option value="2">{{ t("Ende") }}</option></select></label>
                         <label>{{ t("Spieler auf der Karte") }}<select id="villagerMapPlayers"><option value="selected">{{ t("Ausgewählter Spieler") }}</option><option value="all">{{ t("Alle Spieler") }}</option><option value="none">{{ t("Keine Spieler") }}</option></select></label>
                     </div>
-                    <details class="villager-map-help"><summary>{{ t("Kartenbedienung") }}</summary><p class="hint-text">{{ t("Die Karte zeigt die gefilterte Liste. Ein Punkt öffnet den zugehörigen Bewohner.") }}</p><p id="villagerMapHelp" class="hint-text">{{ t("Mausrad: zoomen · Ziehen: verschieben · Touch: mit zwei Fingern zoomen und verschieben. Tastatur: + / −, Pfeiltasten, Pos1.") }}</p></details>
+                    <details class="villager-map-help"><summary>{{ t("Kartenbedienung") }}</summary><p class="hint-text">{{ t("Die Karte zeigt die gefilterte Liste. Ein Punkt öffnet den zugehörigen Bewohner.") }}</p><p id="villagerMapHelp" class="hint-text">{{ t("Mausrad: zoomen · Ziehen: verschieben · Touch: mit zwei Fingern zoomen und verschieben. Tastatur: + / −, Pfeiltasten, Pos1.") }}</p><p class="hint-text">{{ t("Bereich auswählen: Rechteck ziehen oder zwei Ecken anklicken. Das ersetzt die bisherige Auswahl. Esc bricht ab. Einzelne Bewohner lassen sich auch in der Liste markieren.") }}</p></details>
                     <p class="hint-text">{{ t("Grün: Dorfbewohner · Orange: verletzt · Blaue Rauten: Spieler") }}</p>
-                    <p id="villagerMapPlayerHint" class="hint-text"></p>
-                    <p id="villagerMapPlayerStatus" class="hint-text" role="status" aria-live="polite" hidden></p>
-                    <button type="button" id="villagerMapPlayersRetry" class="btn-text" hidden>{{ t("Erneut laden") }}</button>
+                    <div class="villager-map-feedback">
+                        <p id="villagerMapPlayerHint" class="hint-text"></p>
+                        <p id="villagerMapPlayerStatus" class="hint-text" role="status" aria-live="polite" hidden></p>
+                        <button type="button" id="villagerMapPlayersRetry" class="btn-text" hidden>{{ t("Erneut laden") }}</button>
+                    </div>
                     <p id="villagerMapCaption" class="hint-text"></p>
                 </div>
                 <div class="villager-map-canvas">
                     <div class="villager-map-controls" role="group" aria-label="{{ t('Kartenausschnitt') }}">
                         <button type="button" id="villagerMapZoomIn" class="btn btn-secondary btn-sm" aria-label="{{ t('Vergrößern') }}">+</button>
                         <button type="button" id="villagerMapZoomOut" class="btn btn-secondary btn-sm" aria-label="{{ t('Verkleinern') }}">−</button>
+                        <button type="button" id="villagerMapSelectArea" class="btn btn-secondary btn-sm villager-map-select" aria-label="{{ t('Bereich auswählen') }}" title="{{ t('Bereich auswählen') }}" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="18" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3" /></svg></button>
                         <output id="villagerMapZoom" aria-label="{{ t('Kartenzoom') }}">100 %</output>
                         <div class="villager-map-jumps"><button type="button" id="villagerMapFocusPlayer" class="btn btn-secondary btn-sm" hidden>{{ t("Zum Spieler") }}</button><button type="button" id="villagerMapFit" class="btn btn-secondary btn-sm">{{ t("Alle anzeigen") }}</button></div>
                     </div>
                     <div id="villagerMap" class="villager-map" role="group" tabindex="0" aria-label="{{ t('Dorfbewohner auf der X/Z-Ebene') }}" aria-describedby="villagerMapHelp">
                         <div id="villagerMapMarkers" class="villager-map-markers"></div>
+                        <div id="villagerMapSelection" class="villager-map-selection" hidden></div>
+                        <div id="villagerMapPlayerTooltip" class="villager-map-player-tooltip" aria-hidden="true" hidden></div>
                         <p id="villagerMapEmpty" class="villager-map-empty" hidden>{{ t("Keine passenden Koordinaten in dieser Dimension.") }}</p>
                         <span class="villager-map-axis x" aria-hidden="true">X →</span><span class="villager-map-axis z" aria-hidden="true">Z ↓</span>
                         <span id="villagerMapScale" class="villager-map-scale"></span>
                     </div>
                     <p id="villagerMapCoordinates" class="hint-text villager-map-coordinates"></p>
-                    <p id="villagerMapPlayerInfo" class="hint-text villager-map-player-info" role="status" hidden></p>
                 </div>
             </div>
         </section>
         <section id="villagerRegionsPanel" class="villager-tool-panel" aria-labelledby="villagerRegionsToggle" hidden>
-            <p class="hint-text">{{ t("Regionen gelten nur im Editor.") }}</p>
             <ul id="villagerRegionList" class="villager-region-list"></ul>
             <form id="villagerRegionForm" class="villager-region-form">
                 <input id="villagerRegionId" type="hidden">
                 <label>{{ t("Regionsname") }}<input id="villagerRegionName" type="text" maxlength="80" required placeholder="{{ t('z. B. Hauptdorf') }}"></label>
-                <label>{{ t("Dimension") }}<select id="villagerRegionDimension"><option value="0">{{ t("Oberwelt") }}</option><option value="1">{{ t("Nether") }}</option><option value="2">{{ t("Ende") }}</option></select></label>
-                <label>{{ t("X von") }}<input id="villagerRegionMinX" type="number" step="any" required></label><label>{{ t("X bis") }}<input id="villagerRegionMaxX" type="number" step="any" required></label>
-                <label>{{ t("Z von") }}<input id="villagerRegionMinZ" type="number" step="any" required></label><label>{{ t("Z bis") }}<input id="villagerRegionMaxZ" type="number" step="any" required></label>
-                <label>{{ t("Y von (optional)") }}<input id="villagerRegionMinY" type="number" step="any"></label><label>{{ t("Y bis (optional)") }}<input id="villagerRegionMaxY" type="number" step="any"></label>
+                <details id="villagerRegionCoordinates" class="villager-region-coordinates">
+                    <summary>{{ t("Koordinaten anpassen") }}<span id="villagerRegionBounds" class="hint-text"></span></summary>
+                    <div class="villager-region-fields">
+                        <label>{{ t("Dimension") }}<select id="villagerRegionDimension"><option value="0">{{ t("Oberwelt") }}</option><option value="1">{{ t("Nether") }}</option><option value="2">{{ t("Ende") }}</option></select></label>
+                        <label>{{ t("X von") }}<input id="villagerRegionMinX" type="number" step="any" required></label><label>{{ t("X bis") }}<input id="villagerRegionMaxX" type="number" step="any" required></label>
+                        <label>{{ t("Z von") }}<input id="villagerRegionMinZ" type="number" step="any" required></label><label>{{ t("Z bis") }}<input id="villagerRegionMaxZ" type="number" step="any" required></label>
+                        <label>{{ t("Y von (optional)") }}<input id="villagerRegionMinY" type="number" step="any"></label><label>{{ t("Y bis (optional)") }}<input id="villagerRegionMaxY" type="number" step="any"></label>
+                    </div>
+                    <p class="hint-text">{{ t("Regionen gelten nur im Editor.") }}</p>
+                </details>
                 <div class="villager-actions"><span id="villagerRegionDirty" class="villager-draft-status" hidden>{{ t("Ungespeichert") }}</span><button type="submit" id="villagerRegionSave" class="btn btn-secondary btn-sm">{{ t("Region speichern") }}</button><button type="button" id="villagerRegionReset" class="btn-text">{{ t("Neue Region") }}</button><button type="button" id="villagerRegionUseSelection" class="btn-text" aria-describedby="villagerRegionError">{{ t("Bereich aus Auswahl") }}</button></div>
                 <p id="villagerRegionError" class="villager-region-error" role="alert" hidden></p>
             </form>
@@ -121,6 +130,7 @@
         <p id="villagerPreviewSummary" class="villager-preview-summary"></p>
         <div id="villagerPreviewNotice" class="villager-notice warning" role="alert" hidden></div>
         <div class="villager-preview-table-scroll" tabindex="0" role="region" aria-label="{{ t('Änderungsvorschau') }}"><table class="villager-table"><thead><tr><th scope="col">{{ t("Dorfbewohner") }}</th><th scope="col">{{ t("Vorher") }}</th><th scope="col">{{ t("Nachher") }}</th><th scope="col">{{ t("Ergebnis") }}</th></tr></thead><tbody id="villagerPreviewRows"></tbody></table></div>
+        <div id="villagerPreviewCareerNotes" class="hint-text" hidden></div>
         <p class="hint-text">{{ t("Gespeichert wird im Reiter „Speichern“, mit Weltbackup.") }}</p>
         <footer class="villager-actions"><button type="button" id="villagerPreviewCancel" class="btn btn-secondary">{{ t("Zurück zur Bearbeitung") }}</button><button type="button" id="villagerSave" class="btn btn-primary">{{ t("Änderungen vormerken") }}</button></footer>
     </dialog>

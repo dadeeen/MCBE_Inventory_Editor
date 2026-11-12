@@ -216,6 +216,15 @@ def _canonical_nbt(tag):
     return [type(tag).__name__, _core.save_player_nbt(_core.nbt.NamedTag(tag)).hex()]
 
 
+def _canonical_nbt_name(compound, key):
+    # An escaped invalid byte and literal escape-looking Unicode can have the
+    # same displayed name. Preserve the codec's original wire spelling when
+    # fingerprinting fields individually, as _canonical_nbt does for subtrees.
+    encoded = _core.nbt.utf8_escape_encoder(key)
+    raw = _core.nbt.name_bytes(compound, key)
+    return key if raw == encoded else ["raw-name", raw.hex()]
+
+
 def _canonical_preserved_enchantments(list_tag, seen_ids=None):
     entries = []
     seen_ids = seen_ids if seen_ids is not None else set()
@@ -242,7 +251,7 @@ def _canonical_preserved_enchantments(list_tag, seen_ids=None):
                 enchantment_id,
                 type(id_tag).__name__ if isinstance(id_tag, NUMERIC_TAG_TYPES) else "ShortTag",
                 type(level_tag).__name__ if isinstance(level_tag, NUMERIC_TAG_TYPES) else "ShortTag",
-                [[str(key), _canonical_nbt(enchantment[key])] for key in extra_keys],
+                [[_canonical_nbt_name(enchantment, key), _canonical_nbt(enchantment[key])] for key in extra_keys],
             ]
         )
     return [type(list_tag).__name__, entries, list_tag.list_data_type]
@@ -277,7 +286,7 @@ def _canonical_preserved_item_tag(tag_compound, item_name: str):
                 entries.append(
                     [
                         key_name,
-                        [type(value).__name__, [[str(entry), _canonical_nbt(value[entry])] for entry in preserved_keys]],
+                        [type(value).__name__, [[_canonical_nbt_name(value, entry), _canonical_nbt(value[entry])] for entry in preserved_keys]],
                     ]
                 )
             continue
@@ -287,7 +296,7 @@ def _canonical_preserved_item_tag(tag_compound, item_name: str):
             preserved = _canonical_preserved_enchantments(value, seen_enchantment_ids)
             entries.append([key_name, preserved])
             continue
-        entries.append([key_name, _canonical_nbt(value)])
+        entries.append([_canonical_nbt_name(tag_compound, key), _canonical_nbt(value)])
     return [type(tag_compound).__name__, entries]
 
 
@@ -318,7 +327,7 @@ def _canonical_preserved_item(item):
             if not _core._is_compound_tag(value) or preserved[1]:
                 entries.append([key_name, preserved])
             continue
-        entries.append([key_name, _canonical_nbt(value)])
+        entries.append([_canonical_nbt_name(item, key), _canonical_nbt(value)])
     return ["item-preserved-v1", entries]
 
 

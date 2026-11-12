@@ -38,9 +38,9 @@ VIEW_FIELDS = (
 
 def install_backend(backend: str) -> None:
     if backend == "amulet":
-        import amulet_nbt
+        from tests.nbt_reference_adapter import install
 
-        sys.modules["mcbe_editor.nbt"] = amulet_nbt
+        sys.modules["mcbe_editor.nbt"] = install()
     elif backend != "project":
         raise SystemExit(f"Unknown NBT backend: {backend}")
 

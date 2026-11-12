@@ -9,11 +9,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import nbt
-from .bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS
+from .bedrock_nbt import LOAD_KWARGS, SAVE_KWARGS, literal_string_tag
 from .entities import EntityRecord, EntityScan, entity_position, issue, scalar_integer, scan_entities
 from .i18n import t
 from .inventory import ITEM_ID_RE, nbt_view_value
 from .read_operation import checkpoint
+from .villager_career import career_state, career_summary, normalize_career_changes, patch_career
 from .villager_inventory import inventory_state, normalize_inventory_changes, patch_inventory
 
 VILLAGER_IDENTIFIERS = frozenset({"minecraft:villager_v2", "minecraft:villager"})
@@ -83,6 +84,8 @@ def _active_definitions(tag: nbt.CompoundTag) -> set[str]:
 
 def _profession(record: EntityRecord) -> dict[str, Any]:
     variant = scalar_integer(record.tag.get("Variant"))
+    if record.identifier == "minecraft:villager_v2" and "Variant" not in record.tag and "unskilled" in _active_definitions(record.tag):
+        variant = 0
     if record.identifier == "minecraft:villager_v2" and variant is not None and 0 <= variant < len(_PROFESSIONS):
         identity, label = _PROFESSIONS[variant]
         return {"id": identity, "label": t(label), "source": "Variant", "variant": variant}
@@ -220,7 +223,7 @@ def _trade_recipes(tag: nbt.CompoundTag) -> nbt.ListTag | None:
     return recipes if isinstance(recipes, nbt.ListTag) else None
 
 
-def _item_summary(item: Any) -> dict[str, Any] | None:
+def _item_summary(item: Any, *, empty_as_none: bool = False) -> dict[str, Any] | None:
     if not isinstance(item, nbt.CompoundTag):
         return None
     name_tag = item.get("Name")
@@ -229,6 +232,8 @@ def _item_summary(item: Any) -> dict[str, Any] | None:
     count = scalar_integer(count_tag)
     if count is not None and isinstance(count_tag, nbt.ByteTag):
         count &= 0xFF
+    if empty_as_none and (not item or (name in {"", "air", "minecraft:air"} and isinstance(count_tag, nbt.ByteTag) and count == 0)):
+        return None
     return {"name": name, "count": count, "damage": scalar_integer(item.get("Damage"))}
 
 
@@ -407,6 +412,10 @@ def _project(record: EntityRecord, assignments: dict[str, list[dict[str, Any]]],
     raw_tier = scalar_integer(tag.get("TradeTier"))
     tier = raw_tier if raw_tier is not None and 0 <= raw_tier < len(_TIERS) else None
     profession = _profession(record)
+    no_trade_tier = profession["id"] in {"unemployed", "nitwit"}
+    if no_trade_tier:
+        tier = None
+    career = _career_state(record)
     equipment = _equipment_state(tag, include_slots=False)
     recipes = _trade_recipes(tag)
     candidate_villages = assignments.get(record.unique_id, [])
@@ -438,8 +447,10 @@ def _project(record: EntityRecord, assignments: dict[str, list[dict[str, Any]]],
         "name_reason": _name_reason(record),
         "profession": profession,
         "trade_tier": tier,
-        "trade_tier_label": t(_TIERS[tier]) if tier is not None else t("Unbekannt"),
+        "trade_tier_label": t("Keine Handelsstufe") if no_trade_tier else t(_TIERS[tier]) if tier is not None else t("Unbekannt"),
         "trade_experience": scalar_integer(tag.get("TradeExperience")),
+        "career": career,
+        "career_editable": career["editable"],
         "health": health,
         "position": entity_position(tag),
         "dimension": record.dimension,
@@ -480,7 +491,7 @@ def scan_result(scan: EntityScan, rows: dict[str, dict[str, Any]]) -> dict[str, 
                 row["health"]["current"] is not None and row["health"]["max"] is not None and 0 < row["health"]["current"] < row["health"]["max"]
                 for row in villagers
             ),
-            "editable": sum(row["editable"] or row["inventory_editable"] for row in villagers),
+            "editable": sum(row["editable"] or row["inventory_editable"] or row["name_editable"] or row["career_editable"] for row in villagers),
             "villages": len({(row["village"]["dimension"], row["village"]["id"]) for row in villagers if row["village"]}),
             "diagnostic_count": scan.diagnostic_count,
             "diagnostics_truncated": scan.diagnostic_count > len(scan.diagnostics),
@@ -505,7 +516,7 @@ def _read_details(record: EntityRecord, projection: dict[str, Any]) -> dict[str,
                 {
                     "index": index,
                     "buy_a": _item_summary(recipe.get("buyA")),
-                    "buy_b": _item_summary(recipe.get("buyB")),
+                    "buy_b": _item_summary(recipe.get("buyB"), empty_as_none=True),
                     "sell": _item_summary(recipe.get("sell")),
                     "uses": scalar_integer(recipe.get("uses")),
                     "max_uses": scalar_integer(recipe.get("maxUses")),
@@ -516,6 +527,7 @@ def _read_details(record: EntityRecord, projection: dict[str, Any]) -> dict[str,
     equipment = _equipment_state(tag)
     return {
         **projection,
+        "career": _career_state(record, include_options=True),
         "inventory": _inventory_state(record),
         "trades": {
             "offers": offers,
@@ -629,10 +641,10 @@ def _patch_health(record: EntityRecord, row: dict[str, Any], changes: dict[str, 
     return root.save_to(**SAVE_KWARGS), {"current": float(current), "max": float(maximum)}, None
 
 
-def prepare_health_changes(db: Any, selection: Any, changes: Any) -> HealthChangePlan:
+def prepare_health_changes(db: Any, selection: Any, changes: Any, *, _snapshot: tuple[EntityScan, dict[str, dict[str, Any]]] | None = None) -> HealthChangePlan:
     normalized = normalize_health_changes(changes)
     selected = _selection(selection)
-    scan, projections = _scan(db)
+    scan, projections = _scan(db) if _snapshot is None else _snapshot
     # A stale/deleted selection aborts the entire request, before preparing any
     # writes. Deliberate read-only skips are distinct from a lost revision.
     for item in selected:
@@ -691,6 +703,17 @@ def _inventory_state(record: EntityRecord) -> dict[str, Any]:
     return inventory_state(record.tag, blocked_reason=_entity_write_reason(record))
 
 
+def _career_state(record: EntityRecord, *, include_options: bool = False) -> dict[str, Any]:
+    state = career_state(record.tag, blocked_reason=_entity_write_reason(record), is_baby=_is_baby(record.tag), include_options=include_options)
+    # Read-only legacy/ambiguous actors must not acquire a modern profession
+    # merely because their Variant happens to have the same numeric value.
+    if record.identifier != "minecraft:villager_v2":
+        state["profession"] = _profession(record)["id"]
+        raw_tier = scalar_integer(record.tag.get("TradeTier"))
+        state["trade_tier"] = raw_tier if raw_tier is not None and 0 <= raw_tier < len(_TIERS) and state["profession"] not in {"unemployed", "nitwit"} else None
+    return state
+
+
 def _name_reason(record: EntityRecord) -> str | None:
     reason = _entity_write_reason(record)
     if reason:
@@ -714,12 +737,12 @@ def normalize_name_changes(changes: Any) -> dict[str, str]:
     return {"name": name}
 
 
-def _prepare_name_changes(db: Any, selection: Any, changes: Any) -> HealthChangePlan:
+def _prepare_name_changes(db: Any, selection: Any, changes: Any, *, _snapshot: tuple[EntityScan, dict[str, dict[str, Any]]] | None = None) -> HealthChangePlan:
     normalized = normalize_name_changes(changes)
     selected = _selection(selection)
     if len(selected) != 1:
         raise ValueError(t("Namen können nur für einen Dorfbewohner gleichzeitig geändert werden."))
-    scan, projections = _scan(db)
+    scan, projections = _scan(db) if _snapshot is None else _snapshot
     chosen = selected[0]
     projection = projections.get(chosen["id"])
     if projection is None or projection["revision"] != chosen["revision"]:
@@ -736,7 +759,7 @@ def _prepare_name_changes(db: Any, selection: Any, changes: Any) -> HealthChange
         else:
             if normalized != before:
                 if normalized["name"]:
-                    root.tag["CustomName"] = nbt.StringTag(normalized["name"])
+                    root.tag["CustomName"] = literal_string_tag(normalized["name"])
                 elif "CustomName" in root.tag:
                     del root.tag["CustomName"]
             raw = root.save_to(**SAVE_KWARGS)
@@ -763,12 +786,14 @@ def _prepare_name_changes(db: Any, selection: Any, changes: Any) -> HealthChange
     )
 
 
-def _prepare_inventory_changes(db: Any, selection: Any, changes: Any) -> HealthChangePlan:
+def _prepare_inventory_changes(
+    db: Any, selection: Any, changes: Any, *, _snapshot: tuple[EntityScan, dict[str, dict[str, Any]]] | None = None
+) -> HealthChangePlan:
     normalized = normalize_inventory_changes(changes)
     selected = _selection(selection)
     if len(selected) != 1:
         raise ValueError(t("Vorräte können nur für einen Dorfbewohner gleichzeitig geändert werden."))
-    scan, projections = _scan(db)
+    scan, projections = _scan(db) if _snapshot is None else _snapshot
     chosen = selected[0]
     projection = projections.get(chosen["id"])
     if projection is None or projection["revision"] != chosen["revision"]:
@@ -815,9 +840,65 @@ def _prepare_inventory_changes(db: Any, selection: Any, changes: Any) -> HealthC
     )
 
 
-def prepare_villager_changes(db: Any, selection: Any, changes: Any) -> HealthChangePlan:
+def _prepare_career_changes(
+    db: Any, selection: Any, changes: Any, *, _snapshot: tuple[EntityScan, dict[str, dict[str, Any]]] | None = None
+) -> HealthChangePlan:
+    normalized = normalize_career_changes(changes)
+    selected = _selection(selection)
+    scan, projections = _scan(db) if _snapshot is None else _snapshot
+    for item in selected:
+        current = projections.get(item["id"])
+        if current is None or current["revision"] != item["revision"]:
+            raise ValueError(t("Mindestens ein ausgewählter Dorfbewohner fehlt oder wurde seit dem Scan verändert. Bitte neu scannen."))
+    writes, before_records, rows = {}, {}, []
+    summary = {"selected": len(selected), "changed": 0, "skipped": 0, "unchanged": 0}
+    for item in selected:
+        checkpoint()
+        record, projection = scan.records[item["id"]], projections[item["id"]]
+        state = projection["career"]
+        before = career_summary(state)
+        if record.identifier != "minecraft:villager_v2":
+            before.update(profession=projection["profession"]["id"], profession_label=projection["profession"]["label"])
+        after, warnings, raw, reason = before.copy(), [], None, state["reason"]
+        if reason is None:
+            root = nbt.load(record.value, **LOAD_KWARGS)
+            if root.save_to(**SAVE_KWARGS) != record.value:
+                reason = t("Der Datensatz lässt sich nicht verlustfrei zurückschreiben und bleibt unverändert.")
+            else:
+                after, warnings, reason = patch_career(root.tag, normalized["career"], state)
+                if reason is None:
+                    raw = root.save_to(**SAVE_KWARGS)
+        status = "skipped" if raw is None else "unchanged" if raw == record.value else "changed"
+        summary[status] += 1
+        if status == "changed":
+            writes[record.key] = raw
+        before_records[record.key] = record.value
+        before_records.update({reference.key: scan.index_records[reference.key] for reference in record.references if reference.key in scan.index_records})
+        rows.append(
+            {
+                "id": record.id,
+                "name": projection["name"],
+                "revision": record.revision,
+                "kind": "career",
+                "status": status,
+                "before": before,
+                "after": after,
+                "reason": reason,
+                "warnings": warnings,
+            }
+        )
+    return HealthChangePlan(writes, before_records, rows, normalized, summary)
+
+
+def prepare_villager_changes(
+    db: Any, selection: Any, changes: Any, *, _snapshot: tuple[EntityScan, dict[str, dict[str, Any]]] | None = None
+) -> HealthChangePlan:
+    # A workspace may share its one fresh scan across disjoint field plans.
+    # Retained UI snapshots must never be supplied for write authorization.
+    if isinstance(changes, dict) and "career" in changes:
+        return _prepare_career_changes(db, selection, changes, _snapshot=_snapshot)
     if isinstance(changes, dict) and "name" in changes:
-        return _prepare_name_changes(db, selection, changes)
+        return _prepare_name_changes(db, selection, changes, _snapshot=_snapshot)
     if isinstance(changes, dict) and "inventory" in changes:
-        return _prepare_inventory_changes(db, selection, changes)
-    return prepare_health_changes(db, selection, changes)
+        return _prepare_inventory_changes(db, selection, changes, _snapshot=_snapshot)
+    return prepare_health_changes(db, selection, changes, _snapshot=_snapshot)

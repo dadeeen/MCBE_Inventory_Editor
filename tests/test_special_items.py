@@ -481,6 +481,44 @@ def test_bundle_stack_keys_distinguish_typed_hidden_data_and_ignore_quantity_and
     assert keys[0] != keys[2]
 
 
+def test_bundle_keeps_stacks_with_different_raw_field_names_separate():
+    import struct
+    from mcbe_editor.special_items import editor_schema
+
+    children = []
+    for slot, raw_name in enumerate((b"\xff", "\u241bxff".encode("utf-8"))):
+        child = nbt.load(b"\x0a\x00\x00\x01" + struct.pack("<H", len(raw_name)) + raw_name + b"\x01\x00").tag
+        child.update(item("minecraft:torch", slot=slot))
+        children.append(child)
+    original = item("minecraft:bundle", storage_item_component_content=nbt.ListTag(children, 10))
+    payload = parsed(original)
+    result = run_node(
+        "const schema = "
+        + json.dumps(editor_schema())
+        + "; const item = "
+        + json.dumps(payload)
+        + ";\n"
+        + r"""
+        global.window = global;
+        require('./static/special_item_logic.js');
+        const model = MCBESpecialItemLogic.createModel(schema, {getMaxStack:()=>64,hasVerifiedStackLimit:()=>true});
+        const data = model.data(item);
+        const edited = {...data.items[1], count: 2};
+        console.log(JSON.stringify(model.withChild(data, 1, edited, item)));
+        """
+    )
+    updated = json.loads(result.stdout)
+    assert len(updated["items"]) == 2
+    stored = save(original, updated)["tag"]["storage_item_component_content"]
+    occupied = [entry for entry in stored if entry["Count"].py_data]
+    assert len(occupied) == 2
+    for before, after in zip(children, occupied, strict=True):
+        before = before.copy()
+        after = after.copy()
+        del before["Count"], after["Count"]
+        assert before.save_to() == after.save_to()
+
+
 @pytest.mark.parametrize("parent,key", [("undyed_shulker_box", "Items"), ("bundle", "storage_item_component_content")])
 def test_explicit_container_copy_preserves_original_nbt_and_independent_edits(parent, key):
     child = item("minecraft:diamond", slot=7, count=2, addon=nbt.LongTag(91))

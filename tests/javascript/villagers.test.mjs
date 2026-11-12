@@ -10,6 +10,11 @@ const row = (id = "actor:a", patch = {}) => ({ id, revision: id.repeat(8), uniqu
     identifier: "minecraft:villager_v2", profession: { id: "librarian", label: "Bibliothekar" }, trade_tier: 4, trade_tier_label: "Meister",
     health: { current: 12, max: 20, editable: true, max_editable: true }, position: { x: 1, y: 64, z: 1 }, dimension: 0,
     editable: true, issues: [], ...patch });
+const career = (patch = {}) => ({ editable: true, profession: "librarian", trade_tier: 4, trade_experience: 250,
+    profession_editable: true, tier_editable: true, can_set_tier_on_profession_change: true,
+    professions: [{ id: "unemployed", label: "Arbeitslos", job_site: "Kein Arbeitsplatz" }, { id: "farmer", label: "Farmer", job_site: "Komposter" },
+        { id: "librarian", label: "Bibliothekar", job_site: "Lesepult" }],
+    tiers: ["Neuling", "Lehrling", "Geselle", "Experte", "Meister"].map((label, value) => ({ value, label })), ...patch });
 const context = { window: {}, AbortController, Date, setTimeout, clearTimeout };
 load(context, "villager_model");
 load(context, "villager_inventory");
@@ -96,6 +101,30 @@ test("health actions distinguish untouched values from explicit healing and reje
     assert.throws(() => model.healthChanges({ max: "20", current: "40" }));
 });
 
+test("career changes distinguish tier zero, same-tier new careers, protected fields and no-ops", () => {
+    const original = career();
+    assert.deepEqual(plain(model.careerChanges(original, { profession: "librarian", trade_tier: "0" })), { career: { trade_tier: 0 } });
+    assert.deepEqual(plain(model.careerChanges(original, { profession: "farmer", trade_tier: "4" })), { career: { profession: "farmer", trade_tier: 4 } });
+    assert.deepEqual(plain(model.careerChanges(original, { profession: "unemployed", trade_tier: "0" })), { career: { profession: "unemployed" } });
+    for (const tier of ["", "5", "-1", "2.5", "NaN"]) assert.throws(() => model.careerChanges(original, { profession: "librarian", trade_tier: tier }));
+    assert.throws(() => model.careerChanges(original, { profession: "librarian", trade_tier: "4" }), /anderen Beruf/);
+    assert.throws(() => model.careerChanges(original, { profession: "unknown", trade_tier: "0" }), /verfügbaren Beruf/);
+    assert.throws(() => model.careerChanges(career({ profession_editable: false }), { profession: "farmer", trade_tier: "0" }));
+    assert.throws(() => model.careerChanges(career({ tier_editable: false }), { profession: "librarian", trade_tier: "0" }));
+    const unemployed = career({ profession: "unemployed", trade_tier: 0, tier_editable: false });
+    assert.equal(model.careerTierEditable(unemployed, "unemployed"), false);
+    assert.equal(model.careerTierEditable(unemployed, "farmer"), true);
+    assert.deepEqual(plain(model.careerChanges(unemployed, { profession: "farmer", trade_tier: "2" })), { career: { profession: "farmer", trade_tier: 2 } });
+    assert.equal(model.careerText({ profession_label: "Farmer", trade_tier_label: "Meister" }), "Farmer · Meister");
+    assert.equal(model.careerText({ profession: "farmer", trade_tier: 0 }), "farmer · Stufe 1");
+});
+
+test("the editable filter includes residents with only an editable career", () => {
+    const rows = [row("a", { editable: false, name_editable: false, inventory_editable: false, career_editable: true }),
+        row("b", { editable: false, name_editable: false, inventory_editable: false, career_editable: false })];
+    assert.deepEqual(plain(model.filterRows(rows, { editable: true }).map(row => row.id)), ["a"]);
+});
+
 test("map coordinates never overflow and do not mix dimensions or infer unknown locations", () => {
     const points = model.mapPoints([row(), row("b", { position: { x: 1e308, y: 64, z: -1e308 } }), row("n", { dimension: 1 })], 0);
     assert.equal(points.total, 1);
@@ -141,11 +170,86 @@ function viewHarness() {
     load(ctx, "html_utils"); load(ctx, "villager_model"); load(ctx, "villager_inventory"); load(ctx, "villager_view");
     const nodes = new Map();
     const node = id => {
-        if (!nodes.has(id)) nodes.set(id, { value: "", innerHTML: "", textContent: "", open: false, dataset: {}, contains: () => false,
+        if (!nodes.has(id)) nodes.set(id, { value: "", innerHTML: "", textContent: "", open: false, hidden: false, dataset: {}, contains: () => false,
             classList: { toggle() {} }, setAttribute() {}, addEventListener() {}, querySelectorAll: () => id === "villagerRegionForm" ? [node("regionName")] : [] });
         return nodes.get(id);
     };
     return { node, view: ctx.window.MCBEVillagerView.createVillagerView({ doc: { activeElement: null, getElementById: node } }) };
+}
+
+test("career inspector keeps two prefilled controls compact and respects per-field capabilities", () => {
+    const { node, view } = viewHarness(), state = harness().controller.getState();
+    state.detail = row("a", { career: career() }); state.rows = [state.detail]; state.activeId = "a";
+    view.renderDetail(state.detail, state);
+    const html = node("villagerDetail").innerHTML;
+    assert.match(html, /<details id="villagerCareerDetails" class="villager-disclosure">/);
+    assert.match(html, /<option value="librarian" selected>Bibliothekar<\/option>/);
+    assert.match(html, /<option value="4" selected>Meister<\/option>/);
+    node("villagerCareerProfession").value = "librarian"; node("villagerCareerTier").value = "4";
+    view.render(state);
+    assert.equal(node("villagerCareerPreview").disabled, true);
+    assert.equal(node("villagerCareerImpact").hidden, true);
+    assert.match(node("villagerCareerJobSite").textContent, /Lesepult/);
+    node("villagerCareerProfession").value = "farmer"; node("villagerCareerTier").value = "0"; state.careerDirty = true;
+    view.render(state);
+    assert.equal(node("villagerCareerPreview").disabled, false);
+    assert.equal(node("villagerCareerTier").disabled, false);
+    assert.match(node("villagerCareerImpact").textContent, /Handelsangebote werden zurückgesetzt/);
+    assert.match(node("villagerCareerJobSite").textContent, /Komposter/);
+    node("villagerCareerProfession").value = "unemployed";
+    view.render(state);
+    assert.equal(node("villagerCareerTier").disabled, true);
+    assert.match(node("villagerCareerTier").innerHTML, /Keine Handelsstufe/);
+    assert.equal(node("villagerCareerJobSite").hidden, true);
+    state.staleReason = "stale";
+    view.render(state);
+    assert.equal(node("villagerCareerProfession").disabled, true);
+    assert.equal(node("villagerCareerPreview").disabled, true);
+});
+
+test("protected career controls explain restrictions and preview escapes career labels and warnings", () => {
+    const { node, view } = viewHarness(), state = harness().controller.getState();
+    const original = career({ profession_editable: false, profession_reason: "Beruf geschützt", tier_editable: true });
+    state.detail = row("a", { career: original }); state.rows = [state.detail]; state.activeId = "a";
+    view.renderDetail(state.detail, state);
+    node("villagerCareerProfession").value = "librarian"; node("villagerCareerTier").value = "3"; state.careerDirty = true;
+    view.render(state);
+    assert.equal(node("villagerCareerProfession").disabled, true);
+    assert.equal(node("villagerCareerTier").disabled, false);
+    assert.match(node("villagerCareerReason").textContent, /Beruf geschützt/);
+    assert.match(node("villagerCareerImpact").textContent, /Handelsangebote bleiben erhalten/);
+    view.renderPreview({ change_count: 1, rows: [{ id: "a", kind: "career", status: "changed",
+        before: { profession_label: "Bibliothekar", trade_tier_label: "Meister", trade_experience: 250 },
+        after: { profession_label: "<img src=x>", trade_tier_label: "Neuling", trade_experience: 0 },
+        warnings: ["Angebote werden ersetzt.", "<script>alert(1)</script>"] }] }, state);
+    const html = node("villagerPreviewRows").innerHTML + node("villagerPreviewCareerNotes").innerHTML;
+    assert.match(html, /Bibliothekar · Meister/); assert.match(html, /Handelserfahrung: 250/);
+    assert.match(html, /Beruf und Handelsstufe/); assert.match(html, /Angebote werden ersetzt/);
+    assert.match(html, /&lt;img/); assert.match(html, /&lt;script/);
+    assert.doesNotMatch(html, /<img|<script/);
+});
+
+for (const [profession, professionLabel, tierLabel] of [
+    ["legacy_farmer", "Farmer/Fischer/Schäfer/Pfeilmacher", "Unbekannt"],
+    ["nitwit", "Nichtsnutz", "Keine Handelsstufe"],
+]) {
+    test(`protected ${profession} career preserves the scan's absent-tier label through rendering`, () => {
+        const { node, view } = viewHarness(), state = harness().controller.getState();
+        state.detail = row("legacy:a", { identifier: "minecraft:villager", storage: "legacy", editable: false,
+            profession: { id: profession, label: professionLabel }, trade_tier: null, trade_tier_label: tierLabel,
+            career: career({ profession, trade_tier: null, editable: false, profession_editable: false, tier_editable: false,
+                can_set_tier_on_profession_change: false }) });
+        state.rows = [state.detail]; state.activeId = state.detail.id;
+        view.renderDetail(state.detail, state);
+        assert.ok(node("villagerDetail").innerHTML.includes(`<option value="" selected>${tierLabel}</option>`));
+        node("villagerCareerProfession").value = profession; node("villagerCareerTier").value = "";
+        view.render(state);
+        assert.ok(node("villagerCareerTier").innerHTML.includes(`<option value="">${tierLabel}</option>`));
+        assert.equal(node("villagerCareerTier").value, "");
+        assert.equal(node("villagerCareerTier").disabled, true);
+        assert.equal(node("villagerCareerProfession").disabled, true);
+        assert.equal(node("villagerCareerPreview").disabled, true);
+    });
 }
 
 test("scan diagnostics group repeated findings and identify exact resident records safely", () => {
@@ -278,12 +382,60 @@ test("region dimensions remain selectable even when no villager is present in th
     assert.equal(node("villagerRegionDimension").value, "7");
 });
 
+test("the map keeps its selected dimension visible after the last matching resident disappears", () => {
+    const { node, view } = viewHarness(), state = harness().controller.getState();
+    state.rows = [row("a", { dimension: 7 })];
+    state.mapDimension = "7";
+    view.render(state);
+    state.rows = [];
+    view.render(state);
+    assert.match(node("villagerMapDimension").innerHTML, /<option value="7">Dimension 7<\/option>/);
+    assert.equal(node("villagerMapDimension").value, "7");
+    assert.equal(state.mapDimension, "7");
+
+    state.mapDimension = "0";
+    view.render(state);
+    assert.equal(node("villagerMapDimension").value, "0");
+    assert.doesNotMatch(node("villagerMapDimension").innerHTML, /<option value="7">/);
+});
+
+for (const [filter, control, value, label] of [
+    ["profession", "villagerProfession", "librarian", "Bibliothekar"],
+    ["tier", "villagerTier", "4", "Meister"],
+    ["dimension", "villagerDimension", "7", "Dimension 7"],
+    ["region", "villagerRegion", "old-region", "Altes Dorf"],
+]) {
+    test(`active ${filter} filter stays legible when a fresh scan has no matching values`, () => {
+        const { node, view } = viewHarness(), state = harness().controller.getState();
+        state.rows = [row("a", { dimension: 7 })];
+        state.preferences = { aliases: {}, regions: [{ id: "old-region", name: "Altes Dorf", dimension: 7,
+            min_x: 0, max_x: 10, min_z: 0, max_z: 10 }] };
+        state.filters[filter] = value;
+        view.render(state);
+
+        state.rows = [row("b", { profession: { id: "farmer", label: "Farmer" }, trade_tier: 0, trade_tier_label: "Neuling" })];
+        state.preferences = { aliases: {}, regions: [] };
+        view.render(state);
+        assert.ok(node(control).innerHTML.includes(`<option value="${value}">${label}</option>`));
+        assert.equal(node(control).value, value);
+        assert.equal(state.filters[filter], value);
+        assert.ok(node("villagerActiveFilters").innerHTML.includes(`>${label}<span`));
+        assert.match(node("villagerRows").innerHTML, /Keine Dorfbewohner entsprechen diesen Filtern/);
+
+        state.filters[filter] = "";
+        view.render(state);
+        assert.ok(!node(control).innerHTML.includes(`<option value="${value}">`));
+        assert.equal(node(control).value, "");
+        assert.equal(node("villagerActiveFilters").hidden, true);
+    });
+}
+
 function harness({ rows = [row("a"), row("b")], readOnly = false } = {}) {
     let now = 100;
     const nodes = new Map();
     const doc = { activeElement: null, defaultView: { innerWidth: 1440, getSelection: () => ({ toString: () => "" }) } };
     const matches = (node, selector) => {
-        const inputs = /(?:Max|Current|Heal|Alias|Search|RegionName|RegionMin[XYZ]|RegionMax[XYZ])$/.test(node.id);
+        const inputs = /(?:Max|Current|Heal|Alias|Search|RegionName|RegionMin[XYZ]|RegionMax[XYZ]|CareerProfession|CareerTier)$/.test(node.id);
         if (selector.split(",").some(part => part.trim() === `#${node.id}`)) return true;
         return inputs && selector.split(",").some(part => ["input", "textarea", "select"].includes(part.trim()));
     };
@@ -302,16 +454,17 @@ function harness({ rows = [row("a"), row("b")], readOnly = false } = {}) {
             matches(selector) { return matches(this, selector); },
             contains(other) {
                 if (!other) return false;
-                if (id === "villagerDetail") return other.id.startsWith("villagerDetail") || other.id.startsWith("villagerAlias");
+                if (id === "villagerDetail") return ["villagerDetail", "villagerAlias", "villagerCareer"].some(prefix => other.id.startsWith(prefix));
                 if (id === "villagerRows") return other.dataset?.action === "detail";
                 return other === this;
             },
             closest(selector) {
                 if (matches(this, selector)) return this;
-                for (const [prefix, form] of [["villagerDetail", "villagerDetailHealthForm"], ["villagerAlias", "villagerAliasForm"], ["villagerBatch", "villagerBatchForm"], ["villagerRegion", "villagerRegionForm"]]) {
+                for (const [prefix, form] of [["villagerDetail", "villagerDetailHealthForm"], ["villagerCareer", "villagerCareerForm"], ["villagerAlias", "villagerAliasForm"], ["villagerBatch", "villagerBatchForm"], ["villagerRegion", "villagerRegionForm"]]) {
                     if (id.startsWith(prefix) && selector.includes(`#${form}`)) return node(form);
                 }
-                if ((id.startsWith("villagerDetail") || id.startsWith("villagerAlias")) && selector.includes("#villagerDetail")) return node("villagerDetail");
+                if (["villagerDetail", "villagerAlias", "villagerCareer"].some(prefix => id.startsWith(prefix))
+                    && selector.split(",").some(part => part.trim() === "#villagerDetail")) return node("villagerDetail");
                 return null;
             },
             querySelectorAll(selector) {
@@ -356,6 +509,8 @@ function harness({ rows = [row("a"), row("b")], readOnly = false } = {}) {
             node("villagerDetailMax").value = String(row?.health?.max ?? "");
             node("villagerDetailCurrent").value = String(row?.health?.current ?? "");
             node("villagerDetailHeal").checked = false;
+            node("villagerCareerProfession").value = row?.career?.profession || "";
+            node("villagerCareerTier").value = String(row?.career?.trade_tier ?? "");
             node("villagerAlias").value = row ? state.preferences.aliases[model.aliasKey(row)] || "" : "";
         }, renderPreview: row => calls.previewRenders.push(row) };
     const ctx = { window: { MCBEVillagerModel: model }, AbortController, Date: { now: () => now }, setTimeout, clearTimeout };
@@ -384,6 +539,102 @@ async function commit(h) {
     h.controller.finalizePending(result);
     await h.controller.refreshAfterSave();
 }
+
+function changeCareer(h, id, value) {
+    h.node(id).value = value;
+    h.node("villagersPanel").dispatch("change", { target: h.node(id) });
+}
+
+test("profession selection starts at novice and previews exactly the single resident with its chosen tier", async () => {
+    const h = harness({ rows: [row("a", { career: career() }), row("b", { career: career() })] });
+    await h.controller.scan(); await h.controller.openDetail("a");
+    h.controller.getState().selected.add("b");
+    changeCareer(h, "villagerCareerProfession", "farmer");
+    assert.equal(h.node("villagerCareerTier").value, "0");
+    assert.equal(h.controller.getState().careerDirty, true);
+    changeCareer(h, "villagerCareerTier", "4");
+    await h.controller.preview(false, "career");
+    const payload = h.calls.previews.at(-1)[0];
+    assert.deepEqual(plain(payload.selection), [{ id: "a", revision: h.rows[0].revision }]);
+    assert.deepEqual(plain(payload.changes), { career: { profession: "farmer", trade_tier: 4 } });
+    assert.equal(payload.world_revision, "v1"); assert.equal(payload.server_guard_token, "guard-1");
+    assert.equal(h.controller.getState().previewSource, "career");
+    assert.equal(h.calls.saves.length, 0);
+});
+
+test("career staging and reset preserve other drafts and no-op profession reverts clear only career dirtiness", async () => {
+    const h = harness({ rows: [row("a", { career: career() })] });
+    await h.controller.scan(); await h.controller.openDetail("a");
+    input(h, "villagerDetailCurrent", "17"); input(h, "villagerAlias", "Keep alias");
+    changeCareer(h, "villagerCareerProfession", "farmer");
+    changeCareer(h, "villagerCareerProfession", "librarian");
+    assert.equal(h.node("villagerCareerTier").value, "4");
+    assert.equal(h.controller.getState().careerDirty, false);
+    changeCareer(h, "villagerCareerTier", "2");
+    h.controller.resetCareer();
+    assert.equal(h.node("villagerCareerTier").value, "4");
+    assert.equal(h.controller.getState().detailDirty, true);
+    assert.equal(h.controller.getState().aliasDirty, true);
+    changeCareer(h, "villagerCareerTier", "1");
+    h.api.preview = async (payload, options) => {
+        h.calls.previews.push([payload, options]);
+        return { success: true, change_count: 1, preview_token: "career-token", rows: [{ id: "a", status: "changed", kind: "career", warnings: ["Keep offers"] }] };
+    };
+    await h.controller.preview(true, "career"); h.controller.save();
+    assert.equal(h.controller.getState().careerDirty, false);
+    assert.equal(h.node("villagerCareerTier").value, "4");
+    assert.equal(h.node("villagerDetailCurrent").value, "17");
+    assert.equal(h.node("villagerAlias").value, "Keep alias");
+    assert.equal(h.controller.getState().detailDirty, true);
+    assert.equal(h.controller.getState().aliasDirty, true);
+    assert.equal(h.controller.getPendingChanges()[0].rows[0].kind, "career");
+    assert.deepEqual(plain(h.controller.getPendingChanges()[0].rows[0].warnings), ["Keep offers"]);
+});
+
+test("career drafts protect navigation, survive a refresh and honor their keyboard action", async () => {
+    const h = harness({ rows: [row("a", { career: career() }), row("b", { career: career() })] });
+    await h.controller.scan(); await h.controller.openDetail("a");
+    changeCareer(h, "villagerCareerTier", "0");
+    h.confirm(false);
+    await h.controller.openDetail("b"); await h.controller.closeDetail();
+    assert.equal(h.controller.getState().activeId, "a");
+    assert.equal(h.calls.confirmations.length, 2);
+    assert.equal(await h.controller.scan({ discard: true, keepEdits: true }), true, h.controller.getState().message);
+    assert.equal(h.node("villagerCareerTier").value, "0");
+    assert.equal(h.controller.getState().careerDirty, true);
+    const handled = h.controller.handleKeyboard({ key: "s", ctrlKey: true, target: h.node("villagerCareerTier"), preventDefault() {} });
+    await new Promise(setImmediate);
+    assert.equal(handled, true);
+    assert.deepEqual(plain(h.calls.previews.at(-1)[0].changes), { career: { trade_tier: 0 } });
+});
+
+test("protected refreshed career data keeps the draft visible and blocks further edits", async () => {
+    const h = harness({ rows: [row("a", { career: career() })] });
+    await h.controller.scan(); await h.controller.openDetail("a");
+    changeCareer(h, "villagerCareerProfession", "farmer");
+    h.rows[0].career.profession_editable = false;
+    await h.controller.scan({ discard: true, keepEdits: true });
+    assert.equal(h.node("villagerCareerProfession").value, "farmer");
+    assert.equal(h.controller.getState().careerDirty, true);
+    assert.match(h.controller.getState().message, /Beruf oder Handelsstufe/);
+    assert.ok(h.controller.getState().staleReason);
+    await h.controller.preview(true, "career");
+    assert.equal(h.calls.previews.length, 0);
+});
+
+test("a changed career draft cancels a pending preview and ignores its late result", async () => {
+    const h = harness({ rows: [row("a", { career: career() })] }), pending = deferred();
+    await h.controller.scan(); await h.controller.openDetail("a");
+    changeCareer(h, "villagerCareerTier", "0");
+    h.api.preview = async (payload, options) => { h.calls.previews.push([payload, options]); return pending.promise; };
+    const preview = h.controller.preview(true, "career");
+    changeCareer(h, "villagerCareerTier", "2");
+    assert.equal(h.calls.previews[0][1].signal.aborted, true);
+    assert.equal(h.controller.getState().busy, false);
+    pending.resolve({ success: true, change_count: 1, preview_token: "obsolete" }); await preview;
+    assert.equal(h.controller.getState().preview, null);
+    assert.equal(h.node("villagerPreviewDialog").open, false);
+});
 
 test("map players load only on opening, reuse the revision and retry errors", async () => {
     const h = harness(), requests = [];
@@ -1377,4 +1628,206 @@ test("Minecraft name validation counts Unicode code points and rejects controls 
     for (const name of ["Ä".repeat(79) + "🐑", "Jörg <&> 👨‍🌾", ""]) assert.deepEqual(plain(model.nameChanges(name)), { name });
     assert.deepEqual(plain(model.nameChanges("  Egon  ")), { name: "Egon" });
     for (const name of ["🐑".repeat(81), "\n", "X\0", "X\ud800", "X\u2028"]) assert.throws(() => model.nameChanges(name));
+});
+
+test("search matches visible translated professions and tiers while retaining original labels", () => {
+    const ctx = { window: { t: value => ({ Bibliothekar: "Librarian", Meister: "Master", Arbeitslos: "Unemployed", "Keine Handelsstufe": "No trade tier" })[value] || value } };
+    load(ctx, "villager_model");
+    const rows = [row("a"), row("b", { profession: { id: "unemployed", label: "Arbeitslos" }, trade_tier: null, trade_tier_label: "Keine Handelsstufe" })];
+    for (const query of ["Librarian", "Master", "Bibliothekar", "Meister"]) {
+        assert.deepEqual(plain(ctx.window.MCBEVillagerModel.filterRows(rows, { query }).map(row => row.id)), ["a"], query);
+    }
+    for (const query of ["Unemployed", "No trade tier", "Arbeitslos", "Keine Handelsstufe"]) {
+        assert.deepEqual(plain(ctx.window.MCBEVillagerModel.filterRows(rows, { query }).map(row => row.id)), ["b"], query);
+    }
+});
+
+test("refresh retains and blocks health drafts when the changed field becomes protected", async () => {
+    for (const field of ["Max", "Current", "Heal"]) {
+        const h = harness();
+        await h.controller.scan(); await h.controller.openDetail("a");
+        const draft = field === "Heal" ? true : field === "Max" ? "40" : "17";
+        input(h, `villagerDetail${field}`, draft);
+        h.rows[0].revision = "protected-health";
+        h.rows[0].health.max_editable = false;
+        if (field !== "Max") { h.rows[0].editable = false; h.rows[0].health.editable = false; }
+        assert.equal(await h.controller.scan({ discard: true, keepEdits: true }), false, field);
+        assert.ok(h.controller.getState().staleReason, field);
+        assert.match(h.controller.getState().message, /Gesundheitswert.*geschützt/);
+        assert.equal(h.controller.getState().detailDirty, true, field);
+        assert.equal(h.controller.hasPendingChanges(), true, field);
+        assert.equal(field === "Heal" ? h.node("villagerDetailHeal").checked : h.node(`villagerDetail${field}`).value, draft, field);
+        await h.controller.preview(true);
+        assert.equal(h.calls.previews.length, 0, field);
+    }
+});
+
+test("refresh keeps current-health drafts editable when only an untouched maximum becomes protected", async () => {
+    const h = harness();
+    await h.controller.scan(); await h.controller.openDetail("a");
+    input(h, "villagerDetailCurrent", "17");
+    h.rows[0].revision = "protected-maximum";
+    h.rows[0].health.max_editable = false;
+    assert.equal(await h.controller.scan({ discard: true, keepEdits: true }), true);
+    assert.equal(h.controller.getState().staleReason, "");
+    assert.equal(h.node("villagerDetailCurrent").value, "17");
+    assert.equal(h.controller.getState().detailDirty, true);
+    await h.controller.preview(true);
+    assert.deepEqual(plain(h.calls.previews.at(-1)[0].changes), { current_health: 17 });
+});
+
+test("staging preserves the preview's original expiration instead of extending it", async () => {
+    const h = harness(), pending = deferred();
+    await h.controller.scan();
+    h.controller.getState().selected.add("a");
+    input(h, "villagerBatchHeal", true);
+    h.api.preview = async () => pending.promise;
+    h.setNow(1000);
+    const preview = h.controller.preview();
+    h.setNow(11000);
+    pending.resolve({ success: true, rows: [{ id: "a", status: "changed" }], change_count: 1, preview_token: "timed", expires_in: 600 });
+    await preview;
+    h.setNow(301000);
+    h.controller.save();
+    assert.equal(h.controller.getPendingChanges()[0].expiresAt, 601000);
+    assert.equal(h.calls.saves.length, 0);
+});
+
+for (const stageAt of [600000, 602000]) {
+    test(`a resumed preview keeps its original expiry when staged at ${stageAt}`, async () => {
+        const h = harness(), requests = [];
+        let now = 1000, readSequence = 0;
+        const setNow = value => { now = value; h.setNow(value); };
+        const apiContext = { window: { MCBEApiClient: { readJson: async (url, options) => {
+            requests.push({ url, readId: options.headers["X-MCBE-Read-ID"], at: now });
+            if (requests.length === 1) throw new Error("Response lost after the server created the preview");
+            return { success: true, preview_token: requests.length === 2 ? "original-token" : "new-token", expires_in: 600,
+                change_count: 1, rows: [{ id: "a", kind: "health", status: "changed" }] };
+        } } }, Date: { now: () => now }, setTimeout, clearTimeout };
+        load(apiContext, "player_api"); load(apiContext, "villager_api");
+        h.api.preview = apiContext.window.MCBEVillagerApi.createVillagerApiClient({
+            fetchFn: async () => { throw new Error("Unexpected direct transport"); },
+            createReadId: () => String(++readSequence).padStart(32, "0"),
+        }).preview;
+        setNow(1000);
+        await h.controller.scan(); await h.controller.openDetail("a");
+        input(h, "villagerDetailCurrent", "17");
+        await h.controller.preview(true);
+        assert.equal(h.controller.getState().preview, null);
+        assert.equal(h.controller.getState().detailDirty, true);
+        setNow(31000);
+        await h.controller.preview(true);
+        assert.equal(requests[0].readId, requests[1].readId);
+        assert.equal(readSequence, 1);
+        assert.equal(h.controller.getState().previewExpiresAt, 601000);
+        setNow(stageAt);
+        h.controller.save();
+        if (stageAt < 601000) {
+            assert.equal(h.controller.getPendingChanges().length, 1);
+            assert.equal(h.controller.getPendingChanges()[0].expiresAt, 601000);
+            assert.equal(h.controller.getState().detailDirty, false);
+        } else {
+            assert.equal(h.controller.getPendingChanges().length, 0);
+            assert.match(h.controller.getState().previewNotice, /abgelaufen/);
+            assert.equal(h.controller.getState().detailDirty, true);
+            assert.equal(h.node("villagerDetailCurrent").value, "17");
+            h.node("villagerPreviewCancel").dispatch("click");
+            await h.controller.preview(true);
+            assert.notEqual(requests[2].readId, requests[1].readId);
+            assert.equal(readSequence, 2);
+            assert.equal(h.controller.getState().previewExpiresAt, 1202000);
+            h.controller.save();
+            assert.equal(h.controller.getPendingChanges().length, 1);
+            assert.equal(h.controller.getPendingChanges()[0].token, "new-token");
+            assert.equal(h.controller.getPendingChanges()[0].expiresAt, 1202000);
+        }
+    });
+}
+
+test("an expired open preview stays reviewable and retains its draft until a fresh preview is requested", async () => {
+    const h = harness();
+    h.api.preview = async () => ({ success: true, rows: [{ id: "a", status: "changed" }], change_count: 1, preview_token: "timed", expires_in: 60 });
+    h.setNow(1000);
+    await h.controller.scan(); await h.controller.openDetail("a");
+    input(h, "villagerDetailCurrent", "17");
+    await h.controller.preview(true);
+    h.setNow(61000);
+    h.controller.save();
+    assert.equal(h.controller.getPendingChanges().length, 0);
+    assert.match(h.controller.getState().previewNotice, /abgelaufen/);
+    assert.equal(h.controller.getState().detailDirty, true);
+    assert.equal(h.node("villagerDetailCurrent").value, "17");
+    assert.equal(h.node("villagerPreviewDialog").open, true);
+    h.node("villagerPreviewCancel").dispatch("click");
+    await h.controller.preview(true);
+    h.controller.save();
+    assert.equal(h.controller.getPendingChanges().length, 1);
+    assert.equal(h.controller.getPendingChanges()[0].expiresAt, 121000);
+    assert.equal(h.controller.getState().detailDirty, false);
+    assert.equal(h.calls.saves.length, 0);
+});
+
+test("cancelling a rescan keeps player markers with the retained snapshot and ignores the late replacement", async () => {
+    const h = harness(), pending = deferred(), requests = [];
+    h.api.mapPlayers = async payload => { requests.push(payload); return { success: true, world_revision: payload.world_revision, map_players: [{ player_key: "saved-player" }] }; };
+    await h.controller.scan();
+    h.node("villagerMapToggle").dispatch("click");
+    await new Promise(setImmediate);
+    h.api.scan = async () => pending.promise;
+    const rescan = h.controller.scan({ discard: true });
+    h.controller.cancelScan();
+    assert.equal(h.controller.getState().worldRevision, "v1");
+    assert.equal(h.controller.getState().mapPlayersLoaded, true);
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), [{ player_key: "saved-player" }]);
+    assert.equal(requests.length, 1);
+    pending.resolve({ ...h.response(), world_revision: "late-v2" });
+    await rescan;
+    assert.equal(h.controller.getState().worldRevision, "v1");
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), [{ player_key: "saved-player" }]);
+});
+
+test("a successful rescan replaces old player markers only with positions for the new snapshot", async () => {
+    const h = harness(), scanReply = deferred(), playersReply = deferred(), requests = [];
+    h.api.mapPlayers = async payload => {
+        requests.push(payload);
+        return requests.length === 1 ? { success: true, world_revision: payload.world_revision, map_players: [{ player_key: "old-player" }] } : playersReply.promise;
+    };
+    await h.controller.scan();
+    h.node("villagerMapToggle").dispatch("click");
+    await new Promise(setImmediate);
+    h.api.scan = async () => scanReply.promise;
+    const rescan = h.controller.scan({ discard: true });
+    scanReply.resolve({ ...h.response(), world_revision: "v2" });
+    await rescan;
+    assert.equal(h.controller.getState().worldRevision, "v2");
+    assert.equal(h.controller.getState().mapPlayersLoaded, false);
+    assert.equal(h.controller.getState().mapPlayersLoading, true);
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), []);
+    assert.equal(requests[1].world_revision, "v2");
+    playersReply.resolve({ success: true, world_revision: "v2", map_players: [{ player_key: "new-player" }] });
+    await new Promise(setImmediate);
+    assert.equal(h.controller.getState().mapPlayersLoaded, true);
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), [{ player_key: "new-player" }]);
+});
+
+test("cancelling a rescan resumes an interrupted player-position read without accepting its late response", async () => {
+    const h = harness(), originalPlayers = deferred(), scanReply = deferred(), requests = [];
+    h.api.mapPlayers = async (payload, options) => {
+        requests.push([payload, options]);
+        return requests.length === 1 ? originalPlayers.promise : { success: true, world_revision: payload.world_revision, map_players: [{ player_key: "resumed-player" }] };
+    };
+    await h.controller.scan();
+    h.node("villagerMapToggle").dispatch("click");
+    h.api.scan = async () => scanReply.promise;
+    const rescan = h.controller.scan({ discard: true });
+    assert.equal(requests[0][1].signal.aborted, true);
+    h.controller.cancelScan();
+    await new Promise(setImmediate);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), [{ player_key: "resumed-player" }]);
+    originalPlayers.resolve({ success: true, world_revision: "v1", map_players: [{ player_key: "obsolete-player" }] });
+    scanReply.resolve({ ...h.response(), world_revision: "late-v2" });
+    await rescan; await new Promise(setImmediate);
+    assert.deepEqual(plain(h.controller.getState().mapPlayers), [{ player_key: "resumed-player" }]);
+    assert.equal(h.controller.getState().worldRevision, "v1");
 });

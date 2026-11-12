@@ -14,8 +14,8 @@
             sort: "name", direction: "asc", page: 1, pageSize: 50, mapDimension: "0", mapOpen: false, regionsOpen: false,
             mapPlayers: [], mapPlayerMode: "selected", selectedPlayerKey: "",
             mapPlayersLoaded: false, mapPlayersLoading: false, mapPlayersError: "",
-            pending: [], preview: null, previewSource: "", previewNotice: "", previewNoticeKind: "",
-            detailDirty: false, nameDirty: false, inventoryDirty: false, batchDirty: false, aliasDirty: false, regionDirty: false };
+            pending: [], preview: null, previewExpiresAt: 0, previewSource: "", previewNotice: "", previewNoticeKind: "",
+            detailDirty: false, nameDirty: false, careerDirty: false, inventoryDirty: false, batchDirty: false, aliasDirty: false, regionDirty: false };
     }
 
     function createVillagerController({ doc = document, api, view = window.MCBEVillagerView.createVillagerView({ doc }),
@@ -56,7 +56,7 @@
             const gate = getWriteGate() || {};
             state.readOnly = getReadOnly() === true;
             state.serverOnline = gate.server_status?.status === "online";
-            state.blockedReason = state.readOnly ? t("Read-Only-Modus: Namen, Gesundheit, Vorräte, Regionen und Aliase können nicht gespeichert werden.")
+            state.blockedReason = state.readOnly ? t("Read-Only-Modus: Dorfbewohner, Regionen und Aliase können nicht gespeichert werden.")
                 : getIsBusy() ? t("Eine andere Lade- oder Speicheraktion läuft. Warte, bis sie abgeschlossen ist.")
                 : gate.allowed === false && gate.requires_unknown_server_confirmation !== true
                     ? gate.reason || t("Schreiben ist aktuell gesperrt.") : "";
@@ -95,6 +95,22 @@
         function updateNameDirty() {
             const original = state.detail?.name || "", draft = value("villagerName");
             state.nameDirty = !!state.detail?.name_editable && draft !== original && draft.trim() !== original;
+        }
+
+        function updateCareerDirty() {
+            const career = state.detail?.career, profession = value("villagerCareerProfession");
+            state.careerDirty = !!career && (career.profession_editable && profession !== career.profession
+                || model.careerTierEditable(career, profession) && value("villagerCareerTier") !== String(career.trade_tier ?? ""));
+        }
+
+        function resetCareer() {
+            if (state.saving || state.scanning || !state.detail?.career) return;
+            invalidatePreview();
+            if (el("villagerCareerProfession")) el("villagerCareerProfession").value = state.detail.career.profession || "";
+            if (el("villagerCareerTier")) el("villagerCareerTier").value = String(state.detail.career.trade_tier ?? "");
+            state.careerDirty = false;
+            render(); onDraftChanged();
+            [el("villagerCareerProfession"), el("villagerCareerTier"), el("villagerDetailTitle")].find(canReceiveFocus)?.focus();
         }
 
         function setNameDraft(name) {
@@ -220,6 +236,7 @@
                 else if (inputDiffers("villagerDetailCurrent", health.current)) inputs.push("villagerDetailCurrent");
             }
             if (state.nameDirty) inputs.push("villagerName");
+            if (state.careerDirty) inputs.push("villagerCareerProfession", "villagerCareerTier");
             if (state.aliasDirty) inputs.push("villagerAlias");
             if (state.inventoryDirty) {
                 const drafts = inventoryDrafts();
@@ -241,6 +258,7 @@
             }
             updateHealthDirty(true);
             updateNameDirty();
+            updateCareerDirty();
             updateAliasDirty();
             updateInventoryDirty();
         }
@@ -255,12 +273,24 @@
             requireSuccess(data, t("Dorfbewohnerdetails konnten nicht geladen werden."));
             if (data.villager?.id !== id || data.villager?.revision !== row.revision) throw new Error(t("Die Detailantwort gehört nicht zum geladenen Dorfbewohner."));
             const draft = retainedDraft?.id === previousId ? retainedDraft.inputs : captureDetailDraft(), focus = focusBookmark();
+            if (draft.some(input => input.id.startsWith("villagerDetail") && (!data.villager.editable
+                || input.id === "villagerDetailMax" && data.villager.health?.max_editable === false))) {
+                throw new Error(t("Ein geänderter Gesundheitswert ist im neuen Weltstand geschützt. Deine Eingaben bleiben erhalten; bitte erneut scannen."));
+            }
             if (draft.some(input => input.id.startsWith("villagerStock")
                 && !data.villager.inventory?.slots?.find(slot => slot.slot === Number(input.id.match(/\d+$/)?.[0]))?.editable)) {
                 throw new Error(t("Ein geänderter Vorratsplatz ist im neuen Weltstand geschützt. Deine Eingaben bleiben erhalten; bitte erneut scannen."));
             }
             if (draft.some(input => input.id === "villagerName") && !data.villager.name_editable) {
                 throw new Error(t("Der Name ist im neuen Weltstand geschützt. Deine Eingabe bleibt erhalten; bitte erneut scannen."));
+            }
+            const professionDraft = draft.find(input => input.id === "villagerCareerProfession");
+            const tierDraft = draft.find(input => input.id === "villagerCareerTier");
+            if (professionDraft && (professionDraft.value !== data.villager.career?.profession
+                && (!data.villager.career?.profession_editable || !data.villager.career?.professions?.some(option => option.id === professionDraft.value))
+                || !model.careerTierEditable(data.villager.career, professionDraft.value)
+                    && tierDraft?.value !== (professionDraft.value === data.villager.career?.profession ? String(data.villager.career?.trade_tier ?? "") : "0"))) {
+                throw new Error(t("Beruf oder Handelsstufe sind im neuen Weltstand geschützt. Deine Eingaben bleiben erhalten; bitte erneut scannen."));
             }
             state.activeId = id;
             state.detail = data.villager;
@@ -279,6 +309,7 @@
                 state.preview = null;
                 if (!state.saving) el("villagerPreviewDialog")?.close();
             }
+            state.previewExpiresAt = 0;
             state.previewSource = "";
             state.previewNotice = "";
             previewOpener = null;
@@ -286,6 +317,7 @@
         }
 
         function deactivate() {
+            view.deactivateMap?.();
             if (state.saving || (!previewRequest && !state.preview && !el("villagerPreviewDialog")?.open)) return;
             invalidatePreview(); render(); onDraftChanged();
         }
@@ -340,7 +372,7 @@
         }
 
         function hasPendingChanges() {
-            return Boolean(state.pending.length || state.preview || state.detailDirty || state.nameDirty || state.inventoryDirty || state.batchDirty || state.aliasDirty || state.regionDirty);
+            return Boolean(state.pending.length || state.preview || state.detailDirty || state.nameDirty || state.careerDirty || state.inventoryDirty || state.batchDirty || state.aliasDirty || state.regionDirty);
         }
 
         function reportError(error, fallback) {
@@ -372,11 +404,11 @@
                 if (!confirmed || worldPath !== getWorldPath()) return false;
             }
             invalidatePreview();
-            cancelMapPlayers(); state.mapPlayers = []; state.mapPlayersLoaded = false; state.mapPlayersError = "";
+            cancelMapPlayers();
             detailRequest?.controller.abort(); detailRequest = null;
             if (!keepEdits) {
                 state.pending = []; onPendingChanged();
-                state.detailDirty = false; state.nameDirty = false; state.inventoryDirty = false; state.batchDirty = false; state.aliasDirty = false;
+                state.detailDirty = false; state.nameDirty = false; state.careerDirty = false; state.inventoryDirty = false; state.batchDirty = false; state.aliasDirty = false;
                 state.selected.clear(); state.activeId = ""; state.detail = null; detailOpener = null;
                 clearBatchFields();
                 resetRegionForm();
@@ -400,6 +432,9 @@
                 if (!current(request, scanRequest) || request.controller.signal.aborted) return false;
                 requireSuccess(data, t("Dorfbewohner konnten nicht geladen werden."));
                 if (!Array.isArray(data.villagers) || typeof data.world_revision !== "string" || !data.world_revision) throw new Error(t("Die Scan-Antwort ist unvollständig. Bitte erneut scannen."));
+                // Retain the previous markers as long as the previous resident
+                // snapshot is still shown, including a cancelled rescan.
+                state.mapPlayers = []; state.mapPlayersLoaded = false; state.mapPlayersError = "";
                 state.rows = data.villagers;
                 state.worldRevision = data.world_revision;
                 state.guardEpoch = data.server_guard_epoch ?? 0;
@@ -497,6 +532,7 @@
             state.scanning = false;
             message(t("Suche abgebrochen. Du kannst jederzeit einen neuen Scan starten."));
             render();
+            if (state.mapOpen && state.loaded) void loadMapPlayers();
         }
 
         async function openDetail(id, { fromMap = false, fromDiagnostics = false, trigger = null } = {}) {
@@ -505,7 +541,7 @@
             const row = rowById(id);
             if (!row) return;
             const worldPath = state.worldPath, previousId = state.activeId, requestGeneration = generation;
-            if ((state.detailDirty || state.nameDirty || state.inventoryDirty || state.aliasDirty) && state.activeId !== id) {
+            if ((state.detailDirty || state.nameDirty || state.careerDirty || state.inventoryDirty || state.aliasDirty) && state.activeId !== id) {
                 const confirmed = await showConfirmDialog(t("Die offenen Eingaben dieses Dorfbewohners verwerfen und einen anderen öffnen?"));
                 if (!confirmed || worldPath !== getWorldPath() || requestGeneration !== generation || state.activeId !== previousId) return;
             }
@@ -514,7 +550,7 @@
             if (state.activeId === id && detailRequest) return;
             invalidatePreview();
             detailRequest?.controller.abort();
-            state.activeId = id; state.detail = null; state.detailDirty = false; state.nameDirty = false; state.inventoryDirty = false; state.aliasDirty = false;
+            state.activeId = id; state.detail = null; state.detailDirty = false; state.nameDirty = false; state.careerDirty = false; state.inventoryDirty = false; state.aliasDirty = false;
             if (fromMap) {
                 const filtered = model.sortedRows(model.filterRows(state.rows, state.filters, state.preferences), state.sort, state.direction, state.preferences);
                 const index = filtered.findIndex(item => item.id === id);
@@ -552,13 +588,13 @@
         async function closeDetail() {
             if (state.saving) return;
             const worldPath = state.worldPath, id = state.activeId;
-            if (state.detailDirty || state.nameDirty || state.inventoryDirty || state.aliasDirty) {
+            if (state.detailDirty || state.nameDirty || state.careerDirty || state.inventoryDirty || state.aliasDirty) {
                 const confirmed = await showConfirmDialog(t("Offene Eingaben dieses Dorfbewohners verwerfen?"));
                 if (!confirmed || worldPath !== getWorldPath() || state.activeId !== id) return;
             }
             detailRequest?.controller.abort(); detailRequest = null;
-            if (previewRequest?.single || ["detail", "inventory", "name"].includes(state.previewSource)) invalidatePreview();
-            state.activeId = ""; state.detail = null; state.detailDirty = false; state.nameDirty = false; state.inventoryDirty = false; state.aliasDirty = false;
+            if (previewRequest?.single || ["detail", "inventory", "name", "career"].includes(state.previewSource)) invalidatePreview();
+            state.activeId = ""; state.detail = null; state.detailDirty = false; state.nameDirty = false; state.careerDirty = false; state.inventoryDirty = false; state.aliasDirty = false;
             render(); onDraftChanged();
             focusListOpener(id);
         }
@@ -619,29 +655,37 @@
 
         async function preview(single = false, kind = "health") {
             updateContext();
-            if (kind === "inventory" || kind === "name") single = true;
+            if (kind === "inventory" || kind === "name" || kind === "career") single = true;
             if (getActiveView() !== "villagers" || state.busy || state.scanning || state.preferencesBusy || state.blockedReason || state.staleReason || !state.loaded) return;
             const selected = single ? [state.activeId] : [...state.selected];
             if (!selected.length || selected.some(id => !rowById(id))) return;
             let changes;
             try {
                 if (kind === "name" && !state.detail?.name_editable) return;
+                if (kind === "career" && !state.detail?.career?.profession_editable && !state.detail?.career?.tier_editable) return;
                 changes = kind === "name" ? model.nameChanges(value("villagerName")) : kind === "inventory"
-                    ? { inventory: window.MCBEVillagerInventory.changes(state.detail?.inventory, inventoryDrafts()) } : healthInput(single);
+                    ? { inventory: window.MCBEVillagerInventory.changes(state.detail?.inventory, inventoryDrafts()) }
+                    : kind === "career" ? model.careerChanges(state.detail?.career, { profession: value("villagerCareerProfession"), trade_tier: value("villagerCareerTier") })
+                        : healthInput(single);
             } catch (error) { reportError(error); render(); return; }
             // Busy rendering disables the submit control before showModal(), so
             // the native dialog cannot reliably remember its original focus.
             const opener = { element: doc.activeElement, id: doc.activeElement?.id, worldPath: state.worldPath,
                 generation, single, activeId: state.activeId, rowId: selected[0] };
-            const request = { worldPath: state.worldPath, generation, single, controller: new AbortController() };
+            const request = { worldPath: state.worldPath, generation, single, startedAt: Date.now(), controller: new AbortController() };
             previewRequest?.controller.abort(); previewRequest = request;
             state.busy = true; state.previewNotice = "";
-            message(kind === "name" ? t("Namensänderung wird geprüft …") : kind === "inventory" ? t("Vorratsänderungen werden geprüft …") : t("Gesundheitsänderungen werden geprüft …")); render();
+            message(kind === "name" ? t("Namensänderung wird geprüft …") : kind === "inventory" ? t("Vorratsänderungen werden geprüft …")
+                : kind === "career" ? t("Beruf und Handelsstufe werden geprüft …") : t("Gesundheitsänderungen werden geprüft …")); render();
             try {
                 const data = await api.preview({ world_path: state.worldPath, world_revision: state.worldRevision,
                     selection: selected.map(id => ({ id, revision: rowById(id).revision })), changes,
                     server_guard_epoch: state.guardEpoch, server_guard_token: state.guardToken,
-                }, { signal: request.controller.signal });
+                }, { signal: request.controller.signal, operationContext: request.startedAt,
+                    // A retry can resume a completed read whose response was
+                    // lost. Its signed preview still has the original lifetime.
+                    onOperation: startedAt => { if (Number.isFinite(startedAt)) request.startedAt = startedAt; },
+                });
                 if (!current(request, previewRequest) || request.controller.signal.aborted) return;
                 if (getActiveView() !== "villagers" || (single && state.activeId !== selected[0])) { message(""); return; }
                 requireSuccess(data, t("Die Änderungsvorschau konnte nicht erstellt werden."));
@@ -650,6 +694,9 @@
                 // intact; the unchanged draft can be previewed again afterwards.
                 if (modalOpen()) { message(""); return; }
                 state.preview = data; state.previewSource = kind !== "health" ? kind : single ? "detail" : "batch"; state.previewNotice = "";
+                // Include read/poll latency conservatively. Reviewing or staging
+                // a signed preview must never restart its server-side lifetime.
+                state.previewExpiresAt = request.startedAt + (Number.isFinite(data.expires_in) ? Math.max(0, data.expires_in) : 600) * 1000;
                 previewOpener = opener;
                 view.renderPreview(data, state);
                 message("");
@@ -667,6 +714,11 @@
             updateContext();
             const preview = state.preview;
             if (!preview?.preview_token || !preview.change_count || state.busy || state.blockedReason || state.staleReason) return;
+            if (state.previewExpiresAt <= Date.now()) {
+                state.previewNotice = t("Die Änderungsvorschau ist ungültig oder abgelaufen. Bitte eine neue Vorschau erstellen.");
+                state.previewNoticeKind = "error";
+                view.renderPreview(preview, state); return;
+            }
             const rows = (preview.rows || []).filter(row => row.status === "changed").map(row => ({ ...row,
                 label: model.displayName(rowById(row.id) || row, state.preferences.aliases) }));
             const overlap = state.pending.some(entry => entry.rows.some(old => rows.some(row => row.id === old.id && row.kind === old.kind)));
@@ -678,14 +730,16 @@
             }
             const source = state.previewSource;
             const retained = captureDetailDraft().filter(input => source === "detail" ? !input.id.startsWith("villagerDetail")
-                : source === "inventory" ? !input.id.startsWith("villagerStock") : source === "name" ? input.id !== "villagerName" : true);
+                : source === "inventory" ? !input.id.startsWith("villagerStock") : source === "name" ? input.id !== "villagerName"
+                    : source === "career" ? !input.id.startsWith("villagerCareer") : true);
             state.pending.push({ token: preview.preview_token, worldPath: state.worldPath, rows,
                 itemLabels: Object.fromEntries((state.detail?.inventory?.allowed_items || []).map(item => [item.name, item.label])),
                 guardEpoch: state.guardEpoch, guardToken: state.guardToken,
-                expiresAt: Date.now() + (preview.expires_in || 600) * 1000 });
+                expiresAt: state.previewExpiresAt });
             if (source === "detail") state.detailDirty = false;
             else if (source === "inventory") state.inventoryDirty = false;
             else if (source === "name") state.nameDirty = false;
+            else if (source === "career") state.careerDirty = false;
             else { clearBatchFields(); state.selected.clear(); }
             invalidatePreview();
             if (state.detail) { view.renderDetail(state.detail, state); restoreDetailDraft(retained); }
@@ -772,6 +826,7 @@
         function resetRegionForm() {
             el("villagerRegionForm")?.reset();
             if (el("villagerRegionId")) el("villagerRegionId").value = "";
+            if (el("villagerRegionCoordinates")) el("villagerRegionCoordinates").open = false;
             regionBaseline = regionSignature();
             state.regionDirty = false;
             state.regionError = "";
@@ -802,7 +857,10 @@
             el("villagerRegionName")?.focus();
         }
 
-        function saveRegion() {
+        async function saveRegion() {
+            const worldPath = state.worldPath, requestGeneration = generation;
+            const restoreFocus = el("villagerRegionCoordinates")?.contains?.(doc.activeElement);
+            let cleared = false;
             try {
                 if (["MinX", "MaxX", "MinZ", "MaxZ", "MinY", "MaxY"].some(field => el(`villagerRegion${field}`)?.validity?.badInput)) {
                     throw new Error(t("Trage für jede verwendete Achse zwei gültige Koordinaten ein."));
@@ -810,14 +868,22 @@
                 const region = model.normalizeRegion(regionInputs());
                 const regions = [...state.preferences.regions.filter(item => item.id !== region.id), region];
                 const submitted = regionSignature();
-                return savePreferences({ ...state.preferences, regions }, () => {
-                    if (regionSignature() === submitted) resetRegionForm();
+                await savePreferences({ ...state.preferences, regions }, () => {
+                    if (regionSignature() === submitted) { resetRegionForm(); cleared = true; }
                     else if (value("villagerRegionId") === region.id) {
                         regionBaseline = regionSignature(region);
                         updateRegionDirty();
                     }
                 });
-            } catch (error) { reportError(error); render(); }
+                if (cleared && restoreFocus && requestGeneration === generation && worldPath === getWorldPath()
+                    && getActiveView() === "villagers" && state.regionsOpen && !modalOpen() && !canReceiveFocus(doc.activeElement)) {
+                    el("villagerRegionName")?.focus({ preventScroll: true });
+                }
+            } catch (error) {
+                state.regionError = error.message || t("Fehler");
+                if (value("villagerRegionName").trim() && el("villagerRegionCoordinates")) el("villagerRegionCoordinates").open = true;
+                render();
+            }
         }
 
         async function editRegion(id) {
@@ -864,9 +930,9 @@
         }
 
         function filteredRows() { return model.sortedRows(model.filterRows(state.rows, state.filters, state.preferences), state.sort, state.direction, state.preferences); }
-        function changeSelection(ids, selected) {
+        function changeSelection(ids, selected, { replace = false } = {}) {
             if (state.busy) return;
-            const next = new Set(state.selected);
+            const next = new Set(replace ? [] : state.selected);
             for (const id of ids) if (rowById(id)) { if (selected) next.add(id); else next.delete(id); }
             if (next.size > 1000) {
                 message(t("Pro Bearbeitung sind höchstens 1000 Dorfbewohner möglich. Grenze die Liste mit Filtern ein."), "warning"); render(); return;
@@ -929,6 +995,9 @@
             on("villagerSelectPage", "change", () => changeSelection(model.pageRows(filteredRows(), state.page, state.pageSize).rows.map(row => row.id), checked("villagerSelectPage")));
             on("villagerSelectFiltered", "click", () => changeSelection(filteredRows().map(row => row.id), true));
             on("villagerClearSelection", "click", () => changeSelection([...state.selected], false));
+            on("villagerMap", "villager-map-select", event => {
+                if (!state.scanning) changeSelection(event.detail.ids, true, { replace: true });
+            });
             on("villagerMapDimension", "change", () => { state.mapDimension = value("villagerMapDimension"); render(); });
             on("villagerMapPlayers", "change", () => { state.mapPlayerMode = value("villagerMapPlayers"); if (state.mapPlayerMode === "none") cancelMapPlayers(); render(); void loadMapPlayers(); });
             on("villagerMapToggle", "click", () => { state.mapOpen = !state.mapOpen; if (!state.mapOpen) cancelMapPlayers(); render(); void loadMapPlayers(); });
@@ -941,6 +1010,9 @@
             });
             on("villagerRegionsToggle", "click", () => { state.regionsOpen = !state.regionsOpen; render(); });
             on("villagerRegionForm", "submit", event => { event.preventDefault(); saveRegion(); });
+            el("villagerRegionForm")?.addEventListener("invalid", event => {
+                if (el("villagerRegionCoordinates")?.contains(event.target)) el("villagerRegionCoordinates").open = true;
+            }, true);
             on("villagerRegionReset", "click", resetRegion);
             on("villagerRegionUseSelection", "click", regionFromSelection);
             on("villagerBatchForm", "submit", event => { event.preventDefault(); preview(false); });
@@ -957,6 +1029,7 @@
                 if (event.target.id === "villagerDetailHealthForm") { event.preventDefault(); preview(true); }
                 if (event.target.id === "villagerInventoryForm") { event.preventDefault(); preview(true, "inventory"); }
                 if (event.target.id === "villagerNameForm") { event.preventDefault(); preview(true, "name"); }
+                if (event.target.id === "villagerCareerForm") { event.preventDefault(); preview(true, "career"); }
                 if (event.target.id === "villagerAliasForm") { event.preventDefault(); saveAlias(); }
             });
             on("villagersPanel", "input", event => {
@@ -972,6 +1045,7 @@
                 }
                 else if (["villagerBatchMax", "villagerBatchCurrent", "villagerBatchHeal"].includes(id)) updateHealthDirty(false);
                 else if (id === "villagerName") updateNameDirty();
+                else if (["villagerCareerProfession", "villagerCareerTier"].includes(id)) return;
                 else if (id === "villagerAlias") updateAliasDirty();
                 else if (event.target.closest?.("#villagerRegionForm")) { state.regionError = ""; updateRegionDirty(); }
                 else return;
@@ -979,6 +1053,13 @@
             });
             on("villagersPanel", "change", event => {
                 if (event.target.dataset.action === "select") changeSelection([event.target.dataset.id], event.target.checked);
+                if (["villagerCareerProfession", "villagerCareerTier"].includes(event.target.id)) {
+                    if (event.target.id === "villagerCareerProfession" && el("villagerCareerTier")) {
+                        el("villagerCareerTier").value = event.target.value === state.detail?.career?.profession
+                            ? String(state.detail.career.trade_tier ?? "") : "0";
+                    }
+                    updateCareerDirty(); invalidatePreview(); render(); onDraftChanged();
+                }
             });
             on("villagersPanel", "click", event => {
                 const button = event.target.closest?.("button");
@@ -991,6 +1072,7 @@
                     }
                     if (button.id === "villagerNameRemove") setNameDraft("");
                     if (button.id === "villagerNameReset") setNameDraft(state.detail?.name || "");
+                    if (button.id === "villagerCareerReset") resetCareer();
                     if (button.id === "villagerDetailReset") resetDetail();
                     if (button.id === "villagerInventoryReset") resetInventory();
                     if (button.id === "villagerDetailHealAction") healDetail();
@@ -1028,7 +1110,9 @@
                 else if (event.target?.closest?.("#villagerDetailHealthForm")) { if (state.detailDirty && state.activeId) preview(true); }
                 else if (event.target?.closest?.("#villagerInventoryForm")) { if (state.inventoryDirty && state.activeId) preview(true, "inventory"); }
                 else if (event.target?.closest?.("#villagerNameForm")) { if (state.nameDirty && state.activeId) preview(true, "name"); }
+                else if (event.target?.closest?.("#villagerCareerForm")) { if (state.careerDirty && state.activeId) preview(true, "career"); }
                 else if (state.nameDirty && state.activeId) preview(true, "name");
+                else if (state.careerDirty && state.activeId) preview(true, "career");
                 else if (state.detailDirty && state.activeId) preview(true);
                 else if (state.inventoryDirty && state.activeId) preview(true, "inventory");
                 else if (state.batchDirty && state.selected.size) preview(false);
@@ -1047,7 +1131,7 @@
 
         async function activate() { wire(); updateContext(); if (!state.loaded && !state.scanning) await scan(); }
         return { getPendingChanges: () => state.pending, clearPending, removePending, finalizePending, refreshAfterSave, rejectPending, activate, deactivate, updateContext, observeWorldStatus, scan, cancelScan, openDetail, closeDetail, preview, save, savePreferences,
-            resetBatch, resetDetail, resetInventory, healDetail,
+            resetBatch, resetDetail, resetInventory, resetCareer, healDetail,
             hasPendingChanges, isSaving: () => state.saving, hasScan: () => state.loaded && !state.staleReason,
             handleKeyboard, wire, getState: () => state };
     }

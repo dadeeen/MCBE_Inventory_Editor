@@ -281,6 +281,7 @@ for (const [width, locale] of [[1440, "de"], [390, "de"], [1440, "en"], [390, "e
         await expect(action).toBeFocused();
         await expect(error).toHaveText(locale === "de" ? "Markiere zuerst Dorfbewohner." : "Select villagers first.");
         await page.locator("#villagerRegionName").fill("Dorf 1");
+        await page.locator("#villagerRegionCoordinates > summary").click();
         await page.locator("#villagerRegionMinX").fill("-20");
         await page.locator("#villagerSelectFiltered").click();
         await action.click();
@@ -364,7 +365,7 @@ for (const [width, locale] of [[1440, "de"], [390, "de"], [1440, "en"], [390, "e
         await expect(marker).toHaveCSS("background-color", "rgb(75, 159, 255)");
         await marker.click();
         expect(h.details).toHaveLength(0);
-        await expect(page.locator("#villagerMapPlayerInfo")).toContainText("Testspieler · 10 / 64 / -10");
+        await expect(page.locator("#villagerMapPlayerTooltip")).toContainText("Testspieler · 10 / 64 / -10");
         await expect(page.locator("#villagerMapPlayerHint")).toBeHidden();
         await expect(page.locator("#villagersPanel .villager-notice.warning:visible")).toHaveCount(1);
         await page.locator("#villagerMapDimension").selectOption("1");
@@ -429,8 +430,10 @@ test("lazy player positions add map dimensions without resident or region refere
     expect(errors).toEqual([]);
 });
 
-for (const customView of [false, true]) {
-    test(`lazy player positions ${customView ? "preserve a manually chosen" : "fit an untouched"} map view`, async ({ page }) => {
+for (const interaction of ["untouched", "pan", "selection", "selection-fit", "selection-home"]) {
+    const customView = interaction !== "untouched";
+    const areaSelection = interaction.startsWith("selection");
+    test(`lazy player positions ${areaSelection ? `preserve a map area selection (${interaction})` : customView ? "preserve a manually chosen map view" : "fit an untouched map view"}`, async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1050 });
         const errors = collectBrowserErrors(page);
         let release;
@@ -447,10 +450,16 @@ for (const customView of [false, true]) {
         await page.locator("#villagerMapPlayers").selectOption("all");
         await expect(page.locator("#villagerMapPlayerStatus")).toHaveText("Spielerpositionen werden geladen …");
         const map = page.locator("#villagerMap");
-        if (customView) {
+        if (interaction === "pan") {
             await map.focus();
             await page.keyboard.press("+");
             await page.keyboard.press("ArrowRight");
+        } else if (areaSelection) {
+            await page.locator("#villagerMapSelectArea").click();
+            if (interaction === "selection-fit") await page.locator("#villagerMapFit").click();
+            if (interaction === "selection-home") await map.press("Home");
+            const a = await mapAreaPoint(page, .3, .3);
+            await page.mouse.click(a.x, a.y);
         }
         const coordinates = await page.locator("#villagerMapCoordinates").textContent();
         release();
@@ -458,6 +467,11 @@ for (const customView of [false, true]) {
         if (customView) {
             await expect(page.locator("#villagerMapCoordinates")).toHaveText(coordinates);
             await expect(page.locator('.villager-map-player[data-player-key="distant-player"]')).toHaveCount(0);
+            if (areaSelection) {
+                const b = await mapAreaPoint(page, .7, .7);
+                await page.mouse.click(b.x, b.y);
+                await expect(page.locator(".villager-map-point.selected")).toHaveCount(3);
+            }
             await page.locator("#villagerMapFit").click();
         } else {
             await expect(page.locator("#villagerMapCoordinates")).not.toHaveText(coordinates);
@@ -532,6 +546,61 @@ async function openVillagerStock(page, id = "actor:a") {
     await page.locator("#villagerInventoryDetails > summary").click();
     await expect(page.locator("#villagerInventoryForm")).toBeVisible();
 }
+
+test("villager career controls preview a new profession and tier while preserving a separate health draft", async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    const resident = { ...manyVillagers(1)[0], trade_tier: 4, trade_tier_label: "Meister", trade_experience: 250,
+        career: { editable: true, profession: "librarian", trade_tier: 4, trade_experience: 250,
+            profession_editable: true, tier_editable: true, can_set_tier_on_profession_change: true,
+            professions: [{ id: "unemployed", label: "Arbeitslos", job_site: "Kein Arbeitsplatz" },
+                { id: "librarian", label: "Bibliothekar", job_site: "Lesepult" }, { id: "farmer", label: "Farmer", job_site: "Komposter" }],
+            tiers: ["Neuling", "Lehrling", "Geselle", "Experte", "Meister"].map((label, value) => ({ value, label })),
+        } };
+    const h = await openVillagerFixture(page, { rows: [resident] }), previews = [];
+    await page.route("**/api/villagers/preview", route => {
+        previews.push(route.request().postDataJSON());
+        return route.fulfill({ json: { success: true, change_count: 1, preview_token: "career-preview", rows: [{ id: resident.id, kind: "career", status: "changed",
+            before: { profession: "librarian", profession_label: "Bibliothekar", trade_tier: 4, trade_tier_label: "Meister", trade_experience: 250 },
+            after: { profession: "farmer", profession_label: "Farmer", trade_tier: 4, trade_tier_label: "Meister", trade_experience: 250 },
+            warnings: ["Der Berufswechsel verwirft die bisherigen Handelsangebote."] }] } });
+    });
+    await page.locator("#villagerRows .villager-name").click();
+    await page.locator("#villagerDetailCurrent").fill("17");
+    await page.locator("#villagerCareerDetails > summary").click();
+    await expect(page.locator("#villagerCareerProfession")).toHaveValue("librarian");
+    await expect(page.locator("#villagerCareerTier")).toHaveValue("4");
+    await expect(page.locator("#villagerCareerPreview")).toBeDisabled();
+    await page.locator("#villagerCareerProfession").selectOption("unemployed");
+    await expect(page.locator("#villagerCareerTier")).toBeDisabled();
+    await expect(page.locator("#villagerCareerTier option:checked")).toHaveText("Keine Handelsstufe");
+    await page.locator("#villagerCareerReset").click();
+    await expect(page.locator("#villagerCareerProfession")).toHaveValue("librarian");
+    await expect(page.locator("#villagerCareerTier")).toHaveValue("4");
+    await page.locator("#villagerCareerProfession").selectOption("unemployed");
+    await page.locator("#villagerCareerProfession").selectOption("librarian");
+    await expect(page.locator("#villagerCareerTier")).toHaveValue("4");
+    await expect(page.locator("#villagerCareerPreview")).toBeDisabled();
+    await page.locator("#villagerCareerProfession").selectOption("farmer");
+    await expect(page.locator("#villagerCareerTier")).toBeEnabled();
+    await expect(page.locator("#villagerCareerTier")).toHaveValue("0");
+    await page.locator("#villagerCareerTier").selectOption("4");
+    await page.locator("#villagerCareerPreview").click();
+    await expect(page.locator("#villagerPreviewRows")).toContainText("Bibliothekar · Meister");
+    await expect(page.locator("#villagerPreviewRows")).toContainText("Farmer · Meister");
+    await expect(page.locator("#villagerPreviewCareerNotes")).toContainText("verwirft die bisherigen Handelsangebote");
+    expect(previews[0].changes).toEqual({ career: { profession: "farmer", trade_tier: 4 } });
+    expect(previews[0].selection).toEqual([{ id: resident.id, revision: resident.revision }]);
+    await page.locator("#villagerSave").click();
+    await expect(page.locator("#villagerPreviewDialog")).toBeHidden();
+    await expect(page.locator("#villagerDetailCurrent")).toHaveValue("17");
+    await expect(page.locator("#villagerCareerPreview")).toBeDisabled();
+    await page.locator("#villagerReviewPending").click();
+    await expect(page.locator("#saveWorkflowPanel")).toContainText("Beruf und Handelsstufe");
+    await expect(page.locator("#saveWorkflowPanel")).toContainText("Bibliothekar · Meister");
+    await expect(page.locator("#saveWorkflowPanel")).toContainText("Farmer · Meister");
+    expect(h.writes).toHaveLength(0);
+    expect(errors).toEqual([]);
+});
 
 test("villager equipment shows seven stored empty slots as zero occupied in separate armor and hand groups", async ({ page }) => {
     const h = await openVillagerFixture(page, { equipment: villagerEquipmentFixture() });
@@ -966,6 +1035,7 @@ for (const layout of ["classic", "studio", "focus"]) {
         await page.locator("#villagerRegionsToggle").click();
         await expect(page.locator("#villagerRegionsToggle")).toHaveAttribute("aria-expanded", "true");
         await page.locator("#villagerRegionName").fill("Hauptdorf");
+        await page.locator("#villagerRegionCoordinates > summary").click();
         for (const [field, value] of Object.entries({ MinX: "-20", MaxX: "20", MinZ: "-20", MaxZ: "20" })) {
             await page.locator(`#villagerRegion${field}`).fill(value);
         }
@@ -1014,6 +1084,233 @@ function mapVillagers() {
     return manyVillagers(5).map((row, index) => ({ ...row, dimension: 0,
         position: { x: [-80, -20, 0, 20, 80][index], y: 64, z: [-80, -20, 0, 20, 80][index] } }));
 }
+
+async function mapAreaPoint(page, x, y) {
+    const map = page.locator("#villagerMap");
+    await map.scrollIntoViewIfNeeded();
+    const box = await map.boundingBox();
+    return { x: box.x + box.width * x, y: box.y + box.height * y };
+}
+
+async function dragMapArea(page, start = [.3, .3], end = [.7, .7]) {
+    await page.locator("#villagerMapSelectArea").click();
+    const a = await mapAreaPoint(page, ...start), b = await mapAreaPoint(page, ...end);
+    await page.mouse.move(a.x, a.y); await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
+}
+
+for (const width of [1440, 390]) {
+    test(`villager map rectangle replaces selection and creates a compact region at ${width}px`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width, height: 1050 });
+        const errors = collectBrowserErrors(page);
+        const rows = mapVillagers();
+        rows.push({ ...rows[2], id: "other-dimension", dimension: 1 });
+        const h = await openVillagerFixture(page, { rows });
+        await page.locator('#villagerRows tr[data-villager-id="actor:resident-1"] input[type="checkbox"]').check();
+        await page.locator("#villagerMapToggle").click();
+        await dragMapArea(page);
+        await expect(page.locator(".villager-map-point.selected")).toHaveCount(3);
+        await expect(page.locator('.villager-map-point[data-id="actor:resident-1"]')).not.toHaveClass(/selected/);
+        await expect(page.locator("#villagerMapSelectArea")).toHaveAttribute("aria-pressed", "false");
+        expect(h.details).toHaveLength(0);
+        await mapScreenshot(page, testInfo, `villager-map-area-${width}.png`);
+        await page.locator("#villagerRegionsToggle").click();
+        await expect(page.locator("#villagerRegionCoordinates")).toHaveJSProperty("open", false);
+        await expect(page.locator("#villagerRegionList")).toBeHidden();
+        await page.locator("#villagerRegionUseSelection").click();
+        await page.locator("#villagerRegionName").fill("Kartenauswahl");
+        await expect(page.locator("#villagerRegionBounds")).toContainText("X -20 … 20 · Z -20 … 20");
+        await expect(page.locator("#villagerRegionCoordinates")).toHaveJSProperty("open", false);
+        const directory = process.env.MCBE_MAP_QA_DIR;
+        if (directory) await fs.mkdir(directory, { recursive: true });
+        await page.locator("#villagerRegionsPanel").screenshot({ path: directory ? path.join(directory, `villager-region-${width}.png`) : testInfo.outputPath(`villager-region-${width}.png`) });
+        await page.locator("#villagerRegionSave").click();
+        await expect(page.locator("#villagerRegionList")).toContainText("Kartenauswahl");
+        expect(h.preferencesWrites.at(-1).regions).toEqual([expect.objectContaining({ name: "Kartenauswahl", dimension: 0, min_x: -20, max_x: 20, min_z: -20, max_z: 20 })]);
+        expect(h.writes).toHaveLength(0);
+        expect(errors).toEqual([]);
+    });
+}
+
+test("villager map two-corner selection respects filters and cancels without changing the selection", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    const h = await openVillagerFixture(page, { rows: mapVillagers() });
+    await page.locator("#villagerProfession").selectOption("farmer");
+    await page.locator("#villagerMapToggle").click();
+    const toggle = page.locator("#villagerMapSelectArea"), map = page.locator("#villagerMap"), box = page.locator("#villagerMapSelection");
+    await toggle.click();
+    let a = await mapAreaPoint(page, .02, .02), b = await mapAreaPoint(page, .98, .98);
+    await page.mouse.click(a.x, a.y);
+    await expect(box).toBeVisible();
+    await page.mouse.click(b.x, b.y);
+    await expect(page.locator(".villager-map-point.selected")).toHaveCount(2);
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await toggle.click();
+    a = await mapAreaPoint(page, .3, .3);
+    await page.mouse.click(a.x, a.y);
+    await map.press("Escape");
+    await expect(box).toBeHidden();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(".villager-map-point.selected")).toHaveCount(2);
+    await toggle.click();
+    await page.mouse.click(a.x, a.y);
+    await page.locator("#villagerMapZoomIn").click();
+    await expect(box).toBeHidden();
+    await page.locator("#villagerMapDimension").selectOption("1");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await page.locator("#villagerMapDimension").selectOption("0");
+    await toggle.click();
+    await page.locator("#villagerMapToggle").click();
+    await page.locator("#villagerMapToggle").click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(".villager-map-point.selected")).toHaveCount(2);
+    expect(h.details).toHaveLength(0);
+    expect(h.writes).toHaveLength(0);
+});
+
+test("villager map area limit includes undrawn markers and preserves the previous selection", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1050 });
+    const rows = manyVillagers(1001).map(row => ({ ...row, dimension: 0, position: { x: 0, y: 64, z: 0 } }));
+    const h = await openVillagerFixture(page, { rows });
+    await page.locator('#villagerRows tr[data-villager-id="actor:resident-1"] input[type="checkbox"]').check();
+    await page.locator("#villagerMapToggle").click();
+    await expect(page.locator(".villager-map-point")).toHaveCount(1000);
+    await dragMapArea(page);
+    await expect(page.locator("#villagerStatus")).toContainText("höchstens 1000");
+    await expect(page.locator(".villager-map-point.selected")).toHaveCount(1);
+    expect(h.writes).toHaveLength(0);
+});
+
+for (const width of [1440, 390]) {
+    test(`villager map dimensions and player details keep card height stable at ${width}px`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width, height: 1050 });
+        const h = await openVillagerFixture(page, { rows: mapVillagers(), withPlayer: true });
+        h.mapPlayers[0].label = "player_server_long-technical-identifier-without-a-display-name";
+        await page.locator("#villagerMapToggle").click();
+        const panel = page.locator("#villagerMapPanel"), tooltip = page.locator("#villagerMapPlayerTooltip");
+        const height = (await panel.boundingBox()).height;
+        await expect(tooltip).toBeHidden();
+        await page.locator(".villager-map-player").click();
+        await expect(tooltip).toBeVisible();
+        expect((await panel.boundingBox()).height).toBeCloseTo(height, 0);
+        const mapBox = await page.locator("#villagerMap").boundingBox(), tipBox = await tooltip.boundingBox();
+        expect(tipBox.x).toBeGreaterThanOrEqual(mapBox.x);
+        expect(tipBox.x + tipBox.width).toBeLessThanOrEqual(mapBox.x + mapBox.width);
+        for (const dimension of ["1", "2", "0"]) {
+            await page.locator("#villagerMapDimension").selectOption(dimension);
+            expect((await panel.boundingBox()).height).toBeCloseTo(height, 0);
+            await expect(tooltip).toBeHidden();
+        }
+        await mapScreenshot(page, testInfo, `villager-map-stable-${width}.png`);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+}
+
+test("compact region form reveals invalid coordinates and keeps manual entry available", async ({ page }) => {
+    const errors = collectBrowserErrors(page);
+    const h = await openVillagerFixture(page);
+    await page.locator("#villagerRegionsToggle").click();
+    await page.locator("#villagerRegionName").fill("Manuell");
+    await page.locator("#villagerRegionSave").click();
+    await expect(page.locator("#villagerRegionCoordinates")).toHaveJSProperty("open", true);
+    await expect(page.locator("#villagerRegionMinX")).toBeFocused();
+    expect(h.preferencesWrites).toHaveLength(0);
+    for (const [field, value] of Object.entries({ MinX: "0", MaxX: "10", MinZ: "0", MaxZ: "10", MinY: "60", MaxY: "70" })) {
+        await page.locator(`#villagerRegion${field}`).fill(value);
+    }
+    await page.locator("#villagerRegionCoordinates > summary").click();
+    await expect(page.locator("#villagerRegionBounds")).toContainText("Y 60 … 70");
+    await page.locator("#villagerRegionSave").click();
+    await expect(page.locator("#villagerRegionList")).toContainText("Manuell");
+    expect(h.preferencesWrites[0].regions[0]).toMatchObject({ min_y: 60, max_y: 70 });
+    expect(errors).toEqual([]);
+});
+
+for (const invalid of ["reversed", "partial-height"]) {
+    test(`compact region validation reveals ${invalid} bounds beside the form`, async ({ page }) => {
+        const h = await openVillagerFixture(page);
+        await page.locator("#villagerRegionsToggle").click();
+        await page.locator("#villagerRegionName").fill("Prüfdorf");
+        await page.locator("#villagerRegionCoordinates > summary").click();
+        for (const [field, value] of Object.entries({ MinX: invalid === "reversed" ? "20" : "0", MaxX: "10", MinZ: "0", MaxZ: "10" })) {
+            await page.locator(`#villagerRegion${field}`).fill(value);
+        }
+        if (invalid === "partial-height") await page.locator("#villagerRegionMinY").fill("60");
+        await page.locator("#villagerRegionCoordinates > summary").click();
+        await page.locator("#villagerRegionSave").click();
+        await expect(page.locator("#villagerRegionError")).toContainText(invalid === "reversed" ? "kleinste Koordinate" : "zwei gültige Koordinaten");
+        await expect(page.locator("#villagerRegionCoordinates")).toHaveJSProperty("open", true);
+        await expect(page.locator("#villagerRegionName")).toHaveValue("Prüfdorf");
+        expect(h.preferencesWrites).toHaveLength(0);
+        await page.locator(invalid === "reversed" ? "#villagerRegionMinX" : "#villagerRegionMaxY").fill(invalid === "reversed" ? "0" : "70");
+        await expect(page.locator("#villagerRegionError")).toBeHidden();
+        await page.locator("#villagerRegionSave").click();
+        await expect(page.locator("#villagerRegionList")).toContainText("Prüfdorf");
+    });
+}
+
+for (const focusElsewhere of [false, true]) {
+    test(`compact region keyboard save ${focusElsewhere ? "preserves a new focus chosen while saving" : "restores a visible focus after collapsing coordinates"}`, async ({ page }) => {
+        await openVillagerFixture(page);
+        let release;
+        const waiting = new Promise(resolve => { release = resolve; });
+        await page.route("**/api/villagers/preferences", async route => { await waiting; await route.fallback(); });
+        await page.locator("#villagerRegionsToggle").click();
+        await page.locator("#villagerRegionName").fill("Tastaturdorf");
+        await page.locator("#villagerRegionCoordinates > summary").click();
+        for (const [field, value] of Object.entries({ MinX: "0", MaxX: "10", MinZ: "0", MaxZ: "10", MinY: "60", MaxY: "70" })) {
+            await page.locator(`#villagerRegion${field}`).fill(value);
+        }
+        await page.locator("#villagerRegionMaxY").press("ControlOrMeta+s");
+        await expect(page.locator("#villagerRegionName")).toBeDisabled();
+        if (focusElsewhere) await page.locator("#villagerSearch").focus();
+        release();
+        await expect(page.locator("#villagerRegionList")).toContainText("Tastaturdorf");
+        await expect(page.locator("#villagerRegionCoordinates")).toHaveJSProperty("open", false);
+        await expect(page.locator(focusElsewhere ? "#villagerSearch" : "#villagerRegionName")).toBeFocused();
+    });
+}
+
+for (const command of ["wheel", "Home", "ArrowRight"]) {
+    test(`villager map ${command} cancels a held rectangle without a later camera jump`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1050 });
+        const h = await openVillagerFixture(page, { rows: mapVillagers() });
+        await page.locator("#villagerMapToggle").click();
+        await page.locator("#villagerMapSelectArea").click();
+        const a = await mapAreaPoint(page, .3, .3), b = await mapAreaPoint(page, .7, .7);
+        await page.mouse.move(a.x, a.y); await page.mouse.down();
+        await page.mouse.move(b.x, b.y, { steps: 8 });
+        await expect(page.locator("#villagerMapSelection")).toBeVisible();
+        if (command === "wheel") await page.mouse.wheel(0, -150);
+        else await page.keyboard.press(command);
+        await expect(page.locator("#villagerMapSelection")).toBeHidden();
+        const coordinates = await page.locator("#villagerMapCoordinates").textContent();
+        await page.mouse.move(b.x + 1, b.y + 1);
+        await expect(page.locator("#villagerMapCoordinates")).toHaveText(coordinates);
+        await page.mouse.up();
+        await expect(page.locator(".villager-map-point.selected")).toHaveCount(0);
+        expect(h.details).toHaveLength(0);
+        await page.locator("#villagerMap").press("Escape");
+        await page.locator("#villagerMapFit").click();
+        await dragMapArea(page);
+        await expect(page.locator(".villager-map-point.selected")).toHaveCount(3);
+    });
+}
+
+test("villager map cancels an unfinished area when leaving the workspace", async ({ page }) => {
+    const h = await openVillagerFixture(page, { layout: "studio", rows: mapVillagers(), withPlayer: true });
+    await page.locator("#villagerMapToggle").click();
+    await page.locator("#villagerMapSelectArea").click();
+    const a = await mapAreaPoint(page, .3, .3);
+    await page.mouse.click(a.x, a.y);
+    await expect(page.locator("#villagerMapSelection")).toBeVisible();
+    await page.locator('.app-workflow-nav [data-workflow-view="player-edit"]').click();
+    await page.locator('.app-workflow-nav [data-workflow-view="villagers"]').click();
+    await expect(page.locator("#villagerMapSelectArea")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("#villagerMapSelection")).toBeHidden();
+    await expect(page.locator(".villager-map-point.selected")).toHaveCount(0);
+    expect(h.writes).toHaveLength(0);
+});
 
 async function mapPointCenter(locator) {
     const bounds = await locator.boundingBox();
@@ -1109,7 +1406,9 @@ test("villager map player modes use saved scan positions and separate dimensions
     await expect(page.locator("#villagerMapPlayers")).toHaveValue("selected");
     await expect(markers).toHaveCount(1);
     await expect(markers.first()).toHaveAttribute("aria-label", /Testspieler/);
-    const playerInfo = page.locator("#villagerMapPlayerInfo");
+    const playerInfo = page.locator("#villagerMapPlayerTooltip");
+    await expect(playerInfo).toBeHidden();
+    await markers.first().focus();
     await expect(playerInfo).toBeVisible();
     await expect(playerInfo).toContainText("Testspieler · 0 / 64 / 0");
     const savedPosition = await markers.first().getAttribute("aria-label");
@@ -1147,6 +1446,7 @@ test("villager map player modes use saved scan positions and separate dimensions
         server_guard_token: "map-new-server-state", server_guard_epoch: 2 }, server_guard_token: "map-new-server-state", server_guard_epoch: 2 }));
     await expect(page.locator("#villagerStale")).toBeVisible();
     await expect(markers).toHaveCount(2);
+    await markers.first().click();
     await expect(playerInfo).toBeVisible();
     expect(h.playerWrites).toHaveLength(0);
     expect(h.writes).toHaveLength(0);
@@ -1155,6 +1455,39 @@ test("villager map player modes use saved scan positions and separate dimensions
 
 test.describe("touch villager map", () => {
     test.use({ hasTouch: true, isMobile: true, viewport: { width: 768, height: 1024 } });
+    test("area selection supports taps and dragging while cancellation and pinch leave residents unchanged", async ({ page, context }) => {
+        const h = await openVillagerFixture(page, { rows: mapVillagers() });
+        await page.locator("#villagerMapToggle").click();
+        await page.locator("#villagerMapSelectArea").click();
+        const a = await mapAreaPoint(page, .3, .3), b = await mapAreaPoint(page, .7, .7);
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 1, ...a }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 1, ...b }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+        await expect(page.locator("#villagerMapSelection")).toBeHidden();
+        await expect(page.locator(".villager-map-point.selected")).toHaveCount(0);
+        const center = await mapAreaPoint(page, .5, .5);
+        const fingers = radius => [-1, 1].map((sign, index) => ({ id: index + 1, x: center.x + sign * radius, y: center.y }));
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: fingers(35) });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: fingers(65) });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await expect(page.locator(".villager-map-point.selected")).toHaveCount(0);
+        await expect(page.locator("#villagerMapSelection")).toBeHidden();
+        await page.locator("#villagerMapFit").click();
+        await page.touchscreen.tap(a.x, a.y);
+        await page.touchscreen.tap(b.x, b.y);
+        await expect(page.locator(".villager-map-point.selected")).toHaveCount(3);
+        await expect(page.locator("#villagerMapSelectArea")).toHaveAttribute("aria-pressed", "false");
+        await page.locator("#villagerMapSelectArea").click();
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ id: 1, ...a }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ id: 1, ...b }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+        await expect(page.locator(".villager-map-point.selected")).toHaveCount(3);
+        await expect(page.locator("#villagerMapSelectArea")).toHaveAttribute("aria-pressed", "false");
+        expect(h.details).toHaveLength(0);
+        expect(h.writes).toHaveLength(0);
+        await cdp.detach();
+    });
     test("two fingers zoom and pan without activating a resident", async ({ page, context }, testInfo) => {
         const errors = collectBrowserErrors(page);
         const h = await openVillagerFixture(page, { rows: mapVillagers(), withPlayer: true, mapPlayers: [
@@ -1187,7 +1520,7 @@ test.describe("touch villager map", () => {
         await page.locator("#villagerMapFit").click();
         await page.locator("#villagerMapPlayers").selectOption("all");
         await page.locator('.villager-map-player[data-player-key="tablet-neighbor"]').tap();
-        await expect(page.locator("#villagerMapPlayerInfo")).toContainText("Tablet-Nachbarin · 50 / 66 / -25");
+        await expect(page.locator("#villagerMapPlayerTooltip")).toContainText("Tablet-Nachbarin · 50 / 66 / -25");
         expect(h.details).toHaveLength(0);
         await mapScreenshot(page, testInfo, "villager-map-tablet-touch.png");
         await cdp.detach();
@@ -1230,7 +1563,7 @@ test("empty English villager map explains missing positions and exposes translat
     await expect(page.locator("#villagerMapEmpty")).toBeVisible();
     await expect(page.locator("#villagerMapEmpty")).toHaveText("No matching coordinates in this dimension.");
     await expect(page.locator(".villager-map-point, .villager-map-player")).toHaveCount(0);
-    await expect(page.locator("#villagerMapPlayerInfo")).toBeHidden();
+    await expect(page.locator("#villagerMapPlayerTooltip")).toBeHidden();
     await expect(page.locator("#villagerMapPlayerHint")).toContainText("No selected player");
     await expect(page.locator("#villagerMapFit")).toHaveText("Show all");
     await expect(page.locator("#villagerMapScale")).toContainText("Grid:");
@@ -1263,7 +1596,7 @@ for (const [layout, width] of [["classic", 1440], ["studio", 768], ["focus", 320
             page: document.documentElement.scrollWidth, viewport: window.innerWidth }));
         expect(widths.page).toBeLessThanOrEqual(widths.viewport + 1);
         expect(widths.map).toBeGreaterThan(180);
-        for (const id of ["villagerMapZoomIn", "villagerMapZoomOut", "villagerMapFit", "villagerMapPlayers", "villagerMapDimension"]) {
+        for (const id of ["villagerMapZoomIn", "villagerMapZoomOut", "villagerMapSelectArea", "villagerMapFit", "villagerMapPlayers", "villagerMapDimension"]) {
             const control = page.locator(`#${id}`);
             await expect(control).toBeVisible();
             const bounds = await control.boundingBox();
@@ -1590,6 +1923,7 @@ test("deleting a saved region keeps the custom dimension of another unsaved regi
     const h = await openVillagerFixture(page, { preferences: { regions: [region] } });
     await page.locator("#villagerRegionsToggle").click();
     await page.locator("#villagerRegionName").fill("Neues Dorf");
+    await page.locator("#villagerRegionCoordinates > summary").click();
     await page.locator("#villagerRegionDimension").selectOption("7");
     for (const [field, value] of Object.entries({ MinX: "20", MaxX: "30", MinZ: "40", MaxZ: "50" })) {
         await page.locator(`#villagerRegion${field}`).fill(value);
@@ -1625,13 +1959,14 @@ test("keyboard shortcuts reject incomplete number text without dropping health o
     await expect(page.locator("#villagerPreviewDialog")).not.toBeVisible();
     expect(h.previews).toHaveLength(0);
     await page.locator("#villagerRegionsToggle").click();
+    await page.locator("#villagerRegionCoordinates > summary").click();
     for (const [field, value] of [["Name", "Town"], ["MinX", "0"], ["MaxX", "10"], ["MinZ", "0"], ["MaxZ", "10"]]) {
         await page.locator(`#villagerRegion${field}`).fill(value);
     }
     await page.locator("#villagerRegionMinY").press("-");
     expect(await page.locator("#villagerRegionMinY").evaluate(input => input.validity.badInput)).toBe(true);
     await page.locator("#villagerRegionMinY").press("ControlOrMeta+s");
-    await expect(page.locator("#villagerStatus")).toContainText("Trage für jede verwendete Achse zwei gültige Koordinaten ein.");
+    await expect(page.locator("#villagerRegionError")).toContainText("Trage für jede verwendete Achse zwei gültige Koordinaten ein.");
     expect(h.preferencesWrites).toHaveLength(0);
     await expect(page.locator("#villagerRegionName")).toHaveValue("Town");
     await expect(page.locator("#villagerRegionDirty")).toBeVisible();
@@ -2311,3 +2646,39 @@ test("an unchanged stored name with whitespace does not become a draft after ano
     await expect(page.locator("#villagerNamePreview")).toBeDisabled();
     expect(h.previews).toHaveLength(1);
 });
+
+for (const [width, locale] of [[1440, "de"], [390, "de"], [1440, "en"], [390, "en"]]) {
+    test(`career preview keeps consequences readable at ${width}px in ${locale}`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width, height: 1000 });
+        const dictionary = JSON.parse(await fs.readFile(path.resolve("static/i18n/en.json"), "utf8"));
+        const t = key => locale === "en" ? dictionary[key] || key : key;
+        const resident = { ...manyVillagers(1, locale)[0], trade_tier: 4, trade_tier_label: t("Meister"), trade_experience: 250,
+            career: { editable: true, profession: "librarian", trade_tier: 4, trade_experience: 250,
+                profession_editable: true, tier_editable: true, can_set_tier_on_profession_change: true,
+                professions: [{ id: "librarian", label: t("Bibliothekar"), job_site: t("Lesepult") }, { id: "farmer", label: t("Farmer"), job_site: t("Komposter") }],
+                tiers: ["Neuling", "Lehrling", "Geselle", "Experte", "Meister"].map((label, value) => ({ value, label: t(label) })) } };
+        await openVillagerFixture(page, { rows: [resident], locale });
+        const warnings = [t("Der Berufswechsel setzt Handelsangebote und Handelserfahrung zurück."),
+            t("Arbeitsplatz im Spiel ersetzen: {job_site}.").replace("{job_site}", t("Komposter"))];
+        await page.route("**/api/villagers/preview", route => route.fulfill({ json: { success: true, change_count: 1, preview_token: "career-layout",
+            rows: [{ id: resident.id, kind: "career", status: "changed", warnings,
+                before: { profession_label: t("Bibliothekar"), trade_tier_label: t("Meister"), trade_experience: 250 },
+                after: { profession_label: t("Farmer"), trade_tier_label: t("Neuling"), trade_experience: 0 } }] } }));
+        await page.locator("#villagerRows .villager-name").click();
+        await page.locator("#villagerCareerDetails > summary").click();
+        await page.locator("#villagerCareerProfession").selectOption("farmer");
+        await page.locator("#villagerDetail").screenshot({ path: testInfo.outputPath("career-detail.png") });
+        await page.locator("#villagerCareerPreview").click();
+        const notes = page.locator("#villagerPreviewCareerNotes");
+        await expect(notes).toBeVisible();
+        await expect(notes.locator("p")).toHaveCount(1);
+        for (const warning of warnings) await expect(notes).toContainText(warning);
+        await expect(page.locator("#villagerPreviewRows")).not.toContainText(warnings[0]);
+        expect(await page.locator(".villager-preview-table-scroll").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+        await page.locator("#villagerPreviewDialog").screenshot({ path: testInfo.outputPath("career-preview.png") });
+        await page.locator("#villagerSave").click();
+        await expect(page.locator("#villagerPreviewDialog")).toBeHidden();
+        await page.locator("#villagerReviewPending").click();
+        await expect(page.locator("#saveWorkflowPanel")).toContainText(t("Beruf und Handelsstufe"));
+    });
+}
