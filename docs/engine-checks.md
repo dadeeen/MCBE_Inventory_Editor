@@ -299,7 +299,7 @@ observations and NBT; those synthetic tests are not evidence of a BDS run.
 
 `--suite villager_trades` is an explicit opt-in for career edits and persisted
 offers. The 24-resident reference above and the default `--suite all` cover
-different operations. Editor 0.9.0 with **BDS 1.26.61.1** verifies 19 cases,
+different operations. Editor 0.10.0 with **BDS 1.26.61.1** verifies 19 cases,
 36 backed-up saves and four post-edit reloads. All 36 no-op checks and
 36 stale-revision rejections pass. Synthetic oracle tests cover failure detection;
 they do not substitute for engine runs or player trades.
@@ -342,7 +342,7 @@ reports **`partial` (exit code 2)**, with `recipe_structure: pass` and
 `metadata: partial` in the public summary.
 
 Separate checks with a manually operated Windows Bedrock **1.26.6301.0** client,
-BDS **1.26.61.1** and editor **0.9.0** cover three residents across two edit/reload
+BDS **1.26.61.1** and editor **0.10.0** cover three residents across two edit/reload
 cycles: a farmer promoted to Master and demoted to Novice, a traded farmer changed
 to a Journeyman librarian, and an unemployed resident who naturally becomes a
 fletcher. All 22 purchases match the saved inventory. Higher offers unlock and
