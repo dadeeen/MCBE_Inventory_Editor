@@ -267,30 +267,13 @@ Player exports contain non-anonymized data. Keep them private and do not attach 
 
 ## Villagers
 
-The **Villagers** workspace requires only a loaded world. **Find villagers** starts a cancellable scan across all dimensions. Search, filter and sort the list to select residents or open their details. The last cached scan remains available read-only when the server runs or the world changes.
+The **Villagers** workspace scans a loaded world across all dimensions without requiring a selected player. Find residents through the list or select an area on the map. Named regions and aliases are editor settings; player markers show saved positions.
 
-- **Name in Minecraft** changes a modern villager's actual name. Names allow up to 80 Unicode characters without line breaks or control characters; **Remove name** clears the draft.
-- Change current and maximum health for one villager or up to **1,000 villagers** together. **Heal fully** uses the selected or existing maximum.
-- **Supplies** edits a modern villager's eight saved inventory slots. Choose food, seeds or bone meal, change quantities, or clear slots.
-- **Profession and trade tier** in the details provides two selectors for adult Vanilla villagers: one of the 13 professions or **Unemployed**, and **Novice** through **Master**. Use the existing preview and stage the change for saving.
+Edit Minecraft names, health and supplies, with health changes for up to **1,000 villagers** at once. Experimental profession and trade-tier editing supports adult vanilla villagers. Changing profession resets offers and trading experience; replace the workstation in Minecraft as shown in the preview. Individual offers, equipment and raw NBT are read-only.
 
-A tier change preserves existing offers. A profession change resets offers and trading experience and defaults to Novice; another target tier can be selected. Replace the old workstation in the game with the block shown in the preview. Changing a traded villager's profession overrides its existing profession commitment; a Novice without trading experience can change profession again through workstation reassignment.
+Review edits, choose **Stage changes** and apply them through **Save**, together with player and mount changes and one full-world backup. When the server runs or the world changes, the last scan remains readable but editing is blocked. Stop the server and scan again before editing.
 
-Children and nitwits remain protected. Active behavior packs, experimental trade rebalance and unsupported career data block profession/tier editing.
-
-Review each edit, then use **Stage changes** to add it to the central **Save** tab. Saving applies staged villager edits together with player changes and mounts, with one backup. Removing a staged edit leaves the world unchanged. Before editing an outdated scan, stop the server and scan again; expired previews must be created and staged again. Staging does not extend their lifetime.
-
-The map shows filtered residents in the selected dimension, with up to 1,000 markers per viewport. Use the mouse, touch or keyboard to pan and zoom. **Select area** replaces the selection with the residents inside a dragged rectangle; alternatively, click two corners. **Show all** fits the viewport.
-
-Blue diamonds show the selected player or all players and can be hidden. Their saved positions load when the map opens and remain visible while the server runs or the world changes; they are not live positions or unsaved editor changes. **Find player** centers the selected player and switches to their dimension. Loading errors offer a retry; rescanning refreshes the positions.
-
-**More settings** provides an optional **Editor alias**. An alias supplements the Minecraft name, or labels an unnamed resident. Under **Regions**, **Area from selection** takes the bounds of the selected residents. **Adjust coordinates** opens the fields for precise bounds, dimension and optional height. Aliases and regions have their own save buttons and are stored as editor settings without changing the world.
-
-Individual offers, equipment and raw NBT are read-only. Legacy records, ambiguous identities, missing chunk assignments and unsupported data remain visible where readable, with an explanation when editing is blocked. Scan diagnostics group matching findings and link to the affected villagers. Village membership requires an unambiguous saved assignment.
-
-Test edits on a world copy in Minecraft; game versions and add-ons can affect saved data. Tested versions and coverage are documented in the [engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-reference).
-
-Career editing is experimental. Representative client checks cover purchases, tier locks and profession changes, plus restocking by a farmer and a librarian. The [career test coverage](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-career-and-trade-offer-suite) lists the tested versions and remaining limits.
+Test changes on a world copy in Minecraft. The [engine checks](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-reference) describe tested versions, coverage and limitations.
 
 ## Experimental mounts
 

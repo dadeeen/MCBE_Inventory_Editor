@@ -267,30 +267,13 @@ Spielerexporte enthalten nicht anonymisierte Daten. Behandle sie als privat und 
 
 ## Dorfbewohner
 
-Der Reiter **Dorfbewohner** benötigt eine geladene Welt, aber keinen ausgewählten Spieler. **Dorfbewohner suchen** startet einen abbrechbaren Scan über alle Dimensionen. Suche, Filter und Sortierung helfen bei der Auswahl; ein Klick auf einen Bewohner öffnet seine Details. Bei laufendem Server oder veränderter Welt bleibt der letzte zwischengespeicherte Scanstand schreibgeschützt lesbar.
+Der Reiter **Dorfbewohner** durchsucht eine geladene Welt über alle Dimensionen, ohne einen ausgewählten Spieler zu benötigen. Finde Bewohner über die Liste oder wähle einen Bereich auf der Karte. Benannte Regionen und Aliase sind Editor-Einstellungen; Spielermarkierungen zeigen gespeicherte Positionen.
 
-- **Name in Minecraft** ändert den tatsächlichen Namen eines modernen Dorfbewohners. Erlaubt sind bis zu 80 Unicode-Zeichen ohne Zeilenumbrüche oder Steuerzeichen; **Name entfernen** leert den Entwurf.
-- Ändere aktuelle und maximale Lebenspunkte für einen Bewohner oder bis zu **1.000 Bewohner** gemeinsam. **Vollständig heilen** verwendet das gewählte oder vorhandene Maximum.
-- Unter **Vorräte** bearbeitest du die acht gespeicherten Inventarplätze eines modernen Dorfbewohners. Wähle Nahrung, Saatgut oder Knochenmehl, ändere Mengen oder leere Plätze.
-- **Beruf und Handelsstufe** in den Details bietet zwei Auswahlfelder für erwachsene Vanilla-Dorfbewohner: einen der 13 Berufe oder **Arbeitslos** sowie **Neuling** bis **Meister**. Prüfe die Änderung über die vorhandene Vorschau und merke sie zum Speichern vor.
+Bearbeite Minecraft-Namen, Lebenspunkte und Vorräte. Lebenspunkte lassen sich für bis zu **1.000 Bewohner** gemeinsam ändern. Die experimentelle Berufs-/Stufenbearbeitung unterstützt erwachsene Vanilla-Dorfbewohner. Ein Berufswechsel setzt Angebote und Handelserfahrung zurück; ersetze den Arbeitsplatz in Minecraft wie in der Vorschau angegeben. Einzelne Handelsangebote, Ausrüstung und NBT-Rohdaten sind schreibgeschützt.
 
-Ein Stufenwechsel erhält vorhandene Handelsangebote. Ein Berufswechsel setzt Angebote und Handelserfahrung zurück und beginnt standardmäßig als Neuling; eine andere Zielstufe ist wählbar. Ersetze den alten Arbeitsplatz im Spiel durch den in der Vorschau genannten Block. Ein Berufswechsel bereits gehandelter Bewohner hebt deren bestehende Berufsbindung auf; ein Neuling ohne Handelserfahrung kann seinen Beruf durch Arbeitsplatzwechsel erneut ändern.
+Prüfe die Änderungen und übernimm sie mit **Änderungen vormerken** in den Reiter **Speichern**. Dort werden sie gemeinsam mit Spieler- und Mount-Änderungen und einem vollständigen Welt-Backup gespeichert. Bei laufendem Server oder veränderter Welt bleibt der letzte Scan lesbar, die Bearbeitung ist gesperrt. Stoppe den Server und scanne erneut, bevor du Änderungen vornimmst.
 
-Kinder und Nichtsnutze bleiben geschützt. Aktive Behavior-Packs, der experimentelle Handelsausgleich und nicht unterstützte Berufsdaten sperren die Berufs-/Stufenbearbeitung.
-
-Prüfe die Änderungen und übernimm sie mit **Änderungen vormerken** in den zentralen Reiter **Speichern**. Beim Speichern werden vorgemerkte Dorfbewohner-, Spieler- und Mount-Änderungen gemeinsam mit einem Backup übernommen. Das Entfernen einer Vormerkung lässt die Welt unverändert. Vor Änderungen an einem veralteten Scanstand muss der Server gestoppt und erneut gescannt werden; abgelaufene Vorschauen müssen neu erstellt und vorgemerkt werden. Das Vormerken verlängert ihre Gültigkeit nicht.
-
-Die Karte zeigt gefilterte Bewohner in der gewählten Dimension mit bis zu 1.000 Punkten pro Ausschnitt. Sie lässt sich per Maus, Touch und Tastatur verschieben und zoomen. **Bereich auswählen** ersetzt die Auswahl durch die Bewohner im aufgezogenen Rechteck; alternativ lassen sich zwei Ecken anklicken. **Alle anzeigen** passt den Ausschnitt ein.
-
-Blaue Rauten zeigen wahlweise den ausgewählten Spieler oder alle Spieler und lassen sich ausblenden. Die gespeicherten Positionen werden beim Öffnen der Karte geladen und bleiben bei laufendem Server oder veränderter Welt sichtbar; sie zeigen weder Live-Positionen noch ungespeicherte Editoränderungen. **Zum Spieler** zentriert den ausgewählten Spieler und wechselt in dessen Dimension. Ladefehler bieten einen erneuten Versuch an; ein neuer Scan aktualisiert die Positionen.
-
-Unter **Weitere Einstellungen** findest du einen optionalen **Editor-Alias**. Ein Alias ergänzt den Minecraft-Namen oder dient bei unbenannten Bewohnern als Listenname. Unter **Regionen** übernimmt **Bereich aus Auswahl** die Grenzen der markierten Bewohner. **Koordinaten anpassen** öffnet die Felder für genaue Grenzen, Dimension und optionale Höhe. Aliase und Regionen haben eigene Speicherknöpfe und werden als Editor-Einstellungen gespeichert, ohne die Welt zu ändern.
-
-Einzelne Handelsangebote, Ausrüstung und NBT-Rohdaten sind schreibgeschützt. Alte Datensätze, unklare Identitäten, fehlende Chunk-Zuordnungen und nicht unterstützte Daten bleiben sichtbar, soweit sie lesbar sind; gesperrte Änderungen werden begründet. Die Scan-Diagnose bündelt gleiche Befunde und verlinkt die betroffenen Bewohner. Eine Dorfzugehörigkeit setzt eine eindeutige gespeicherte Zuordnung voraus.
-
-Prüfe Änderungen auf einer Weltkopie in Minecraft; Spielversionen und Add-ons können gespeicherte Daten beeinflussen. Getestete Versionen und Prüfumfang stehen in den [Engine-Prüfungen](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-reference).
-
-Die Berufs-/Stufenbearbeitung ist experimentell. Repräsentative Client-Tests decken Käufe, Stufensperren und Berufswechsel sowie das Nachfüllen bei einem Bauern und einem Bibliothekar ab. Der [Prüfumfang für Berufsänderungen](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-career-and-trade-offer-suite) nennt die geprüften Versionen und verbleibenden Grenzen.
+Prüfe Änderungen auf einer Weltkopie in Minecraft. Die [Engine-Prüfungen](https://github.com/dadeeen/MCBE_Inventory_Editor/blob/main/docs/engine-checks.md#villager-reference) beschreiben getestete Versionen, Prüfumfang und Grenzen.
 
 ## Experimentelle Mounts
 
