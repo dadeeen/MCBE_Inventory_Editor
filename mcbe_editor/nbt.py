@@ -345,7 +345,13 @@ class _Reader:
         return bytes(self.data[start : self.pos])
 
     def number(self, fmt):
-        return struct.unpack(self.endian + fmt, self.take(struct.calcsize(fmt)))[0]
+        size = struct.calcsize(fmt)
+        pos = self.pos
+        if size > len(self.data) - pos:
+            raise NBTError("Truncated NBT")
+        value = struct.unpack_from(self.endian + fmt, self.data, pos)[0]
+        self.pos = pos + size
+        return value
 
     def string(self):
         raw = self.take(self.number("H"))

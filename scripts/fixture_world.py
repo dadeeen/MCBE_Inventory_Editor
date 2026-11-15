@@ -227,6 +227,15 @@ def _write_zip_entry(out: zipfile.ZipFile, name: str, data: bytes | str) -> None
     out.writestr(info, data)
 
 
+def _distinct_paths(*paths: Path) -> tuple[Path, ...]:
+    resolved = tuple(path.expanduser().resolve() for path in paths)
+    for index, path in enumerate(resolved):
+        for other in resolved[:index]:
+            if path == other or (path.exists() and other.exists() and path.samefile(other)):
+                raise FixtureWorldError("Input, output ZIP and report must be different files; no files were changed.")
+    return resolved
+
+
 def make_scanner_fixture(input_zip: Path, output_zip: Path, *, level_name: str = "MCBE Test Fixture") -> dict[str, Any]:
     """Create a public, non-playable scanner fixture from a private world ZIP.
 
@@ -235,8 +244,8 @@ def make_scanner_fixture(input_zip: Path, output_zip: Path, *, level_name: str =
     and restore-preview tests, but not for player/NBT integration tests.
     """
 
+    input_zip, output_zip = _distinct_paths(input_zip, output_zip)
     report = inspect_world_zip(input_zip, include_private=False)
-    output_zip = output_zip.expanduser().resolve()
     output_zip.parent.mkdir(parents=True, exist_ok=True)
     root = DEFAULT_PUBLIC_ROOT
     kept: list[str] = []
@@ -279,8 +288,8 @@ def make_private_metadata_copy(input_zip: Path, output_zip: Path, *, level_name:
     data in LevelDB is intentionally untouched.
     """
 
+    input_zip, output_zip = _distinct_paths(input_zip, output_zip)
     report = inspect_world_zip(input_zip, include_private=False)
-    output_zip = output_zip.expanduser().resolve()
     output_zip.parent.mkdir(parents=True, exist_ok=True)
     root = DEFAULT_PRIVATE_ROOT
     with zipfile.ZipFile(input_zip) as archive, zipfile.ZipFile(output_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as out:
@@ -333,6 +342,9 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
+        # Validate every CLI destination before creating an archive or report.
+        # The inspect command's --output is a report rather than a world ZIP.
+        _distinct_paths(*(Path(value) for value in (args.world_zip, args.output, getattr(args, "report_output", None)) if value))
         if args.cmd == "inspect":
             report = inspect_world_zip(Path(args.world_zip), include_private=args.include_private)
             _write_json(report, Path(args.output) if args.output else None)

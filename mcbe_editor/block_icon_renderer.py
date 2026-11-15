@@ -577,6 +577,8 @@ def _draw_triangle(
     points: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
     uvs: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
     shade: float,
+    *,
+    exclude_first_edge: bool = False,
 ) -> None:
     (x0, y0), (x1, y1), (x2, y2) = points
     denominator = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
@@ -594,6 +596,10 @@ def _draw_triangle(
             w2 = 1 - w0 - w1
             if min(w0, w1, w2) < -1e-7:
                 continue
+            # A quad's second triangle shares its first edge (points 0/1)
+            # with the first triangle. Blend that edge only once.
+            if exclude_first_edge and w2 <= 1e-7:
+                continue
             u = w0 * uvs[0][0] + w1 * uvs[1][0] + w2 * uvs[2][0]
             v = w0 * uvs[0][1] + w1 * uvs[1][1] + w2 * uvs[2][1]
             _blend(canvas, x, y, texture.pixel(u, v), shade)
@@ -609,7 +615,7 @@ def _draw_quad(
     if uv is None:
         uv = [(0.0, 0.0), (1.0 - 1e-9, 0.0), (1.0 - 1e-9, 1.0 - 1e-9), (0.0, 1.0 - 1e-9)]
     _draw_triangle(canvas, texture, (points[0], points[1], points[2]), (uv[0], uv[1], uv[2]), shade)
-    _draw_triangle(canvas, texture, (points[0], points[2], points[3]), (uv[0], uv[2], uv[3]), shade)
+    _draw_triangle(canvas, texture, (points[0], points[2], points[3]), (uv[0], uv[2], uv[3]), shade, exclude_first_edge=True)
 
 
 def _draw_cuboid(
@@ -880,6 +886,8 @@ def _draw_model_triangle(
     points: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
     uvs: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
     shade: float,
+    *,
+    exclude_first_edge: bool = False,
 ) -> None:
     (x0, y0, z0), (x1, y1, z1), (x2, y2, z2) = points
     denominator = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
@@ -896,6 +904,8 @@ def _draw_model_triangle(
             weight1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denominator
             weight2 = 1 - weight0 - weight1
             if min(weight0, weight1, weight2) < -1e-7:
+                continue
+            if exclude_first_edge and weight2 <= 1e-7:
                 continue
             depth = weight0 * z0 + weight1 * z1 + weight2 * z2
             pixel_index = y * ICON_SIZE + x
@@ -919,7 +929,7 @@ def _draw_model_quad(
     shade: float,
 ) -> None:
     _draw_model_triangle(canvas, depth_buffer, texture, (points[0], points[1], points[2]), (uvs[0], uvs[1], uvs[2]), shade)
-    _draw_model_triangle(canvas, depth_buffer, texture, (points[0], points[2], points[3]), (uvs[0], uvs[2], uvs[3]), shade)
+    _draw_model_triangle(canvas, depth_buffer, texture, (points[0], points[2], points[3]), (uvs[0], uvs[2], uvs[3]), shade, exclude_first_edge=True)
 
 
 def render_bedrock_model_icon(

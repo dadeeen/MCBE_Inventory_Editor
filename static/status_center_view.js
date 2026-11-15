@@ -88,7 +88,9 @@
         const iconWarnings = Array.isArray(iconSummary?.warnings) ? iconSummary.warnings.length : 0;
         const iconState = view.iconStateSummary(iconSummary);
         const dbRank = view.itemDbStatusRank(itemDbStatus);
-        const scanIssues = (lastWorldScan?.roots || []).filter(root => !["ok", "missing", "disabled"].includes(root.status)).length;
+        const scanRoots = Array.isArray(lastWorldScan?.scan_roots) ? lastWorldScan.scan_roots
+            : Array.isArray(lastWorldScan?.roots) ? lastWorldScan.roots : [];
+        const scanIssues = scanRoots.filter(root => !["ok", "missing", "disabled"].includes(root.status)).length;
         const runtimeRank = Math.max(localWorldAccessWarning ? 1 : 0, writingRank(view, gate));
         const compatRank = Math.max(
             view.statusSeverityRank(worldCompat.status || "ok"),

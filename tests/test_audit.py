@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import stat
+from pathlib import Path
 from unittest.mock import patch
 
 from mcbe_editor.audit import AuditLogger, sanitize_detail, summarize_player_key, summarize_world_path
@@ -98,6 +100,65 @@ def test_failed_audit_rotation_preserves_previous_archive(tmp_path):
     assert path.stat().st_size == 110_000
     assert logger.status()["healthy"] is False
     assert logger.status()["dropped_events"] == 1
+
+
+def _record_during_concurrent_rotation(path, label, first_ready, second_ready, first_written, outcomes):
+    path = Path(path)
+    logger = AuditLogger(path, enabled=True, max_bytes=100_000)
+    original_replace = type(path).replace
+    from mcbe_editor import audit
+
+    original_append = audit.append_private_text
+
+    def replace(source, target):
+        if source == path:
+            if label == "first":
+                first_ready.set()
+                # A serialized second writer cannot reach rotation until the
+                # first finishes. Without a shared lock, both reach this point.
+                second_ready.wait(1)
+            else:
+                second_ready.set()
+                if not first_written.wait(10):
+                    raise RuntimeError("First audit writer did not finish")
+        return original_replace(source, target)
+
+    def append(target, text):
+        original_append(target, text)
+        if label == "first":
+            first_written.set()
+
+    with patch.object(type(path), "replace", replace), patch.object(audit, "append_private_text", append):
+        outcomes.put(logger.record(label, outcome="success"))
+
+
+def test_audit_rotation_preserves_events_across_workers(tmp_path):
+    path = tmp_path / "events.jsonl"
+    earlier = json.dumps({"action": "earlier", "padding": "x" * 99_920}) + "\n"
+    path.write_text(earlier, encoding="utf-8")
+    context = multiprocessing.get_context("spawn")
+    first_ready, second_ready, first_written = (context.Event() for _ in range(3))
+    outcomes = context.Queue()
+    arguments = (str(path), first_ready, second_ready, first_written, outcomes)
+    workers = [context.Process(target=_record_during_concurrent_rotation, args=(arguments[0], label, *arguments[1:])) for label in ("first", "second")]
+    try:
+        workers[0].start()
+        assert first_ready.wait(10)
+        workers[1].start()
+        for worker in workers:
+            worker.join(15)
+            assert worker.exitcode == 0
+        assert outcomes.get(timeout=2) is True
+        assert outcomes.get(timeout=2) is True
+        events = AuditLogger(path, enabled=True).tail(10)
+        assert [event["action"] for event in events] == ["earlier", "first", "second"]
+    finally:
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(5)
+        outcomes.close()
+        outcomes.join_thread()
 
 
 def test_audit_rotates_before_next_event_would_exceed_limit(tmp_path):

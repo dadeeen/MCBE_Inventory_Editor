@@ -75,6 +75,7 @@
         if (!finite(value)) return "—";
         if (Math.abs(value) > 1e12) return String(value);
         const small = value !== 0 && Math.abs(value) < 0.01;
+        if (!small && window.MCBEI18n?.formatDecimal) return window.MCBEI18n.formatDecimal(value);
         const precision = small ? { maximumSignificantDigits: 3 } : { maximumFractionDigits: 2 };
         if (window.MCBEI18n?.formatNumber) return window.MCBEI18n.formatNumber(value, precision);
         return small ? String(Number(value.toPrecision(3))) : String(Math.round(value * 100) / 100);

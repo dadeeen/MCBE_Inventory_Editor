@@ -1,6 +1,6 @@
 # Save Contract
 
-This document describes the current contract between frontend and backend for saving player changes and staged mount changes. Changes to `static/save_payload_logic.js`, `static/save_controller.js`, the save routes, or `EditorService.save_player()` must preserve these invariants, or the document and the regression tests must be adjusted together.
+This document describes the current contract between frontend and backend for saving player changes, staged mounts and signed villager previews. Changes to `static/save_payload_logic.js`, `static/save_controller.js`, the save routes, or `EditorService.save_player()` must preserve these invariants, or the document and the regression tests must be adjusted together.
 
 ## Endpoints and selection
 
@@ -8,10 +8,10 @@ The frontend sends JSON via `POST` with CSRF headers from `window.MCBEApiClient`
 
 | State | Endpoint | Behavior |
 |---|---|---|
-| No staged mounts | `/api/player/save` | Saves changed player sections only. |
-| At least one staged mount | `/api/workspace/save` | Saves player changes and all mount records in one shared LevelDB batch. |
+| No staged mounts or villager previews | `/api/player/save` | Saves changed player sections only. |
+| At least one staged mount or villager preview | `/api/workspace/save` | Saves player changes and staged entity changes in one shared LevelDB batch; villager-only changes require no selected player. |
 
-`static/save_controller.js` selects the endpoint exclusively based on the current mount drafts. The workspace endpoint accepts at most 32 mounts per operation.
+`static/save_controller.js` selects the workspace endpoint when the current request includes mount drafts or `villager_previews`. The workspace endpoint accepts at most 32 mounts per operation.
 
 The Flask routes remain registered in `main.py`. Player orchestration lives in `mcbe_editor/player_api_routes.py`, workspace orchestration in `mcbe_editor/mount_api_routes.py`.
 
@@ -154,9 +154,9 @@ If multiple visible original entries share one Inventory or EnderChestInventory 
 
 ## No-op behavior
 
-If the payload contains no player changes and there are no mount drafts, no save endpoint may be called and no backup created. The state is marked clean and the existing no-op message is shown.
+If the payload contains no player changes and there are no mount drafts or villager previews, no save endpoint may be called and no backup created. The state is marked clean and the existing no-op message is shown.
 
-If there are no player changes but at least one mount draft, `/api/workspace/save` must still be called. A mount-only workspace save is not a no-op.
+If there are no player changes but at least one mount draft or villager preview, `/api/workspace/save` must still be called. An entity-only workspace request is not a client-side no-op; the backend still checks whether the requested changes would alter stored data.
 
 ## Confirmation when creating missing tags
 

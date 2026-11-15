@@ -27,14 +27,14 @@ SUPPLY_ITEMS = (
 _ITEM_FIELDS = {"Slot", "Name", "Count", "Damage", "WasPickedUp"}
 
 
+def _allowed_item_counts() -> dict[str, int]:
+    return {name: min(64, item_data.get_max_stack(name)) for name in SUPPLY_ITEMS if item_data.is_addable_item_id(name)}
+
+
 def allowed_items() -> list[dict[str, Any]]:
     catalog = item_data.catalog_values()["ITEMS"]
     language = 1 if request_locale() == "en" else 0
-    return [
-        {"name": name, "label": catalog.get(name, [name, name])[language], "max_count": min(64, item_data.get_max_stack(name))}
-        for name in SUPPLY_ITEMS
-        if item_data.is_addable_item_id(name)
-    ]
+    return [{"name": name, "label": catalog.get(name, [name, name])[language], "max_count": maximum} for name, maximum in _allowed_item_counts().items()]
 
 
 def normalize_inventory_changes(changes: Any) -> dict[str, Any]:
@@ -97,15 +97,8 @@ def _item_reason(item: nbt.CompoundTag, options: dict[str, int]) -> str | None:
     return None
 
 
-def inventory_state(tag: nbt.CompoundTag, *, blocked_reason: str | None = None) -> dict[str, Any]:
-    """Recognize the fixed Bedrock ChestItems representation without guessing.
-
-    Native records have eight Compound entries, including explicit empty slots,
-    with Byte Slot values matching their list indexes. Other containers and
-    InventoryVersion are outside this editor's write scope.
-    """
-    options = allowed_items()
-    allowed = {item["name"]: item["max_count"] for item in options}
+def _inventory_layout(tag: nbt.CompoundTag, blocked_reason: str | None) -> tuple[Any, str | None, bool]:
+    """Share all container and slot-identity checks between list and detail views."""
     entries = tag.get("ChestItems")
     reason = blocked_reason
     if entries is None:
@@ -122,6 +115,28 @@ def inventory_state(tag: nbt.CompoundTag, *, blocked_reason: str | None = None) 
         and len(entries) == CAPACITY
         and all(isinstance(item.get("Slot"), nbt.ByteTag) and item["Slot"].py_data == index for index, item in enumerate(entries))
     )
+    return entries, reason, structure_valid
+
+
+def inventory_editable(tag: nbt.CompoundTag, *, blocked_reason: str | None = None) -> bool:
+    """Read the list capability without allocating detail slots or option labels."""
+    entries, reason, structure_valid = _inventory_layout(tag, blocked_reason)
+    if reason or not structure_valid:
+        return False
+    allowed = _allowed_item_counts()
+    return any(_item_reason(item, allowed) is None for item in entries)
+
+
+def inventory_state(tag: nbt.CompoundTag, *, blocked_reason: str | None = None) -> dict[str, Any]:
+    """Recognize the fixed Bedrock ChestItems representation without guessing.
+
+    Native records have eight Compound entries, including explicit empty slots,
+    with Byte Slot values matching their list indexes. Other containers and
+    InventoryVersion are outside this editor's write scope.
+    """
+    options = allowed_items()
+    allowed = {item["name"]: item["max_count"] for item in options}
+    entries, reason, structure_valid = _inventory_layout(tag, blocked_reason)
     slots = []
     for slot in range(CAPACITY):
         item = entries[slot] if structure_valid else None

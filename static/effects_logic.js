@@ -775,10 +775,26 @@
         function wireStatsApply() {
             doc.getElementById("btnApplyStats")?.addEventListener("click", () => {
                 if (isEditingBlocked()) return;
+                const elements = statsFormElements?.();
+                const touched = new Set(getTouchedStatsFields?.() || []);
+                // Apply is a button, not native form submission. An unfinished
+                // number exposes an empty value; it must not reset a stored
+                // statistic to the conversion helper's fallback default.
+                const invalid = [["health", "health"], ["xpLevel", "xp_level"], ["xpProgress", "xp_progress"],
+                    ["foodLevel", "food_level"], ["foodSaturation", "food_saturation"]]
+                    .filter(([, field]) => touched.has(field) && !abilityState.isFieldProtected(protectedStatFields(), field))
+                    .map(([key]) => elements?.[key])
+                    .find(input => input && (input.validity?.badInput || !String(input.value ?? "").trim() || !Number.isFinite(Number(input.value))));
+                if (invalid) {
+                    const message = t("Bitte eine gültige Zahl eingeben.");
+                    logStatus?.(message, "error"); showToast?.(message, "error", 4500);
+                    invalid.focus?.();
+                    return;
+                }
                 const result = abilityState.applyStatsUpdate({
                     stats: getPlayerStats?.() || {},
-                    values: abilityView.readStatsFormValues(statsFormElements?.()),
-                    touchedFields: getTouchedStatsFields?.(),
+                    values: abilityView.readStatsFormValues(elements),
+                    touchedFields: touched,
                     protectedNbt: protectedNbt(),
                 });
 

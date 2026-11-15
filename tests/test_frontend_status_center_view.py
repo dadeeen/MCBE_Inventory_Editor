@@ -32,7 +32,7 @@ def test_frontend_status_center_view_model_ranks_runtime_and_state() -> None:
                 status: "metadata-missing",
                 counts: { items: 2, effects: 3, enchantments: 4 },
             },
-            lastWorldScan: { roots: [{ status: "error" }] },
+            lastWorldScan: { scan_roots: [{ status: "error" }] },
             isDirty: true,
             worldPath: "C:/World",
             selectedWorldPath: "C:/Selected",
@@ -44,6 +44,7 @@ def test_frontend_status_center_view_model_ranks_runtime_and_state() -> None:
         assert.strictEqual(model.headline, "Prüfen");
         assert.strictEqual(model.tiles.length, 6);
         assert.strictEqual(model.tiles[0].detail, "C:/Selected");
+        assert.strictEqual(model.tiles[0].rank, 1);
         assert.strictEqual(model.tiles[1].value, "gesperrt");
         assert.ok(model.tiles[2].detail.includes("Kompatibilitätshinweis"));
     """)
@@ -76,6 +77,40 @@ def test_frontend_status_center_view_html_escapes_hero_text_and_tiles() -> None:
     )
 
 
+def test_frontend_status_center_uses_scan_api_roots_for_world_warnings() -> None:
+    run_node(
+        textwrap.dedent(r"""
+        const assert = require("assert");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        vm.runInNewContext(fs.readFileSync("static/data_source_view.js", "utf8"), context);
+        vm.runInNewContext(fs.readFileSync("static/status_center_view.js", "utf8"), context);
+        const view = context.window.MCBEStatusCenterView;
+        const healthy = {
+            appConfig: { mode: "docker", require_server_offline: true },
+            writeGate: { allowed: true, server_status: { status: "offline" } },
+            iconSummary: { count: 1, warnings: [] },
+            itemDbStatus: { status: "ok", counts: {}, verification: { verified: true } },
+        };
+        for (const status of ["error", "unreadable", "limited"]) {
+            const model = view.statusCenterModel({
+                ...healthy, lastWorldScan: { success: true, scan_roots: [{ status }] },
+            });
+            assert.strictEqual(model.tiles.find(tile => tile.label === "Welt").rank, 1, status);
+            assert.strictEqual(model.heroClass, "warning", status);
+        }
+        for (const status of ["ok", "missing", "disabled"]) {
+            const model = view.statusCenterModel({
+                ...healthy, lastWorldScan: { scan_roots: [{ status }], roots: [{ status: "error" }] },
+            });
+            assert.strictEqual(model.tiles.find(tile => tile.label === "Welt").rank, 0, status);
+            assert.strictEqual(model.heroClass, "ok", status);
+        }
+        """)
+    )
+
+
 def test_frontend_status_center_treats_world_notes_as_ok() -> None:
     run_node(
         textwrap.dedent(r"""
@@ -104,7 +139,7 @@ def test_frontend_status_center_treats_world_notes_as_ok() -> None:
                 source_version_present: true,
                 verification: { verified: true },
             },
-            lastWorldScan: { roots: [] },
+            lastWorldScan: { scan_roots: [] },
             worldPath: "C:/World",
             currentPlayerLabel: "Alex",
             hasCurrentPlayer: true,

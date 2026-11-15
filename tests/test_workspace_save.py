@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -109,6 +110,41 @@ def _refusal(result):
     if isinstance(result, tuple):
         return result
     return result, result.get("status", 200)
+
+
+@pytest.mark.parametrize("workspace_save", [False, True])
+@pytest.mark.parametrize("mount_type", ["minecraft:horse", "minecraft:donkey"])
+def test_http_oversized_numeric_mount_values_are_refused_without_writing(tmp_path, monkeypatch, workspace_save, mount_type) -> None:
+    import main
+
+    fixture = _synthetic_mount_workspace(tmp_path, monkeypatch)
+    original = dict(fixture.values)
+    http_deps = replace(fixture.deps, jsonify=main.jsonify, api_error=main.api_error)
+    monkeypatch.setattr(main, "APP_CONFIG", replace(main.APP_CONFIG, read_only=False))
+    monkeypatch.setattr(main, "CSRF_TOKEN", "workspace-numeric-test")
+    monkeypatch.setattr(main, "mount_route_deps", lambda: http_deps)
+    monkeypatch.setattr(main, "player_route_deps", lambda: fixture.player_deps)
+    client = main.app.test_client()
+    mount = {"mount_type": mount_type, "create_mode": "synthetic_full", "allow_unchecked_placement": True}
+    if mount_type == "minecraft:horse":
+        mount["horse_profile"] = {"mode": "custom", "health": 10**400}
+    else:
+        mount["mount_stats"] = {"health": 10**400}
+    if workspace_save:
+        request = {**fixture.request, "stats": {"health": 19}, "mounts": [mount]}
+        endpoint = "/api/workspace/save"
+    else:
+        request = {**fixture.request, **mount}
+        endpoint = "/api/mount/create"
+
+    response = client.post(endpoint, json=request, headers={"X-CSRF-Token": "workspace-numeric-test"})
+    payload = response.get_json()
+    assert response.status_code == 400
+    assert payload["success"] is False
+    assert fixture.batches == []
+    assert fixture.values == original
+    assert "write_committed" not in payload
+    assert "write_outcome_unknown" not in payload
 
 
 @pytest.mark.parametrize("owner_tag", [None, nbt.IntTag(42), nbt.FloatTag(42), nbt.StringTag("42"), nbt.LongTag(-1)])

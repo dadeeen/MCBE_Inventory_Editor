@@ -26,6 +26,8 @@
             status,
         } = elements;
         let scanPathsRequestId = 0;
+        const pendingToggles = new Set();
+        let toggleControls = [];
 
         // A backend message names its own context; only a technical reason
         // needs "Fehler:" in front of it.
@@ -76,21 +78,45 @@
             }
         }
 
+        function updateToggleControls(path, checked) {
+            toggleControls.forEach(control => {
+                if (control.path !== path) return;
+                control.checkbox.disabled = control.disabled || pendingToggles.has(path);
+                if (!control.disabled && checked !== undefined) control.checkbox.checked = checked;
+            });
+        }
+
         function renderScanPaths(data) {
             if (!list) return;
             list.innerHTML = scanPathsHtml(data);
-            list.querySelectorAll("[data-scan-path-toggle]").forEach(checkbox => {
+            toggleControls = Array.from(list.querySelectorAll("[data-scan-path-toggle]"), checkbox => ({
+                checkbox, path: checkbox.dataset.path || "", disabled: checkbox.disabled,
+            }));
+            toggleControls.forEach(({ checkbox, path, disabled }) => {
+                checkbox.disabled = disabled || pendingToggles.has(path);
                 checkbox.addEventListener("change", async () => {
-                    const result = await postJson("/api/scan_paths/set_enabled", {
-                        path: checkbox.dataset.path || "",
-                        enabled: checkbox.checked,
-                    });
-                    if (!result.success) {
-                        if (status) status.textContent = failureText(result);
-                        checkbox.checked = !checkbox.checked;
-                        return;
+                    if (disabled || pendingToggles.has(path)) return;
+                    const requestedEnabled = checkbox.checked;
+                    // Reopening the panel or another mutation can replace the
+                    // controls while this path's write is still pending.
+                    pendingToggles.add(path);
+                    updateToggleControls(path);
+                    try {
+                        const result = await postJson("/api/scan_paths/set_enabled", {
+                            path,
+                            enabled: requestedEnabled,
+                        });
+                        if (!result.success) {
+                            if (status) status.textContent = failureText(result);
+                            updateToggleControls(path, !requestedEnabled);
+                            return;
+                        }
+                        updateToggleControls(path, requestedEnabled);
+                        await refreshAfterChange(requestedEnabled ? t("Suchbereich aktiviert.") : t("Suchbereich deaktiviert."));
+                    } finally {
+                        pendingToggles.delete(path);
+                        updateToggleControls(path);
                     }
-                    await refreshAfterChange(checkbox.checked ? t("Suchbereich aktiviert.") : t("Suchbereich deaktiviert."));
                 });
             });
             list.querySelectorAll("[data-scan-path-remove]").forEach(remove => {

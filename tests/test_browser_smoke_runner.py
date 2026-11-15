@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import io
+import signal
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -206,3 +209,60 @@ def test_browser_smoke_server_failure_is_not_masked_by_external_log_path(tmp_pat
     stderr = capsys.readouterr().err
     assert str(log_path) in stderr
     assert "server startup failed" in stderr
+
+
+@pytest.mark.skipif(browser_smoke.os.name == "nt", reason="POSIX process-group exit race")
+@pytest.mark.parametrize("force_kill", [False, True])
+def test_browser_cleanup_continues_when_process_group_exits_before_signal(monkeypatch, force_kill):
+    vanished_signal = signal.SIGKILL if force_kill else signal.SIGTERM
+    waits = []
+    signals = []
+
+    def signal_group(pid, sig):
+        signals.append((pid, sig))
+        if pid == 101 and sig == vanished_signal:
+            raise ProcessLookupError("Process exited after poll")
+
+    def wait(pid, timeout):
+        waits.append(pid)
+        if pid == 101 and force_kill and waits.count(pid) == 1:
+            raise subprocess.TimeoutExpired("synthetic-server", timeout)
+        return 0
+
+    servers = [
+        (SimpleNamespace(pid=pid, poll=lambda: None, wait=lambda timeout, pid=pid: wait(pid, timeout)), io.StringIO(), Path(f"server-{pid}.log"))
+        for pid in (102, 101)
+    ]
+    monkeypatch.setattr(browser_smoke.os, "killpg", signal_group)
+
+    browser_smoke._stop_servers(servers)
+
+    assert (102, signal.SIGTERM) in signals
+    assert {101, 102}.issubset(waits)
+    assert all(log.closed for _, log, _ in servers)
+
+
+def test_browser_start_closes_log_when_process_creation_fails(tmp_path, monkeypatch):
+    opened = []
+    real_open = Path.open
+
+    def track_open(path, *args, **kwargs):
+        handle = real_open(path, *args, **kwargs)
+        opened.append(handle)
+        return handle
+
+    def fail_start(*_args, **_kwargs):
+        raise OSError("Cannot start synthetic server")
+
+    monkeypatch.setattr(browser_smoke, "TMP", tmp_path)
+    monkeypatch.setattr(browser_smoke, "_port_is_open", lambda _port: False)
+    monkeypatch.setattr(browser_smoke, "_prepare_worlds", lambda _spec: None)
+    monkeypatch.setattr(Path, "open", track_open)
+    monkeypatch.setattr(browser_smoke.subprocess, "Popen", fail_start)
+    try:
+        with pytest.raises(OSError, match="Cannot start"):
+            browser_smoke._start_server(browser_smoke.SERVER_SPECS[0])
+        assert opened and all(handle.closed for handle in opened)
+    finally:
+        for handle in opened:
+            handle.close()

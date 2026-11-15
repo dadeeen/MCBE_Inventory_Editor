@@ -15,7 +15,7 @@ from .i18n import t
 from .inventory import ITEM_ID_RE, nbt_view_value
 from .read_operation import checkpoint
 from .villager_career import career_state, career_summary, normalize_career_changes, patch_career
-from .villager_inventory import inventory_state, normalize_inventory_changes, patch_inventory
+from .villager_inventory import inventory_editable, inventory_state, normalize_inventory_changes, patch_inventory
 
 VILLAGER_IDENTIFIERS = frozenset({"minecraft:villager_v2", "minecraft:villager"})
 MAX_HEALTH = 2048.0
@@ -436,6 +436,7 @@ def _project(record: EntityRecord, assignments: dict[str, list[dict[str, Any]]],
             village_status = "verified"
         else:
             village_status = "ambiguous"
+    name_reason = _name_reason(record)
     return {
         "id": record.id,
         "alias_key": _alias_key(record),
@@ -443,8 +444,8 @@ def _project(record: EntityRecord, assignments: dict[str, list[dict[str, Any]]],
         "unique_id": record.unique_id,
         "identifier": record.identifier,
         "name": custom_name.py_data if isinstance(custom_name, nbt.StringTag) else "",
-        "name_editable": _name_reason(record) is None,
-        "name_reason": _name_reason(record),
+        "name_editable": name_reason is None,
+        "name_reason": name_reason,
         "profession": profession,
         "trade_tier": tier,
         "trade_tier_label": t("Keine Handelsstufe") if no_trade_tier else t(_TIERS[tier]) if tier is not None else t("Unbekannt"),
@@ -460,7 +461,7 @@ def _project(record: EntityRecord, assignments: dict[str, list[dict[str, Any]]],
         "village_status": village_status,
         "village_reason": None if village else t("Keine eindeutige Dorfzugehörigkeit aus gespeicherten Bewohner-IDs und passender Dimension nachgewiesen."),
         "editable": bool(health["editable"]),
-        "inventory_editable": _inventory_state(record)["editable"],
+        "inventory_editable": inventory_editable(tag, blocked_reason=_entity_write_reason(record)),
         "issues": list(record.issues),
         "trade_count": len(recipes) if recipes is not None else 0,
         "equipment_count": equipment["occupied_count"],

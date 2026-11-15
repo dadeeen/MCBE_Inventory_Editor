@@ -12,6 +12,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -211,14 +212,18 @@ def _start_server(spec: ServerSpec) -> tuple[subprocess.Popen, object, Path]:
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
-    process = subprocess.Popen(
-        cmd,
-        cwd=ROOT,
-        env=_server_env(spec),
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        **kwargs,
-    )
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=ROOT,
+            env=_server_env(spec),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            **kwargs,
+        )
+    except BaseException:
+        log_file.close()
+        raise
     return process, log_file, log_path
 
 
@@ -245,7 +250,9 @@ def _terminate_process(process: subprocess.Popen) -> None:
     if os.name == "nt":
         process.terminate()
         return
-    os.killpg(process.pid, signal.SIGTERM)
+    # The server can exit between poll() and the process-group signal.
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGTERM)
 
 
 def _kill_process(process: subprocess.Popen) -> None:
@@ -254,7 +261,9 @@ def _kill_process(process: subprocess.Popen) -> None:
     if os.name == "nt":
         process.kill()
         return
-    os.killpg(process.pid, signal.SIGKILL)
+    # A graceful exit may finish while the forced signal is prepared.
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
 
 
 def _stop_servers(servers: list[tuple[subprocess.Popen, object, Path]]) -> None:

@@ -94,7 +94,7 @@ def _float_value(value: Any, field_name: str) -> float:
         raise ValueError(f"{field_name} muss eine Zahl sein.")
     try:
         result = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"{field_name} muss eine Zahl sein.") from exc
     if not math.isfinite(result):
         raise ValueError(f"{field_name} muss endlich sein.")

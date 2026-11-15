@@ -79,6 +79,27 @@ def test_table_entries_preserve_long_prefixes_keys_and_values(prefix_length, val
     assert list(reader._iter_block_entries(_block(entries))) == entries
 
 
+@pytest.mark.parametrize("compression", [0, 2, 4])
+@pytest.mark.parametrize("value_length", [127, 128, 16383, 16384])
+def test_value_length_boundaries_round_trip_with_full_checksum_validation(compression, value_length):
+    entries = [(_key(b"first", 4), b"v" * value_length), (_key(b"second", 5), b"last")]
+    stored = _stored_block(_block(entries), compression)
+    assert list(reader._iter_block_entries(reader._decompress_block(stored))) == entries
+
+    corrupted = stored[:-1] + bytes([stored[-1] ^ 1])
+    with pytest.raises(reader.CorruptDatabaseError, match="CRC"):
+        list(reader._iter_block_entries(reader._decompress_block(corrupted)))
+
+
+@pytest.mark.parametrize("length", [b"\x80", b"\xff", b"\x80\x80", b"\xff\xff", b"\x80\x01", b"\xff\x7f"])
+def test_value_length_cannot_consume_restart_bytes_or_overrun_missing_value(length):
+    # A zero restart word must not complete an unfinished length or supply
+    # bytes that the declared value needs but the entries area does not hold.
+    block = b"\x00\x00" + length + struct.pack("<II", 0, 1)
+    with pytest.raises(reader.CorruptDatabaseError):
+        list(reader._iter_block_entries(block))
+
+
 @pytest.mark.parametrize("field", [0, 1, 2])
 def test_each_table_entry_length_rejects_uint64_overflow(field):
     lengths = [_varint(0), _varint(1), _varint(1)]

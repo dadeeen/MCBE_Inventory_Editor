@@ -169,6 +169,47 @@ def test_bulk_fill_rejects_unsupported_variants_before_replacing_selected_items(
     )
 
 
+def test_bulk_fill_rejects_incomplete_numbers_before_replacing_selected_items() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict"), fs = require("fs"), vm = require("vm");
+        const context = { window: {} };
+        for (const name of ["selection_state", "inventory_state", "bulk_edit_logic"]) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
+        }
+        for (const key of ["bulkCount", "bulkDamage"]) {
+            for (const value of ["", " ", "1e", "-", "Infinity", "2junk"]) {
+                const inventory = { 0: { slot: 0, name: "minecraft:diamond", count: 3 },
+                    1: { slot: 1, name: "minecraft:stone", count: 4 } };
+                const before = JSON.stringify(inventory);
+                let click, undo = 0, dirty = 0;
+                const messages = [];
+                const elements = {
+                    fillButton: { addEventListener(_event, listener) { click = listener; } },
+                    bulkItemSearch: { value: "minecraft:stone" }, bulkCount: { value: "8" }, bulkDamage: { value: "0" },
+                };
+                elements[key].value = value;
+                context.window.MCBEBulkEditLogic.createBulkEditController({
+                    elements,
+                    itemCatalog: { isValidItemId: () => true, isAddableItemId: () => true, getMaxStack: () => 64,
+                        getMaxDamage: () => 0, hasVerifiedStackLimit: () => true, dataValueVariantsForId: () => [] },
+                    getSelectedSlots: () => [0, 1], getInventory: () => inventory,
+                    getCurrentSelectionState: () => ({ selectedSlots: [0, 1] }),
+                    pushUndo: () => { undo++; }, setDirty: () => { dirty++; }, showToast: message => messages.push(message),
+                }).wire();
+                click();
+                assert.equal(JSON.stringify(inventory), before, `${key}=${value}`);
+                assert.equal(undo, 0); assert.equal(dirty, 0);
+                assert.ok(messages[0].includes("gültige Zahl"));
+                elements[key].value = "1e1";
+                click();
+                assert.equal(undo, 1); assert.equal(dirty, 1);
+                assert.equal(inventory[0].name, "minecraft:stone");
+                assert.equal(inventory[0].count, key === "bulkCount" ? 10 : 8);
+            }
+        }
+    """)
+
+
 def test_frontend_bulk_edit_controller_guards_every_mutation_entrypoint() -> None:
     run_node(
         textwrap.dedent(

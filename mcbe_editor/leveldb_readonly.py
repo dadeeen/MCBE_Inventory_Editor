@@ -493,7 +493,13 @@ def _iter_block_entries(block: bytes):
             value_len = block[pos + 2]
             pos += 3
             if value_len >= 128:
-                value_len, pos = _decode_varint(block, pos - 1)
+                # Common values use two bytes; longer or truncated lengths
+                # still pass through the general bounded varint decoder.
+                if pos < data_end and block[pos] < 128:
+                    value_len = (value_len & 0x7F) | (block[pos] << 7)
+                    pos += 1
+                else:
+                    value_len, pos = _decode_varint(block, pos - 1)
         else:
             shared, pos = _decode_varint(block, pos)
             non_shared, pos = _decode_varint(block, pos)

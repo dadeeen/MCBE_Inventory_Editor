@@ -22,6 +22,7 @@
     const baseCollator = typeof Intl !== "undefined" && Intl.Collator
         ? new Intl.Collator(localeTag, { sensitivity: "base" })
         : null;
+    let decimalFormatter;
 
     function substitute(text, params) {
         if (!params) return text;
@@ -57,6 +58,13 @@
         const number = Number(value);
         if (!Number.isFinite(number)) return String(value ?? "");
         return new Intl.NumberFormat(localeTag, options).format(number);
+    }
+
+    function formatDecimal(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return String(value ?? "");
+        decimalFormatter ||= new Intl.NumberFormat(localeTag, { maximumFractionDigits: 2 });
+        return decimalFormatter.format(number);
     }
 
     function formatDate(value, options) {
@@ -105,6 +113,7 @@
         localizedPair,
         compare,
         formatNumber,
+        formatDecimal,
         formatDate,
         tp,
         setLocale,

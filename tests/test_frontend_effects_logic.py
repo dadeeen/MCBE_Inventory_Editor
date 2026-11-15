@@ -319,8 +319,8 @@ def test_stats_apply_rebases_accepted_drafts_but_keeps_invalid_positions_pending
             setDirty: () => { dirtyCalls += 1; },
         });
         controller.wire();
-        fields.health.value = ""; // Existing apply policy accepts the unchanged default of 20.
-        fields.health.listeners.input();
+        fields.xpLevel.value = "0.5"; // Existing integer clamping accepts the unchanged level 0.
+        fields.xpLevel.listeners.input();
         assert.equal(form.hasPendingChanges(), true);
         applyButton.listeners.click();
         assert.equal(accepted, 1, "successful no-op Apply still accepts the form draft");
@@ -339,6 +339,87 @@ def test_stats_apply_rebases_accepted_drafts_but_keeps_invalid_positions_pending
         assert.equal(accepted, 2, "rejected position must not rebase the draft");
         assert.equal(form.hasPendingChanges(), true);
         assert.deepEqual(Array.from(stats.pos), [1, 70, 2]);
+    """)
+
+
+def test_stats_apply_rejects_incomplete_scalar_inputs_without_resetting_values() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict");
+        const fs = require("fs");
+        const vm = require("vm");
+        const context = { window: {} };
+        for (const name of ["ability_state", "ability_view", "effects_logic"]) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
+        }
+        const scalars = { health: "health", xpLevel: "xp_level", xpProgress: "xp_progress",
+            foodLevel: "food_level", foodSaturation: "food_saturation" };
+        for (const [key, field] of Object.entries(scalars)) {
+            for (const badInput of [false, true]) {
+                const input = () => ({ value: "", validity: { badInput: false }, listeners: {},
+                    addEventListener(name, callback) { this.listeners[name] = callback; },
+                    focus() { this.focused = true; } });
+                const fields = Object.fromEntries(["dimensionId", "posX", "posY", "posZ", ...Object.keys(scalars)]
+                    .map(name => [name, input()]));
+                const button = input();
+                let stats = { dimension_id: 0, pos: [1, 70, 2], health: 7, xp_level: 42,
+                    xp_progress: 0.5, food_level: 6, food_saturation: 3 };
+                const before = JSON.stringify(stats);
+                const form = context.window.MCBEEffectsLogic.createStatsFormController({
+                    elements: fields, getPlayerStats: () => stats,
+                });
+                form.wireTouchedTracking(); form.render();
+                let applied = 0, undo = 0;
+                const messages = [];
+                const controller = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+                    doc: { getElementById: id => id === "btnApplyStats" ? button : null, querySelectorAll: () => [] },
+                    statsFormElements: () => fields, getPlayerStats: () => stats, setPlayerStats: value => { stats = value; },
+                    getTouchedStatsFields: () => form.touchedFields,
+                    onStatsApplied: () => { applied++; form.captureFormBaseline(); },
+                    pushUndo: () => { undo++; }, showToast: message => messages.push(message),
+                });
+                controller.wire();
+                // Even another valid pending edit must not be partially applied.
+                const other = key === "health" ? "xpLevel" : "health";
+                fields[other].value = "8"; fields[other].listeners.input();
+                fields[key].value = "";
+                fields[key].validity.badInput = badInput;
+                fields[key].listeners.input();
+                button.listeners.click();
+                assert.equal(JSON.stringify(stats), before, `${field} (${badInput ? "unfinished number" : "empty"})`);
+                assert.equal(applied, 0); assert.equal(undo, 0);
+                assert.equal(form.hasPendingChanges(), true);
+                assert.equal(fields[key].value, "");
+                assert.equal(fields[key].focused, true);
+                assert.ok(messages.some(message => message.includes("gültige Zahl")));
+                fields[key].validity.badInput = false;
+                fields[key].value = "1e1"; fields[key].listeners.input();
+                button.listeners.click();
+                assert.equal(stats[field], field === "xp_progress" ? 0.1 : 10);
+                assert.equal(applied, 1); assert.equal(undo, 1);
+            }
+        }
+    """)
+
+
+def test_stats_apply_does_not_require_untouched_or_protected_scalar_inputs() -> None:
+    run_node(r"""
+        const assert = require("node:assert/strict"), fs = require("fs"), vm = require("vm");
+        const context = { window: {} };
+        for (const name of ["ability_state", "ability_view", "effects_logic"]) {
+            vm.runInNewContext(fs.readFileSync(`static/${name}.js`, "utf8"), context);
+        }
+        const button = { addEventListener(_event, callback) { this.click = callback; } };
+        const fields = { health: { value: "9" }, xpLevel: { value: "" }, xpProgress: { value: "" },
+            foodLevel: { value: "", disabled: true }, foodSaturation: { value: "" } };
+        let stats = { health: 7, xp_level: 42, food_level: 6 };
+        const controller = context.window.MCBEEffectsLogic.createEffectsAbilitiesController({
+            doc: { getElementById: id => id === "btnApplyStats" ? button : null, querySelectorAll: () => [] },
+            statsFormElements: () => fields, getPlayerStats: () => stats, setPlayerStats: value => { stats = value; },
+            getTouchedStatsFields: () => new Set(["health", "food_level"]),
+            getProtectedNbt: () => ({ stat_fields_opaque: { food_level: "foodLevel" } }),
+        });
+        controller.wire(); button.click();
+        assert.deepEqual(JSON.parse(JSON.stringify(stats)), { health: 9, xp_level: 42, food_level: 6 });
     """)
 
 

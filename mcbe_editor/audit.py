@@ -12,7 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from mcbe_editor.runtime_data import append_private_text, restrict_private_file
+from mcbe_editor.runtime_data import append_private_text, ensure_private_parent, restrict_private_file
+from mcbe_editor.world_locks import locked_operation
 
 _SAFE_DETAIL_TYPES = (str, int, float, bool, type(None))
 _QUOTED_PATH_RE = re.compile(r"""(?P<quote>["'])(?P<path>(?:[a-zA-Z]:[\\/]|/)[^"'\r\n]+)(?P=quote)""")
@@ -191,6 +192,13 @@ class AuditLogger:
         self._last_error = None
         self._last_error_at = None
 
+    def _storage_lock(self):
+        assert self.path is not None
+        # Create the private parent before the lock protocol creates its own
+        # directory. Distinct worker instances must serialize rotation + append.
+        ensure_private_parent(self.path)
+        return locked_operation(f"audit:{self.path.name}", root=self.path.parent)
+
     def _rotate_if_needed(self, incoming_bytes: int = 0) -> None:
         if not self.path or not self.path.exists():
             return
@@ -249,8 +257,9 @@ class AuditLogger:
             encoded_size = len(line.encode("utf-8"))
         with self._lock:
             try:
-                self._rotate_if_needed(encoded_size)
-                append_private_text(self.path, line)
+                with self._storage_lock():
+                    self._rotate_if_needed(encoded_size)
+                    append_private_text(self.path, line)
                 self._mark_success()
                 return True
             except OSError:
@@ -286,26 +295,29 @@ class AuditLogger:
         if include_rotated:
             paths.append(self.path.with_suffix(self.path.suffix + ".1"))
         paths.append(self.path)
-        with self._lock:
-            for path in paths:
-                if not path.exists():
-                    continue
-                try:
-                    with path.open("r", encoding="utf-8", errors="replace") as handle:
-                        files_read += 1
-                        for line in handle:
-                            try:
-                                value = json.loads(line)
-                            except (json.JSONDecodeError, RecursionError):
-                                invalid_lines += 1
-                                continue
-                            if isinstance(value, dict):
-                                available_events += 1
-                                entries.append(value)
-                            else:
-                                invalid_lines += 1
-                except OSError:
-                    read_errors += 1
+        try:
+            with self._lock, self._storage_lock():
+                for path in paths:
+                    if not path.exists():
+                        continue
+                    try:
+                        with path.open("r", encoding="utf-8", errors="replace") as handle:
+                            files_read += 1
+                            for line in handle:
+                                try:
+                                    value = json.loads(line)
+                                except (json.JSONDecodeError, RecursionError):
+                                    invalid_lines += 1
+                                    continue
+                                if isinstance(value, dict):
+                                    available_events += 1
+                                    entries.append(value)
+                                else:
+                                    invalid_lines += 1
+                    except OSError:
+                        read_errors += 1
+        except OSError:
+            read_errors += 1
 
         events = list(entries)
         return {

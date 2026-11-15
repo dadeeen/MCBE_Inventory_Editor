@@ -57,6 +57,12 @@
             };
         }
 
+        if ([rawCount, rawDamage].some(value => value == null || !String(value).trim() || !Number.isFinite(Number(value)))) {
+            return {
+                ok: false,
+                toast: { message: t("Bitte eine gültige Zahl eingeben."), type: "warning", ms: 4000 },
+            };
+        }
         if (!stackLimitVerified && Number(rawCount) > maxStack) {
             return {
                 ok: false,

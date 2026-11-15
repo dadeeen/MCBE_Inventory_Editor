@@ -61,7 +61,7 @@ def _float_between(value: Any, *, field_name: str, default: float, minimum: floa
         raise ValueError(f"{field_name} muss eine Zahl sein.")
     try:
         result = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"{field_name} muss eine Zahl sein.") from exc
     if result != result or result in (float("inf"), float("-inf")):
         raise ValueError(f"{field_name} muss endlich sein.")

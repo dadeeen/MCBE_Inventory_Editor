@@ -3,13 +3,14 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 import threading
 from pathlib import Path
 
 from .config import load_config
 from .i18n import t
-from .path_safety import is_linklike
+from .path_safety import is_linklike, is_linklike_stat
 
 LOCAL_PLAYER_KEY = b"~local_player"
 
@@ -20,6 +21,9 @@ DEFAULT_WORLD_SCAN_DEPTH = 2
 MAX_WORLD_SCAN_DEPTH = 4
 DEFAULT_WORLD_SCAN_MAX_DIRS = 2000
 MAX_WORLD_SCAN_MAX_DIRS = 20000
+# A world name is display metadata, not a document. Preserve normal Unicode
+# names while bounding corrupt or accidentally replaced levelname.txt files.
+MAX_WORLD_NAME_BYTES = 4096
 _SCAN_PATHS_LOCK = threading.RLock()
 _SOURCE_LABELS = {
     "docker-root": "Docker /worlds",
@@ -466,13 +470,7 @@ def set_scan_path_enabled(path, enabled: bool):
 
 
 def _world_entry(world_path: Path, scan_root: Path, source: dict | None = None) -> dict:
-    name = world_path.name
-    levelname_path = world_path / "levelname.txt"
-    if levelname_path.exists():
-        with contextlib.suppress(OSError):
-            detected_name = levelname_path.read_text(encoding="utf-8", errors="ignore").strip()
-            if detected_name:
-                name = detected_name
+    name = get_world_name(str(world_path))
 
     try:
         folder = str(world_path.relative_to(scan_root))
@@ -487,11 +485,13 @@ def _world_entry(world_path: Path, scan_root: Path, source: dict | None = None) 
 
     modified_ts = None
     modified_iso = ""
-    with contextlib.suppress(OSError):
+    try:
         modified_ts = world_path.stat().st_mtime
         import datetime as _dt
 
         modified_iso = _dt.datetime.fromtimestamp(modified_ts).isoformat(timespec="seconds")
+    except (OSError, ValueError, OverflowError):
+        modified_ts = None
 
     return {
         "path": str(world_path),
@@ -777,16 +777,27 @@ def world_fingerprint(world_path: str) -> str:
 
 
 def get_world_name(world_path: str) -> str:
-    levelname_path = os.path.join(world_path, "levelname.txt")
-    if os.path.exists(levelname_path):
-        try:
-            with open(levelname_path, encoding="utf-8", errors="ignore") as file:
-                name = file.read().strip()
-                if name:
-                    return name
-        except OSError:
-            pass
-    return os.path.basename(os.path.normpath(world_path))
+    fallback = os.path.basename(os.path.normpath(world_path))
+    levelname_path = Path(world_path) / "levelname.txt"
+    try:
+        info = levelname_path.lstat()
+        if is_linklike_stat(info) or not stat.S_ISREG(info.st_mode) or info.st_size > MAX_WORLD_NAME_BYTES:
+            return fallback
+        # Do not follow a replaced link or block on a FIFO swapped in after
+        # lstat. fstat also rejects changed files and Windows reparse targets.
+        safe_flags = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        with open(levelname_path, "rb", opener=lambda path, flags: os.open(path, flags | safe_flags)) as source:
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(info, opened):
+                return fallback
+            raw = source.read(MAX_WORLD_NAME_BYTES + 1)
+        if len(raw) <= MAX_WORLD_NAME_BYTES:
+            name = raw.decode("utf-8", errors="ignore").strip()
+            if name:
+                return name
+    except OSError:
+        pass
+    return fallback
 
 
 def detect_capabilities(world_path: str) -> dict:

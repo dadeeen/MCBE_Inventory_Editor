@@ -15,7 +15,7 @@ from .path_safety import is_linklike_stat, is_unsafe_windows_name
 
 # Bump for changes to icon selection, extraction, rendering or display targets,
 # not for editor releases, translations, logging or unrelated catalog data.
-BUILD_CONTRACT = 2
+BUILD_CONTRACT = 3
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 MAX_ICON_BYTES = 2 * 1024 * 1024
 MAX_ICON_FILES = 20_000

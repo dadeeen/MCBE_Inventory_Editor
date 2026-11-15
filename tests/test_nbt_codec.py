@@ -126,6 +126,42 @@ def test_every_truncated_prefix_is_rejected():
             nbt.load(raw[:size])
 
 
+@pytest.mark.parametrize("little_endian", [True, False])
+@pytest.mark.parametrize("offset", [0, 1, 3])
+@pytest.mark.parametrize("buffer_type", [bytes, bytearray, memoryview])
+def test_numeric_headers_preserve_unaligned_buffers_and_reject_every_short_prefix(little_endian, offset, buffer_type):
+    endian = "<" if little_endian else ">"
+    text = b"x" * 257  # Exercise both bytes of the unsigned string length.
+    raw = (
+        b"\x0a"
+        + struct.pack(endian + "H", 1)
+        + b"r"
+        + b"\x08"
+        + struct.pack(endian + "H", 3)
+        + b"txt"
+        + struct.pack(endian + "H", len(text))
+        + text
+        + b"\x09"
+        + struct.pack(endian + "H", 6)
+        + b"values"
+        + b"\x03"
+        + struct.pack(endian + "i", 2)
+        + struct.pack(endian + "ii", -(2**31), 2**31 - 1)
+        + b"\x00"
+    )
+    backing = b"\xff" * offset + raw + b"\xff"
+    source = memoryview(backing)[offset:-1] if buffer_type is memoryview else buffer_type(raw)
+    parsed = nbt.load(source, little_endian=little_endian)
+    assert parsed.name == "r"
+    assert parsed.tag["txt"].py_data == text.decode("ascii")
+    assert [int(value) for value in parsed.tag["values"]] == [-(2**31), 2**31 - 1]
+    assert parsed.save_to(little_endian=little_endian) == raw
+    assert bytes(source) == raw
+    for end in range(len(source)):
+        with pytest.raises(nbt.NBTError):
+            nbt.load(source[:end], little_endian=little_endian)
+
+
 @pytest.mark.parametrize(
     "raw",
     [
