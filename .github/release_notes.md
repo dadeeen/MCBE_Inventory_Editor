@@ -5,6 +5,7 @@
 - Keep scan-path toggles consistent during refreshes and show scan warnings in the status center.
 - Handle invalid world names and timestamps safely, preserve audit events during concurrent writes, and prevent fixture reports from overwriting ZIPs.
 - Fix diagonal opacity seams in translucent block and model icons.
+- Correct the German mangrove hanging sign item label, including unchanged labels in existing catalogs.
 
 ## Updating
 

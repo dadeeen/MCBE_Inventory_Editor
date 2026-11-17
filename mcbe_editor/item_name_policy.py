@@ -127,6 +127,7 @@ SUPERSEDED_ITEM_LABELS: dict[str, tuple[str, str]] = {
     "minecraft:iron_chestplate": ("Eisenbrustplatte", "Iron Chestplate"),
     "minecraft:iron_leggings": ("Eisenbeinschienen", "Iron Leggings"),
     "minecraft:lapis_block": ("Lapislazuliblock", "Lapis Lazuli Block"),
+    "minecraft:mangrove_hanging_sign": ("Mangrovenholzhängeschild", "Mangrove Hanging Sign"),
     "minecraft:mutton": ("Rohes Hammelfleisch", "Mutton"),
     "minecraft:netherite_block": ("Netheritblock", "Netherite Block"),
     "minecraft:netherite_chestplate": ("Netheritbrustplatte", "Netherite Chestplate"),
@@ -382,6 +383,10 @@ REPLACEABLE_CATALOG_ITEM_IDS = (GERMAN_LABEL_MIGRATIONS.keys() | ENGLISH_LABEL_M
 
 
 def _shipped_pairs(item_id, superseded_pair):
+    if item_id == "minecraft:mangrove_hanging_sign":
+        # Only the bilingual block-label pair is a known shipped error here.
+        # Repeating the English name can be an intentional user translation.
+        return (superseded_pair,)
     return (superseded_pair, (superseded_pair[1], superseded_pair[1]), ENGLISH_LABEL_MIGRATIONS.get(item_id))
 
 
